@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["compose",""],["decompose_canonical","Compute canonical Unicode decomposition for character"],["decompose_compatible","Compute canonical or compatible Unicode decomposition for character"]]});

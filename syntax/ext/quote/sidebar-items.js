@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["expand_quote_arm",""],["expand_quote_attr",""],["expand_quote_expr",""],["expand_quote_item",""],["expand_quote_matcher",""],["expand_quote_pat",""],["expand_quote_stmt",""],["expand_quote_tokens",""],["expand_quote_ty",""]],"mod":[["rt","Quasiquoting works via token trees."]]});

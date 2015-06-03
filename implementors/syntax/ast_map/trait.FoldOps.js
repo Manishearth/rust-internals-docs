@@ -1,0 +1,10 @@
+(function() {var implementors = {};
+implementors['rustc'] = ["impl&lt;'a, 'b, 'c, 'tcx&gt; <a class='trait' href='syntax/ast_map/trait.FoldOps.html' title='syntax::ast_map::FoldOps'>FoldOps</a> for &amp;'a DecodeContext&lt;'b, 'c, 'tcx&gt;",];implementors['rustc_borrowck'] = ["impl&lt;'a, 'b, 'c, 'tcx&gt; <a class='trait' href='syntax/ast_map/trait.FoldOps.html' title='syntax::ast_map::FoldOps'>FoldOps</a> for &amp;'a <a class='struct' href='rustc/middle/astencode/struct.DecodeContext.html' title='rustc::middle::astencode::DecodeContext'>DecodeContext</a>&lt;'b, 'c, 'tcx&gt;",];implementors['rustc_typeck'] = ["impl&lt;'a, 'b, 'c, 'tcx&gt; <a class='trait' href='syntax/ast_map/trait.FoldOps.html' title='syntax::ast_map::FoldOps'>FoldOps</a> for &amp;'a <a class='struct' href='rustc/middle/astencode/struct.DecodeContext.html' title='rustc::middle::astencode::DecodeContext'>DecodeContext</a>&lt;'b, 'c, 'tcx&gt;",];implementors['rustc_lint'] = ["impl&lt;'a, 'b, 'c, 'tcx&gt; <a class='trait' href='syntax/ast_map/trait.FoldOps.html' title='syntax::ast_map::FoldOps'>FoldOps</a> for &amp;'a <a class='struct' href='rustc/middle/astencode/struct.DecodeContext.html' title='rustc::middle::astencode::DecodeContext'>DecodeContext</a>&lt;'b, 'c, 'tcx&gt;",];implementors['rustc_trans'] = ["impl&lt;'a, 'b, 'c, 'tcx&gt; <a class='trait' href='syntax/ast_map/trait.FoldOps.html' title='syntax::ast_map::FoldOps'>FoldOps</a> for &amp;'a <a class='struct' href='rustc/middle/astencode/struct.DecodeContext.html' title='rustc::middle::astencode::DecodeContext'>DecodeContext</a>&lt;'b, 'c, 'tcx&gt;",];implementors['rustdoc'] = ["impl&lt;'a, 'b, 'c, 'tcx&gt; <a class='trait' href='syntax/ast_map/trait.FoldOps.html' title='syntax::ast_map::FoldOps'>FoldOps</a> for &amp;'a <a class='struct' href='rustc/middle/astencode/struct.DecodeContext.html' title='rustc::middle::astencode::DecodeContext'>DecodeContext</a>&lt;'b, 'c, 'tcx&gt;",];
+
+            if (window.register_implementors) {
+                window.register_implementors(implementors);
+            } else {
+                window.pending_implementors = implementors;
+            }
+        
+})()

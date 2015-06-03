@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["BitVector","A very simple BitVector type."]]});

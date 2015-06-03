@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["RelationDir",""]],"struct":[["Snapshot",""],["TypeVariableTable",""]]});

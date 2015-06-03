@@ -1,0 +1,1 @@
+initSidebarItems({"type":[["gid_t",""],["pid_t",""],["uid_t",""]]});

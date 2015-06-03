@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["stat",""]],"type":[["dev_t",""],["mode_t",""]]});

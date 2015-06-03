@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Cursor","A `Cursor` is a type which wraps a non-I/O object to provide a `Seek` implementation."]]});

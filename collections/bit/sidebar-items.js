@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["BitSet","An implementation of a set using a bit vector as an underlying representation for holding unsigned numerical elements."],["BitVec","The bitvector type."],["Difference",""],["Intersection",""],["Iter","An iterator for `BitVec`."],["SetIter","An iterator for `BitSet`."],["SymmetricDifference",""],["Union",""]]});

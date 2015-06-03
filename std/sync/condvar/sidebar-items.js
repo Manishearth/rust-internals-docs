@@ -1,0 +1,1 @@
+initSidebarItems({"constant":[["CONDVAR_INIT","Constant initializer for a statically allocated condition variable."]],"struct":[["Condvar","A Condition Variable"],["StaticCondvar","Statically allocated condition variables."]]});

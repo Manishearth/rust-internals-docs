@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["CStr","Representation of a borrowed C string."],["CString","A type representing an owned C-compatible string"],["NulError","An error returned from `CString::new` to indicate that a nul byte was found in the vector provided."]]});

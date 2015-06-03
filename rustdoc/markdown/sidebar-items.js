@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["render","Render `input` (e.g. \"foo.md\") into an HTML file in `output` (e.g. output = \"bar\" => \"bar/foo.html\")."],["test","Run any tests/code examples in the markdown file `input`."]]});

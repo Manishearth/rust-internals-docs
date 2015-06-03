@@ -1,0 +1,1 @@
+initSidebarItems({"trait":[["RegionScope","Defines strategies for handling regions that are omitted.  For example, if one writes the type `&Foo`, then the lifetime of this reference has been omitted. When converting this type, the generic functions in astconv will invoke `anon_regions` on the provided region-scope to decide how to translate this omitted region."]]});

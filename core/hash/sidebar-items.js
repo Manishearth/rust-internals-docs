@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["hash","Hash a value with the default SipHasher algorithm (two initial keys of 0)."]],"struct":[["SipHasher","An implementation of SipHash 2-4."]],"trait":[["Hash","A hashable type."],["Hasher","A trait which represents the ability to hash an arbitrary stream of bytes."]]});
