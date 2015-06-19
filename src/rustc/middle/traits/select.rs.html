@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="rustdoc">
-    <meta name="description" content="Source to the Rust file `/home/manishearth/Mozilla/rust/src/librustc/middle/traits/select.rs`.">
+    <meta name="description" content="Source to the Rust file `src/librustc/middle/traits/select.rs`.">
     <meta name="keywords" content="rust, rustlang, rust-lang">
 
     <title>select.rs.html -- source</title>
@@ -3067,6 +3067,44 @@
 <span id="3025">3025</span>
 <span id="3026">3026</span>
 <span id="3027">3027</span>
+<span id="3028">3028</span>
+<span id="3029">3029</span>
+<span id="3030">3030</span>
+<span id="3031">3031</span>
+<span id="3032">3032</span>
+<span id="3033">3033</span>
+<span id="3034">3034</span>
+<span id="3035">3035</span>
+<span id="3036">3036</span>
+<span id="3037">3037</span>
+<span id="3038">3038</span>
+<span id="3039">3039</span>
+<span id="3040">3040</span>
+<span id="3041">3041</span>
+<span id="3042">3042</span>
+<span id="3043">3043</span>
+<span id="3044">3044</span>
+<span id="3045">3045</span>
+<span id="3046">3046</span>
+<span id="3047">3047</span>
+<span id="3048">3048</span>
+<span id="3049">3049</span>
+<span id="3050">3050</span>
+<span id="3051">3051</span>
+<span id="3052">3052</span>
+<span id="3053">3053</span>
+<span id="3054">3054</span>
+<span id="3055">3055</span>
+<span id="3056">3056</span>
+<span id="3057">3057</span>
+<span id="3058">3058</span>
+<span id="3059">3059</span>
+<span id="3060">3060</span>
+<span id="3061">3061</span>
+<span id="3062">3062</span>
+<span id="3063">3063</span>
+<span id="3064">3064</span>
+<span id="3065">3065</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -3101,7 +3139,8 @@
 <span class='kw'>use</span> <span class='ident'>super</span>::<span class='ident'>SelectionResult</span>;
 <span class='kw'>use</span> <span class='ident'>super</span>::{<span class='ident'>VtableBuiltin</span>, <span class='ident'>VtableImpl</span>, <span class='ident'>VtableParam</span>, <span class='ident'>VtableClosure</span>,
             <span class='ident'>VtableFnPointer</span>, <span class='ident'>VtableObject</span>, <span class='ident'>VtableDefaultImpl</span>};
-<span class='kw'>use</span> <span class='ident'>super</span>::{<span class='ident'>VtableImplData</span>, <span class='ident'>VtableObjectData</span>, <span class='ident'>VtableBuiltinData</span>, <span class='ident'>VtableDefaultImplData</span>};
+<span class='kw'>use</span> <span class='ident'>super</span>::{<span class='ident'>VtableImplData</span>, <span class='ident'>VtableObjectData</span>, <span class='ident'>VtableBuiltinData</span>,
+            <span class='ident'>VtableClosureData</span>, <span class='ident'>VtableDefaultImplData</span>};
 <span class='kw'>use</span> <span class='ident'>super</span>::<span class='ident'>object_safety</span>;
 <span class='kw'>use</span> <span class='ident'>super</span>::<span class='ident'>util</span>;
 
@@ -3425,7 +3464,14 @@
         };
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>substs</span>.<span class='ident'>has_escaping_regions</span>());
 
-        <span class='kw'>let</span> <span class='ident'>closure_trait_ref</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>closure_trait_ref</span>(<span class='ident'>obligation</span>, <span class='ident'>closure_def_id</span>, <span class='ident'>substs</span>);
+        <span class='comment'>// It is OK to call the unnormalized variant here - this is only</span>
+        <span class='comment'>// reached for TyClosure: Fn inputs where the closure kind is</span>
+        <span class='comment'>// still unknown, which should only occur in typeck where the</span>
+        <span class='comment'>// closure type is already normalized.</span>
+        <span class='kw'>let</span> <span class='ident'>closure_trait_ref</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>closure_trait_ref_unnormalized</span>(<span class='ident'>obligation</span>,
+                                                                    <span class='ident'>closure_def_id</span>,
+                                                                    <span class='ident'>substs</span>);
+
         <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>confirm_poly_trait_refs</span>(<span class='ident'>obligation</span>.<span class='ident'>cause</span>.<span class='ident'>clone</span>(),
                                            <span class='ident'>obligation</span>.<span class='ident'>predicate</span>.<span class='ident'>to_poly_trait_ref</span>(),
                                            <span class='ident'>closure_trait_ref</span>) {
@@ -3504,6 +3550,14 @@
     {
         <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;evaluate_predicate_recursively({})&quot;</span>,
                <span class='ident'>obligation</span>.<span class='ident'>repr</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>()));
+
+        <span class='comment'>// Check the cache from the tcx of predicates that we know</span>
+        <span class='comment'>// have been proven elsewhere. This cache only contains</span>
+        <span class='comment'>// predicates that are global in scope and hence unaffected by</span>
+        <span class='comment'>// the current environment.</span>
+        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>tcx</span>().<span class='ident'>fulfilled_predicates</span>.<span class='ident'>borrow</span>().<span class='ident'>is_duplicate</span>(<span class='kw-2'>&amp;</span><span class='ident'>obligation</span>.<span class='ident'>predicate</span>) {
+            <span class='kw'>return</span> <span class='ident'>EvaluatedToOk</span>;
+        }
 
         <span class='kw'>match</span> <span class='ident'>obligation</span>.<span class='ident'>predicate</span> {
             <span class='ident'>ty</span>::<span class='ident'>Predicate</span>::<span class='ident'>Trait</span>(<span class='kw-2'>ref</span> <span class='ident'>t</span>) <span class='op'>=&gt;</span> {
@@ -4145,14 +4199,10 @@
         <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;assemble_candidates_from_caller_bounds({})&quot;</span>,
                <span class='ident'>stack</span>.<span class='ident'>obligation</span>.<span class='ident'>repr</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>()));
 
-        <span class='kw'>let</span> <span class='ident'>caller_trait_refs</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span>_<span class='op'>&gt;</span> <span class='op'>=</span>
-            <span class='self'>self</span>.<span class='ident'>param_env</span>().<span class='ident'>caller_bounds</span>.<span class='ident'>iter</span>()
-            .<span class='ident'>filter_map</span>(<span class='op'>|</span><span class='ident'>o</span><span class='op'>|</span> <span class='ident'>o</span>.<span class='ident'>to_opt_poly_trait_ref</span>())
-            .<span class='ident'>collect</span>();
-
         <span class='kw'>let</span> <span class='ident'>all_bounds</span> <span class='op'>=</span>
-            <span class='ident'>util</span>::<span class='ident'>transitive_bounds</span>(
-                <span class='self'>self</span>.<span class='ident'>tcx</span>(), <span class='kw-2'>&amp;</span><span class='ident'>caller_trait_refs</span>[..]);
+            <span class='self'>self</span>.<span class='ident'>param_env</span>().<span class='ident'>caller_bounds</span>
+                            .<span class='ident'>iter</span>()
+                            .<span class='ident'>filter_map</span>(<span class='op'>|</span><span class='ident'>o</span><span class='op'>|</span> <span class='ident'>o</span>.<span class='ident'>to_opt_poly_trait_ref</span>());
 
         <span class='kw'>let</span> <span class='ident'>matching_bounds</span> <span class='op'>=</span>
             <span class='ident'>all_bounds</span>.<span class='ident'>filter</span>(
@@ -5067,8 +5117,9 @@
             }
 
             <span class='ident'>ClosureCandidate</span>(<span class='ident'>closure_def_id</span>, <span class='ident'>substs</span>) <span class='op'>=&gt;</span> {
-                <span class='macro'>try</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>confirm_closure_candidate</span>(<span class='ident'>obligation</span>, <span class='ident'>closure_def_id</span>, <span class='kw-2'>&amp;</span><span class='ident'>substs</span>));
-                <span class='prelude-val'>Ok</span>(<span class='ident'>VtableClosure</span>(<span class='ident'>closure_def_id</span>, <span class='ident'>substs</span>))
+                <span class='kw'>let</span> <span class='ident'>vtable_closure</span> <span class='op'>=</span>
+                    <span class='macro'>try</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>confirm_closure_candidate</span>(<span class='ident'>obligation</span>, <span class='ident'>closure_def_id</span>, <span class='kw-2'>&amp;</span><span class='ident'>substs</span>));
+                <span class='prelude-val'>Ok</span>(<span class='ident'>VtableClosure</span>(<span class='ident'>vtable_closure</span>))
             }
 
             <span class='ident'>BuiltinObjectCandidate</span> <span class='op'>=&gt;</span> {
@@ -5409,24 +5460,33 @@
                                  <span class='ident'>obligation</span>: <span class='kw-2'>&amp;</span><span class='ident'>TraitObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
                                  <span class='ident'>closure_def_id</span>: <span class='ident'>ast</span>::<span class='ident'>DefId</span>,
                                  <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-                                 <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(),<span class='ident'>SelectionError</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>
+                                 <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>VtableClosureData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>PredicateObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
+                                           <span class='ident'>SelectionError</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>
     {
         <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;confirm_closure_candidate({},{},{})&quot;</span>,
                <span class='ident'>obligation</span>.<span class='ident'>repr</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>()),
                <span class='ident'>closure_def_id</span>.<span class='ident'>repr</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>()),
                <span class='ident'>substs</span>.<span class='ident'>repr</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>()));
 
-        <span class='kw'>let</span> <span class='ident'>trait_ref</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>closure_trait_ref</span>(<span class='ident'>obligation</span>,
-                                               <span class='ident'>closure_def_id</span>,
-                                               <span class='ident'>substs</span>);
+        <span class='kw'>let</span> <span class='ident'>Normalized</span> {
+            <span class='ident'>value</span>: <span class='ident'>trait_ref</span>,
+            <span class='ident'>obligations</span>
+        } <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>closure_trait_ref</span>(<span class='ident'>obligation</span>, <span class='ident'>closure_def_id</span>, <span class='ident'>substs</span>);
 
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;confirm_closure_candidate(closure_def_id={}, trait_ref={})&quot;</span>,
+        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;confirm_closure_candidate(closure_def_id={}, trait_ref={}, obligations={})&quot;</span>,
                <span class='ident'>closure_def_id</span>.<span class='ident'>repr</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>()),
-               <span class='ident'>trait_ref</span>.<span class='ident'>repr</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>()));
+               <span class='ident'>trait_ref</span>.<span class='ident'>repr</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>()),
+               <span class='ident'>obligations</span>.<span class='ident'>repr</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>()));
 
-        <span class='self'>self</span>.<span class='ident'>confirm_poly_trait_refs</span>(<span class='ident'>obligation</span>.<span class='ident'>cause</span>.<span class='ident'>clone</span>(),
-                                     <span class='ident'>obligation</span>.<span class='ident'>predicate</span>.<span class='ident'>to_poly_trait_ref</span>(),
-                                     <span class='ident'>trait_ref</span>)
+        <span class='macro'>try</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>confirm_poly_trait_refs</span>(<span class='ident'>obligation</span>.<span class='ident'>cause</span>.<span class='ident'>clone</span>(),
+                                          <span class='ident'>obligation</span>.<span class='ident'>predicate</span>.<span class='ident'>to_poly_trait_ref</span>(),
+                                          <span class='ident'>trait_ref</span>));
+
+        <span class='prelude-val'>Ok</span>(<span class='ident'>VtableClosureData</span> {
+            <span class='ident'>closure_def_id</span>: <span class='ident'>closure_def_id</span>,
+            <span class='ident'>substs</span>: <span class='ident'>substs</span>.<span class='ident'>clone</span>(),
+            <span class='ident'>nested</span>: <span class='ident'>obligations</span>
+        })
     }
 
     <span class='doccomment'>/// In the case of closure types and fn pointers,</span>
@@ -5885,11 +5945,11 @@
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>closure_trait_ref</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
-                         <span class='ident'>obligation</span>: <span class='kw-2'>&amp;</span><span class='ident'>TraitObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                         <span class='ident'>closure_def_id</span>: <span class='ident'>ast</span>::<span class='ident'>DefId</span>,
-                         <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-                         <span class='op'>-&gt;</span> <span class='ident'>ty</span>::<span class='ident'>PolyTraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
+    <span class='kw'>fn</span> <span class='ident'>closure_trait_ref_unnormalized</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
+                                      <span class='ident'>obligation</span>: <span class='kw-2'>&amp;</span><span class='ident'>TraitObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+                                      <span class='ident'>closure_def_id</span>: <span class='ident'>ast</span>::<span class='ident'>DefId</span>,
+                                      <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
+                                      <span class='op'>-&gt;</span> <span class='ident'>ty</span>::<span class='ident'>PolyTraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
     {
         <span class='kw'>let</span> <span class='ident'>closure_type</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>closure_typer</span>.<span class='ident'>closure_type</span>(<span class='ident'>closure_def_id</span>, <span class='ident'>substs</span>);
         <span class='kw'>let</span> <span class='ident'>ty</span>::<span class='ident'>Binder</span>((<span class='ident'>trait_ref</span>, _)) <span class='op'>=</span>
@@ -5898,7 +5958,6 @@
                                                     <span class='ident'>obligation</span>.<span class='ident'>predicate</span>.<span class='number'>0</span>.<span class='ident'>self_ty</span>(), <span class='comment'>// (1)</span>
                                                     <span class='kw-2'>&amp;</span><span class='ident'>closure_type</span>.<span class='ident'>sig</span>,
                                                     <span class='ident'>util</span>::<span class='ident'>TupleArgumentsFlag</span>::<span class='ident'>No</span>);
-
         <span class='comment'>// (1) Feels icky to skip the binder here, but OTOH we know</span>
         <span class='comment'>// that the self-type is an unboxed closure type and hence is</span>
         <span class='comment'>// in fact unparameterized (or at least does not reference any</span>
@@ -5906,6 +5965,23 @@
         <span class='comment'>// refactoring could make this nicer.</span>
 
         <span class='ident'>ty</span>::<span class='ident'>Binder</span>(<span class='ident'>trait_ref</span>)
+    }
+
+    <span class='kw'>fn</span> <span class='ident'>closure_trait_ref</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
+                         <span class='ident'>obligation</span>: <span class='kw-2'>&amp;</span><span class='ident'>TraitObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+                         <span class='ident'>closure_def_id</span>: <span class='ident'>ast</span>::<span class='ident'>DefId</span>,
+                         <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
+                         <span class='op'>-&gt;</span> <span class='ident'>Normalized</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>ty</span>::<span class='ident'>PolyTraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>
+    {
+        <span class='kw'>let</span> <span class='ident'>trait_ref</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>closure_trait_ref_unnormalized</span>(
+            <span class='ident'>obligation</span>, <span class='ident'>closure_def_id</span>, <span class='ident'>substs</span>);
+
+        <span class='comment'>// A closure signature can contain associated types which</span>
+        <span class='comment'>// must be normalized.</span>
+        <span class='ident'>normalize_with_depth</span>(<span class='self'>self</span>,
+                             <span class='ident'>obligation</span>.<span class='ident'>cause</span>.<span class='ident'>clone</span>(),
+                             <span class='ident'>obligation</span>.<span class='ident'>recursion_depth</span><span class='op'>+</span><span class='number'>1</span>,
+                             <span class='kw-2'>&amp;</span><span class='ident'>trait_ref</span>)
     }
 
     <span class='doccomment'>/// Returns the obligations that are implied by instantiating an</span>

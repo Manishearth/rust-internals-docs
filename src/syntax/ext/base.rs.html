@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="rustdoc">
-    <meta name="description" content="Source to the Rust file `/home/manishearth/Mozilla/rust/src/libsyntax/ext/base.rs`.">
+    <meta name="description" content="Source to the Rust file `src/libsyntax/ext/base.rs`.">
     <meta name="keywords" content="rust, rustlang, rust-lang">
 
     <title>base.rs.html -- source</title>
@@ -985,6 +985,13 @@
 <span id="943">943</span>
 <span id="944">944</span>
 <span id="945">945</span>
+<span id="946">946</span>
+<span id="947">947</span>
+<span id="948">948</span>
+<span id="949">949</span>
+<span id="950">950</span>
+<span id="951">951</span>
+<span id="952">952</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -1001,7 +1008,7 @@
 <span class='kw'>use</span> <span class='ident'>ast</span>;
 <span class='kw'>use</span> <span class='ident'>ast</span>::<span class='ident'>Name</span>;
 <span class='kw'>use</span> <span class='ident'>codemap</span>;
-<span class='kw'>use</span> <span class='ident'>codemap</span>::{<span class='ident'>CodeMap</span>, <span class='ident'>Span</span>, <span class='ident'>ExpnId</span>, <span class='ident'>ExpnInfo</span>, <span class='ident'>NO_EXPANSION</span>};
+<span class='kw'>use</span> <span class='ident'>codemap</span>::{<span class='ident'>CodeMap</span>, <span class='ident'>Span</span>, <span class='ident'>ExpnId</span>, <span class='ident'>ExpnInfo</span>, <span class='ident'>NO_EXPANSION</span>, <span class='ident'>CompilerExpansion</span>};
 <span class='kw'>use</span> <span class='ident'>ext</span>;
 <span class='kw'>use</span> <span class='ident'>ext</span>::<span class='ident'>expand</span>;
 <span class='kw'>use</span> <span class='ident'>ext</span>::<span class='ident'>tt</span>::<span class='ident'>macro_rules</span>;
@@ -1646,6 +1653,8 @@
         })
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>backtrace</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>ExpnId</span> { <span class='self'>self</span>.<span class='ident'>backtrace</span> }
+
+    <span class='doccomment'>/// Original span that caused the current exapnsion to happen.</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>original_span</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Span</span> {
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>expn_id</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>backtrace</span>;
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>call_site</span> <span class='op'>=</span> <span class='prelude-val'>None</span>;
@@ -1660,26 +1669,31 @@
         }
         <span class='ident'>call_site</span>.<span class='ident'>expect</span>(<span class='string'>&quot;missing expansion backtrace&quot;</span>)
     }
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>original_span_in_file</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Span</span> {
+
+    <span class='doccomment'>/// Returns span for the macro which originally caused the current expansion to happen.</span>
+    <span class='doccomment'>///</span>
+    <span class='doccomment'>/// Stops backtracing at include! boundary.</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>expansion_cause</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Span</span> {
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>expn_id</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>backtrace</span>;
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>call_site</span> <span class='op'>=</span> <span class='prelude-val'>None</span>;
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>last_macro</span> <span class='op'>=</span> <span class='prelude-val'>None</span>;
         <span class='kw'>loop</span> {
-            <span class='kw'>let</span> <span class='ident'>expn_info</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>codemap</span>().<span class='ident'>with_expn_info</span>(<span class='ident'>expn_id</span>, <span class='op'>|</span><span class='ident'>ei</span><span class='op'>|</span> {
-                <span class='ident'>ei</span>.<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>ei</span><span class='op'>|</span> (<span class='ident'>ei</span>.<span class='ident'>call_site</span>, <span class='ident'>ei</span>.<span class='ident'>callee</span>.<span class='ident'>name</span> <span class='op'>==</span> <span class='string'>&quot;include&quot;</span>))
-            });
-            <span class='kw'>match</span> <span class='ident'>expn_info</span> {
-                <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='kw'>break</span>,
-                <span class='prelude-val'>Some</span>((<span class='ident'>cs</span>, <span class='ident'>is_include</span>)) <span class='op'>=&gt;</span> {
-                    <span class='kw'>if</span> <span class='ident'>is_include</span> {
-                        <span class='comment'>// Don&#39;t recurse into file using &quot;include!&quot;.</span>
-                        <span class='kw'>break</span>;
+            <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>codemap</span>().<span class='ident'>with_expn_info</span>(<span class='ident'>expn_id</span>, <span class='op'>|</span><span class='ident'>info</span><span class='op'>|</span> {
+                <span class='ident'>info</span>.<span class='ident'>map_or</span>(<span class='prelude-val'>None</span>, <span class='op'>|</span><span class='ident'>i</span><span class='op'>|</span> {
+                    <span class='kw'>if</span> <span class='ident'>i</span>.<span class='ident'>callee</span>.<span class='ident'>name</span> <span class='op'>==</span> <span class='string'>&quot;include&quot;</span> {
+                        <span class='comment'>// Stop going up the backtrace once include! is encountered</span>
+                        <span class='kw'>return</span> <span class='prelude-val'>None</span>;
                     }
-                    <span class='ident'>call_site</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='ident'>cs</span>);
-                    <span class='ident'>expn_id</span> <span class='op'>=</span> <span class='ident'>cs</span>.<span class='ident'>expn_id</span>;
-                }
+                    <span class='ident'>expn_id</span> <span class='op'>=</span> <span class='ident'>i</span>.<span class='ident'>call_site</span>.<span class='ident'>expn_id</span>;
+                    <span class='kw'>if</span> <span class='ident'>i</span>.<span class='ident'>callee</span>.<span class='ident'>format</span> <span class='op'>!=</span> <span class='ident'>CompilerExpansion</span> {
+                        <span class='ident'>last_macro</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='ident'>i</span>.<span class='ident'>call_site</span>)
+                    }
+                    <span class='kw'>return</span> <span class='prelude-val'>Some</span>(());
+                })
+            }).<span class='ident'>is_none</span>() {
+                <span class='kw'>break</span>
             }
         }
-        <span class='ident'>call_site</span>.<span class='ident'>expect</span>(<span class='string'>&quot;missing expansion backtrace&quot;</span>)
+        <span class='ident'>last_macro</span>.<span class='ident'>expect</span>(<span class='string'>&quot;missing expansion backtrace&quot;</span>)
     }
 
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>mod_push</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>i</span>: <span class='ident'>ast</span>::<span class='ident'>Ident</span>) { <span class='self'>self</span>.<span class='ident'>mod_path</span>.<span class='ident'>push</span>(<span class='ident'>i</span>); }

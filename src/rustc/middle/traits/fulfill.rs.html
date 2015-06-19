@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="rustdoc">
-    <meta name="description" content="Source to the Rust file `/home/manishearth/Mozilla/rust/src/librustc/middle/traits/fulfill.rs`.">
+    <meta name="description" content="Source to the Rust file `src/librustc/middle/traits/fulfill.rs`.">
     <meta name="keywords" content="rust, rustlang, rust-lang">
 
     <title>fulfill.rs.html -- source</title>
@@ -484,6 +484,70 @@
 <span id="442">442</span>
 <span id="443">443</span>
 <span id="444">444</span>
+<span id="445">445</span>
+<span id="446">446</span>
+<span id="447">447</span>
+<span id="448">448</span>
+<span id="449">449</span>
+<span id="450">450</span>
+<span id="451">451</span>
+<span id="452">452</span>
+<span id="453">453</span>
+<span id="454">454</span>
+<span id="455">455</span>
+<span id="456">456</span>
+<span id="457">457</span>
+<span id="458">458</span>
+<span id="459">459</span>
+<span id="460">460</span>
+<span id="461">461</span>
+<span id="462">462</span>
+<span id="463">463</span>
+<span id="464">464</span>
+<span id="465">465</span>
+<span id="466">466</span>
+<span id="467">467</span>
+<span id="468">468</span>
+<span id="469">469</span>
+<span id="470">470</span>
+<span id="471">471</span>
+<span id="472">472</span>
+<span id="473">473</span>
+<span id="474">474</span>
+<span id="475">475</span>
+<span id="476">476</span>
+<span id="477">477</span>
+<span id="478">478</span>
+<span id="479">479</span>
+<span id="480">480</span>
+<span id="481">481</span>
+<span id="482">482</span>
+<span id="483">483</span>
+<span id="484">484</span>
+<span id="485">485</span>
+<span id="486">486</span>
+<span id="487">487</span>
+<span id="488">488</span>
+<span id="489">489</span>
+<span id="490">490</span>
+<span id="491">491</span>
+<span id="492">492</span>
+<span id="493">493</span>
+<span id="494">494</span>
+<span id="495">495</span>
+<span id="496">496</span>
+<span id="497">497</span>
+<span id="498">498</span>
+<span id="499">499</span>
+<span id="500">500</span>
+<span id="501">501</span>
+<span id="502">502</span>
+<span id="503">503</span>
+<span id="504">504</span>
+<span id="505">505</span>
+<span id="506">506</span>
+<span id="507">507</span>
+<span id="508">508</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -515,6 +579,10 @@
 <span class='kw'>use</span> <span class='ident'>super</span>::<span class='ident'>Unimplemented</span>;
 <span class='kw'>use</span> <span class='ident'>super</span>::<span class='ident'>util</span>::<span class='ident'>predicate_for_builtin_bound</span>;
 
+<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>FulfilledPredicates</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
+    <span class='ident'>set</span>: <span class='ident'>HashSet</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>Predicate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>
+}
+
 <span class='doccomment'>/// The fulfillment context is used to drive trait resolution.  It</span>
 <span class='doccomment'>/// consists of a list of obligations that must be (eventually)</span>
 <span class='doccomment'>/// satisfied. The job is to track which are satisfied, which yielded</span>
@@ -531,7 +599,7 @@
     <span class='comment'>// than the `SelectionCache`: it avoids duplicate errors and</span>
     <span class='comment'>// permits recursive obligations, which are often generated from</span>
     <span class='comment'>// traits like `Send` et al.</span>
-    <span class='ident'>duplicate_set</span>: <span class='ident'>HashSet</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>Predicate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
+    <span class='ident'>duplicate_set</span>: <span class='ident'>FulfilledPredicates</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
 
     <span class='comment'>// A list of all obligations that have been registered with this</span>
     <span class='comment'>// fulfillment context.</span>
@@ -567,6 +635,8 @@
     <span class='comment'>// obligations (otherwise, it&#39;s easy to fail to walk to a</span>
     <span class='comment'>// particular node-id).</span>
     <span class='ident'>region_obligations</span>: <span class='ident'>NodeMap</span><span class='op'>&lt;</span><span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>RegionObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span>,
+
+    <span class='ident'>errors_will_be_reported</span>: <span class='ident'>bool</span>,
 }
 
 <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>)]</span>
@@ -577,12 +647,30 @@
 }
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>FulfillmentContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>() <span class='op'>-&gt;</span> <span class='ident'>FulfillmentContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
+    <span class='doccomment'>/// Creates a new fulfillment context.</span>
+    <span class='doccomment'>///</span>
+    <span class='doccomment'>/// `errors_will_be_reported` indicates whether ALL errors that</span>
+    <span class='doccomment'>/// are generated by this fulfillment context will be reported to</span>
+    <span class='doccomment'>/// the end user. This is used to inform caching, because it</span>
+    <span class='doccomment'>/// allows us to conclude that traits that resolve successfully</span>
+    <span class='doccomment'>/// will in fact always resolve successfully (in particular, it</span>
+    <span class='doccomment'>/// guarantees that if some dependent obligation encounters a</span>
+    <span class='doccomment'>/// problem, compilation will be aborted).  If you&#39;re not sure of</span>
+    <span class='doccomment'>/// the right value here, pass `false`, as that is the more</span>
+    <span class='doccomment'>/// conservative option.</span>
+    <span class='doccomment'>///</span>
+    <span class='doccomment'>/// FIXME -- a better option would be to hold back on modifying</span>
+    <span class='doccomment'>/// the global cache until we know that all dependent obligations</span>
+    <span class='doccomment'>/// are also satisfied. In that case, we could actually remove</span>
+    <span class='doccomment'>/// this boolean flag, and we&#39;d also avoid the problem of squelching</span>
+    <span class='doccomment'>/// duplicate errors that occur across fns.</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>errors_will_be_reported</span>: <span class='ident'>bool</span>) <span class='op'>-&gt;</span> <span class='ident'>FulfillmentContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
         <span class='ident'>FulfillmentContext</span> {
-            <span class='ident'>duplicate_set</span>: <span class='ident'>HashSet</span>::<span class='ident'>new</span>(),
+            <span class='ident'>duplicate_set</span>: <span class='ident'>FulfilledPredicates</span>::<span class='ident'>new</span>(),
             <span class='ident'>predicates</span>: <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
             <span class='ident'>attempted_mark</span>: <span class='number'>0</span>,
             <span class='ident'>region_obligations</span>: <span class='ident'>NodeMap</span>(),
+            <span class='ident'>errors_will_be_reported</span>: <span class='ident'>errors_will_be_reported</span>,
         }
     }
 
@@ -652,7 +740,7 @@
 
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>obligation</span>.<span class='ident'>has_escaping_regions</span>());
 
-        <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>duplicate_set</span>.<span class='ident'>insert</span>(<span class='ident'>obligation</span>.<span class='ident'>predicate</span>.<span class='ident'>clone</span>()) {
+        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>is_duplicate_or_add</span>(<span class='ident'>infcx</span>.<span class='ident'>tcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>obligation</span>.<span class='ident'>predicate</span>) {
             <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;register_predicate({}) -- already seen, skip&quot;</span>, <span class='ident'>obligation</span>.<span class='ident'>repr</span>(<span class='ident'>infcx</span>.<span class='ident'>tcx</span>));
             <span class='kw'>return</span>;
         }
@@ -716,6 +804,28 @@
 
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>pending_obligations</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span>[<span class='ident'>PredicateObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>] {
         <span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>predicates</span>
+    }
+
+    <span class='kw'>fn</span> <span class='ident'>is_duplicate_or_add</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>ctxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+                           <span class='ident'>predicate</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>Predicate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
+                           <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
+        <span class='comment'>// This is a kind of dirty hack to allow us to avoid &quot;rederiving&quot;</span>
+        <span class='comment'>// things that we have already proven in other methods.</span>
+        <span class='comment'>//</span>
+        <span class='comment'>// The idea is that any predicate that doesn&#39;t involve type</span>
+        <span class='comment'>// parameters and which only involves the &#39;static region (and</span>
+        <span class='comment'>// no other regions) is universally solvable, since impls are global.</span>
+        <span class='comment'>//</span>
+        <span class='comment'>// This is particularly important since even if we have a</span>
+        <span class='comment'>// cache hit in the selection context, we still wind up</span>
+        <span class='comment'>// evaluating the &#39;nested obligations&#39;.  This cache lets us</span>
+        <span class='comment'>// skip those.</span>
+
+        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>errors_will_be_reported</span> <span class='op'>&amp;&amp;</span> <span class='ident'>predicate</span>.<span class='ident'>is_global</span>() {
+            <span class='ident'>tcx</span>.<span class='ident'>fulfilled_predicates</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>is_duplicate_or_add</span>(<span class='ident'>predicate</span>)
+        } <span class='kw'>else</span> {
+            <span class='self'>self</span>.<span class='ident'>duplicate_set</span>.<span class='ident'>is_duplicate_or_add</span>(<span class='ident'>predicate</span>)
+        }
     }
 
     <span class='doccomment'>/// Attempts to select obligations using `selcx`. If `only_new_obligations` is true, then it</span>
@@ -929,6 +1039,24 @@
         .<span class='ident'>push</span>(<span class='ident'>region_obligation</span>);
 
 }
+
+<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>FulfilledPredicates</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>() <span class='op'>-&gt;</span> <span class='ident'>FulfilledPredicates</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
+        <span class='ident'>FulfilledPredicates</span> {
+            <span class='ident'>set</span>: <span class='ident'>HashSet</span>::<span class='ident'>new</span>()
+        }
+    }
+
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_duplicate</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>p</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>Predicate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
+        <span class='self'>self</span>.<span class='ident'>set</span>.<span class='ident'>contains</span>(<span class='ident'>p</span>)
+    }
+
+    <span class='kw'>fn</span> <span class='ident'>is_duplicate_or_add</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>p</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>Predicate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
+        <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>set</span>.<span class='ident'>insert</span>(<span class='ident'>p</span>.<span class='ident'>clone</span>())
+    }
+}
+
+
 </pre>
 </section>
     <section id='search' class="content hidden"></section>
