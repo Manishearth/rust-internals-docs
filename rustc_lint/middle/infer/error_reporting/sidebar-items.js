@@ -1,1 +1,1 @@
-initSidebarItems({"trait":[["ErrorReporting",""],["Resolvable",""]]});
+initSidebarItems({"fn":[["note_and_explain_region",""]],"trait":[["ErrorReporting",""],["Resolvable",""]]});
