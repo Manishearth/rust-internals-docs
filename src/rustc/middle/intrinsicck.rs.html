@@ -346,7 +346,7 @@
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>def</span>::<span class='ident'>DefFn</span>;
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>subst</span>::{<span class='ident'>Subst</span>, <span class='ident'>Substs</span>, <span class='ident'>EnumeratedItems</span>};
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>ty</span>::{<span class='ident'>TransmuteRestriction</span>, <span class='ident'>ctxt</span>, <span class='ident'>TyBareFn</span>};
-<span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>Ty</span>};
+<span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>Ty</span>, <span class='ident'>HasTypeFlags</span>};
 
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>fmt</span>;
 
@@ -363,7 +363,7 @@
         <span class='ident'>tcx</span>: <span class='ident'>tcx</span>,
         <span class='ident'>param_envs</span>: <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
         <span class='ident'>dummy_sized_ty</span>: <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>isize</span>,
-        <span class='ident'>dummy_unsized_ty</span>: <span class='ident'>ty</span>::<span class='ident'>mk_vec</span>(<span class='ident'>tcx</span>, <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>isize</span>, <span class='prelude-val'>None</span>),
+        <span class='ident'>dummy_unsized_ty</span>: <span class='ident'>tcx</span>.<span class='ident'>mk_slice</span>(<span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>isize</span>),
     };
     <span class='ident'>visit</span>::<span class='ident'>walk_crate</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>visitor</span>, <span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>krate</span>());
 }
@@ -387,7 +387,7 @@
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>IntrinsicCheckingVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
     <span class='kw'>fn</span> <span class='ident'>def_id_is_transmute</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>def_id</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-        <span class='kw'>let</span> <span class='ident'>intrinsic</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>ty</span>::<span class='ident'>lookup_item_type</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>, <span class='ident'>def_id</span>).<span class='ident'>ty</span>.<span class='ident'>sty</span> {
+        <span class='kw'>let</span> <span class='ident'>intrinsic</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>lookup_item_type</span>(<span class='ident'>def_id</span>).<span class='ident'>ty</span>.<span class='ident'>sty</span> {
             <span class='ident'>ty</span>::<span class='ident'>TyBareFn</span>(_, <span class='kw-2'>ref</span> <span class='ident'>bfty</span>) <span class='op'>=&gt;</span> <span class='ident'>bfty</span>.<span class='ident'>abi</span> <span class='op'>==</span> <span class='ident'>RustIntrinsic</span>,
             _ <span class='op'>=&gt;</span> <span class='kw'>return</span> <span class='boolval'>false</span>
         };
@@ -425,8 +425,8 @@
 
         <span class='comment'>// Simple case: no type parameters involved.</span>
         <span class='kw'>if</span>
-            <span class='op'>!</span><span class='ident'>ty</span>::<span class='ident'>type_has_params</span>(<span class='ident'>from</span>) <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='ident'>ty</span>::<span class='ident'>type_has_self</span>(<span class='ident'>from</span>) <span class='op'>&amp;&amp;</span>
-            <span class='op'>!</span><span class='ident'>ty</span>::<span class='ident'>type_has_params</span>(<span class='ident'>to</span>) <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='ident'>ty</span>::<span class='ident'>type_has_self</span>(<span class='ident'>to</span>)
+            <span class='op'>!</span><span class='ident'>from</span>.<span class='ident'>has_param_types</span>() <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='ident'>from</span>.<span class='ident'>has_self_ty</span>() <span class='op'>&amp;&amp;</span>
+            <span class='op'>!</span><span class='ident'>to</span>.<span class='ident'>has_param_types</span>() <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='ident'>to</span>.<span class='ident'>has_self_ty</span>()
         {
             <span class='kw'>let</span> <span class='ident'>restriction</span> <span class='op'>=</span> <span class='ident'>TransmuteRestriction</span> {
                 <span class='ident'>span</span>: <span class='ident'>span</span>,
@@ -493,8 +493,8 @@
         <span class='comment'>// In all cases, we keep the original unsubstituted types</span>
         <span class='comment'>// around for error reporting.</span>
 
-        <span class='kw'>let</span> <span class='ident'>from_tc</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>type_contents</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>, <span class='ident'>from</span>);
-        <span class='kw'>let</span> <span class='ident'>to_tc</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>type_contents</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>, <span class='ident'>to</span>);
+        <span class='kw'>let</span> <span class='ident'>from_tc</span> <span class='op'>=</span> <span class='ident'>from</span>.<span class='ident'>type_contents</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>);
+        <span class='kw'>let</span> <span class='ident'>to_tc</span> <span class='op'>=</span> <span class='ident'>to</span>.<span class='ident'>type_contents</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>);
         <span class='kw'>if</span> <span class='ident'>from_tc</span>.<span class='ident'>interior_param</span>() <span class='op'>||</span> <span class='ident'>to_tc</span>.<span class='ident'>interior_param</span>() {
             <span class='macro'>span_err</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>span</span>, <span class='ident'>E0139</span>,
                       <span class='string'>&quot;cannot transmute to or from a type that contains \
@@ -546,7 +546,7 @@
                 <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;with_each_combination: space={:?}, index={}, param_ty={:?}&quot;</span>,
                        <span class='ident'>space</span>, <span class='ident'>index</span>, <span class='ident'>param_ty</span>);
 
-                <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>ty</span>::<span class='ident'>type_is_sized</span>(<span class='prelude-val'>Some</span>(<span class='ident'>param_env</span>), <span class='self'>self</span>.<span class='ident'>tcx</span>, <span class='ident'>span</span>, <span class='ident'>param_ty</span>) {
+                <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>param_ty</span>.<span class='ident'>is_sized</span>(<span class='ident'>param_env</span>, <span class='ident'>span</span>) {
                     <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;with_each_combination: param_ty is not known to be sized&quot;</span>);
 
                     <span class='ident'>substs</span>.<span class='ident'>types</span>.<span class='ident'>get_mut_slice</span>(<span class='ident'>space</span>)[<span class='ident'>index</span>] <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>dummy_unsized_ty</span>;
@@ -586,9 +586,9 @@
 
     <span class='kw'>fn</span> <span class='ident'>visit_expr</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>expr</span>: <span class='kw-2'>&amp;</span><span class='ident'>ast</span>::<span class='ident'>Expr</span>) {
         <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>ast</span>::<span class='ident'>ExprPath</span>(..) <span class='op'>=</span> <span class='ident'>expr</span>.<span class='ident'>node</span> {
-            <span class='kw'>match</span> <span class='ident'>ty</span>::<span class='ident'>resolve_expr</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>, <span class='ident'>expr</span>) {
+            <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>resolve_expr</span>(<span class='ident'>expr</span>) {
                 <span class='ident'>DefFn</span>(<span class='ident'>did</span>, _) <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>def_id_is_transmute</span>(<span class='ident'>did</span>) <span class='op'>=&gt;</span> {
-                    <span class='kw'>let</span> <span class='ident'>typ</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>node_id_to_type</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>, <span class='ident'>expr</span>.<span class='ident'>id</span>);
+                    <span class='kw'>let</span> <span class='ident'>typ</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>node_id_to_type</span>(<span class='ident'>expr</span>.<span class='ident'>id</span>);
                     <span class='kw'>match</span> <span class='ident'>typ</span>.<span class='ident'>sty</span> {
                         <span class='ident'>TyBareFn</span>(_, <span class='kw-2'>ref</span> <span class='ident'>bare_fn_ty</span>) <span class='kw'>if</span> <span class='ident'>bare_fn_ty</span>.<span class='ident'>abi</span> <span class='op'>==</span> <span class='ident'>RustIntrinsic</span> <span class='op'>=&gt;</span> {
                             <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>ty</span>::<span class='ident'>FnConverging</span>(<span class='ident'>to</span>) <span class='op'>=</span> <span class='ident'>bare_fn_ty</span>.<span class='ident'>sig</span>.<span class='number'>0</span>.<span class='ident'>output</span> {
