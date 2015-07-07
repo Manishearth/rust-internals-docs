@@ -1003,52 +1003,50 @@
         .<span class='ident'>collect</span>()
 }
 
-<span class='doccomment'>/// Given an object of type `object_trait_ref`, returns the index of</span>
-<span class='doccomment'>/// the method `n_method` found in the trait `trait_def_id` (which</span>
-<span class='doccomment'>/// should be a supertrait of `object_trait_ref`) within the vtable</span>
-<span class='doccomment'>/// for `object_trait_ref`.</span>
+<span class='doccomment'>/// Given an trait `trait_ref`, returns the number of vtable entries</span>
+<span class='doccomment'>/// that come from `trait_ref`, excluding its supertraits. Used in</span>
+<span class='doccomment'>/// computing the vtable base for an upcast trait of a trait object.</span>
+<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>count_own_vtable_entries</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>ctxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+                                      <span class='ident'>trait_ref</span>: <span class='ident'>ty</span>::<span class='ident'>PolyTraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
+                                      <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>entries</span> <span class='op'>=</span> <span class='number'>0</span>;
+    <span class='comment'>// Count number of methods and add them to the total offset.</span>
+    <span class='comment'>// Skip over associated types and constants.</span>
+    <span class='kw'>for</span> <span class='ident'>trait_item</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>tcx</span>.<span class='ident'>trait_items</span>(<span class='ident'>trait_ref</span>.<span class='ident'>def_id</span>())[..] {
+        <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>ty</span>::<span class='ident'>MethodTraitItem</span>(_) <span class='op'>=</span> <span class='op'>*</span><span class='ident'>trait_item</span> {
+            <span class='ident'>entries</span> <span class='op'>+=</span> <span class='number'>1</span>;
+        }
+    }
+    <span class='ident'>entries</span>
+}
+
+<span class='doccomment'>/// Given an upcast trait object described by `object`, returns the</span>
+<span class='doccomment'>/// index of the method `method_def_id` (which should be part of</span>
+<span class='doccomment'>/// `object.upcast_trait_ref`) within the vtable for `object`.</span>
 <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>get_vtable_index_of_object_method</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>ctxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                               <span class='ident'>object_trait_ref</span>: <span class='ident'>ty</span>::<span class='ident'>PolyTraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                               <span class='ident'>trait_def_id</span>: <span class='ident'>ast</span>::<span class='ident'>DefId</span>,
-                                               <span class='ident'>method_offset_in_trait</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
-    <span class='comment'>// We need to figure the &quot;real index&quot; of the method in a</span>
-    <span class='comment'>// listing of all the methods of an object. We do this by</span>
-    <span class='comment'>// iterating down the supertraits of the object&#39;s trait until</span>
-    <span class='comment'>// we find the trait the method came from, counting up the</span>
-    <span class='comment'>// methods from them.</span>
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>method_count</span> <span class='op'>=</span> <span class='number'>0</span>;
+                                               <span class='ident'>object</span>: <span class='kw-2'>&amp;</span><span class='ident'>super</span>::<span class='ident'>VtableObjectData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+                                               <span class='ident'>method_def_id</span>: <span class='ident'>ast</span>::<span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
+    <span class='comment'>// Count number of methods preceding the one we are selecting and</span>
+    <span class='comment'>// add them to the total offset.</span>
+    <span class='comment'>// Skip over associated types and constants.</span>
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>entries</span> <span class='op'>=</span> <span class='ident'>object</span>.<span class='ident'>vtable_base</span>;
+    <span class='kw'>for</span> <span class='ident'>trait_item</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>tcx</span>.<span class='ident'>trait_items</span>(<span class='ident'>object</span>.<span class='ident'>upcast_trait_ref</span>.<span class='ident'>def_id</span>())[..] {
+        <span class='kw'>if</span> <span class='ident'>trait_item</span>.<span class='ident'>def_id</span>() <span class='op'>==</span> <span class='ident'>method_def_id</span> {
+            <span class='comment'>// The item with the ID we were given really ought to be a method.</span>
+            <span class='macro'>assert</span><span class='macro'>!</span>(<span class='kw'>match</span> <span class='op'>*</span><span class='ident'>trait_item</span> {
+                <span class='ident'>ty</span>::<span class='ident'>MethodTraitItem</span>(_) <span class='op'>=&gt;</span> <span class='boolval'>true</span>,
+                _ <span class='op'>=&gt;</span> <span class='boolval'>false</span>
+            });
 
-    <span class='kw'>for</span> <span class='ident'>bound_ref</span> <span class='kw'>in</span> <span class='ident'>transitive_bounds</span>(<span class='ident'>tcx</span>, <span class='kw-2'>&amp;</span>[<span class='ident'>object_trait_ref</span>]) {
-        <span class='kw'>if</span> <span class='ident'>bound_ref</span>.<span class='ident'>def_id</span>() <span class='op'>==</span> <span class='ident'>trait_def_id</span> {
-            <span class='kw'>break</span>;
+            <span class='kw'>return</span> <span class='ident'>entries</span>;
         }
-
-        <span class='kw'>let</span> <span class='ident'>trait_items</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>trait_items</span>(<span class='ident'>bound_ref</span>.<span class='ident'>def_id</span>());
-        <span class='kw'>for</span> <span class='ident'>trait_item</span> <span class='kw'>in</span> <span class='ident'>trait_items</span>.<span class='ident'>iter</span>() {
-            <span class='kw'>match</span> <span class='op'>*</span><span class='ident'>trait_item</span> {
-                <span class='ident'>ty</span>::<span class='ident'>MethodTraitItem</span>(_) <span class='op'>=&gt;</span> <span class='ident'>method_count</span> <span class='op'>+=</span> <span class='number'>1</span>,
-                _ <span class='op'>=&gt;</span> {}
-            }
+        <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>ty</span>::<span class='ident'>MethodTraitItem</span>(_) <span class='op'>=</span> <span class='op'>*</span><span class='ident'>trait_item</span> {
+            <span class='ident'>entries</span> <span class='op'>+=</span> <span class='number'>1</span>;
         }
     }
 
-    <span class='comment'>// count number of methods preceding the one we are selecting and</span>
-    <span class='comment'>// add them to the total offset; skip over associated types.</span>
-    <span class='kw'>let</span> <span class='ident'>trait_items</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>trait_items</span>(<span class='ident'>trait_def_id</span>);
-    <span class='kw'>for</span> <span class='ident'>trait_item</span> <span class='kw'>in</span> <span class='ident'>trait_items</span>.<span class='ident'>iter</span>().<span class='ident'>take</span>(<span class='ident'>method_offset_in_trait</span>) {
-        <span class='kw'>match</span> <span class='op'>*</span><span class='ident'>trait_item</span> {
-            <span class='ident'>ty</span>::<span class='ident'>MethodTraitItem</span>(_) <span class='op'>=&gt;</span> <span class='ident'>method_count</span> <span class='op'>+=</span> <span class='number'>1</span>,
-            _ <span class='op'>=&gt;</span> {}
-        }
-    }
-
-    <span class='comment'>// the item at the offset we were given really ought to be a method</span>
-    <span class='macro'>assert</span><span class='macro'>!</span>(<span class='kw'>match</span> <span class='ident'>trait_items</span>[<span class='ident'>method_offset_in_trait</span>] {
-        <span class='ident'>ty</span>::<span class='ident'>MethodTraitItem</span>(_) <span class='op'>=&gt;</span> <span class='boolval'>true</span>,
-        _ <span class='op'>=&gt;</span> <span class='boolval'>false</span>
-    });
-
-    <span class='ident'>method_count</span>
+    <span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>bug</span>(<span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;get_vtable_index_of_object_method: {:?} was not found&quot;</span>,
+                          <span class='ident'>method_def_id</span>));
 }
 
 <span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>TupleArgumentsFlag</span> { <span class='ident'>Yes</span>, <span class='ident'>No</span> }
@@ -1097,7 +1095,7 @@
                 <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;VtableFnPointer({:?})&quot;</span>, <span class='ident'>d</span>),
 
             <span class='ident'>super</span>::<span class='ident'>VtableObject</span>(<span class='kw-2'>ref</span> <span class='ident'>d</span>) <span class='op'>=&gt;</span>
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;VtableObject({:?})&quot;</span>, <span class='ident'>d</span>),
+                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;{:?}&quot;</span>, <span class='ident'>d</span>),
 
             <span class='ident'>super</span>::<span class='ident'>VtableParam</span>(<span class='kw-2'>ref</span> <span class='ident'>n</span>) <span class='op'>=&gt;</span>
                 <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;VtableParam({:?})&quot;</span>, <span class='ident'>n</span>),
@@ -1142,7 +1140,9 @@
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>fmt</span>::<span class='ident'>Debug</span> <span class='kw'>for</span> <span class='ident'>super</span>::<span class='ident'>VtableObjectData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
     <span class='kw'>fn</span> <span class='ident'>fmt</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>f</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>fmt</span>::<span class='ident'>Formatter</span>) <span class='op'>-&gt;</span> <span class='ident'>fmt</span>::<span class='prelude-ty'>Result</span> {
-        <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;VtableObject(object_ty={:?})&quot;</span>, <span class='self'>self</span>.<span class='ident'>object_ty</span>)
+        <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;VtableObject(upcast={:?}, vtable_base={})&quot;</span>,
+               <span class='self'>self</span>.<span class='ident'>upcast_trait_ref</span>,
+               <span class='self'>self</span>.<span class='ident'>vtable_base</span>)
     }
 }
 

@@ -3068,14 +3068,6 @@
 <span id="3026">3026</span>
 <span id="3027">3027</span>
 <span id="3028">3028</span>
-<span id="3029">3029</span>
-<span id="3030">3030</span>
-<span id="3031">3031</span>
-<span id="3032">3032</span>
-<span id="3033">3033</span>
-<span id="3034">3034</span>
-<span id="3035">3035</span>
-<span id="3036">3036</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -4441,12 +4433,21 @@
             <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;assemble_candidates_from_object_ty: poly_trait_ref={:?}&quot;</span>,
                    <span class='ident'>poly_trait_ref</span>);
 
-            <span class='comment'>// see whether the object trait can be upcast to the trait we are looking for</span>
-            <span class='kw'>let</span> <span class='ident'>upcast_trait_refs</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>upcast</span>(<span class='ident'>poly_trait_ref</span>, <span class='ident'>obligation</span>);
-            <span class='kw'>if</span> <span class='ident'>upcast_trait_refs</span>.<span class='ident'>len</span>() <span class='op'>&gt;</span> <span class='number'>1</span> {
+            <span class='comment'>// Count only those upcast versions that match the trait-ref</span>
+            <span class='comment'>// we are looking for. Specifically, do not only check for the</span>
+            <span class='comment'>// correct trait, but also the correct type parameters.</span>
+            <span class='comment'>// For example, we may be trying to upcast `Foo` to `Bar&lt;i32&gt;`,</span>
+            <span class='comment'>// but `Foo` is declared as `trait Foo : Bar&lt;u32&gt;`.</span>
+            <span class='kw'>let</span> <span class='ident'>upcast_trait_refs</span> <span class='op'>=</span> <span class='ident'>util</span>::<span class='ident'>supertraits</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>(), <span class='ident'>poly_trait_ref</span>)
+                .<span class='ident'>filter</span>(<span class='op'>|</span><span class='ident'>upcast_trait_ref</span><span class='op'>|</span> <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>probe</span>(<span class='op'>|</span>_<span class='op'>|</span> {
+                    <span class='kw'>let</span> <span class='ident'>upcast_trait_ref</span> <span class='op'>=</span> <span class='ident'>upcast_trait_ref</span>.<span class='ident'>clone</span>();
+                    <span class='self'>self</span>.<span class='ident'>match_poly_trait_ref</span>(<span class='ident'>obligation</span>, <span class='ident'>upcast_trait_ref</span>).<span class='ident'>is_ok</span>()
+                })).<span class='ident'>count</span>();
+
+            <span class='kw'>if</span> <span class='ident'>upcast_trait_refs</span> <span class='op'>&gt;</span> <span class='number'>1</span> {
                 <span class='comment'>// can be upcast in many ways; need more type information</span>
                 <span class='ident'>candidates</span>.<span class='ident'>ambiguous</span> <span class='op'>=</span> <span class='boolval'>true</span>;
-            } <span class='kw'>else</span> <span class='kw'>if</span> <span class='ident'>upcast_trait_refs</span>.<span class='ident'>len</span>() <span class='op'>==</span> <span class='number'>1</span> {
+            } <span class='kw'>else</span> <span class='kw'>if</span> <span class='ident'>upcast_trait_refs</span> <span class='op'>==</span> <span class='number'>1</span> {
                 <span class='ident'>candidates</span>.<span class='ident'>vec</span>.<span class='ident'>push</span>(<span class='ident'>ObjectCandidate</span>);
             }
 
@@ -5384,20 +5385,28 @@
         <span class='comment'>// be exactly one applicable trait-reference; if this were not</span>
         <span class='comment'>// the case, we would have reported an ambiguity error rather</span>
         <span class='comment'>// than successfully selecting one of the candidates.</span>
-        <span class='kw'>let</span> <span class='ident'>upcast_trait_refs</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>upcast</span>(<span class='ident'>poly_trait_ref</span>.<span class='ident'>clone</span>(), <span class='ident'>obligation</span>);
-        <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>upcast_trait_refs</span>.<span class='ident'>len</span>(), <span class='number'>1</span>);
-        <span class='kw'>let</span> <span class='ident'>upcast_trait_ref</span> <span class='op'>=</span> <span class='ident'>upcast_trait_refs</span>.<span class='ident'>into_iter</span>().<span class='ident'>next</span>().<span class='ident'>unwrap</span>();
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>upcast_trait_refs</span> <span class='op'>=</span> <span class='ident'>util</span>::<span class='ident'>supertraits</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>(), <span class='ident'>poly_trait_ref</span>)
+            .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>upcast_trait_ref</span><span class='op'>|</span> {
+                (<span class='ident'>upcast_trait_ref</span>.<span class='ident'>clone</span>(), <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>probe</span>(<span class='op'>|</span>_<span class='op'>|</span> {
+                    <span class='self'>self</span>.<span class='ident'>match_poly_trait_ref</span>(<span class='ident'>obligation</span>, <span class='ident'>upcast_trait_ref</span>)
+                }).<span class='ident'>is_ok</span>())
+            });
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>upcast_trait_ref</span> <span class='op'>=</span> <span class='prelude-val'>None</span>;
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>vtable_base</span> <span class='op'>=</span> <span class='number'>0</span>;
 
-        <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>match_poly_trait_ref</span>(<span class='ident'>obligation</span>, <span class='ident'>upcast_trait_ref</span>.<span class='ident'>clone</span>()) {
-            <span class='prelude-val'>Ok</span>(()) <span class='op'>=&gt;</span> { }
-            <span class='prelude-val'>Err</span>(()) <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>tcx</span>().<span class='ident'>sess</span>.<span class='ident'>span_bug</span>(<span class='ident'>obligation</span>.<span class='ident'>cause</span>.<span class='ident'>span</span>,
-                                         <span class='string'>&quot;failed to match trait refs&quot;</span>);
+        <span class='kw'>while</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>((<span class='ident'>supertrait</span>, <span class='ident'>matches</span>)) <span class='op'>=</span> <span class='ident'>upcast_trait_refs</span>.<span class='ident'>next</span>() {
+            <span class='kw'>if</span> <span class='ident'>matches</span> {
+                <span class='ident'>upcast_trait_ref</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='ident'>supertrait</span>);
+                <span class='kw'>break</span>;
             }
+            <span class='ident'>vtable_base</span> <span class='op'>+=</span> <span class='ident'>util</span>::<span class='ident'>count_own_vtable_entries</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>(), <span class='ident'>supertrait</span>);
         }
+        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>upcast_trait_refs</span>.<span class='ident'>all</span>(<span class='op'>|</span>(_, <span class='ident'>matches</span>)<span class='op'>|</span> <span class='op'>!</span><span class='ident'>matches</span>));
 
-        <span class='ident'>VtableObjectData</span> { <span class='ident'>object_ty</span>: <span class='ident'>self_ty</span>,
-                           <span class='ident'>upcast_trait_ref</span>: <span class='ident'>upcast_trait_ref</span> }
+        <span class='ident'>VtableObjectData</span> {
+            <span class='ident'>upcast_trait_ref</span>: <span class='ident'>upcast_trait_ref</span>.<span class='ident'>unwrap</span>(),
+            <span class='ident'>vtable_base</span>: <span class='ident'>vtable_base</span>
+        }
     }
 
     <span class='kw'>fn</span> <span class='ident'>confirm_fn_pointer_candidate</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
@@ -5524,6 +5533,7 @@
                     <span class='ident'>region_bound</span>: <span class='ident'>data_b</span>.<span class='ident'>bounds</span>.<span class='ident'>region_bound</span>,
                     <span class='ident'>builtin_bounds</span>: <span class='ident'>data_b</span>.<span class='ident'>bounds</span>.<span class='ident'>builtin_bounds</span>,
                     <span class='ident'>projection_bounds</span>: <span class='ident'>data_a</span>.<span class='ident'>bounds</span>.<span class='ident'>projection_bounds</span>.<span class='ident'>clone</span>(),
+                    <span class='ident'>region_bound_will_change</span>: <span class='ident'>data_b</span>.<span class='ident'>bounds</span>.<span class='ident'>region_bound_will_change</span>,
                 };
 
                 <span class='kw'>let</span> <span class='ident'>new_trait</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>mk_trait</span>(<span class='ident'>data_a</span>.<span class='ident'>principal</span>.<span class='ident'>clone</span>(), <span class='ident'>bounds</span>);
@@ -5797,7 +5807,7 @@
 
     <span class='doccomment'>/// Returns `Ok` if `poly_trait_ref` being true implies that the</span>
     <span class='doccomment'>/// obligation is satisfied.</span>
-    <span class='kw'>fn</span> <span class='ident'>match_poly_trait_ref</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
+    <span class='kw'>fn</span> <span class='ident'>match_poly_trait_ref</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
                             <span class='ident'>obligation</span>: <span class='kw-2'>&amp;</span><span class='ident'>TraitObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
                             <span class='ident'>poly_trait_ref</span>: <span class='ident'>ty</span>::<span class='ident'>PolyTraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
                             <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(),()<span class='op'>&gt;</span>
@@ -6007,32 +6017,6 @@
         } <span class='kw'>else</span> {
             <span class='ident'>obligation</span>.<span class='ident'>cause</span>.<span class='ident'>clone</span>()
         }
-    }
-
-    <span class='doccomment'>/// Upcasts an object trait-reference into those that match the obligation.</span>
-    <span class='kw'>fn</span> <span class='ident'>upcast</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>obj_trait_ref</span>: <span class='ident'>ty</span>::<span class='ident'>PolyTraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>obligation</span>: <span class='kw-2'>&amp;</span><span class='ident'>TraitObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-              <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>PolyTraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>
-    {
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;upcast(obj_trait_ref={:?}, obligation={:?})&quot;</span>,
-               <span class='ident'>obj_trait_ref</span>,
-               <span class='ident'>obligation</span>);
-
-        <span class='kw'>let</span> <span class='ident'>obligation_def_id</span> <span class='op'>=</span> <span class='ident'>obligation</span>.<span class='ident'>predicate</span>.<span class='ident'>def_id</span>();
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>upcast_trait_refs</span> <span class='op'>=</span> <span class='ident'>util</span>::<span class='ident'>upcast</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>(), <span class='ident'>obj_trait_ref</span>, <span class='ident'>obligation_def_id</span>);
-
-        <span class='comment'>// Retain only those upcast versions that match the trait-ref</span>
-        <span class='comment'>// we are looking for.  In particular, we know that all of</span>
-        <span class='comment'>// `upcast_trait_refs` apply to the correct trait, but</span>
-        <span class='comment'>// possibly with incorrect type parameters. For example, we</span>
-        <span class='comment'>// may be trying to upcast `Foo` to `Bar&lt;i32&gt;`, but `Foo` is</span>
-        <span class='comment'>// declared as `trait Foo : Bar&lt;u32&gt;`.</span>
-        <span class='ident'>upcast_trait_refs</span>.<span class='ident'>retain</span>(<span class='op'>|</span><span class='ident'>upcast_trait_ref</span><span class='op'>|</span> {
-            <span class='kw'>let</span> <span class='ident'>upcast_trait_ref</span> <span class='op'>=</span> <span class='ident'>upcast_trait_ref</span>.<span class='ident'>clone</span>();
-            <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>probe</span>(<span class='op'>|</span>_<span class='op'>|</span> <span class='self'>self</span>.<span class='ident'>match_poly_trait_ref</span>(<span class='ident'>obligation</span>, <span class='ident'>upcast_trait_ref</span>)).<span class='ident'>is_ok</span>()
-        });
-
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;upcast: upcast_trait_refs={:?}&quot;</span>, <span class='ident'>upcast_trait_refs</span>);
-        <span class='ident'>upcast_trait_refs</span>
     }
 }
 
