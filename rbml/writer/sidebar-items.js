@@ -1,1 +1,0 @@
-initSidebarItems({"struct":[["Encoder",""]],"type":[["EncodeResult",""]]});

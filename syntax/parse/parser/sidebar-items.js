@@ -1,1 +1,0 @@
-initSidebarItems({"enum":[["BoundParsingMode","How to parse a bound, whether to allow bound modifiers such as `?`."],["PathParsingMode","How to parse a path. There are four different kinds of paths, all of which are parsed somewhat differently."],["TokenType",""]],"struct":[["Parser",""],["Restrictions",""]]});

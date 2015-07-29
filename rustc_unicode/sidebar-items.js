@@ -1,1 +1,1 @@
-initSidebarItems({"mod":[["char","Character manipulation (`char` type, Unicode Scalar Value)"],["derived_property",""],["str",""]],"primitive":[["char","Character manipulation (`char` type, Unicode Scalar Value)"]]});
+initSidebarItems({"mod":[["char","A Unicode scalar value"],["derived_property",""],["str",""]]});

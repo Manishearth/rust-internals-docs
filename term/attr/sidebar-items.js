@@ -1,1 +1,0 @@
-initSidebarItems({"enum":[["Attr","Terminal attributes for use with term.attr()."]]});

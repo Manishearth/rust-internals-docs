@@ -1,1 +1,0 @@
-initSidebarItems({"fn":[["calculate",""]],"type":[["Dependencies",""],["DependencyList",""]]});

@@ -1,1 +1,0 @@
-initSidebarItems({"enum":[["EbmlEncoderTag",""],["Error",""]],"mod":[["reader",""],["writer",""]],"struct":[["Doc","Common data structures"],["TaggedDoc",""]]});

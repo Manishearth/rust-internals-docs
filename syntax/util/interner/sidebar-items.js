@@ -1,1 +1,0 @@
-initSidebarItems({"struct":[["Interner",""],["RcStr",""],["StrInterner","A StrInterner differs from Interner<String> in that it accepts &str rather than RcStr, resulting in less allocation."]]});

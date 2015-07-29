@@ -1,1 +1,0 @@
-initSidebarItems({"mod":[["abi",""],["archive","A helper class for dealing with static archives"],["arm",""],["mips",""],["mipsel",""],["rpath",""],["svh","Calculation and management of a Strict Version Hash for crates"],["target_strs",""],["x86",""],["x86_64",""]]});

@@ -1,1 +1,0 @@
-initSidebarItems({"struct":[["OwnedSlice","A non-growable owned slice. This is a separate type to allow the representation to change."]]});

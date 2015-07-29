@@ -1,1 +1,0 @@
-initSidebarItems({"fn":[["import_codemap","Imports the codemap from an external crate into the codemap of the crate currently being compiled (the \"local crate\")."],["validate_crate_name",""]],"struct":[["CrateReader",""]]});
