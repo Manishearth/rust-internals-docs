@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["compare_const_impl",""],["compare_impl_method","Checks that a method from an impl conforms to the signature of the same method as declared in the trait."]]});

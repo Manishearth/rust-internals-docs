@@ -1103,6 +1103,34 @@
 <span id="1061">1061</span>
 <span id="1062">1062</span>
 <span id="1063">1063</span>
+<span id="1064">1064</span>
+<span id="1065">1065</span>
+<span id="1066">1066</span>
+<span id="1067">1067</span>
+<span id="1068">1068</span>
+<span id="1069">1069</span>
+<span id="1070">1070</span>
+<span id="1071">1071</span>
+<span id="1072">1072</span>
+<span id="1073">1073</span>
+<span id="1074">1074</span>
+<span id="1075">1075</span>
+<span id="1076">1076</span>
+<span id="1077">1077</span>
+<span id="1078">1078</span>
+<span id="1079">1079</span>
+<span id="1080">1080</span>
+<span id="1081">1081</span>
+<span id="1082">1082</span>
+<span id="1083">1083</span>
+<span id="1084">1084</span>
+<span id="1085">1085</span>
+<span id="1086">1086</span>
+<span id="1087">1087</span>
+<span id="1088">1088</span>
+<span id="1089">1089</span>
+<span id="1090">1090</span>
+<span id="1091">1091</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -1184,15 +1212,17 @@
 <span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>fmt</span>;
 <span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>cmp</span>::<span class='ident'>Ordering</span>;
 <span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>mem</span>::{<span class='ident'>align_of_val</span>, <span class='ident'>size_of_val</span>};
-<span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>intrinsics</span>::<span class='ident'>drop_in_place</span>;
+<span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>intrinsics</span>::{<span class='ident'>drop_in_place</span>, <span class='ident'>abort</span>};
 <span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>mem</span>;
 <span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>nonzero</span>::<span class='ident'>NonZero</span>;
 <span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>ops</span>::{<span class='ident'>Deref</span>, <span class='ident'>CoerceUnsized</span>};
 <span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>ptr</span>;
 <span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>marker</span>::<span class='ident'>Unsize</span>;
 <span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>hash</span>::{<span class='ident'>Hash</span>, <span class='ident'>Hasher</span>};
-<span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>usize</span>;
+<span class='kw'>use</span> <span class='ident'>core</span>::{<span class='ident'>usize</span>, <span class='ident'>isize</span>};
 <span class='kw'>use</span> <span class='ident'>heap</span>::<span class='ident'>deallocate</span>;
+
+<span class='kw'>const</span> <span class='ident'>MAX_REFCOUNT</span>: <span class='ident'>usize</span> <span class='op'>=</span> (<span class='ident'>isize</span>::<span class='ident'>MAX</span>) <span class='kw'>as</span> <span class='ident'>usize</span>;
 
 <span class='doccomment'>/// An atomically reference counted wrapper for shared state.</span>
 <span class='doccomment'>///</span>
@@ -1306,7 +1336,8 @@
     <span class='doccomment'>/// # Examples</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// ```</span>
-    <span class='doccomment'>/// # #![feature(arc_weak)]</span>
+    <span class='doccomment'>/// #![feature(arc_weak)]</span>
+    <span class='doccomment'>///</span>
     <span class='doccomment'>/// use std::sync::Arc;</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// let five = Arc::new(5);</span>
@@ -1417,7 +1448,21 @@
         <span class='comment'>// another must already provide any required synchronization.</span>
         <span class='comment'>//</span>
         <span class='comment'>// [1]: (www.boost.org/doc/libs/1_55_0/doc/html/atomic/usage_examples.html)</span>
-        <span class='self'>self</span>.<span class='ident'>inner</span>().<span class='ident'>strong</span>.<span class='ident'>fetch_add</span>(<span class='number'>1</span>, <span class='ident'>Relaxed</span>);
+        <span class='kw'>let</span> <span class='ident'>old_size</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>inner</span>().<span class='ident'>strong</span>.<span class='ident'>fetch_add</span>(<span class='number'>1</span>, <span class='ident'>Relaxed</span>);
+
+        <span class='comment'>// However we need to guard against massive refcounts in case someone</span>
+        <span class='comment'>// is `mem::forget`ing Arcs. If we don&#39;t do this the count can overflow</span>
+        <span class='comment'>// and users will use-after free. We racily saturate to `isize::MAX` on</span>
+        <span class='comment'>// the assumption that there aren&#39;t ~2 billion threads incrementing</span>
+        <span class='comment'>// the reference count at once. This branch will never be taken in</span>
+        <span class='comment'>// any realistic program.</span>
+        <span class='comment'>//</span>
+        <span class='comment'>// We abort because such a program is incredibly degenerate, and we</span>
+        <span class='comment'>// don&#39;t care to support it.</span>
+        <span class='kw'>if</span> <span class='ident'>old_size</span> <span class='op'>&gt;</span> <span class='ident'>MAX_REFCOUNT</span> {
+            <span class='kw'>unsafe</span> { <span class='ident'>abort</span>(); }
+        }
+
         <span class='ident'>Arc</span> { <span class='ident'>_ptr</span>: <span class='self'>self</span>.<span class='ident'>_ptr</span> }
     }
 }
@@ -1443,7 +1488,8 @@
     <span class='doccomment'>/// # Examples</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// ```</span>
-    <span class='doccomment'>/// # #![feature(arc_unique)]</span>
+    <span class='doccomment'>/// #![feature(arc_unique)]</span>
+    <span class='doccomment'>///</span>
     <span class='doccomment'>/// use std::sync::Arc;</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// let mut five = Arc::new(5);</span>
@@ -1514,7 +1560,8 @@
     <span class='doccomment'>/// # Examples</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// ```</span>
-    <span class='doccomment'>/// # #![feature(arc_unique, alloc)]</span>
+    <span class='doccomment'>/// #![feature(arc_unique, alloc)]</span>
+    <span class='doccomment'>///</span>
     <span class='doccomment'>/// extern crate alloc;</span>
     <span class='doccomment'>/// # fn main() {</span>
     <span class='doccomment'>/// use alloc::arc::Arc;</span>
@@ -1661,7 +1708,8 @@
     <span class='doccomment'>/// # Examples</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// ```</span>
-    <span class='doccomment'>/// # #![feature(arc_weak)]</span>
+    <span class='doccomment'>/// #![feature(arc_weak)]</span>
+    <span class='doccomment'>///</span>
     <span class='doccomment'>/// use std::sync::Arc;</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// let five = Arc::new(5);</span>
@@ -1705,7 +1753,8 @@
     <span class='doccomment'>/// # Examples</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// ```</span>
-    <span class='doccomment'>/// # #![feature(arc_weak)]</span>
+    <span class='doccomment'>/// #![feature(arc_weak)]</span>
+    <span class='doccomment'>///</span>
     <span class='doccomment'>/// use std::sync::Arc;</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// let weak_five = Arc::new(5).downgrade();</span>
@@ -1718,7 +1767,13 @@
         <span class='comment'>// fetch_add (ignoring the lock) because the weak count is only locked</span>
         <span class='comment'>// where are *no other* weak pointers in existence. (So we can&#39;t be</span>
         <span class='comment'>// running this code in that case).</span>
-        <span class='self'>self</span>.<span class='ident'>inner</span>().<span class='ident'>weak</span>.<span class='ident'>fetch_add</span>(<span class='number'>1</span>, <span class='ident'>Relaxed</span>);
+        <span class='kw'>let</span> <span class='ident'>old_size</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>inner</span>().<span class='ident'>weak</span>.<span class='ident'>fetch_add</span>(<span class='number'>1</span>, <span class='ident'>Relaxed</span>);
+
+        <span class='comment'>// See comments in Arc::clone() for why we do this (for mem::forget).</span>
+        <span class='kw'>if</span> <span class='ident'>old_size</span> <span class='op'>&gt;</span> <span class='ident'>MAX_REFCOUNT</span> {
+            <span class='kw'>unsafe</span> { <span class='ident'>abort</span>(); }
+        }
+
         <span class='kw'>return</span> <span class='ident'>Weak</span> { <span class='ident'>_ptr</span>: <span class='self'>self</span>.<span class='ident'>_ptr</span> }
     }
 }
@@ -1732,7 +1787,8 @@
     <span class='doccomment'>/// # Examples</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// ```</span>
-    <span class='doccomment'>/// # #![feature(arc_weak)]</span>
+    <span class='doccomment'>/// #![feature(arc_weak)]</span>
+    <span class='doccomment'>///</span>
     <span class='doccomment'>/// use std::sync::Arc;</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// {</span>

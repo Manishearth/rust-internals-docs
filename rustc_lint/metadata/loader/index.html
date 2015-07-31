@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="rustdoc">
+    <meta name="description" content="API documentation for the Rust `loader` mod in crate `rustc_lint`.">
+    <meta name="keywords" content="rust, rustlang, rust-lang, loader">
+
+    <title>rustc_lint::metadata::loader - Rust</title>
+
+    <link rel="stylesheet" type="text/css" href="../../../main.css">
+
+    <link rel="shortcut icon" href="https://doc.rust-lang.org/favicon.ico">
+    
+</head>
+<body class="rustdoc">
+    <!--[if lte IE 8]>
+    <div class="warning">
+        This old browser is unsupported and will most likely display funky
+        things.
+    </div>
+    <![endif]-->
+
+    
+
+    <section class="sidebar">
+        <a href='../../../rustc_lint/index.html'><img src='http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png' alt='' width='100'></a>
+        <p class='location'><a href='../../index.html'>rustc_lint</a>::<wbr><a href='../index.html'>metadata</a></p><script>window.sidebarCurrent = {name: 'loader', ty: 'mod', relpath: '../'};</script><script defer src="../sidebar-items.js"></script>
+    </section>
+
+    <nav class="sub">
+        <form class="search-form js-only">
+            <div class="search-container">
+                <input class="search-input" name="search"
+                       autocomplete="off"
+                       placeholder="Click or press ‘S’ to search, ‘?’ for more options…"
+                       type="search">
+            </div>
+        </form>
+    </nav>
+
+    <section id='main' class="content mod">
+<h1 class='fqn'><span class='in-band'>Module <a href='../../index.html'>rustc_lint</a>::<wbr><a href='../index.html'>metadata</a>::<wbr><a class='mod' href=''>loader</a></span><span class='out-of-band'><span id='render-detail'>
+            <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
+                [<span class='inner'>&#x2212;</span>]
+            </a>
+        </span><a id='src-297106' class='srclink' href='../../../rustc/metadata/loader/index.html?gotosrc=297106' title='goto source code'>[src]</a></span></h1>
+<div class='stability'><em class='stab unstable'>Unstable</em></div><div class='docblock'><p>Finds crate binaries and loads their metadata</p>
+
+<p>Might I be the first to welcome you to a world of platform differences,
+version requirements, dependency graphs, conflicting desires, and fun! This
+is the major guts (along with metadata::creader) of the compiler for loading
+crates and resolving dependencies. Let&#39;s take a tour!</p>
+
+<h1 id="the-problem" class='section-header'><a
+                           href="#the-problem">The problem</a></h1>
+<p>Each invocation of the compiler is immediately concerned with one primary
+problem, to connect a set of crates to resolved crates on the filesystem.
+Concretely speaking, the compiler follows roughly these steps to get here:</p>
+
+<ol>
+<li>Discover a set of <code>extern crate</code> statements.</li>
+<li>Transform these directives into crate names. If the directive does not
+have an explicit name, then the identifier is the name.</li>
+<li>For each of these crate names, find a corresponding crate on the
+filesystem.</li>
+</ol>
+
+<p>Sounds easy, right? Let&#39;s walk into some of the nuances.</p>
+
+<h2 id="transitive-dependencies" class='section-header'><a
+                           href="#transitive-dependencies">Transitive Dependencies</a></h2>
+<p>Let&#39;s say we&#39;ve got three crates: A, B, and C. A depends on B, and B depends
+on C. When we&#39;re compiling A, we primarily need to find and locate B, but we
+also end up needing to find and locate C as well.</p>
+
+<p>The reason for this is that any of B&#39;s types could be composed of C&#39;s types,
+any function in B could return a type from C, etc. To be able to guarantee
+that we can always typecheck/translate any function, we have to have
+complete knowledge of the whole ecosystem, not just our immediate
+dependencies.</p>
+
+<p>So now as part of the &quot;find a corresponding crate on the filesystem&quot; step
+above, this involves also finding all crates for <em>all upstream
+dependencies</em>. This includes all dependencies transitively.</p>
+
+<h2 id="rlibs-and-dylibs" class='section-header'><a
+                           href="#rlibs-and-dylibs">Rlibs and Dylibs</a></h2>
+<p>The compiler has two forms of intermediate dependencies. These are dubbed
+rlibs and dylibs for the static and dynamic variants, respectively. An rlib
+is a rustc-defined file format (currently just an ar archive) while a dylib
+is a platform-defined dynamic library. Each library has a metadata somewhere
+inside of it.</p>
+
+<p>When translating a crate name to a crate on the filesystem, we all of a
+sudden need to take into account both rlibs and dylibs! Linkage later on may
+use either one of these files, as each has their pros/cons. The job of crate
+loading is to discover what&#39;s possible by finding all candidates.</p>
+
+<p>Most parts of this loading systems keep the dylib/rlib as just separate
+variables.</p>
+
+<h2 id="where-to-look?" class='section-header'><a
+                           href="#where-to-look?">Where to look?</a></h2>
+<p>We can&#39;t exactly scan your whole hard drive when looking for dependencies,
+so we need to places to look. Currently the compiler will implicitly add the
+target lib search path ($prefix/lib/rustlib/$target/lib) to any compilation,
+and otherwise all -L flags are added to the search paths.</p>
+
+<h2 id="what-criterion-to-select-on?" class='section-header'><a
+                           href="#what-criterion-to-select-on?">What criterion to select on?</a></h2>
+<p>This a pretty tricky area of loading crates. Given a file, how do we know
+whether it&#39;s the right crate? Currently, the rules look along these lines:</p>
+
+<ol>
+<li>Does the filename match an rlib/dylib pattern? That is to say, does the
+filename have the right prefix/suffix?</li>
+<li>Does the filename have the right prefix for the crate name being queried?
+This is filtering for files like <code>libfoo*.rlib</code> and such.</li>
+<li>Is the file an actual rust library? This is done by loading the metadata
+from the library and making sure it&#39;s actually there.</li>
+<li>Does the name in the metadata agree with the name of the library?</li>
+<li>Does the target in the metadata agree with the current target?</li>
+<li>Does the SVH match? (more on this later)</li>
+</ol>
+
+<p>If the file answers <code>yes</code> to all these questions, then the file is
+considered as being <em>candidate</em> for being accepted. It is illegal to have
+more than two candidates as the compiler has no method by which to resolve
+this conflict. Additionally, rlib/dylib candidates are considered
+separately.</p>
+
+<p>After all this has happened, we have 1 or two files as candidates. These
+represent the rlib/dylib file found for a library, and they&#39;re returned as
+being found.</p>
+
+<h3 id="what-about-versions?" class='section-header'><a
+                           href="#what-about-versions?">What about versions?</a></h3>
+<p>A lot of effort has been put forth to remove versioning from the compiler.
+There have been forays in the past to have versioning baked in, but it was
+largely always deemed insufficient to the point that it was recognized that
+it&#39;s probably something the compiler shouldn&#39;t do anyway due to its
+complicated nature and the state of the half-baked solutions.</p>
+
+<p>With a departure from versioning, the primary criterion for loading crates
+is just the name of a crate. If we stopped here, it would imply that you
+could never link two crates of the same name from different sources
+together, which is clearly a bad state to be in.</p>
+
+<p>To resolve this problem, we come to the next section!</p>
+
+<h1 id="expert-mode" class='section-header'><a
+                           href="#expert-mode">Expert Mode</a></h1>
+<p>A number of flags have been added to the compiler to solve the &quot;version
+problem&quot; in the previous section, as well as generally enabling more
+powerful usage of the crate loading system of the compiler. The goal of
+these flags and options are to enable third-party tools to drive the
+compiler with prior knowledge about how the world should look.</p>
+
+<h2 id="the---extern-flag" class='section-header'><a
+                           href="#the---extern-flag">The <code>--extern</code> flag</a></h2>
+<p>The compiler accepts a flag of this form a number of times:</p>
+
+<pre><code class="language-text">--extern crate-name=path/to/the/crate.rlib
+</code></pre>
+
+<p>This flag is basically the following letter to the compiler:</p>
+
+<blockquote>
+<p>Dear rustc,</p>
+
+<p>When you are attempting to load the immediate dependency <code>crate-name</code>, I
+would like you to assume that the library is located at
+<code>path/to/the/crate.rlib</code>, and look nowhere else. Also, please do not
+assume that the path I specified has the name <code>crate-name</code>.</p>
+</blockquote>
+
+<p>This flag basically overrides most matching logic except for validating that
+the file is indeed a rust library. The same <code>crate-name</code> can be specified
+twice to specify the rlib/dylib pair.</p>
+
+<h2 id="enabling-&quot;multiple-versions&quot;" class='section-header'><a
+                           href="#enabling-&quot;multiple-versions&quot;">Enabling &quot;multiple versions&quot;</a></h2>
+<p>This basically boils down to the ability to specify arbitrary packages to
+the compiler. For example, if crate A wanted to use Bv1 and Bv2, then it
+would look something like:</p>
+<pre class='rust rust-example-rendered'>
+<span class='kw'>extern</span> <span class='kw'>crate</span> <span class='ident'>b1</span>;
+<span class='kw'>extern</span> <span class='kw'>crate</span> <span class='ident'>b2</span>;
+
+<span class='kw'>fn</span> <span class='ident'>main</span>() {}</pre>
+
+<p>and the compiler would be invoked as:</p>
+
+<pre><code class="language-text">rustc a.rs --extern b1=path/to/libb1.rlib --extern b2=path/to/libb2.rlib
+</code></pre>
+
+<p>In this scenario there are two crates named <code>b</code> and the compiler must be
+manually driven to be informed where each crate is.</p>
+
+<h2 id="frobbing-symbols" class='section-header'><a
+                           href="#frobbing-symbols">Frobbing symbols</a></h2>
+<p>One of the immediate problems with linking the same library together twice
+in the same problem is dealing with duplicate symbols. The primary way to
+deal with this in rustc is to add hashes to the end of each symbol.</p>
+
+<p>In order to force hashes to change between versions of a library, if
+desired, the compiler exposes an option <code>-C metadata=foo</code>, which is used to
+initially seed each symbol hash. The string <code>foo</code> is prepended to each
+string-to-hash to ensure that symbols change over time.</p>
+
+<h2 id="loading-transitive-dependencies" class='section-header'><a
+                           href="#loading-transitive-dependencies">Loading transitive dependencies</a></h2>
+<p>Dealing with same-named-but-distinct crates is not just a local problem, but
+one that also needs to be dealt with for transitive dependencies. Note that
+in the letter above <code>--extern</code> flags only apply to the <em>local</em> set of
+dependencies, not the upstream transitive dependencies. Consider this
+dependency graph:</p>
+
+<pre><code class="language-text">A.1   A.2
+|     |
+|     |
+B     C
+ \   /
+  \ /
+   D
+</code></pre>
+
+<p>In this scenario, when we compile <code>D</code>, we need to be able to distinctly
+resolve <code>A.1</code> and <code>A.2</code>, but an <code>--extern</code> flag cannot apply to these
+transitive dependencies.</p>
+
+<p>Note that the key idea here is that <code>B</code> and <code>C</code> are both <em>already compiled</em>.
+That is, they have already resolved their dependencies. Due to unrelated
+technical reasons, when a library is compiled, it is only compatible with
+the <em>exact same</em> version of the upstream libraries it was compiled against.
+We use the &quot;Strict Version Hash&quot; to identify the exact copy of an upstream
+library.</p>
+
+<p>With this knowledge, we know that <code>B</code> and <code>C</code> will depend on <code>A</code> with
+different SVH values, so we crawl the normal <code>-L</code> paths looking for
+<code>liba*.rlib</code> and filter based on the contained SVH.</p>
+
+<p>In the end, this ends up not needing <code>--extern</code> to specify upstream
+transitive dependencies.</p>
+
+<h1 id="wrapping-up" class='section-header'><a
+                           href="#wrapping-up">Wrapping up</a></h1>
+<p>That&#39;s the general overview of loading crates in the compiler, but it&#39;s by
+no means all of the necessary details. Take a look at the rest of
+metadata::loader or metadata::creader for all the juicy details!</p>
+</div><h2 id='structs' class='section-header'><a href="#structs">Structs</a></h2>
+<table>
+                    <tr class='unstable module-item'>
+                        <td><a class='struct' href='struct.ArchiveMetadata.html'
+                               title='rustc_lint::metadata::loader::ArchiveMetadata'>ArchiveMetadata</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                
+                    <tr class='unstable module-item'>
+                        <td><a class='struct' href='struct.Context.html'
+                               title='rustc_lint::metadata::loader::Context'>Context</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                
+                    <tr class='unstable module-item'>
+                        <td><a class='struct' href='struct.CrateMismatch.html'
+                               title='rustc_lint::metadata::loader::CrateMismatch'>CrateMismatch</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                
+                    <tr class='unstable module-item'>
+                        <td><a class='struct' href='struct.CratePaths.html'
+                               title='rustc_lint::metadata::loader::CratePaths'>CratePaths</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                
+                    <tr class='unstable module-item'>
+                        <td><a class='struct' href='struct.Library.html'
+                               title='rustc_lint::metadata::loader::Library'>Library</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                </table><h2 id='constants' class='section-header'><a href="#constants">Constants</a></h2>
+<table>
+                    <tr class='unstable module-item'>
+                        <td><a class='constant' href='constant.METADATA_FILENAME.html'
+                               title='rustc_lint::metadata::loader::METADATA_FILENAME'>METADATA_FILENAME</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                </table><h2 id='functions' class='section-header'><a href="#functions">Functions</a></h2>
+<table>
+                    <tr class='unstable module-item'>
+                        <td><a class='fn' href='fn.list_file_metadata.html'
+                               title='rustc_lint::metadata::loader::list_file_metadata'>list_file_metadata</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                
+                    <tr class='unstable module-item'>
+                        <td><a class='fn' href='fn.meta_section_name.html'
+                               title='rustc_lint::metadata::loader::meta_section_name'>meta_section_name</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                
+                    <tr class='unstable module-item'>
+                        <td><a class='fn' href='fn.note_crate_name.html'
+                               title='rustc_lint::metadata::loader::note_crate_name'>note_crate_name</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                
+                    <tr class='unstable module-item'>
+                        <td><a class='fn' href='fn.read_meta_section_name.html'
+                               title='rustc_lint::metadata::loader::read_meta_section_name'>read_meta_section_name</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                </table></section>
+    <section id='search' class="content hidden"></section>
+
+    <section class="footer"></section>
+
+    <div id="help" class="hidden">
+        <div>
+            <div class="shortcuts">
+                <h1>Keyboard Shortcuts</h1>
+
+                <dl>
+                    <dt>?</dt>
+                    <dd>Show this help dialog</dd>
+                    <dt>S</dt>
+                    <dd>Focus the search field</dd>
+                    <dt>&larrb;</dt>
+                    <dd>Move up in search results</dd>
+                    <dt>&rarrb;</dt>
+                    <dd>Move down in search results</dd>
+                    <dt>&#9166;</dt>
+                    <dd>Go to active search result</dd>
+                </dl>
+            </div>
+
+            <div class="infos">
+                <h1>Search Tricks</h1>
+
+                <p>
+                    Prefix searches with a type followed by a colon (e.g.
+                    <code>fn:</code>) to restrict the search to a given type.
+                </p>
+
+                <p>
+                    Accepted types are: <code>fn</code>, <code>mod</code>,
+                    <code>struct</code>, <code>enum</code>,
+                    <code>trait</code>, <code>typedef</code> (or
+                    <code>tdef</code>).
+                </p>
+
+                <p>
+                    Search functions by type signature (e.g.
+                    <code>vec -> usize</code>)
+                </p>
+            </div>
+        </div>
+    </div>
+
+    
+
+    <script>
+        window.rootPath = "../../../";
+        window.currentCrate = "rustc_lint";
+        window.playgroundUrl = "";
+    </script>
+    <script src="../../../jquery.js"></script>
+    <script src="../../../main.js"></script>
+    
+    <script async src="../../../search-index.js"></script>
+</body>
+</html>

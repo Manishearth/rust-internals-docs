@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["Cursor","A `Cursor` wraps another type and provides it with a [`Seek`][seek] implementation."]]});
+initSidebarItems({"struct":[["Cursor","A `Cursor` wraps another type and provides it with a `Seek` implementation."]]});

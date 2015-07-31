@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Arena","A slower reflection-based arena that can allocate objects of any type."],["TypedArena","A faster arena that can hold objects of only one type."]]});

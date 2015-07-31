@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["OrphanCheckErr",""]],"fn":[["orphan_check","Checks the coherence orphan rules. `impl_def_id` should be the def-id of a trait impl. To pass, either the trait must be local, or else two conditions must be satisfied:"],["overlapping_impls","True if there exist types that satisfy both of the two given impls."]]});
