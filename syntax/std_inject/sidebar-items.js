@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["maybe_inject_crates_ref",""],["maybe_inject_prelude",""],["use_std",""]]});
+initSidebarItems({"fn":[["maybe_inject_crates_ref",""],["maybe_inject_prelude",""],["no_core",""],["no_std",""]]});

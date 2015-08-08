@@ -1,1 +1,1 @@
-initSidebarItems({});
+initSidebarItems({"mod":[["v1","The core prelude"]]});

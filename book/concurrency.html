@@ -346,26 +346,31 @@ fn main() {
         ^~~~
 </code></pre>
 
-<p>In this case, we know that our code <em>should</em> be safe, but Rust isn&#39;t sure. And
-it&#39;s actually not safe: if we had a reference to <code>data</code> in each thread, and the
-thread takes ownership of the reference, we have three owners! That&#39;s bad. We
-can fix this by using the <code>Arc&lt;T&gt;</code> type, which is an atomic reference counted
-pointer. The &#39;atomic&#39; part means that it&#39;s safe to share across threads.</p>
+<p>Rust knows this wouldn&#39;t be safe! If we had a reference to <code>data</code> in each
+thread, and the thread takes ownership of the reference, we&#39;d have three
+owners!</p>
 
-<p><code>Arc&lt;T&gt;</code> assumes one more property about its contents to ensure that it is safe
-to share across threads: it assumes its contents are <code>Sync</code>. But in our
-case, we want to be able to mutate the value. We need a type that can ensure
-only one person at a time can mutate what&#39;s inside. For that, we can use the
-<code>Mutex&lt;T&gt;</code> type. Here&#39;s the second version of our code. It still doesn&#39;t work,
-but for a different reason:</p>
+<p>So, we need some type that lets us have more than one reference to a value and
+that we can share between threads, that is it must implement <code>Sync</code>.</p>
+
+<p>We&#39;ll use <code>Arc&lt;T&gt;</code>, rust&#39;s standard atomic reference count type, which
+wraps a value up with some extra runtime bookkeeping which allows us to
+share the ownership of the value between multiple references at the same time.</p>
+
+<p>The bookkeeping consists of a count of how many of these references exist to
+the value, hence the reference count part of the name.</p>
+
+<p>The Atomic part means <code>Arc&lt;T&gt;</code> can safely be accessed from multiple threads.
+To do this the compiler guarantees that mutations of the internal count use
+indivisible operations which can&#39;t have data races.</p>
 <span class='rusttest'>use std::thread;
-use std::sync::Mutex;
+use std::sync::Arc;
 
 fn main() {
-    let mut data = Mutex::new(vec![1, 2, 3]);
+    let mut data = Arc::new(vec![1, 2, 3]);
 
     for i in 0..3 {
-        let data = data.lock().unwrap();
+        let data = data.clone();
         thread::spawn(move || {
             data[i] += 1;
         });
@@ -375,13 +380,13 @@ fn main() {
 }
 </span><pre class='rust rust-example-rendered'>
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>thread</span>;
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>sync</span>::<span class='ident'>Mutex</span>;
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>sync</span>::<span class='ident'>Arc</span>;
 
 <span class='kw'>fn</span> <span class='ident'>main</span>() {
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>data</span> <span class='op'>=</span> <span class='ident'>Mutex</span>::<span class='ident'>new</span>(<span class='macro'>vec</span><span class='macro'>!</span>[<span class='number'>1</span>, <span class='number'>2</span>, <span class='number'>3</span>]);
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>data</span> <span class='op'>=</span> <span class='ident'>Arc</span>::<span class='ident'>new</span>(<span class='macro'>vec</span><span class='macro'>!</span>[<span class='number'>1</span>, <span class='number'>2</span>, <span class='number'>3</span>]);
 
     <span class='kw'>for</span> <span class='ident'>i</span> <span class='kw'>in</span> <span class='number'>0</span>..<span class='number'>3</span> {
-        <span class='kw'>let</span> <span class='ident'>data</span> <span class='op'>=</span> <span class='ident'>data</span>.<span class='ident'>lock</span>().<span class='ident'>unwrap</span>();
+        <span class='kw'>let</span> <span class='ident'>data</span> <span class='op'>=</span> <span class='ident'>data</span>.<span class='ident'>clone</span>();
         <span class='ident'>thread</span>::<span class='ident'>spawn</span>(<span class='kw'>move</span> <span class='op'>||</span> {
             <span class='ident'>data</span>[<span class='ident'>i</span>] <span class='op'>+=</span> <span class='number'>1</span>;
         });
@@ -390,29 +395,28 @@ fn main() {
     <span class='ident'>thread</span>::<span class='ident'>sleep_ms</span>(<span class='number'>50</span>);
 }</pre>
 
-<p>Here&#39;s the error:</p>
+<p>We now call <code>clone()</code> on our <code>Arc&lt;T&gt;</code>, which increases the internal count.
+This handle is then moved into the new thread.</p>
 
-<pre><code class="language-text">&lt;anon&gt;:9:9: 9:22 error: the trait `core::marker::Send` is not implemented for the type `std::sync::mutex::MutexGuard&lt;&#39;_, collections::vec::Vec&lt;u32&gt;&gt;` [E0277]
-&lt;anon&gt;:11         thread::spawn(move || {
-                  ^~~~~~~~~~~~~
-&lt;anon&gt;:9:9: 9:22 note: `std::sync::mutex::MutexGuard&lt;&#39;_, collections::vec::Vec&lt;u32&gt;&gt;` cannot be sent between threads safely
-&lt;anon&gt;:11         thread::spawn(move || {
-                  ^~~~~~~~~~~~~
+<p>And... still gives us an error.</p>
+
+<pre><code class="language-text">&lt;anon&gt;:11:24 error: cannot borrow immutable borrowed content as mutable
+&lt;anon&gt;:11                    data[i] += 1;
+                             ^~~~
 </code></pre>
 
-<p>You see, <a href="../std/sync/struct.Mutex.html"><code>Mutex</code></a> has a
-<a href="../std/sync/struct.Mutex.html#method.lock"><code>lock</code></a>
-method which has this signature:</p>
-<span class='rusttest'>fn main() {
-    fn lock(&amp;self) -&gt; LockResult&lt;MutexGuard&lt;T&gt;&gt;
-    
-}</span><pre class='rust rust-example-rendered'>
-<span class='kw'>fn</span> <span class='ident'>lock</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>LockResult</span><span class='op'>&lt;</span><span class='ident'>MutexGuard</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span></pre>
+<p><code>Arc&lt;T&gt;</code> assumes one more property about its contents to ensure that it is safe
+to share across threads: it assumes its contents are <code>Sync</code>. This is true for
+our value if it&#39;s immutable, but we want to be able to mutate it, so we need
+something else to persuade the borrow checker we know what we&#39;re doing.</p>
 
-<p>Because <code>Send</code> is not implemented for <code>MutexGuard&lt;T&gt;</code>, we can&#39;t transfer the
-guard across thread boundaries, which gives us our error.</p>
+<p>It looks like we need some type that allows us to safely mutate a shared value,
+for example a type that that can ensure only one thread at a time is able to
+mutate the value inside it at any one time.</p>
 
-<p>We can use <code>Arc&lt;T&gt;</code> to fix this. Here&#39;s the working version:</p>
+<p>For that, we can use the <code>Mutex&lt;T&gt;</code> type!</p>
+
+<p>Here&#39;s the working version:</p>
 <span class='rusttest'>use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -447,9 +451,30 @@ fn main() {
     <span class='ident'>thread</span>::<span class='ident'>sleep_ms</span>(<span class='number'>50</span>);
 }</pre>
 
-<p>We now call <code>clone()</code> on our <code>Arc</code>, which increases the internal count. This
-handle is then moved into the new thread. Let&#39;s examine the body of the
-thread more closely:</p>
+<p>If we&#39;d tried to use <code>Mutex&lt;T&gt;</code> without wrapping it in an <code>Arc&lt;T&gt;</code> we would have
+seen another error like:</p>
+
+<pre><code class="language-text">error: the trait `core::marker::Send` is not implemented for the type `std::sync::mutex::MutexGuard&lt;&#39;_, collections::vec::Vec&lt;u32&gt;&gt;` [E0277]
+ thread::spawn(move || {
+                  ^~~~~~~~~~~~~
+note: `std::sync::mutex::MutexGuard&lt;&#39;_, collections::vec::Vec&lt;u32&gt;&gt;` cannot be sent between threads safely
+ thread::spawn(move || {
+                  ^~~~~~~~~~~~~
+</code></pre>
+
+<p>You see, <a href="../std/sync/struct.Mutex.html"><code>Mutex</code></a> has a
+<a href="../std/sync/struct.Mutex.html#method.lock"><code>lock</code></a>
+method which has this signature:</p>
+<span class='rusttest'>fn main() {
+    fn lock(&amp;self) -&gt; LockResult&lt;MutexGuard&lt;T&gt;&gt;
+    
+}</span><pre class='rust rust-example-rendered'>
+<span class='kw'>fn</span> <span class='ident'>lock</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>LockResult</span><span class='op'>&lt;</span><span class='ident'>MutexGuard</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span></pre>
+
+<p>and because <code>Send</code> is not implemented for <code>MutexGuard&lt;T&gt;</code>, we couldn&#39;t have
+transferred the guard across thread boundaries on it&#39;s own.</p>
+
+<p>Let&#39;s examine the body of the thread more closely:</p>
 <span class='rusttest'>use std::sync::{Arc, Mutex};
 use std::thread;
 fn main() {

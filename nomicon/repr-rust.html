@@ -200,9 +200,9 @@ type&#39;s size is a multiple of its alignment. For instance:</p>
     <span class='ident'>c</span>: <span class='ident'>u16</span>,
 }</pre>
 
-<p>will be 32-bit aligned assuming these primitives are aligned to their size.
-It will therefore have a size that is a multiple of 32-bits. It will potentially
-<em>really</em> become:</p>
+<p>will be 32-bit aligned on an architecture that aligns these primitives to their
+respective sizes. The whole struct will therefore have a size that is a multiple
+of 32-bits. It will potentially become:</p>
 <span class='rusttest'>fn main() {
     struct A {
         a: u8,
@@ -221,10 +221,10 @@ It will therefore have a size that is a multiple of 32-bits. It will potentially
     <span class='ident'>_pad2</span>: [<span class='ident'>u8</span>; <span class='number'>2</span>], <span class='comment'>// to make overall size multiple of 4</span>
 }</pre>
 
-<p>There is <em>no indirection</em> for these types; all data is stored contiguously as
-you would expect in C. However with the exception of arrays (which are densely
-packed and in-order), the layout of data is not by default specified in Rust.
-Given the two following struct definitions:</p>
+<p>There is <em>no indirection</em> for these types; all data is stored within the struct,
+as you would expect in C. However with the exception of arrays (which are
+densely packed and in-order), the layout of data is not by default specified in
+Rust. Given the two following struct definitions:</p>
 <span class='rusttest'>fn main() {
     struct A {
         a: i32,
@@ -232,7 +232,7 @@ Given the two following struct definitions:</p>
     }
     
     struct B {
-        x: i32,
+        a: i32,
         b: u64,
     }
     
@@ -243,17 +243,16 @@ Given the two following struct definitions:</p>
 }
 
 <span class='kw'>struct</span> <span class='ident'>B</span> {
-    <span class='ident'>x</span>: <span class='ident'>i32</span>,
+    <span class='ident'>a</span>: <span class='ident'>i32</span>,
     <span class='ident'>b</span>: <span class='ident'>u64</span>,
 }</pre>
 
 <p>Rust <em>does</em> guarantee that two instances of A have their data laid out in
-exactly the same way. However Rust <em>does not</em> guarantee that an instance of A
-has the same field ordering or padding as an instance of B (in practice there&#39;s
-no particular reason why they wouldn&#39;t, other than that its not currently
-guaranteed).</p>
+exactly the same way. However Rust <em>does not</em> currently guarantee that an
+instance of A has the same field ordering or padding as an instance of B, though
+in practice there&#39;s no reason why they wouldn&#39;t.</p>
 
-<p>With A and B as written, this is basically nonsensical, but several other
+<p>With A and B as written, this point would seem to be pedantic, but several other
 features of Rust make it desirable for the language to play with data layout in
 complex ways.</p>
 
@@ -340,18 +339,20 @@ requires different monomorphizations to have <em>different field orderings</em>.
     <span class='ident'>tag</span>: <span class='ident'>u8</span>,   <span class='comment'>// 0 = A, 1 = B, 2 = C</span>
 }</pre>
 
-<p>And indeed this is approximately how it would be laid out in general
-(modulo the size and position of <code>tag</code>). However there are several cases where
-such a representation is inefficient. The classic case of this is Rust&#39;s
-&quot;null pointer optimization&quot;. Given a pointer that is known to not be null
-(e.g. <code>&amp;u32</code>), an enum can <em>store</em> a discriminant bit <em>inside</em> the pointer
-by using null as a special value. The net result is that
-<code>size_of::&lt;Option&lt;&amp;T&gt;&gt;() == size_of::&lt;&amp;T&gt;()</code></p>
+<p>And indeed this is approximately how it would be laid out in general (modulo the
+size and position of <code>tag</code>).</p>
 
-<p>There are many types in Rust that are, or contain, &quot;not null&quot; pointers such as
+<p>However there are several cases where such a representation is inefficient. The
+classic case of this is Rust&#39;s &quot;null pointer optimization&quot;: an enum consisting
+of a single outer unit variant (e.g. <code>None</code>) and a (potentially nested) non-
+nullable pointer variant (e.g. <code>&amp;T</code>) makes the tag unnecessary, because a null
+pointer value can safely be interpreted to mean that the unit variant is chosen
+instead. The net result is that, for example, <code>size_of::&lt;Option&lt;&amp;T&gt;&gt;() == size_of::&lt;&amp;T&gt;()</code>.</p>
+
+<p>There are many types in Rust that are, or contain, non-nullable pointers such as
 <code>Box&lt;T&gt;</code>, <code>Vec&lt;T&gt;</code>, <code>String</code>, <code>&amp;T</code>, and <code>&amp;mut T</code>. Similarly, one can imagine
 nested enums pooling their tags into a single discriminant, as they are by
-definition known to have a limited range of valid values. In principle enums can
+definition known to have a limited range of valid values. In principle enums could
 use fairly elaborate algorithms to cache bits throughout nested types with
 special constrained representations. As such it is <em>especially</em> desirable that
 we leave enum layout unspecified today.</p>
