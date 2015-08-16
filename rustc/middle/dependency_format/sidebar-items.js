@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["calculate",""]],"type":[["Dependencies","A mapping of all required dependencies for a particular flavor of output."],["DependencyList","A list of dependencies for a certain crate type."]]});
+initSidebarItems({"enum":[["Linkage",""]],"fn":[["calculate",""]],"type":[["Dependencies","A mapping of all required dependencies for a particular flavor of output."],["DependencyList","A list of dependencies for a certain crate type."]]});

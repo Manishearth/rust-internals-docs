@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["calculate",""]],"type":[["Dependencies",""],["DependencyList",""]]});
+initSidebarItems({"enum":[["Linkage",""]],"fn":[["calculate",""]],"type":[["Dependencies",""],["DependencyList",""]]});

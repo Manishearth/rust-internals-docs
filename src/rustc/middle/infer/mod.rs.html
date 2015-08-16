@@ -25,7 +25,7 @@
     
 
     <section class="sidebar">
-        <a href='../../../../rustc/index.html'><img src='http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png' alt='' width='100'></a>
+        <a href='../../../../rustc/index.html'><img src='https://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png' alt='' width='100'></a>
         
     </section>
 
@@ -1648,6 +1648,30 @@
 <span id="1606">1606</span>
 <span id="1607">1607</span>
 <span id="1608">1608</span>
+<span id="1609">1609</span>
+<span id="1610">1610</span>
+<span id="1611">1611</span>
+<span id="1612">1612</span>
+<span id="1613">1613</span>
+<span id="1614">1614</span>
+<span id="1615">1615</span>
+<span id="1616">1616</span>
+<span id="1617">1617</span>
+<span id="1618">1618</span>
+<span id="1619">1619</span>
+<span id="1620">1620</span>
+<span id="1621">1621</span>
+<span id="1622">1622</span>
+<span id="1623">1623</span>
+<span id="1624">1624</span>
+<span id="1625">1625</span>
+<span id="1626">1626</span>
+<span id="1627">1627</span>
+<span id="1628">1628</span>
+<span id="1629">1629</span>
+<span id="1630">1630</span>
+<span id="1631">1631</span>
+<span id="1632">1632</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -1668,7 +1692,7 @@
 <span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>ValuePairs</span>::<span class='op'>*</span>;
 <span class='kw'>pub</span> <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>ty</span>::<span class='ident'>IntVarValue</span>;
 <span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>freshen</span>::<span class='ident'>TypeFreshener</span>;
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>region_inference</span>::<span class='ident'>GenericKind</span>;
+<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>region_inference</span>::{<span class='ident'>GenericKind</span>, <span class='ident'>VerifyBound</span>};
 
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>free_region</span>::<span class='ident'>FreeRegionMap</span>;
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>mem_categorization</span> <span class='kw'>as</span> <span class='ident'>mc</span>;
@@ -1686,6 +1710,7 @@
 <span class='kw'>use</span> <span class='ident'>rustc_data_structures</span>::<span class='ident'>unify</span>::{<span class='self'>self</span>, <span class='ident'>UnificationTable</span>};
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cell</span>::{<span class='ident'>RefCell</span>, <span class='ident'>Ref</span>};
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>fmt</span>;
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>rc</span>::<span class='ident'>Rc</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>codemap</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>codemap</span>::{<span class='ident'>Span</span>, <span class='ident'>DUMMY_SP</span>};
@@ -1839,6 +1864,11 @@
 <span class='doccomment'>/// See `error_reporting.rs` for more details</span>
 <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Debug</span>)]</span>
 <span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>SubregionOrigin</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
+    <span class='comment'>// Marker to indicate a constraint that only arises due to new</span>
+    <span class='comment'>// provisions from RFC 1214. This will result in a warning, not an</span>
+    <span class='comment'>// error.</span>
+    <span class='ident'>RFC1214Subregion</span>(<span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>SubregionOrigin</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>),
+
     <span class='comment'>// Arose from a subtyping relation</span>
     <span class='ident'>Subtype</span>(<span class='ident'>TypeTrace</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>),
 
@@ -1880,8 +1910,14 @@
     <span class='comment'>// Creating a pointer `b` to contents of an upvar</span>
     <span class='ident'>ReborrowUpvar</span>(<span class='ident'>Span</span>, <span class='ident'>ty</span>::<span class='ident'>UpvarId</span>),
 
+    <span class='comment'>// Data with type `Ty&lt;&#39;tcx&gt;` was borrowed</span>
+    <span class='ident'>DataBorrowed</span>(<span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>Span</span>),
+
     <span class='comment'>// (&amp;&#39;a &amp;&#39;b T) where a &gt;= b</span>
     <span class='ident'>ReferenceOutlivesReferent</span>(<span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>Span</span>),
+
+    <span class='comment'>// Type or region parameters must be in scope.</span>
+    <span class='ident'>ParameterInScope</span>(<span class='ident'>ParameterOrigin</span>, <span class='ident'>Span</span>),
 
     <span class='comment'>// The type T of an expression E must outlive the lifetime for E.</span>
     <span class='ident'>ExprTypeIsNotInScope</span>(<span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>Span</span>),
@@ -1909,6 +1945,15 @@
 
     <span class='comment'>// Region constraint arriving from destructor safety</span>
     <span class='ident'>SafeDestructor</span>(<span class='ident'>Span</span>),
+}
+
+<span class='doccomment'>/// Places that type/region parameters can appear.</span>
+<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Copy</span>, <span class='ident'>Debug</span>)]</span>
+<span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>ParameterOrigin</span> {
+    <span class='ident'>Path</span>, <span class='comment'>// foo::bar</span>
+    <span class='ident'>MethodCall</span>, <span class='comment'>// foo.bar() &lt;-- parameters on impl providing bar()</span>
+    <span class='ident'>OverloadedOperator</span>, <span class='comment'>// a + b when overloaded</span>
+    <span class='ident'>OverloadedDeref</span>, <span class='comment'>// *a when overloaded</span>
 }
 
 <span class='doccomment'>/// Times when we replace late-bound regions with variables:</span>
@@ -3049,13 +3094,13 @@
                                 <span class='ident'>origin</span>: <span class='ident'>SubregionOrigin</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
                                 <span class='ident'>kind</span>: <span class='ident'>GenericKind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
                                 <span class='ident'>a</span>: <span class='ident'>ty</span>::<span class='ident'>Region</span>,
-                                <span class='ident'>bs</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>Region</span><span class='op'>&gt;</span>) {
+                                <span class='ident'>bound</span>: <span class='ident'>VerifyBound</span>) {
         <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;verify_generic_bound({:?}, {:?} &lt;: {:?})&quot;</span>,
                <span class='ident'>kind</span>,
                <span class='ident'>a</span>,
-               <span class='ident'>bs</span>);
+               <span class='ident'>bound</span>);
 
-        <span class='self'>self</span>.<span class='ident'>region_vars</span>.<span class='ident'>verify_generic_bound</span>(<span class='ident'>origin</span>, <span class='ident'>kind</span>, <span class='ident'>a</span>, <span class='ident'>bs</span>);
+        <span class='self'>self</span>.<span class='ident'>region_vars</span>.<span class='ident'>verify_generic_bound</span>(<span class='ident'>origin</span>, <span class='ident'>kind</span>, <span class='ident'>a</span>, <span class='ident'>bound</span>);
     }
 
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>can_equate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;b</span>,<span class='ident'>T</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;b</span> <span class='self'>self</span>, <span class='ident'>a</span>: <span class='kw-2'>&amp;</span><span class='ident'>T</span>, <span class='ident'>b</span>: <span class='kw-2'>&amp;</span><span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='ident'>UnitResult</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
@@ -3216,6 +3261,7 @@
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>SubregionOrigin</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>span</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Span</span> {
         <span class='kw'>match</span> <span class='op'>*</span><span class='self'>self</span> {
+            <span class='ident'>RFC1214Subregion</span>(<span class='kw-2'>ref</span> <span class='ident'>a</span>) <span class='op'>=&gt;</span> <span class='ident'>a</span>.<span class='ident'>span</span>(),
             <span class='ident'>Subtype</span>(<span class='kw-2'>ref</span> <span class='ident'>a</span>) <span class='op'>=&gt;</span> <span class='ident'>a</span>.<span class='ident'>span</span>(),
             <span class='ident'>InfStackClosure</span>(<span class='ident'>a</span>) <span class='op'>=&gt;</span> <span class='ident'>a</span>,
             <span class='ident'>InvokeClosure</span>(<span class='ident'>a</span>) <span class='op'>=&gt;</span> <span class='ident'>a</span>,
@@ -3228,7 +3274,9 @@
             <span class='ident'>RelateDefaultParamBound</span>(<span class='ident'>a</span>, _) <span class='op'>=&gt;</span> <span class='ident'>a</span>,
             <span class='ident'>Reborrow</span>(<span class='ident'>a</span>) <span class='op'>=&gt;</span> <span class='ident'>a</span>,
             <span class='ident'>ReborrowUpvar</span>(<span class='ident'>a</span>, _) <span class='op'>=&gt;</span> <span class='ident'>a</span>,
+            <span class='ident'>DataBorrowed</span>(_, <span class='ident'>a</span>) <span class='op'>=&gt;</span> <span class='ident'>a</span>,
             <span class='ident'>ReferenceOutlivesReferent</span>(_, <span class='ident'>a</span>) <span class='op'>=&gt;</span> <span class='ident'>a</span>,
+            <span class='ident'>ParameterInScope</span>(_, <span class='ident'>a</span>) <span class='op'>=&gt;</span> <span class='ident'>a</span>,
             <span class='ident'>ExprTypeIsNotInScope</span>(_, <span class='ident'>a</span>) <span class='op'>=&gt;</span> <span class='ident'>a</span>,
             <span class='ident'>BindingTypeIsNotValidAtDecl</span>(<span class='ident'>a</span>) <span class='op'>=&gt;</span> <span class='ident'>a</span>,
             <span class='ident'>CallRcvr</span>(<span class='ident'>a</span>) <span class='op'>=&gt;</span> <span class='ident'>a</span>,
