@@ -1101,6 +1101,38 @@
 <span id="1059">1059</span>
 <span id="1060">1060</span>
 <span id="1061">1061</span>
+<span id="1062">1062</span>
+<span id="1063">1063</span>
+<span id="1064">1064</span>
+<span id="1065">1065</span>
+<span id="1066">1066</span>
+<span id="1067">1067</span>
+<span id="1068">1068</span>
+<span id="1069">1069</span>
+<span id="1070">1070</span>
+<span id="1071">1071</span>
+<span id="1072">1072</span>
+<span id="1073">1073</span>
+<span id="1074">1074</span>
+<span id="1075">1075</span>
+<span id="1076">1076</span>
+<span id="1077">1077</span>
+<span id="1078">1078</span>
+<span id="1079">1079</span>
+<span id="1080">1080</span>
+<span id="1081">1081</span>
+<span id="1082">1082</span>
+<span id="1083">1083</span>
+<span id="1084">1084</span>
+<span id="1085">1085</span>
+<span id="1086">1086</span>
+<span id="1087">1087</span>
+<span id="1088">1088</span>
+<span id="1089">1089</span>
+<span id="1090">1090</span>
+<span id="1091">1091</span>
+<span id="1092">1092</span>
+<span id="1093">1093</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -1111,6 +1143,9 @@
 <span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
 <span class='comment'>// option. This file may not be copied, modified, or distributed</span>
 <span class='comment'>// except according to those terms.</span>
+
+<span class='comment'>// FIXME(27718): rc_counts stuff is useful internally, but was previously public</span>
+<span class='attribute'>#<span class='op'>!</span>[<span class='ident'>allow</span>(<span class='ident'>deprecated</span>)]</span>
 
 <span class='doccomment'>//! Thread-local reference-counted boxes (the `Rc&lt;T&gt;` type).</span>
 <span class='doccomment'>//!</span>
@@ -1230,8 +1265,8 @@
 <span class='doccomment'>//!</span>
 <span class='doccomment'>//!     // Add the Gadgets to their Owner. To do this we mutably borrow from</span>
 <span class='doccomment'>//!     // the RefCell holding the Owner&#39;s Gadgets.</span>
-<span class='doccomment'>//!     gadget_owner.gadgets.borrow_mut().push(gadget1.clone().downgrade());</span>
-<span class='doccomment'>//!     gadget_owner.gadgets.borrow_mut().push(gadget2.clone().downgrade());</span>
+<span class='doccomment'>//!     gadget_owner.gadgets.borrow_mut().push(Rc::downgrade(&amp;gadget1));</span>
+<span class='doccomment'>//!     gadget_owner.gadgets.borrow_mut().push(Rc::downgrade(&amp;gadget2));</span>
 <span class='doccomment'>//!</span>
 <span class='doccomment'>//!     // Iterate over our Gadgets, printing their details out</span>
 <span class='doccomment'>//!     for gadget_opt in gadget_owner.gadgets.borrow().iter() {</span>
@@ -1265,7 +1300,7 @@
 <span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>hash</span>::{<span class='ident'>Hasher</span>, <span class='ident'>Hash</span>};
 <span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>intrinsics</span>::{<span class='ident'>assume</span>, <span class='ident'>drop_in_place</span>, <span class='ident'>abort</span>};
 <span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>marker</span>::{<span class='self'>self</span>, <span class='ident'>Unsize</span>};
-<span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>mem</span>::{<span class='self'>self</span>, <span class='ident'>align_of</span>, <span class='ident'>size_of</span>, <span class='ident'>align_of_val</span>, <span class='ident'>size_of_val</span>, <span class='ident'>forget</span>};
+<span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>mem</span>::{<span class='self'>self</span>, <span class='ident'>align_of_val</span>, <span class='ident'>size_of_val</span>, <span class='ident'>forget</span>};
 <span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>nonzero</span>::<span class='ident'>NonZero</span>;
 <span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>ops</span>::{<span class='ident'>CoerceUnsized</span>, <span class='ident'>Deref</span>};
 <span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>ptr</span>;
@@ -1322,10 +1357,10 @@
         }
     }
 
-    <span class='doccomment'>/// Unwraps the contained value if the `Rc&lt;T&gt;` is unique.</span>
+    <span class='doccomment'>/// Unwraps the contained value if the `Rc&lt;T&gt;` has only one strong reference.</span>
+    <span class='doccomment'>/// This will succeed even if there are outstanding weak references.</span>
     <span class='doccomment'>///</span>
-    <span class='doccomment'>/// If the `Rc&lt;T&gt;` is not unique, an `Err` is returned with the same</span>
-    <span class='doccomment'>/// `Rc&lt;T&gt;`.</span>
+    <span class='doccomment'>/// Otherwise, an `Err` is returned with the same `Rc&lt;T&gt;`.</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// # Examples</span>
     <span class='doccomment'>///</span>
@@ -1342,21 +1377,31 @@
     <span class='doccomment'>/// assert_eq!(Rc::try_unwrap(x), Err(Rc::new(4)));</span>
     <span class='doccomment'>/// ```</span>
     <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rc_unique&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27718&quot;</span>)]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>try_unwrap</span>(<span class='ident'>rc</span>: <span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>T</span>, <span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span> {
-        <span class='kw'>if</span> <span class='ident'>Rc</span>::<span class='ident'>is_unique</span>(<span class='kw-2'>&amp;</span><span class='ident'>rc</span>) {
+    <span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rc_unique&quot;</span>, <span class='ident'>reason</span><span class='op'>=</span>  <span class='string'>&quot;needs FCP&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27718&quot;</span>)]</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>try_unwrap</span>(<span class='ident'>this</span>: <span class='kw'>Self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>T</span>, <span class='kw'>Self</span><span class='op'>&gt;</span> {
+        <span class='kw'>if</span> <span class='ident'>Rc</span>::<span class='ident'>would_unwrap</span>(<span class='kw-2'>&amp;</span><span class='ident'>this</span>) {
             <span class='kw'>unsafe</span> {
-                <span class='kw'>let</span> <span class='ident'>val</span> <span class='op'>=</span> <span class='ident'>ptr</span>::<span class='ident'>read</span>(<span class='kw-2'>&amp;</span><span class='op'>*</span><span class='ident'>rc</span>); <span class='comment'>// copy the contained object</span>
-                <span class='comment'>// destruct the box and skip our Drop</span>
-                <span class='comment'>// we can ignore the refcounts because we know we&#39;re unique</span>
-                <span class='ident'>deallocate</span>(<span class='op'>*</span><span class='ident'>rc</span>.<span class='ident'>_ptr</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>u8</span>, <span class='ident'>size_of</span>::<span class='op'>&lt;</span><span class='ident'>RcBox</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>(),
-                            <span class='ident'>align_of</span>::<span class='op'>&lt;</span><span class='ident'>RcBox</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>());
-                <span class='ident'>forget</span>(<span class='ident'>rc</span>);
+                <span class='kw'>let</span> <span class='ident'>val</span> <span class='op'>=</span> <span class='ident'>ptr</span>::<span class='ident'>read</span>(<span class='kw-2'>&amp;</span><span class='op'>*</span><span class='ident'>this</span>); <span class='comment'>// copy the contained object</span>
+
+                <span class='comment'>// Indicate to Weaks that they can&#39;t be promoted by decrememting</span>
+                <span class='comment'>// the strong count, and then remove the implicit &quot;strong weak&quot;</span>
+                <span class='comment'>// pointer while also handling drop logic by just crafting a</span>
+                <span class='comment'>// fake Weak.</span>
+                <span class='ident'>this</span>.<span class='ident'>dec_strong</span>();
+                <span class='kw'>let</span> <span class='ident'>_weak</span> <span class='op'>=</span> <span class='ident'>Weak</span> { <span class='ident'>_ptr</span>: <span class='ident'>this</span>.<span class='ident'>_ptr</span> };
+                <span class='ident'>forget</span>(<span class='ident'>this</span>);
                 <span class='prelude-val'>Ok</span>(<span class='ident'>val</span>)
             }
         } <span class='kw'>else</span> {
-            <span class='prelude-val'>Err</span>(<span class='ident'>rc</span>)
+            <span class='prelude-val'>Err</span>(<span class='ident'>this</span>)
         }
+    }
+
+    <span class='doccomment'>/// Checks if `Rc::try_unwrap` would return `Ok`.</span>
+    <span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rc_would_unwrap&quot;</span>, <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;just added for niche usecase&quot;</span>,
+               <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27718&quot;</span>)]</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>would_unwrap</span>(<span class='ident'>this</span>: <span class='kw-2'>&amp;</span><span class='kw'>Self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
+        <span class='ident'>Rc</span>::<span class='ident'>strong_count</span>(<span class='kw-2'>&amp;</span><span class='ident'>this</span>) <span class='op'>==</span> <span class='number'>1</span>
     }
 }
 
@@ -1372,25 +1417,23 @@
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// let five = Rc::new(5);</span>
     <span class='doccomment'>///</span>
-    <span class='doccomment'>/// let weak_five = five.downgrade();</span>
+    <span class='doccomment'>/// let weak_five = Rc::downgrade(&amp;five);</span>
     <span class='doccomment'>/// ```</span>
-    <span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rc_weak&quot;</span>,
-               <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;Weak pointers may not belong in this module&quot;</span>,
-               <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27718&quot;</span>)]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>downgrade</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Weak</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>inc_weak</span>();
-        <span class='ident'>Weak</span> { <span class='ident'>_ptr</span>: <span class='self'>self</span>.<span class='ident'>_ptr</span> }
+    <span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rc_weak&quot;</span>, <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;needs FCP&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27718&quot;</span>)]</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>downgrade</span>(<span class='ident'>this</span>: <span class='kw-2'>&amp;</span><span class='kw'>Self</span>) <span class='op'>-&gt;</span> <span class='ident'>Weak</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
+        <span class='ident'>this</span>.<span class='ident'>inc_weak</span>();
+        <span class='ident'>Weak</span> { <span class='ident'>_ptr</span>: <span class='ident'>this</span>.<span class='ident'>_ptr</span> }
     }
 
     <span class='doccomment'>/// Get the number of weak references to this value.</span>
     <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rc_counts&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27718&quot;</span>)]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>weak_count</span>(<span class='ident'>this</span>: <span class='kw-2'>&amp;</span><span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> { <span class='ident'>this</span>.<span class='ident'>weak</span>() <span class='op'>-</span> <span class='number'>1</span> }
+    <span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rc_counts&quot;</span>, <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;not clearly useful&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27718&quot;</span>)]</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>weak_count</span>(<span class='ident'>this</span>: <span class='kw-2'>&amp;</span><span class='kw'>Self</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> { <span class='ident'>this</span>.<span class='ident'>weak</span>() <span class='op'>-</span> <span class='number'>1</span> }
 
     <span class='doccomment'>/// Get the number of strong references to this value.</span>
     <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rc_counts&quot;</span>, <span class='ident'>issue</span><span class='op'>=</span> <span class='string'>&quot;27718&quot;</span>)]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>strong_count</span>(<span class='ident'>this</span>: <span class='kw-2'>&amp;</span><span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> { <span class='ident'>this</span>.<span class='ident'>strong</span>() }
+    <span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rc_counts&quot;</span>, <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;not clearly useful&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27718&quot;</span>)]</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>strong_count</span>(<span class='ident'>this</span>: <span class='kw-2'>&amp;</span><span class='kw'>Self</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> { <span class='ident'>this</span>.<span class='ident'>strong</span>() }
 
     <span class='doccomment'>/// Returns true if there are no other `Rc` or `Weak&lt;T&gt;` values that share</span>
     <span class='doccomment'>/// the same inner value.</span>
@@ -1398,7 +1441,7 @@
     <span class='doccomment'>/// # Examples</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// ```</span>
-    <span class='doccomment'>/// #![feature(rc_unique)]</span>
+    <span class='doccomment'>/// #![feature(rc_counts)]</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// use std::rc::Rc;</span>
     <span class='doccomment'>///</span>
@@ -1407,13 +1450,13 @@
     <span class='doccomment'>/// assert!(Rc::is_unique(&amp;five));</span>
     <span class='doccomment'>/// ```</span>
     <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rc_unique&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27718&quot;</span>)]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_unique</span>(<span class='ident'>rc</span>: <span class='kw-2'>&amp;</span><span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-        <span class='ident'>Rc</span>::<span class='ident'>weak_count</span>(<span class='ident'>rc</span>) <span class='op'>==</span> <span class='number'>0</span> <span class='op'>&amp;&amp;</span> <span class='ident'>Rc</span>::<span class='ident'>strong_count</span>(<span class='ident'>rc</span>) <span class='op'>==</span> <span class='number'>1</span>
+    <span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rc_counts&quot;</span>, <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;uniqueness has unclear meaning&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27718&quot;</span>)]</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_unique</span>(<span class='ident'>this</span>: <span class='kw-2'>&amp;</span><span class='kw'>Self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
+        <span class='ident'>Rc</span>::<span class='ident'>weak_count</span>(<span class='ident'>this</span>) <span class='op'>==</span> <span class='number'>0</span> <span class='op'>&amp;&amp;</span> <span class='ident'>Rc</span>::<span class='ident'>strong_count</span>(<span class='ident'>this</span>) <span class='op'>==</span> <span class='number'>1</span>
     }
 
-    <span class='doccomment'>/// Returns a mutable reference to the contained value if the `Rc&lt;T&gt;` is</span>
-    <span class='doccomment'>/// unique.</span>
+    <span class='doccomment'>/// Returns a mutable reference to the contained value if the `Rc&lt;T&gt;` has</span>
+    <span class='doccomment'>/// one strong reference and no weak references.</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// Returns `None` if the `Rc&lt;T&gt;` is not unique.</span>
     <span class='doccomment'>///</span>
@@ -1432,10 +1475,10 @@
     <span class='doccomment'>/// assert!(Rc::get_mut(&amp;mut x).is_none());</span>
     <span class='doccomment'>/// ```</span>
     <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rc_unique&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27718&quot;</span>)]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>get_mut</span>(<span class='ident'>rc</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>T</span><span class='op'>&gt;</span> {
-        <span class='kw'>if</span> <span class='ident'>Rc</span>::<span class='ident'>is_unique</span>(<span class='ident'>rc</span>) {
-            <span class='kw'>let</span> <span class='ident'>inner</span> <span class='op'>=</span> <span class='kw'>unsafe</span> { <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='op'>*</span><span class='op'>*</span><span class='ident'>rc</span>.<span class='ident'>_ptr</span> };
+    <span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rc_unique&quot;</span>, <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;needs FCP&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27718&quot;</span>)]</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>get_mut</span>(<span class='ident'>this</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='kw'>Self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>T</span><span class='op'>&gt;</span> {
+        <span class='kw'>if</span> <span class='ident'>Rc</span>::<span class='ident'>is_unique</span>(<span class='ident'>this</span>) {
+            <span class='kw'>let</span> <span class='ident'>inner</span> <span class='op'>=</span> <span class='kw'>unsafe</span> { <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='op'>*</span><span class='op'>*</span><span class='ident'>this</span>.<span class='ident'>_ptr</span> };
             <span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>inner</span>.<span class='ident'>value</span>)
         } <span class='kw'>else</span> {
             <span class='prelude-val'>None</span>
@@ -1444,34 +1487,62 @@
 }
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='ident'>Clone</span><span class='op'>&gt;</span> <span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='doccomment'>/// Make a mutable reference from the given `Rc&lt;T&gt;`.</span>
+    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
+    <span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rc_unique&quot;</span>, <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;renamed to Rc::make_mut&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27718&quot;</span>)]</span>
+    <span class='attribute'>#[<span class='ident'>deprecated</span>(<span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.4.0&quot;</span>, <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;renamed to Rc::make_mut&quot;</span>)]</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>make_unique</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>T</span> {
+        <span class='ident'>Rc</span>::<span class='ident'>make_mut</span>(<span class='self'>self</span>)
+    }
+
+    <span class='doccomment'>/// Make a mutable reference into the given `Rc&lt;T&gt;` by cloning the inner</span>
+    <span class='doccomment'>/// data if the `Rc&lt;T&gt;` doesn&#39;t have one strong reference and no weak</span>
+    <span class='doccomment'>/// references.</span>
     <span class='doccomment'>///</span>
-    <span class='doccomment'>/// This is also referred to as a copy-on-write operation because the inner</span>
-    <span class='doccomment'>/// data is cloned if the reference count is greater than one.</span>
+    <span class='doccomment'>/// This is also referred to as a copy-on-write.</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// # Examples</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// ```</span>
     <span class='doccomment'>/// #![feature(rc_unique)]</span>
-    <span class='doccomment'>///</span>
     <span class='doccomment'>/// use std::rc::Rc;</span>
     <span class='doccomment'>///</span>
-    <span class='doccomment'>/// let mut five = Rc::new(5);</span>
+    <span class='doccomment'>/// let mut data = Rc::new(5);</span>
     <span class='doccomment'>///</span>
-    <span class='doccomment'>/// let mut_five = five.make_unique();</span>
+    <span class='doccomment'>/// *Rc::make_mut(&amp;mut data) += 1;             // Won&#39;t clone anything</span>
+    <span class='doccomment'>/// let mut other_data = data.clone(); // Won&#39;t clone inner data</span>
+    <span class='doccomment'>/// *Rc::make_mut(&amp;mut data) += 1;             // Clones inner data</span>
+    <span class='doccomment'>/// *Rc::make_mut(&amp;mut data) += 1;             // Won&#39;t clone anything</span>
+    <span class='doccomment'>/// *Rc::make_mut(&amp;mut other_data) *= 2;       // Won&#39;t clone anything</span>
+    <span class='doccomment'>///</span>
+    <span class='doccomment'>/// // Note: data and other_data now point to different numbers</span>
+    <span class='doccomment'>/// assert_eq!(*data, 8);</span>
+    <span class='doccomment'>/// assert_eq!(*other_data, 12);</span>
+    <span class='doccomment'>///</span>
     <span class='doccomment'>/// ```</span>
     <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rc_unique&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27718&quot;</span>)]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>make_unique</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>T</span> {
-        <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>Rc</span>::<span class='ident'>is_unique</span>(<span class='self'>self</span>) {
-            <span class='op'>*</span><span class='self'>self</span> <span class='op'>=</span> <span class='ident'>Rc</span>::<span class='ident'>new</span>((<span class='op'>*</span><span class='op'>*</span><span class='self'>self</span>).<span class='ident'>clone</span>())
+    <span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rc_unique&quot;</span>, <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;needs FCP&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27718&quot;</span>)]</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>make_mut</span>(<span class='ident'>this</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='kw'>Self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>T</span> {
+        <span class='kw'>if</span> <span class='ident'>Rc</span>::<span class='ident'>strong_count</span>(<span class='ident'>this</span>) <span class='op'>!=</span> <span class='number'>1</span> {
+            <span class='comment'>// Gotta clone the data, there are other Rcs</span>
+            <span class='op'>*</span><span class='ident'>this</span> <span class='op'>=</span> <span class='ident'>Rc</span>::<span class='ident'>new</span>((<span class='op'>*</span><span class='op'>*</span><span class='ident'>this</span>).<span class='ident'>clone</span>())
+        } <span class='kw'>else</span> <span class='kw'>if</span> <span class='ident'>Rc</span>::<span class='ident'>weak_count</span>(<span class='ident'>this</span>) <span class='op'>!=</span> <span class='number'>0</span> {
+            <span class='comment'>// Can just steal the data, all that&#39;s left is Weaks</span>
+            <span class='kw'>unsafe</span> {
+                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>swap</span> <span class='op'>=</span> <span class='ident'>Rc</span>::<span class='ident'>new</span>(<span class='ident'>ptr</span>::<span class='ident'>read</span>(<span class='kw-2'>&amp;</span>(<span class='op'>*</span><span class='op'>*</span><span class='ident'>this</span>.<span class='ident'>_ptr</span>).<span class='ident'>value</span>));
+                <span class='ident'>mem</span>::<span class='ident'>swap</span>(<span class='ident'>this</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>swap</span>);
+                <span class='ident'>swap</span>.<span class='ident'>dec_strong</span>();
+                <span class='comment'>// Remove implicit strong-weak ref (no need to craft a fake</span>
+                <span class='comment'>// Weak here -- we know other Weaks can clean up for us)</span>
+                <span class='ident'>swap</span>.<span class='ident'>dec_weak</span>();
+                <span class='ident'>forget</span>(<span class='ident'>swap</span>);
+            }
         }
         <span class='comment'>// This unsafety is ok because we&#39;re guaranteed that the pointer</span>
         <span class='comment'>// returned is the *only* pointer that will ever be returned to T. Our</span>
         <span class='comment'>// reference count is guaranteed to be 1 at this point, and we required</span>
         <span class='comment'>// the `Rc&lt;T&gt;` itself to be `mut`, so we&#39;re returning the only possible</span>
         <span class='comment'>// reference to the inner value.</span>
-        <span class='kw'>let</span> <span class='ident'>inner</span> <span class='op'>=</span> <span class='kw'>unsafe</span> { <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='op'>*</span><span class='op'>*</span><span class='self'>self</span>.<span class='ident'>_ptr</span> };
+        <span class='kw'>let</span> <span class='ident'>inner</span> <span class='op'>=</span> <span class='kw'>unsafe</span> { <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='op'>*</span><span class='op'>*</span><span class='ident'>this</span>.<span class='ident'>_ptr</span> };
         <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>inner</span>.<span class='ident'>value</span>
     }
 }
@@ -1517,7 +1588,7 @@
         <span class='kw'>unsafe</span> {
             <span class='kw'>let</span> <span class='ident'>ptr</span> <span class='op'>=</span> <span class='op'>*</span><span class='self'>self</span>.<span class='ident'>_ptr</span>;
             <span class='kw'>if</span> <span class='op'>!</span>(<span class='op'>*</span>(<span class='kw-2'>&amp;</span><span class='ident'>ptr</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw'>const</span> _ <span class='kw'>as</span> <span class='op'>*</span><span class='kw'>const</span> <span class='op'>*</span><span class='kw'>const</span> ())).<span class='ident'>is_null</span>() <span class='op'>&amp;&amp;</span>
-               <span class='ident'>ptr</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw'>const</span> () <span class='kw'>as</span> <span class='ident'>usize</span> <span class='op'>!=</span> <span class='ident'>mem</span>::<span class='ident'>POST_DROP_USIZE</span> {
+                <span class='ident'>ptr</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw'>const</span> () <span class='kw'>as</span> <span class='ident'>usize</span> <span class='op'>!=</span> <span class='ident'>mem</span>::<span class='ident'>POST_DROP_USIZE</span> {
                 <span class='self'>self</span>.<span class='ident'>dec_strong</span>();
                 <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>strong</span>() <span class='op'>==</span> <span class='number'>0</span> {
                     <span class='comment'>// destroy the contained object</span>
@@ -1757,9 +1828,7 @@
 <span class='doccomment'>///</span>
 <span class='doccomment'>/// See the [module level documentation](./index.html) for more.</span>
 <span class='attribute'>#[<span class='ident'>unsafe_no_drop_flag</span>]</span>
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rc_weak&quot;</span>,
-           <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;Weak pointers may not belong in this module.&quot;</span>,
-           <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27718&quot;</span>)]</span>
+<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rc_weak&quot;</span>, <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;needs FCP&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27718&quot;</span>)]</span>
 <span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>Weak</span><span class='op'>&lt;</span><span class='ident'>T</span>: ?<span class='ident'>Sized</span><span class='op'>&gt;</span> {
     <span class='comment'>// FIXME #12808: strange names to try to avoid interfering with</span>
     <span class='comment'>// field accesses of the contained type via Deref</span>
@@ -1771,11 +1840,7 @@
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: ?<span class='ident'>Sized</span><span class='op'>+</span><span class='ident'>Unsize</span><span class='op'>&lt;</span><span class='ident'>U</span><span class='op'>&gt;</span>, <span class='ident'>U</span>: ?<span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>CoerceUnsized</span><span class='op'>&lt;</span><span class='ident'>Weak</span><span class='op'>&lt;</span><span class='ident'>U</span><span class='op'>&gt;&gt;</span> <span class='kw'>for</span> <span class='ident'>Weak</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {}
 
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rc_weak&quot;</span>,
-           <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;Weak pointers may not belong in this module.&quot;</span>,
-           <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27718&quot;</span>)]</span>
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: ?<span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>Weak</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-
     <span class='doccomment'>/// Upgrades a weak reference to a strong reference.</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// Upgrades the `Weak&lt;T&gt;` reference to an `Rc&lt;T&gt;`, if possible.</span>
@@ -1792,10 +1857,11 @@
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// let five = Rc::new(5);</span>
     <span class='doccomment'>///</span>
-    <span class='doccomment'>/// let weak_five = five.downgrade();</span>
+    <span class='doccomment'>/// let weak_five = Rc::downgrade(&amp;five);</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// let strong_five: Option&lt;Rc&lt;_&gt;&gt; = weak_five.upgrade();</span>
     <span class='doccomment'>/// ```</span>
+    <span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rc_weak&quot;</span>, <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;needs FCP&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27718&quot;</span>)]</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>upgrade</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span> {
         <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>strong</span>() <span class='op'>==</span> <span class='number'>0</span> {
             <span class='prelude-val'>None</span>
@@ -1821,7 +1887,7 @@
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// {</span>
     <span class='doccomment'>///     let five = Rc::new(5);</span>
-    <span class='doccomment'>///     let weak_five = five.downgrade();</span>
+    <span class='doccomment'>///     let weak_five = Rc::downgrade(&amp;five);</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>///     // stuff</span>
     <span class='doccomment'>///</span>
@@ -1829,7 +1895,7 @@
     <span class='doccomment'>/// }</span>
     <span class='doccomment'>/// {</span>
     <span class='doccomment'>///     let five = Rc::new(5);</span>
-    <span class='doccomment'>///     let weak_five = five.downgrade();</span>
+    <span class='doccomment'>///     let weak_five = Rc::downgrade(&amp;five);</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>///     // stuff</span>
     <span class='doccomment'>///</span>
@@ -1839,7 +1905,7 @@
         <span class='kw'>unsafe</span> {
             <span class='kw'>let</span> <span class='ident'>ptr</span> <span class='op'>=</span> <span class='op'>*</span><span class='self'>self</span>.<span class='ident'>_ptr</span>;
             <span class='kw'>if</span> <span class='op'>!</span>(<span class='op'>*</span>(<span class='kw-2'>&amp;</span><span class='ident'>ptr</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw'>const</span> _ <span class='kw'>as</span> <span class='op'>*</span><span class='kw'>const</span> <span class='op'>*</span><span class='kw'>const</span> ())).<span class='ident'>is_null</span>() <span class='op'>&amp;&amp;</span>
-               <span class='ident'>ptr</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw'>const</span> () <span class='kw'>as</span> <span class='ident'>usize</span> <span class='op'>!=</span> <span class='ident'>mem</span>::<span class='ident'>POST_DROP_USIZE</span> {
+                <span class='ident'>ptr</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw'>const</span> () <span class='kw'>as</span> <span class='ident'>usize</span> <span class='op'>!=</span> <span class='ident'>mem</span>::<span class='ident'>POST_DROP_USIZE</span> {
                 <span class='self'>self</span>.<span class='ident'>dec_weak</span>();
                 <span class='comment'>// the weak count starts at 1, and will only go to zero if all</span>
                 <span class='comment'>// the strong pointers have disappeared.</span>
@@ -1852,9 +1918,7 @@
     }
 }
 
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rc_weak&quot;</span>,
-           <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;Weak pointers may not belong in this module.&quot;</span>,
-           <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27718&quot;</span>)]</span>
+<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rc_weak&quot;</span>, <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;needs FCP&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27718&quot;</span>)]</span>
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: ?<span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>Clone</span> <span class='kw'>for</span> <span class='ident'>Weak</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
 
     <span class='doccomment'>/// Makes a clone of the `Weak&lt;T&gt;`.</span>
@@ -1868,7 +1932,7 @@
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// use std::rc::Rc;</span>
     <span class='doccomment'>///</span>
-    <span class='doccomment'>/// let weak_five = Rc::new(5).downgrade();</span>
+    <span class='doccomment'>/// let weak_five = Rc::downgrade(&amp;Rc::new(5));</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// weak_five.clone();</span>
     <span class='doccomment'>/// ```</span>
@@ -1992,14 +2056,14 @@
     <span class='attribute'>#[<span class='ident'>test</span>]</span>
     <span class='kw'>fn</span> <span class='ident'>test_live</span>() {
         <span class='kw'>let</span> <span class='ident'>x</span> <span class='op'>=</span> <span class='ident'>Rc</span>::<span class='ident'>new</span>(<span class='number'>5</span>);
-        <span class='kw'>let</span> <span class='ident'>y</span> <span class='op'>=</span> <span class='ident'>x</span>.<span class='ident'>downgrade</span>();
+        <span class='kw'>let</span> <span class='ident'>y</span> <span class='op'>=</span> <span class='ident'>Rc</span>::<span class='ident'>downgrade</span>(<span class='kw-2'>&amp;</span><span class='ident'>x</span>);
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>y</span>.<span class='ident'>upgrade</span>().<span class='ident'>is_some</span>());
     }
 
     <span class='attribute'>#[<span class='ident'>test</span>]</span>
     <span class='kw'>fn</span> <span class='ident'>test_dead</span>() {
         <span class='kw'>let</span> <span class='ident'>x</span> <span class='op'>=</span> <span class='ident'>Rc</span>::<span class='ident'>new</span>(<span class='number'>5</span>);
-        <span class='kw'>let</span> <span class='ident'>y</span> <span class='op'>=</span> <span class='ident'>x</span>.<span class='ident'>downgrade</span>();
+        <span class='kw'>let</span> <span class='ident'>y</span> <span class='op'>=</span> <span class='ident'>Rc</span>::<span class='ident'>downgrade</span>(<span class='kw-2'>&amp;</span><span class='ident'>x</span>);
         <span class='ident'>drop</span>(<span class='ident'>x</span>);
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>y</span>.<span class='ident'>upgrade</span>().<span class='ident'>is_none</span>());
     }
@@ -2011,7 +2075,7 @@
         }
 
         <span class='kw'>let</span> <span class='ident'>a</span> <span class='op'>=</span> <span class='ident'>Rc</span>::<span class='ident'>new</span>(<span class='ident'>Cycle</span> { <span class='ident'>x</span>: <span class='ident'>RefCell</span>::<span class='ident'>new</span>(<span class='prelude-val'>None</span>) });
-        <span class='kw'>let</span> <span class='ident'>b</span> <span class='op'>=</span> <span class='ident'>a</span>.<span class='ident'>clone</span>().<span class='ident'>downgrade</span>();
+        <span class='kw'>let</span> <span class='ident'>b</span> <span class='op'>=</span> <span class='ident'>Rc</span>::<span class='ident'>downgrade</span>(<span class='kw-2'>&amp;</span><span class='ident'>a</span>.<span class='ident'>clone</span>());
         <span class='op'>*</span><span class='ident'>a</span>.<span class='ident'>x</span>.<span class='ident'>borrow_mut</span>() <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='ident'>b</span>);
 
         <span class='comment'>// hopefully we don&#39;t double-free (or leak)...</span>
@@ -2025,7 +2089,7 @@
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>Rc</span>::<span class='ident'>is_unique</span>(<span class='kw-2'>&amp;</span><span class='ident'>x</span>));
         <span class='ident'>drop</span>(<span class='ident'>y</span>);
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>Rc</span>::<span class='ident'>is_unique</span>(<span class='kw-2'>&amp;</span><span class='ident'>x</span>));
-        <span class='kw'>let</span> <span class='ident'>w</span> <span class='op'>=</span> <span class='ident'>x</span>.<span class='ident'>downgrade</span>();
+        <span class='kw'>let</span> <span class='ident'>w</span> <span class='op'>=</span> <span class='ident'>Rc</span>::<span class='ident'>downgrade</span>(<span class='kw-2'>&amp;</span><span class='ident'>x</span>);
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>Rc</span>::<span class='ident'>is_unique</span>(<span class='kw-2'>&amp;</span><span class='ident'>x</span>));
         <span class='ident'>drop</span>(<span class='ident'>w</span>);
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>Rc</span>::<span class='ident'>is_unique</span>(<span class='kw-2'>&amp;</span><span class='ident'>x</span>));
@@ -2035,7 +2099,7 @@
     <span class='kw'>fn</span> <span class='ident'>test_strong_count</span>() {
         <span class='kw'>let</span> <span class='ident'>a</span> <span class='op'>=</span> <span class='ident'>Rc</span>::<span class='ident'>new</span>(<span class='number'>0u32</span>);
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>Rc</span>::<span class='ident'>strong_count</span>(<span class='kw-2'>&amp;</span><span class='ident'>a</span>) <span class='op'>==</span> <span class='number'>1</span>);
-        <span class='kw'>let</span> <span class='ident'>w</span> <span class='op'>=</span> <span class='ident'>a</span>.<span class='ident'>downgrade</span>();
+        <span class='kw'>let</span> <span class='ident'>w</span> <span class='op'>=</span> <span class='ident'>Rc</span>::<span class='ident'>downgrade</span>(<span class='kw-2'>&amp;</span><span class='ident'>a</span>);
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>Rc</span>::<span class='ident'>strong_count</span>(<span class='kw-2'>&amp;</span><span class='ident'>a</span>) <span class='op'>==</span> <span class='number'>1</span>);
         <span class='kw'>let</span> <span class='ident'>b</span> <span class='op'>=</span> <span class='ident'>w</span>.<span class='ident'>upgrade</span>().<span class='ident'>expect</span>(<span class='string'>&quot;upgrade of live rc failed&quot;</span>);
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>Rc</span>::<span class='ident'>strong_count</span>(<span class='kw-2'>&amp;</span><span class='ident'>b</span>) <span class='op'>==</span> <span class='number'>2</span>);
@@ -2053,7 +2117,7 @@
         <span class='kw'>let</span> <span class='ident'>a</span> <span class='op'>=</span> <span class='ident'>Rc</span>::<span class='ident'>new</span>(<span class='number'>0u32</span>);
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>Rc</span>::<span class='ident'>strong_count</span>(<span class='kw-2'>&amp;</span><span class='ident'>a</span>) <span class='op'>==</span> <span class='number'>1</span>);
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>Rc</span>::<span class='ident'>weak_count</span>(<span class='kw-2'>&amp;</span><span class='ident'>a</span>) <span class='op'>==</span> <span class='number'>0</span>);
-        <span class='kw'>let</span> <span class='ident'>w</span> <span class='op'>=</span> <span class='ident'>a</span>.<span class='ident'>downgrade</span>();
+        <span class='kw'>let</span> <span class='ident'>w</span> <span class='op'>=</span> <span class='ident'>Rc</span>::<span class='ident'>downgrade</span>(<span class='kw-2'>&amp;</span><span class='ident'>a</span>);
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>Rc</span>::<span class='ident'>strong_count</span>(<span class='kw-2'>&amp;</span><span class='ident'>a</span>) <span class='op'>==</span> <span class='number'>1</span>);
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>Rc</span>::<span class='ident'>weak_count</span>(<span class='kw-2'>&amp;</span><span class='ident'>a</span>) <span class='op'>==</span> <span class='number'>1</span>);
         <span class='ident'>drop</span>(<span class='ident'>w</span>);
@@ -2073,8 +2137,8 @@
         <span class='kw'>let</span> <span class='ident'>_y</span> <span class='op'>=</span> <span class='ident'>x</span>.<span class='ident'>clone</span>();
         <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>Rc</span>::<span class='ident'>try_unwrap</span>(<span class='ident'>x</span>), <span class='prelude-val'>Err</span>(<span class='ident'>Rc</span>::<span class='ident'>new</span>(<span class='number'>4</span>)));
         <span class='kw'>let</span> <span class='ident'>x</span> <span class='op'>=</span> <span class='ident'>Rc</span>::<span class='ident'>new</span>(<span class='number'>5</span>);
-        <span class='kw'>let</span> <span class='ident'>_w</span> <span class='op'>=</span> <span class='ident'>x</span>.<span class='ident'>downgrade</span>();
-        <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>Rc</span>::<span class='ident'>try_unwrap</span>(<span class='ident'>x</span>), <span class='prelude-val'>Err</span>(<span class='ident'>Rc</span>::<span class='ident'>new</span>(<span class='number'>5</span>)));
+        <span class='kw'>let</span> <span class='ident'>_w</span> <span class='op'>=</span> <span class='ident'>Rc</span>::<span class='ident'>downgrade</span>(<span class='kw-2'>&amp;</span><span class='ident'>x</span>);
+        <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>Rc</span>::<span class='ident'>try_unwrap</span>(<span class='ident'>x</span>), <span class='prelude-val'>Ok</span>(<span class='number'>5</span>));
     }
 
     <span class='attribute'>#[<span class='ident'>test</span>]</span>
@@ -2086,7 +2150,7 @@
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>Rc</span>::<span class='ident'>get_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>x</span>).<span class='ident'>is_none</span>());
         <span class='ident'>drop</span>(<span class='ident'>y</span>);
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>Rc</span>::<span class='ident'>get_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>x</span>).<span class='ident'>is_some</span>());
-        <span class='kw'>let</span> <span class='ident'>_w</span> <span class='op'>=</span> <span class='ident'>x</span>.<span class='ident'>downgrade</span>();
+        <span class='kw'>let</span> <span class='ident'>_w</span> <span class='op'>=</span> <span class='ident'>Rc</span>::<span class='ident'>downgrade</span>(<span class='kw-2'>&amp;</span><span class='ident'>x</span>);
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>Rc</span>::<span class='ident'>get_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>x</span>).<span class='ident'>is_none</span>());
     }
 
@@ -2096,13 +2160,13 @@
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>cow1</span> <span class='op'>=</span> <span class='ident'>cow0</span>.<span class='ident'>clone</span>();
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>cow2</span> <span class='op'>=</span> <span class='ident'>cow1</span>.<span class='ident'>clone</span>();
 
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='number'>75</span> <span class='op'>==</span> <span class='op'>*</span><span class='ident'>cow0</span>.<span class='ident'>make_unique</span>());
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='number'>75</span> <span class='op'>==</span> <span class='op'>*</span><span class='ident'>cow1</span>.<span class='ident'>make_unique</span>());
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='number'>75</span> <span class='op'>==</span> <span class='op'>*</span><span class='ident'>cow2</span>.<span class='ident'>make_unique</span>());
+        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='number'>75</span> <span class='op'>==</span> <span class='op'>*</span><span class='ident'>Rc</span>::<span class='ident'>make_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>cow0</span>));
+        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='number'>75</span> <span class='op'>==</span> <span class='op'>*</span><span class='ident'>Rc</span>::<span class='ident'>make_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>cow1</span>));
+        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='number'>75</span> <span class='op'>==</span> <span class='op'>*</span><span class='ident'>Rc</span>::<span class='ident'>make_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>cow2</span>));
 
-        <span class='op'>*</span><span class='ident'>cow0</span>.<span class='ident'>make_unique</span>() <span class='op'>+=</span> <span class='number'>1</span>;
-        <span class='op'>*</span><span class='ident'>cow1</span>.<span class='ident'>make_unique</span>() <span class='op'>+=</span> <span class='number'>2</span>;
-        <span class='op'>*</span><span class='ident'>cow2</span>.<span class='ident'>make_unique</span>() <span class='op'>+=</span> <span class='number'>3</span>;
+        <span class='op'>*</span><span class='ident'>Rc</span>::<span class='ident'>make_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>cow0</span>) <span class='op'>+=</span> <span class='number'>1</span>;
+        <span class='op'>*</span><span class='ident'>Rc</span>::<span class='ident'>make_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>cow1</span>) <span class='op'>+=</span> <span class='number'>2</span>;
+        <span class='op'>*</span><span class='ident'>Rc</span>::<span class='ident'>make_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>cow2</span>) <span class='op'>+=</span> <span class='number'>3</span>;
 
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='number'>76</span> <span class='op'>==</span> <span class='op'>*</span><span class='ident'>cow0</span>);
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='number'>77</span> <span class='op'>==</span> <span class='op'>*</span><span class='ident'>cow1</span>);
@@ -2124,7 +2188,7 @@
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='number'>75</span> <span class='op'>==</span> <span class='op'>*</span><span class='ident'>cow1</span>);
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='number'>75</span> <span class='op'>==</span> <span class='op'>*</span><span class='ident'>cow2</span>);
 
-        <span class='op'>*</span><span class='ident'>cow0</span>.<span class='ident'>make_unique</span>() <span class='op'>+=</span> <span class='number'>1</span>;
+        <span class='op'>*</span><span class='ident'>Rc</span>::<span class='ident'>make_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>cow0</span>) <span class='op'>+=</span> <span class='number'>1</span>;
 
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='number'>76</span> <span class='op'>==</span> <span class='op'>*</span><span class='ident'>cow0</span>);
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='number'>75</span> <span class='op'>==</span> <span class='op'>*</span><span class='ident'>cow1</span>);
@@ -2140,12 +2204,12 @@
     <span class='attribute'>#[<span class='ident'>test</span>]</span>
     <span class='kw'>fn</span> <span class='ident'>test_cowrc_clone_weak</span>() {
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>cow0</span> <span class='op'>=</span> <span class='ident'>Rc</span>::<span class='ident'>new</span>(<span class='number'>75</span>);
-        <span class='kw'>let</span> <span class='ident'>cow1_weak</span> <span class='op'>=</span> <span class='ident'>cow0</span>.<span class='ident'>downgrade</span>();
+        <span class='kw'>let</span> <span class='ident'>cow1_weak</span> <span class='op'>=</span> <span class='ident'>Rc</span>::<span class='ident'>downgrade</span>(<span class='kw-2'>&amp;</span><span class='ident'>cow0</span>);
 
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='number'>75</span> <span class='op'>==</span> <span class='op'>*</span><span class='ident'>cow0</span>);
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='number'>75</span> <span class='op'>==</span> <span class='op'>*</span><span class='ident'>cow1_weak</span>.<span class='ident'>upgrade</span>().<span class='ident'>unwrap</span>());
 
-        <span class='op'>*</span><span class='ident'>cow0</span>.<span class='ident'>make_unique</span>() <span class='op'>+=</span> <span class='number'>1</span>;
+        <span class='op'>*</span><span class='ident'>Rc</span>::<span class='ident'>make_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>cow0</span>) <span class='op'>+=</span> <span class='number'>1</span>;
 
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='number'>76</span> <span class='op'>==</span> <span class='op'>*</span><span class='ident'>cow0</span>);
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>cow1_weak</span>.<span class='ident'>upgrade</span>().<span class='ident'>is_none</span>());

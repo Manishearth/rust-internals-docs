@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["log_enabled",""],["write",""]]});
+initSidebarItems({"fn":[["log_enabled",""]]});
