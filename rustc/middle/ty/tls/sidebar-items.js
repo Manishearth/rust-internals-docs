@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["enter",""],["with",""]]});
+initSidebarItems({"fn":[["enter",""],["with",""],["with_opt",""]]});

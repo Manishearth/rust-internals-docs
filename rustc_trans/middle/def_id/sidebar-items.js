@@ -1,0 +1,1 @@
+initSidebarItems({"constant":[["LOCAL_CRATE","Item definitions in the currently-compiled crate would have the CrateNum LOCAL_CRATE in their DefId."]],"struct":[["DefId",""]]});
