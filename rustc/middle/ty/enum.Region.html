@@ -45,16 +45,72 @@
             <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
                 [<span class='inner'>&#x2212;</span>]
             </a>
-        </span><a id='src-213501' class='srclink' href='../../../src/rustc/middle/ty.rs.html#1508-1542' title='goto source code'>[src]</a></span></h1>
+        </span><a id='src-212957' class='srclink' href='../../../src/rustc/middle/ty.rs.html#1556-1594' title='goto source code'>[src]</a></span></h1>
 <pre class='rust enum'>pub enum Region {
     ReEarlyBound(<a class='struct' href='../../../rustc/middle/ty/struct.EarlyBoundRegion.html' title='rustc::middle::ty::EarlyBoundRegion'>EarlyBoundRegion</a>),
     ReLateBound(<a class='struct' href='../../../rustc/middle/ty/struct.DebruijnIndex.html' title='rustc::middle::ty::DebruijnIndex'>DebruijnIndex</a>, <a class='enum' href='../../../rustc/middle/ty/enum.BoundRegion.html' title='rustc::middle::ty::BoundRegion'>BoundRegion</a>),
     ReFree(<a class='struct' href='../../../rustc/middle/ty/struct.FreeRegion.html' title='rustc::middle::ty::FreeRegion'>FreeRegion</a>),
-    ReScope(<a class='enum' href='../../../rustc/middle/region/enum.CodeExtent.html' title='rustc::middle::region::CodeExtent'>CodeExtent</a>),
+    ReScope(<a class='struct' href='../../../rustc/middle/region/struct.CodeExtent.html' title='rustc::middle::region::CodeExtent'>CodeExtent</a>),
     ReStatic,
-    ReInfer(<a class='enum' href='../../../rustc/middle/ty/enum.InferRegion.html' title='rustc::middle::ty::InferRegion'>InferRegion</a>),
+    ReVar(<a class='struct' href='../../../rustc/middle/ty/struct.RegionVid.html' title='rustc::middle::ty::RegionVid'>RegionVid</a>),
+    ReSkolemized(<a class='struct' href='../../../rustc/middle/ty/struct.SkolemizedRegionVid.html' title='rustc::middle::ty::SkolemizedRegionVid'>SkolemizedRegionVid</a>, <a class='enum' href='../../../rustc/middle/ty/enum.BoundRegion.html' title='rustc::middle::ty::BoundRegion'>BoundRegion</a>),
     ReEmpty,
-}</pre><div class='stability'><em class='stab unstable'>Unstable (<code>rustc_private</code>)</em></div><div class='docblock'><p>Representation of regions:</p>
+}</pre><div class='stability'><em class='stab unstable'>Unstable (<code>rustc_private</code>)</em></div><div class='docblock'><p>Representation of regions.</p>
+
+<p>Unlike types, most region variants are &quot;fictitious&quot;, not concrete,
+regions. Among these, <code>ReStatic</code>, <code>ReEmpty</code> and <code>ReScope</code> are the only
+ones representing concrete regions.</p>
+
+<h2 id="bound-regions" class='section-header'><a
+                           href="#bound-regions">Bound Regions</a></h2>
+<p>These are regions that are stored behind a binder and must be substituted
+with some concrete region before being used. There are 2 kind of
+bound regions: early-bound, which are bound in a TypeScheme/TraitDef,
+and are substituted by a Substs,  and late-bound, which are part of
+higher-ranked types (e.g. <code>for&lt;&#39;a&gt; fn(&amp;&#39;a ())</code>) and are substituted by
+the likes of <code>liberate_late_bound_regions</code>. The distinction exists
+because higher-ranked lifetimes aren&#39;t supported in all places. See [1][2].</p>
+
+<p>Unlike TyParam-s, bound regions are not supposed to exist &quot;in the wild&quot;
+outside their binder, e.g. in types passed to type inference, and
+should first be substituted (by skolemized regions, free regions,
+or region variables).</p>
+
+<h2 id="skolemized-and-free-regions" class='section-header'><a
+                           href="#skolemized-and-free-regions">Skolemized and Free Regions</a></h2>
+<p>One often wants to work with bound regions without knowing their precise
+identity. For example, when checking a function, the lifetime of a borrow
+can end up being assigned to some region parameter. In these cases,
+it must be ensured that bounds on the region can&#39;t be accidentally
+assumed without being checked.</p>
+
+<p>The process of doing that is called &quot;skolemization&quot;. The bound regions
+are replaced by skolemized markers, which don&#39;t satisfy any relation
+not explicity provided.</p>
+
+<p>There are 2 kinds of skolemized regions in rustc: <code>ReFree</code> and
+<code>ReSkolemized</code>. When checking an item&#39;s body, <code>ReFree</code> is supposed
+to be used. These also support explicit bounds: both the internally-stored
+<em>scope</em>, which the region is assumed to outlive, as well as other
+relations stored in the <code>FreeRegionMap</code>. Note that these relations
+aren&#39;t checked when you <code>make_subregion</code> (or <code>mk_eqty</code>), only by
+<code>resolve_regions_and_report_errors</code>.</p>
+
+<p>When working with higher-ranked types, some region relations aren&#39;t
+yet known, so you can&#39;t just call <code>resolve_regions_and_report_errors</code>.
+<code>ReSkolemized</code> is designed for this purpose. In these contexts,
+there&#39;s also the risk that some inference variable laying around will
+get unified with your skolemized region: if you want to check whether
+<code>for&lt;&#39;a&gt; Foo&lt;&#39;_&gt;: &#39;a</code>, and you substitute your bound region <code>&#39;a</code>
+with a skolemized region <code>&#39;%a</code>, the variable <code>&#39;_</code> would just be
+instantiated to the skolemized region <code>&#39;%a</code>, which is wrong because
+the inference variable is supposed to satisfy the relation
+<em>for every value of the skolemized region</em>. To ensure that doesn&#39;t
+happen, you can use <code>leak_check</code>. This is more clearly explained
+by infer/higher_ranked/README.md.</p>
+
+<p>[1] <a href="http://smallcultfollowing.com/babysteps/blog/2013/10/29/intermingled-parameter-lists/">http://smallcultfollowing.com/babysteps/blog/2013/10/29/intermingled-parameter-lists/</a>
+[2] <a href="http://smallcultfollowing.com/babysteps/blog/2013/11/04/intermingled-parameter-lists/">http://smallcultfollowing.com/babysteps/blog/2013/11/04/intermingled-parameter-lists/</a></p>
 </div><h2 class='variants'>Variants</h2>
 <table><tr><td id='variant.ReEarlyBound'><code>ReEarlyBound</code></td><td><div class='stability'><em class='stab unstable'>Unstable (<code>rustc_private</code>)</em></div></td></tr><tr><td id='variant.ReLateBound'><code>ReLateBound</code></td><td><div class='stability'><em class='stab unstable'>Unstable (<code>rustc_private</code>)</em></div></td></tr><tr><td id='variant.ReFree'><code>ReFree</code></td><td><div class='stability'><em class='stab unstable'>Unstable (<code>rustc_private</code>)</em></div><div class='docblock'><p>When checking a function body, the types of all arguments and so forth
 that refer to bound region parameters are modified to refer to free
@@ -63,7 +119,9 @@ region parameters.</p>
 (e.g. an expression or sequence of statements) within the
 current function.</p>
 </div></td></tr><tr><td id='variant.ReStatic'><code>ReStatic</code></td><td><div class='stability'><em class='stab unstable'>Unstable (<code>rustc_private</code>)</em></div><div class='docblock'><p>Static data that has an &quot;infinite&quot; lifetime. Top in the region lattice.</p>
-</div></td></tr><tr><td id='variant.ReInfer'><code>ReInfer</code></td><td><div class='stability'><em class='stab unstable'>Unstable (<code>rustc_private</code>)</em></div><div class='docblock'><p>A region variable.  Should not exist after typeck.</p>
+</div></td></tr><tr><td id='variant.ReVar'><code>ReVar</code></td><td><div class='stability'><em class='stab unstable'>Unstable (<code>rustc_private</code>)</em></div><div class='docblock'><p>A region variable.  Should not exist after typeck.</p>
+</div></td></tr><tr><td id='variant.ReSkolemized'><code>ReSkolemized</code></td><td><div class='stability'><em class='stab unstable'>Unstable (<code>rustc_private</code>)</em></div><div class='docblock'><p>A skolemized region - basically the higher-ranked version of ReFree.
+Should not exist after typeck.</p>
 </div></td></tr><tr><td id='variant.ReEmpty'><code>ReEmpty</code></td><td><div class='stability'><em class='stab unstable'>Unstable (<code>rustc_private</code>)</em></div><div class='docblock'><p>Empty lifetime is for data that is never accessed.
 Bottom in the region lattice. We treat ReEmpty somewhat
 specially; at least right now, we do not generate instances of
@@ -95,9 +153,7 @@ variable with no constraints.</p>
 </div><h3 class='impl'><code>impl&lt;'a, 'tcx&gt; <a class='trait' href='../../../rustc/middle/ty_relate/trait.Relate.html' title='rustc::middle::ty_relate::Relate'>Relate</a>&lt;'a, 'tcx&gt; for <a class='enum' href='../../../rustc/middle/ty/enum.Region.html' title='rustc::middle::ty::Region'>Region</a></code></h3><div class='impl-items'><h4 id='method.relate' class='method'><code>fn <a href='../../../rustc/middle/ty_relate/trait.Relate.html#method.relate' class='fnname'>relate</a>&lt;R&gt;(relation: &amp;mut R, a: &amp;<a class='enum' href='../../../rustc/middle/ty/enum.Region.html' title='rustc::middle::ty::Region'>Region</a>, b: &amp;<a class='enum' href='../../../rustc/middle/ty/enum.Region.html' title='rustc::middle::ty::Region'>Region</a>) -&gt; <a class='type' href='../../../rustc/middle/ty_relate/type.RelateResult.html' title='rustc::middle::ty_relate::RelateResult'>RelateResult</a>&lt;'tcx, <a class='enum' href='../../../rustc/middle/ty/enum.Region.html' title='rustc::middle::ty::Region'>Region</a>&gt; <span class='where'>where R: <a class='trait' href='../../../rustc/middle/ty_relate/trait.TypeRelation.html' title='rustc::middle::ty_relate::TypeRelation'>TypeRelation</a>&lt;'a, 'tcx&gt;</span></code></h4>
 </div><h3 class='impl'><code>impl <a class='trait' href='../../../core/fmt/trait.Debug.html' title='core::fmt::Debug'>Debug</a> for <a class='enum' href='../../../rustc/middle/ty/enum.Region.html' title='rustc::middle::ty::Region'>Region</a></code></h3><div class='impl-items'><h4 id='method.fmt' class='method'><code>fn <a href='../../../core/fmt/trait.Debug.html#method.fmt' class='fnname'>fmt</a>(&amp;self, f: &amp;mut <a class='struct' href='../../../core/fmt/struct.Formatter.html' title='core::fmt::Formatter'>Formatter</a>) -&gt; <a class='type' href='../../../core/fmt/type.Result.html' title='core::fmt::Result'>Result</a></code></h4>
 </div><h3 class='impl'><code>impl <a class='trait' href='../../../core/fmt/trait.Display.html' title='core::fmt::Display'>Display</a> for <a class='enum' href='../../../rustc/middle/ty/enum.Region.html' title='rustc::middle::ty::Region'>Region</a></code></h3><div class='impl-items'><h4 id='method.fmt' class='method'><code>fn <a href='../../../core/fmt/trait.Display.html#method.fmt' class='fnname'>fmt</a>(&amp;self, f: &amp;mut <a class='struct' href='../../../core/fmt/struct.Formatter.html' title='core::fmt::Formatter'>Formatter</a>) -&gt; <a class='type' href='../../../core/fmt/type.Result.html' title='core::fmt::Result'>Result</a></code></h4>
-</div><h3 id='derived_implementations'>Derived Implementations </h3><h3 class='impl'><code>impl <a class='trait' href='../../../core/marker/trait.Copy.html' title='core::marker::Copy'>Copy</a> for <a class='enum' href='../../../rustc/middle/ty/enum.Region.html' title='rustc::middle::ty::Region'>Region</a></code></h3><div class='impl-items'></div><h3 class='impl'><code>impl <a class='trait' href='../../../serialize/serialize/trait.Decodable.html' title='serialize::serialize::Decodable'>Decodable</a> for <a class='enum' href='../../../rustc/middle/ty/enum.Region.html' title='rustc::middle::ty::Region'>Region</a></code></h3><div class='impl-items'><h4 id='method.decode' class='method'><code>fn <a href='../../../serialize/serialize/trait.Decodable.html#method.decode' class='fnname'>decode</a>&lt;__D: <a class='trait' href='../../../serialize/serialize/trait.Decoder.html' title='serialize::serialize::Decoder'>Decoder</a>&gt;(__arg_0: &amp;mut __D) -&gt; <a class='enum' href='../../../core/result/enum.Result.html' title='core::result::Result'>Result</a>&lt;<a class='enum' href='../../../rustc/middle/ty/enum.Region.html' title='rustc::middle::ty::Region'>Region</a>, __D::Error&gt;</code></h4>
-</div><h3 class='impl'><code>impl <a class='trait' href='../../../serialize/serialize/trait.Encodable.html' title='serialize::serialize::Encodable'>Encodable</a> for <a class='enum' href='../../../rustc/middle/ty/enum.Region.html' title='rustc::middle::ty::Region'>Region</a></code></h3><div class='impl-items'><h4 id='method.encode' class='method'><code>fn <a href='../../../serialize/serialize/trait.Encodable.html#method.encode' class='fnname'>encode</a>&lt;__S: <a class='trait' href='../../../serialize/serialize/trait.Encoder.html' title='serialize::serialize::Encoder'>Encoder</a>&gt;(&amp;self, __arg_0: &amp;mut __S) -&gt; <a class='enum' href='../../../core/result/enum.Result.html' title='core::result::Result'>Result</a>&lt;<a href='../../../std/primitive.tuple.html'>()</a>, __S::Error&gt;</code></h4>
-</div><h3 class='impl'><code>impl <a class='trait' href='../../../core/hash/trait.Hash.html' title='core::hash::Hash'>Hash</a> for <a class='enum' href='../../../rustc/middle/ty/enum.Region.html' title='rustc::middle::ty::Region'>Region</a></code></h3><div class='impl-items'><h4 id='method.hash' class='method'><code>fn <a href='../../../core/hash/trait.Hash.html#method.hash' class='fnname'>hash</a>&lt;__H: <a class='trait' href='../../../core/hash/trait.Hasher.html' title='core::hash::Hasher'>Hasher</a>&gt;(&amp;self, __arg_0: &amp;mut __H)</code></h4>
+</div><h3 id='derived_implementations'>Derived Implementations </h3><h3 class='impl'><code>impl <a class='trait' href='../../../core/marker/trait.Copy.html' title='core::marker::Copy'>Copy</a> for <a class='enum' href='../../../rustc/middle/ty/enum.Region.html' title='rustc::middle::ty::Region'>Region</a></code></h3><div class='impl-items'></div><h3 class='impl'><code>impl <a class='trait' href='../../../core/hash/trait.Hash.html' title='core::hash::Hash'>Hash</a> for <a class='enum' href='../../../rustc/middle/ty/enum.Region.html' title='rustc::middle::ty::Region'>Region</a></code></h3><div class='impl-items'><h4 id='method.hash' class='method'><code>fn <a href='../../../core/hash/trait.Hash.html#method.hash' class='fnname'>hash</a>&lt;__H: <a class='trait' href='../../../core/hash/trait.Hasher.html' title='core::hash::Hasher'>Hasher</a>&gt;(&amp;self, __arg_0: &amp;mut __H)</code></h4>
 <h4 id='method.hash_slice' class='method'><code>fn <a href='../../../core/hash/trait.Hash.html#method.hash_slice' class='fnname'>hash_slice</a>&lt;H&gt;(data: <a href='../../../std/primitive.slice.html'>&amp;[Self]</a>, state: &amp;mut H) <span class='where'>where H: <a class='trait' href='../../../core/hash/trait.Hasher.html' title='core::hash::Hasher'>Hasher</a></span></code></h4>
 </div><h3 class='impl'><code>impl <a class='trait' href='../../../core/cmp/trait.Eq.html' title='core::cmp::Eq'>Eq</a> for <a class='enum' href='../../../rustc/middle/ty/enum.Region.html' title='rustc::middle::ty::Region'>Region</a></code></h3><div class='impl-items'></div><h3 class='impl'><code>impl <a class='trait' href='../../../core/cmp/trait.PartialEq.html' title='core::cmp::PartialEq'>PartialEq</a> for <a class='enum' href='../../../rustc/middle/ty/enum.Region.html' title='rustc::middle::ty::Region'>Region</a></code></h3><div class='impl-items'><h4 id='method.eq' class='method'><code>fn <a href='../../../core/cmp/trait.PartialEq.html#method.eq' class='fnname'>eq</a>(&amp;self, __arg_0: &amp;<a class='enum' href='../../../rustc/middle/ty/enum.Region.html' title='rustc::middle::ty::Region'>Region</a>) -&gt; <a href='../../../std/primitive.bool.html'>bool</a></code></h4>
 <h4 id='method.ne' class='method'><code>fn <a href='../../../core/cmp/trait.PartialEq.html#method.ne' class='fnname'>ne</a>(&amp;self, __arg_0: &amp;<a class='enum' href='../../../rustc/middle/ty/enum.Region.html' title='rustc::middle::ty::Region'>Region</a>) -&gt; <a href='../../../std/primitive.bool.html'>bool</a></code></h4>

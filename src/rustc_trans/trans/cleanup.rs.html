@@ -1513,18 +1513,16 @@
         <span class='comment'>// now we just say that if there is already an AST scope on the stack,</span>
         <span class='comment'>// this new AST scope had better be its immediate child.</span>
         <span class='kw'>let</span> <span class='ident'>top_scope</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>top_ast_scope</span>();
+        <span class='kw'>let</span> <span class='ident'>region_maps</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>ccx</span>.<span class='ident'>tcx</span>().<span class='ident'>region_maps</span>;
         <span class='kw'>if</span> <span class='ident'>top_scope</span>.<span class='ident'>is_some</span>() {
-            <span class='macro'>assert</span><span class='macro'>!</span>((<span class='self'>self</span>.<span class='ident'>ccx</span>
-                     .<span class='ident'>tcx</span>()
-                     .<span class='ident'>region_maps</span>
-                     .<span class='ident'>opt_encl_scope</span>(<span class='ident'>region</span>::<span class='ident'>CodeExtent</span>::<span class='ident'>from_node_id</span>(<span class='ident'>debug_loc</span>.<span class='ident'>id</span>))
-                     .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>s</span><span class='op'>|</span><span class='ident'>s</span>.<span class='ident'>node_id</span>()) <span class='op'>==</span> <span class='ident'>top_scope</span>)
+            <span class='macro'>assert</span><span class='macro'>!</span>((<span class='ident'>region_maps</span>
+                     .<span class='ident'>opt_encl_scope</span>(<span class='ident'>region_maps</span>.<span class='ident'>node_extent</span>(<span class='ident'>debug_loc</span>.<span class='ident'>id</span>))
+                     .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>s</span><span class='op'>|</span><span class='ident'>s</span>.<span class='ident'>node_id</span>(<span class='ident'>region_maps</span>)) <span class='op'>==</span> <span class='ident'>top_scope</span>)
                     <span class='op'>||</span>
-                    (<span class='self'>self</span>.<span class='ident'>ccx</span>
-                     .<span class='ident'>tcx</span>()
-                     .<span class='ident'>region_maps</span>
-                     .<span class='ident'>opt_encl_scope</span>(<span class='ident'>region</span>::<span class='ident'>CodeExtent</span>::<span class='ident'>DestructionScope</span>(<span class='ident'>debug_loc</span>.<span class='ident'>id</span>))
-                     .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>s</span><span class='op'>|</span><span class='ident'>s</span>.<span class='ident'>node_id</span>()) <span class='op'>==</span> <span class='ident'>top_scope</span>));
+                    (<span class='ident'>region_maps</span>
+                     .<span class='ident'>opt_encl_scope</span>(<span class='ident'>region_maps</span>.<span class='ident'>lookup_code_extent</span>(
+                         <span class='ident'>region</span>::<span class='ident'>CodeExtentData</span>::<span class='ident'>DestructionScope</span>(<span class='ident'>debug_loc</span>.<span class='ident'>id</span>)))
+                     .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>s</span><span class='op'>|</span><span class='ident'>s</span>.<span class='ident'>node_id</span>(<span class='ident'>region_maps</span>)) <span class='op'>==</span> <span class='ident'>top_scope</span>));
         }
 
         <span class='self'>self</span>.<span class='ident'>push_scope</span>(<span class='ident'>CleanupScope</span>::<span class='ident'>new</span>(<span class='ident'>AstScopeKind</span>(<span class='ident'>debug_loc</span>.<span class='ident'>id</span>),
@@ -1992,8 +1990,9 @@
                         <span class='kw'>let</span> <span class='ident'>prev_bcx</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>new_block</span>(<span class='boolval'>true</span>, <span class='string'>&quot;resume&quot;</span>, <span class='prelude-val'>None</span>);
                         <span class='kw'>let</span> <span class='ident'>personality</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>personality</span>.<span class='ident'>get</span>().<span class='ident'>expect</span>(
                             <span class='string'>&quot;create_landing_pad() should have set this&quot;</span>);
-                        <span class='ident'>build</span>::<span class='ident'>Resume</span>(<span class='ident'>prev_bcx</span>,
-                                      <span class='ident'>build</span>::<span class='ident'>Load</span>(<span class='ident'>prev_bcx</span>, <span class='ident'>personality</span>));
+                        <span class='kw'>let</span> <span class='ident'>lp</span> <span class='op'>=</span> <span class='ident'>build</span>::<span class='ident'>Load</span>(<span class='ident'>prev_bcx</span>, <span class='ident'>personality</span>);
+                        <span class='ident'>base</span>::<span class='ident'>call_lifetime_end</span>(<span class='ident'>prev_bcx</span>, <span class='ident'>personality</span>);
+                        <span class='ident'>build</span>::<span class='ident'>Resume</span>(<span class='ident'>prev_bcx</span>, <span class='ident'>lp</span>);
                         <span class='ident'>prev_llbb</span> <span class='op'>=</span> <span class='ident'>prev_bcx</span>.<span class='ident'>llbb</span>;
                         <span class='kw'>break</span>;
                     }
@@ -2145,6 +2144,7 @@
             }
             <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> {
                 <span class='kw'>let</span> <span class='ident'>addr</span> <span class='op'>=</span> <span class='ident'>base</span>::<span class='ident'>alloca</span>(<span class='ident'>pad_bcx</span>, <span class='ident'>common</span>::<span class='ident'>val_ty</span>(<span class='ident'>llretval</span>), <span class='string'>&quot;&quot;</span>);
+                <span class='ident'>base</span>::<span class='ident'>call_lifetime_start</span>(<span class='ident'>pad_bcx</span>, <span class='ident'>addr</span>);
                 <span class='self'>self</span>.<span class='ident'>personality</span>.<span class='ident'>set</span>(<span class='prelude-val'>Some</span>(<span class='ident'>addr</span>));
                 <span class='ident'>build</span>::<span class='ident'>Store</span>(<span class='ident'>pad_bcx</span>, <span class='ident'>llretval</span>, <span class='ident'>addr</span>);
             }
@@ -2371,7 +2371,7 @@
                        <span class='op'>-&gt;</span> <span class='ident'>ScopeId</span> {
     <span class='kw'>match</span> <span class='ident'>tcx</span>.<span class='ident'>region_maps</span>.<span class='ident'>temporary_scope</span>(<span class='ident'>id</span>) {
         <span class='prelude-val'>Some</span>(<span class='ident'>scope</span>) <span class='op'>=&gt;</span> {
-            <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='ident'>AstScope</span>(<span class='ident'>scope</span>.<span class='ident'>node_id</span>());
+            <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='ident'>AstScope</span>(<span class='ident'>scope</span>.<span class='ident'>node_id</span>(<span class='kw-2'>&amp;</span><span class='ident'>tcx</span>.<span class='ident'>region_maps</span>));
             <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;temporary_scope({}) = {:?}&quot;</span>, <span class='ident'>id</span>, <span class='ident'>r</span>);
             <span class='ident'>r</span>
         }
@@ -2385,7 +2385,7 @@
 <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>var_scope</span>(<span class='ident'>tcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>ctxt</span>,
                  <span class='ident'>id</span>: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>)
                  <span class='op'>-&gt;</span> <span class='ident'>ScopeId</span> {
-    <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='ident'>AstScope</span>(<span class='ident'>tcx</span>.<span class='ident'>region_maps</span>.<span class='ident'>var_scope</span>(<span class='ident'>id</span>).<span class='ident'>node_id</span>());
+    <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='ident'>AstScope</span>(<span class='ident'>tcx</span>.<span class='ident'>region_maps</span>.<span class='ident'>var_scope</span>(<span class='ident'>id</span>).<span class='ident'>node_id</span>(<span class='kw-2'>&amp;</span><span class='ident'>tcx</span>.<span class='ident'>region_maps</span>));
     <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;var_scope({}) = {:?}&quot;</span>, <span class='ident'>id</span>, <span class='ident'>r</span>);
     <span class='ident'>r</span>
 }

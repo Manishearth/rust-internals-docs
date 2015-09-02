@@ -528,24 +528,6 @@
 <span id="486">486</span>
 <span id="487">487</span>
 <span id="488">488</span>
-<span id="489">489</span>
-<span id="490">490</span>
-<span id="491">491</span>
-<span id="492">492</span>
-<span id="493">493</span>
-<span id="494">494</span>
-<span id="495">495</span>
-<span id="496">496</span>
-<span id="497">497</span>
-<span id="498">498</span>
-<span id="499">499</span>
-<span id="500">500</span>
-<span id="501">501</span>
-<span id="502">502</span>
-<span id="503">503</span>
-<span id="504">504</span>
-<span id="505">505</span>
-<span id="506">506</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -560,9 +542,11 @@
 <span class='kw'>use</span> <span class='ident'>check</span>::<span class='ident'>regionck</span>::{<span class='self'>self</span>, <span class='ident'>Rcx</span>};
 
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>def_id</span>::{<span class='ident'>DefId</span>, <span class='ident'>LOCAL_CRATE</span>};
+<span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>free_region</span>::<span class='ident'>FreeRegionMap</span>;
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>infer</span>;
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>region</span>;
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>subst</span>::{<span class='self'>self</span>, <span class='ident'>Subst</span>};
+<span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>traits</span>;
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>Ty</span>};
 <span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>nodemap</span>::<span class='ident'>FnvHashSet</span>;
 
@@ -624,53 +608,23 @@
     <span class='ident'>drop_impl_ty</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
     <span class='ident'>self_type_did</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(), ()<span class='op'>&gt;</span>
 {
-    <span class='comment'>// New strategy based on review suggestion from nikomatsakis.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// (In the text and code below, &quot;named&quot; denotes &quot;struct/enum&quot;, and</span>
-    <span class='comment'>// &quot;generic params&quot; denotes &quot;type and region params&quot;)</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// 1. Create fresh skolemized type/region &quot;constants&quot; for each of</span>
-    <span class='comment'>//    the named type&#39;s generic params.  Instantiate the named type</span>
-    <span class='comment'>//    with the fresh constants, yielding `named_skolem`.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// 2. Create unification variables for each of the Drop impl&#39;s</span>
-    <span class='comment'>//    generic params.  Instantiate the impl&#39;s Self&#39;s type with the</span>
-    <span class='comment'>//    unification-vars, yielding `drop_unifier`.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// 3. Attempt to unify Self_unif with Type_skolem.  If unification</span>
-    <span class='comment'>//    succeeds, continue (i.e. with the predicate checks).</span>
+    <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>drop_impl_did</span>.<span class='ident'>is_local</span>() <span class='op'>&amp;&amp;</span> <span class='ident'>self_type_did</span>.<span class='ident'>is_local</span>());
 
-    <span class='kw'>let</span> <span class='ident'>ty</span>::<span class='ident'>TypeScheme</span> { <span class='ident'>generics</span>: <span class='kw-2'>ref</span> <span class='ident'>named_type_generics</span>,
-                         <span class='ident'>ty</span>: <span class='ident'>named_type</span> } <span class='op'>=</span>
-        <span class='ident'>tcx</span>.<span class='ident'>lookup_item_type</span>(<span class='ident'>self_type_did</span>);
+    <span class='comment'>// check that the impl type can be made to match the trait type.</span>
 
-    <span class='kw'>let</span> <span class='ident'>infcx</span> <span class='op'>=</span> <span class='ident'>infer</span>::<span class='ident'>new_infer_ctxt</span>(<span class='ident'>tcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>tcx</span>.<span class='ident'>tables</span>, <span class='prelude-val'>None</span>, <span class='boolval'>false</span>);
+    <span class='kw'>let</span> <span class='ident'>impl_param_env</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>ParameterEnvironment</span>::<span class='ident'>for_item</span>(<span class='ident'>tcx</span>, <span class='ident'>self_type_did</span>.<span class='ident'>node</span>);
+    <span class='kw'>let</span> <span class='ident'>infcx</span> <span class='op'>=</span> <span class='ident'>infer</span>::<span class='ident'>new_infer_ctxt</span>(<span class='ident'>tcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>tcx</span>.<span class='ident'>tables</span>, <span class='prelude-val'>Some</span>(<span class='ident'>impl_param_env</span>), <span class='boolval'>true</span>);
 
-    <span class='ident'>infcx</span>.<span class='ident'>commit_if_ok</span>(<span class='op'>|</span><span class='ident'>snapshot</span><span class='op'>|</span> {
-        <span class='kw'>let</span> (<span class='ident'>named_type_to_skolem</span>, <span class='ident'>skol_map</span>) <span class='op'>=</span>
-            <span class='ident'>infcx</span>.<span class='ident'>construct_skolemized_subst</span>(<span class='ident'>named_type_generics</span>, <span class='ident'>snapshot</span>);
-        <span class='kw'>let</span> <span class='ident'>named_type_skolem</span> <span class='op'>=</span> <span class='ident'>named_type</span>.<span class='ident'>subst</span>(<span class='ident'>tcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>named_type_to_skolem</span>);
+    <span class='kw'>let</span> <span class='ident'>named_type</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>lookup_item_type</span>(<span class='ident'>self_type_did</span>).<span class='ident'>ty</span>;
+    <span class='kw'>let</span> <span class='ident'>named_type</span> <span class='op'>=</span> <span class='ident'>named_type</span>.<span class='ident'>subst</span>(<span class='ident'>tcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>infcx</span>.<span class='ident'>parameter_environment</span>.<span class='ident'>free_substs</span>);
 
-        <span class='kw'>let</span> <span class='ident'>drop_impl_span</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>def_id_span</span>(<span class='ident'>drop_impl_did</span>, <span class='ident'>codemap</span>::<span class='ident'>DUMMY_SP</span>);
-        <span class='kw'>let</span> <span class='ident'>drop_to_unifier</span> <span class='op'>=</span>
-            <span class='ident'>infcx</span>.<span class='ident'>fresh_substs_for_generics</span>(<span class='ident'>drop_impl_span</span>, <span class='ident'>drop_impl_generics</span>);
-        <span class='kw'>let</span> <span class='ident'>drop_unifier</span> <span class='op'>=</span> <span class='ident'>drop_impl_ty</span>.<span class='ident'>subst</span>(<span class='ident'>tcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>drop_to_unifier</span>);
+    <span class='kw'>let</span> <span class='ident'>drop_impl_span</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>def_id_span</span>(<span class='ident'>drop_impl_did</span>, <span class='ident'>codemap</span>::<span class='ident'>DUMMY_SP</span>);
+    <span class='kw'>let</span> <span class='ident'>fresh_impl_substs</span> <span class='op'>=</span>
+        <span class='ident'>infcx</span>.<span class='ident'>fresh_substs_for_generics</span>(<span class='ident'>drop_impl_span</span>, <span class='ident'>drop_impl_generics</span>);
+    <span class='kw'>let</span> <span class='ident'>fresh_impl_self_ty</span> <span class='op'>=</span> <span class='ident'>drop_impl_ty</span>.<span class='ident'>subst</span>(<span class='ident'>tcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>fresh_impl_substs</span>);
 
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Ok</span>(()) <span class='op'>=</span> <span class='ident'>infer</span>::<span class='ident'>mk_eqty</span>(<span class='kw-2'>&amp;</span><span class='ident'>infcx</span>, <span class='boolval'>true</span>, <span class='ident'>infer</span>::<span class='ident'>TypeOrigin</span>::<span class='ident'>Misc</span>(<span class='ident'>drop_impl_span</span>),
-                                       <span class='ident'>named_type_skolem</span>, <span class='ident'>drop_unifier</span>) {
-            <span class='comment'>// Even if we did manage to equate the types, the process</span>
-            <span class='comment'>// may have just gathered unsolvable region constraints</span>
-            <span class='comment'>// like `R == &#39;static` (represented as a pair of subregion</span>
-            <span class='comment'>// constraints) for some skolemization constant R.</span>
-            <span class='comment'>//</span>
-            <span class='comment'>// However, the leak_check method allows us to confirm</span>
-            <span class='comment'>// that no skolemized regions escaped (i.e. were related</span>
-            <span class='comment'>// to other regions in the constraint graph).</span>
-            <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Ok</span>(()) <span class='op'>=</span> <span class='ident'>infcx</span>.<span class='ident'>leak_check</span>(<span class='kw-2'>&amp;</span><span class='ident'>skol_map</span>, <span class='ident'>snapshot</span>) {
-                <span class='kw'>return</span> <span class='prelude-val'>Ok</span>(())
-            }
-        }
-
+    <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Err</span>(_) <span class='op'>=</span> <span class='ident'>infer</span>::<span class='ident'>mk_eqty</span>(<span class='kw-2'>&amp;</span><span class='ident'>infcx</span>, <span class='boolval'>true</span>, <span class='ident'>infer</span>::<span class='ident'>TypeOrigin</span>::<span class='ident'>Misc</span>(<span class='ident'>drop_impl_span</span>),
+                                   <span class='ident'>named_type</span>, <span class='ident'>fresh_impl_self_ty</span>) {
         <span class='macro'>span_err</span><span class='macro'>!</span>(<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>drop_impl_span</span>, <span class='ident'>E0366</span>,
                   <span class='string'>&quot;Implementations of Drop cannot be specialized&quot;</span>);
         <span class='kw'>let</span> <span class='ident'>item_span</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>span</span>(<span class='ident'>self_type_did</span>.<span class='ident'>node</span>);
@@ -678,7 +632,17 @@
                            <span class='string'>&quot;Use same sequence of generic type and region \
                             parameters that is on the struct/enum definition&quot;</span>);
         <span class='kw'>return</span> <span class='prelude-val'>Err</span>(());
-    })
+    }
+
+    <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Err</span>(<span class='kw-2'>ref</span> <span class='ident'>errors</span>) <span class='op'>=</span> <span class='ident'>infcx</span>.<span class='ident'>fulfillment_cx</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>select_all_or_error</span>(<span class='kw-2'>&amp;</span><span class='ident'>infcx</span>) {
+        <span class='comment'>// this could be reached when we get lazy normalization</span>
+        <span class='ident'>traits</span>::<span class='ident'>report_fulfillment_errors</span>(<span class='kw-2'>&amp;</span><span class='ident'>infcx</span>, <span class='ident'>errors</span>);
+        <span class='kw'>return</span> <span class='prelude-val'>Err</span>(());
+    }
+
+    <span class='kw'>let</span> <span class='ident'>free_regions</span> <span class='op'>=</span> <span class='ident'>FreeRegionMap</span>::<span class='ident'>new</span>();
+    <span class='ident'>infcx</span>.<span class='ident'>resolve_regions_and_report_errors</span>(<span class='kw-2'>&amp;</span><span class='ident'>free_regions</span>, <span class='ident'>drop_impl_did</span>.<span class='ident'>node</span>);
+    <span class='prelude-val'>Ok</span>(())
 }
 
 <span class='doccomment'>/// Confirms that every predicate imposed by dtor_predicates is</span>

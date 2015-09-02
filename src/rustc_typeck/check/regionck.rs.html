@@ -2203,7 +2203,9 @@
 
         <span class='kw'>let</span> <span class='ident'>old_body_id</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>set_body_id</span>(<span class='ident'>body</span>.<span class='ident'>id</span>);
         <span class='self'>self</span>.<span class='ident'>relate_free_regions</span>(<span class='kw-2'>&amp;</span><span class='ident'>fn_sig</span>[..], <span class='ident'>body</span>.<span class='ident'>id</span>, <span class='ident'>span</span>);
-        <span class='ident'>link_fn_args</span>(<span class='self'>self</span>, <span class='ident'>CodeExtent</span>::<span class='ident'>from_node_id</span>(<span class='ident'>body</span>.<span class='ident'>id</span>), <span class='kw-2'>&amp;</span><span class='ident'>fn_decl</span>.<span class='ident'>inputs</span>[..]);
+        <span class='ident'>link_fn_args</span>(<span class='self'>self</span>,
+                     <span class='self'>self</span>.<span class='ident'>tcx</span>().<span class='ident'>region_maps</span>.<span class='ident'>node_extent</span>(<span class='ident'>body</span>.<span class='ident'>id</span>),
+                     <span class='kw-2'>&amp;</span><span class='ident'>fn_decl</span>.<span class='ident'>inputs</span>[..]);
         <span class='self'>self</span>.<span class='ident'>visit_block</span>(<span class='ident'>body</span>);
         <span class='self'>self</span>.<span class='ident'>visit_region_obligations</span>(<span class='ident'>body</span>.<span class='ident'>id</span>);
 
@@ -2337,7 +2339,7 @@
                 <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;implication: {:?}&quot;</span>, <span class='ident'>implication</span>);
                 <span class='kw'>match</span> <span class='ident'>implication</span> {
                     <span class='ident'>ImpliedBound</span>::<span class='ident'>RegionSubRegion</span>(<span class='ident'>ty</span>::<span class='ident'>ReFree</span>(<span class='ident'>free_a</span>),
-                                                  <span class='ident'>ty</span>::<span class='ident'>ReInfer</span>(<span class='ident'>ty</span>::<span class='ident'>ReVar</span>(<span class='ident'>vid_b</span>))) <span class='op'>=&gt;</span> {
+                                                  <span class='ident'>ty</span>::<span class='ident'>ReVar</span>(<span class='ident'>vid_b</span>)) <span class='op'>=&gt;</span> {
                         <span class='self'>self</span>.<span class='ident'>fcx</span>.<span class='ident'>inh</span>.<span class='ident'>infcx</span>.<span class='ident'>add_given</span>(<span class='ident'>free_a</span>, <span class='ident'>vid_b</span>);
                     }
                     <span class='ident'>ImpliedBound</span>::<span class='ident'>RegionSubParam</span>(<span class='ident'>r_a</span>, <span class='ident'>param_b</span>) <span class='op'>=&gt;</span> {
@@ -2473,16 +2475,14 @@
     <span class='comment'>// No matter what, the type of each expression must outlive the</span>
     <span class='comment'>// scope of that expression. This also guarantees basic WF.</span>
     <span class='kw'>let</span> <span class='ident'>expr_ty</span> <span class='op'>=</span> <span class='ident'>rcx</span>.<span class='ident'>resolve_node_type</span>(<span class='ident'>expr</span>.<span class='ident'>id</span>);
-
+    <span class='comment'>// the region corresponding to this expression</span>
+    <span class='kw'>let</span> <span class='ident'>expr_region</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>ReScope</span>(<span class='ident'>rcx</span>.<span class='ident'>tcx</span>().<span class='ident'>region_maps</span>.<span class='ident'>node_extent</span>(<span class='ident'>expr</span>.<span class='ident'>id</span>));
     <span class='ident'>type_must_outlive</span>(<span class='ident'>rcx</span>, <span class='ident'>infer</span>::<span class='ident'>ExprTypeIsNotInScope</span>(<span class='ident'>expr_ty</span>, <span class='ident'>expr</span>.<span class='ident'>span</span>),
-                      <span class='ident'>expr_ty</span>, <span class='ident'>ty</span>::<span class='ident'>ReScope</span>(<span class='ident'>CodeExtent</span>::<span class='ident'>from_node_id</span>(<span class='ident'>expr</span>.<span class='ident'>id</span>)));
+                      <span class='ident'>expr_ty</span>, <span class='ident'>expr_region</span>);
 
     <span class='kw'>let</span> <span class='ident'>method_call</span> <span class='op'>=</span> <span class='ident'>MethodCall</span>::<span class='ident'>expr</span>(<span class='ident'>expr</span>.<span class='ident'>id</span>);
     <span class='kw'>let</span> <span class='ident'>opt_method_callee</span> <span class='op'>=</span> <span class='ident'>rcx</span>.<span class='ident'>fcx</span>.<span class='ident'>inh</span>.<span class='ident'>tables</span>.<span class='ident'>borrow</span>().<span class='ident'>method_map</span>.<span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='ident'>method_call</span>).<span class='ident'>cloned</span>();
     <span class='kw'>let</span> <span class='ident'>has_method_map</span> <span class='op'>=</span> <span class='ident'>opt_method_callee</span>.<span class='ident'>is_some</span>();
-
-    <span class='comment'>// the region corresponding to this expression</span>
-    <span class='kw'>let</span> <span class='ident'>expr_region</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>ReScope</span>(<span class='ident'>CodeExtent</span>::<span class='ident'>from_node_id</span>(<span class='ident'>expr</span>.<span class='ident'>id</span>));
 
     <span class='comment'>// If we are calling a method (either explicitly or via an</span>
     <span class='comment'>// overloaded operator), check that all of the types provided as</span>
@@ -2518,7 +2518,7 @@
                     <span class='comment'>// FIXME(#6268) remove to support nested method calls</span>
                     <span class='ident'>type_of_node_must_outlive</span>(
                         <span class='ident'>rcx</span>, <span class='ident'>infer</span>::<span class='ident'>AutoBorrow</span>(<span class='ident'>expr</span>.<span class='ident'>span</span>),
-                        <span class='ident'>expr</span>.<span class='ident'>id</span>, <span class='ident'>ty</span>::<span class='ident'>ReScope</span>(<span class='ident'>CodeExtent</span>::<span class='ident'>from_node_id</span>(<span class='ident'>expr</span>.<span class='ident'>id</span>)));
+                        <span class='ident'>expr</span>.<span class='ident'>id</span>, <span class='ident'>expr_region</span>);
                 }
             }
             <span class='comment'>/*
@@ -2635,7 +2635,7 @@
                 <span class='ident'>type_must_outlive</span>(<span class='ident'>rcx</span>,
                                   <span class='ident'>infer</span>::<span class='ident'>Operand</span>(<span class='ident'>expr</span>.<span class='ident'>span</span>),
                                   <span class='ident'>ty</span>,
-                                  <span class='ident'>ty</span>::<span class='ident'>ReScope</span>(<span class='ident'>CodeExtent</span>::<span class='ident'>from_node_id</span>(<span class='ident'>expr</span>.<span class='ident'>id</span>)));
+                                  <span class='ident'>expr_region</span>);
             }
             <span class='ident'>visit</span>::<span class='ident'>walk_expr</span>(<span class='ident'>rcx</span>, <span class='ident'>expr</span>);
         }
@@ -2665,7 +2665,7 @@
             };
             <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>ty</span>::<span class='ident'>TyRef</span>(<span class='ident'>r_ptr</span>, _) <span class='op'>=</span> <span class='ident'>base_ty</span>.<span class='ident'>sty</span> {
                 <span class='ident'>mk_subregion_due_to_dereference</span>(
-                    <span class='ident'>rcx</span>, <span class='ident'>expr</span>.<span class='ident'>span</span>, <span class='ident'>ty</span>::<span class='ident'>ReScope</span>(<span class='ident'>CodeExtent</span>::<span class='ident'>from_node_id</span>(<span class='ident'>expr</span>.<span class='ident'>id</span>)), <span class='op'>*</span><span class='ident'>r_ptr</span>);
+                    <span class='ident'>rcx</span>, <span class='ident'>expr</span>.<span class='ident'>span</span>, <span class='ident'>expr_region</span>, <span class='op'>*</span><span class='ident'>r_ptr</span>);
             }
 
             <span class='ident'>visit</span>::<span class='ident'>walk_expr</span>(<span class='ident'>rcx</span>, <span class='ident'>expr</span>);
@@ -2698,8 +2698,7 @@
             <span class='comment'>//</span>
             <span class='comment'>// FIXME(#6268) nested method calls requires that this rule change</span>
             <span class='kw'>let</span> <span class='ident'>ty0</span> <span class='op'>=</span> <span class='ident'>rcx</span>.<span class='ident'>resolve_node_type</span>(<span class='ident'>expr</span>.<span class='ident'>id</span>);
-            <span class='ident'>type_must_outlive</span>(<span class='ident'>rcx</span>, <span class='ident'>infer</span>::<span class='ident'>AddrOf</span>(<span class='ident'>expr</span>.<span class='ident'>span</span>),
-                              <span class='ident'>ty0</span>, <span class='ident'>ty</span>::<span class='ident'>ReScope</span>(<span class='ident'>CodeExtent</span>::<span class='ident'>from_node_id</span>(<span class='ident'>expr</span>.<span class='ident'>id</span>)));
+            <span class='ident'>type_must_outlive</span>(<span class='ident'>rcx</span>, <span class='ident'>infer</span>::<span class='ident'>AddrOf</span>(<span class='ident'>expr</span>.<span class='ident'>span</span>), <span class='ident'>ty0</span>, <span class='ident'>expr_region</span>);
             <span class='ident'>visit</span>::<span class='ident'>walk_expr</span>(<span class='ident'>rcx</span>, <span class='ident'>expr</span>);
         }
 
@@ -2828,7 +2827,7 @@
     <span class='comment'>// call occurs.</span>
     <span class='comment'>//</span>
     <span class='comment'>// FIXME(#6268) to support nested method calls, should be callee_id</span>
-    <span class='kw'>let</span> <span class='ident'>callee_scope</span> <span class='op'>=</span> <span class='ident'>CodeExtent</span>::<span class='ident'>from_node_id</span>(<span class='ident'>call_expr</span>.<span class='ident'>id</span>);
+    <span class='kw'>let</span> <span class='ident'>callee_scope</span> <span class='op'>=</span> <span class='ident'>rcx</span>.<span class='ident'>tcx</span>().<span class='ident'>region_maps</span>.<span class='ident'>node_extent</span>(<span class='ident'>call_expr</span>.<span class='ident'>id</span>);
     <span class='kw'>let</span> <span class='ident'>callee_region</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>ReScope</span>(<span class='ident'>callee_scope</span>);
 
     <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;callee_region={:?}&quot;</span>, <span class='ident'>callee_region</span>);
@@ -2875,7 +2874,8 @@
            <span class='ident'>derefs</span>,
            <span class='ident'>derefd_ty</span>);
 
-    <span class='kw'>let</span> <span class='ident'>r_deref_expr</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>ReScope</span>(<span class='ident'>CodeExtent</span>::<span class='ident'>from_node_id</span>(<span class='ident'>deref_expr</span>.<span class='ident'>id</span>));
+    <span class='kw'>let</span> <span class='ident'>s_deref_expr</span> <span class='op'>=</span> <span class='ident'>rcx</span>.<span class='ident'>tcx</span>().<span class='ident'>region_maps</span>.<span class='ident'>node_extent</span>(<span class='ident'>deref_expr</span>.<span class='ident'>id</span>);
+    <span class='kw'>let</span> <span class='ident'>r_deref_expr</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>ReScope</span>(<span class='ident'>s_deref_expr</span>);
     <span class='kw'>for</span> <span class='ident'>i</span> <span class='kw'>in</span> <span class='number'>0</span>..<span class='ident'>derefs</span> {
         <span class='kw'>let</span> <span class='ident'>method_call</span> <span class='op'>=</span> <span class='ident'>MethodCall</span>::<span class='ident'>autoderef</span>(<span class='ident'>deref_expr</span>.<span class='ident'>id</span>, <span class='ident'>i</span> <span class='kw'>as</span> <span class='ident'>u32</span>);
         <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;constrain_autoderefs: method_call={:?} (of {:?} total)&quot;</span>, <span class='ident'>method_call</span>, <span class='ident'>derefs</span>);
@@ -2992,7 +2992,7 @@
     <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;constrain_index(index_expr=?, indexed_ty={}&quot;</span>,
            <span class='ident'>rcx</span>.<span class='ident'>fcx</span>.<span class='ident'>infcx</span>().<span class='ident'>ty_to_string</span>(<span class='ident'>indexed_ty</span>));
 
-    <span class='kw'>let</span> <span class='ident'>r_index_expr</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>ReScope</span>(<span class='ident'>CodeExtent</span>::<span class='ident'>from_node_id</span>(<span class='ident'>index_expr</span>.<span class='ident'>id</span>));
+    <span class='kw'>let</span> <span class='ident'>r_index_expr</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>ReScope</span>(<span class='ident'>rcx</span>.<span class='ident'>tcx</span>().<span class='ident'>region_maps</span>.<span class='ident'>node_extent</span>(<span class='ident'>index_expr</span>.<span class='ident'>id</span>));
     <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>ty</span>::<span class='ident'>TyRef</span>(<span class='ident'>r_ptr</span>, <span class='ident'>mt</span>) <span class='op'>=</span> <span class='ident'>indexed_ty</span>.<span class='ident'>sty</span> {
         <span class='kw'>match</span> <span class='ident'>mt</span>.<span class='ident'>ty</span>.<span class='ident'>sty</span> {
             <span class='ident'>ty</span>::<span class='ident'>TySlice</span>(_) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyStr</span> <span class='op'>=&gt;</span> {
@@ -3143,7 +3143,7 @@
         }
 
         <span class='ident'>ty</span>::<span class='ident'>AutoUnsafe</span>(<span class='ident'>m</span>) <span class='op'>=&gt;</span> {
-            <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>ReScope</span>(<span class='ident'>CodeExtent</span>::<span class='ident'>from_node_id</span>(<span class='ident'>expr</span>.<span class='ident'>id</span>));
+            <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>ReScope</span>(<span class='ident'>rcx</span>.<span class='ident'>tcx</span>().<span class='ident'>region_maps</span>.<span class='ident'>node_extent</span>(<span class='ident'>expr</span>.<span class='ident'>id</span>));
             <span class='ident'>link_region</span>(<span class='ident'>rcx</span>, <span class='ident'>expr</span>.<span class='ident'>span</span>, <span class='kw-2'>&amp;</span><span class='ident'>r</span>, <span class='ident'>ty</span>::<span class='ident'>BorrowKind</span>::<span class='ident'>from_mutbl</span>(<span class='ident'>m</span>), <span class='ident'>expr_cmt</span>);
         }
     }
