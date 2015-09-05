@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["InlinedItem","The data we save and restore about an inlined item or method.  This is not part of the AST that we parse from a file, but it becomes part of the tree that we trans."],["InlinedItemRef","A borrowed version of `ast::InlinedItem`."]]});
+initSidebarItems({"enum":[["InlinedItem","The data we save and restore about an inlined item or method.  This is not part of the AST that we parse from a file, but it becomes part of the tree that we trans."],["InlinedItemRef","A borrowed version of `hir::InlinedItem`."]]});

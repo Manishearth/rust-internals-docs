@@ -3065,6 +3065,12 @@
 <span id="3023">3023</span>
 <span id="3024">3024</span>
 <span id="3025">3025</span>
+<span id="3026">3026</span>
+<span id="3027">3027</span>
+<span id="3028">3028</span>
+<span id="3029">3029</span>
+<span id="3030">3030</span>
+<span id="3031">3031</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -3119,7 +3125,8 @@
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cell</span>::<span class='ident'>RefCell</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>fmt</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>rc</span>::<span class='ident'>Rc</span>;
-<span class='kw'>use</span> <span class='ident'>syntax</span>::{<span class='ident'>abi</span>, <span class='ident'>ast</span>};
+<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>abi</span>;
+<span class='kw'>use</span> <span class='ident'>rustc_front</span>::<span class='ident'>hir</span>;
 <span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>common</span>::<span class='ident'>ErrorReported</span>;
 <span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>nodemap</span>::<span class='ident'>FnvHashMap</span>;
 
@@ -3253,7 +3260,7 @@
 <span class='doccomment'>/// that we can have both a projection candidate and a where-clause candidate</span>
 <span class='doccomment'>/// for the same obligation. In that case either would do (except that</span>
 <span class='doccomment'>/// different &quot;leaps of logic&quot; would occur if inference variables are</span>
-<span class='doccomment'>/// present), and we just pick the projection. This is, for example,</span>
+<span class='doccomment'>/// present), and we just pick the where-clause. This is, for example,</span>
 <span class='doccomment'>/// required for associated types to work in default impls, as the bounds</span>
 <span class='doccomment'>/// are visible both as projection bounds and as where-clauses from the</span>
 <span class='doccomment'>/// parameter environment.</span>
@@ -3861,7 +3868,7 @@
         <span class='kw'>match</span> <span class='ident'>candidate</span> {
             <span class='ident'>ImplCandidate</span>(<span class='ident'>def_id</span>) <span class='op'>=&gt;</span> {
                 <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>tcx</span>().<span class='ident'>trait_impl_polarity</span>(<span class='ident'>def_id</span>) {
-                    <span class='prelude-val'>Some</span>(<span class='ident'>ast</span>::<span class='ident'>ImplPolarity</span>::<span class='ident'>Negative</span>) <span class='op'>=&gt;</span> <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>Unimplemented</span>),
+                    <span class='prelude-val'>Some</span>(<span class='ident'>hir</span>::<span class='ident'>ImplPolarity</span>::<span class='ident'>Negative</span>) <span class='op'>=&gt;</span> <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>Unimplemented</span>),
                     _ <span class='op'>=&gt;</span> {}
                 }
             }
@@ -3983,6 +3990,24 @@
                                <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>SelectionCandidateSet</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>SelectionError</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>
     {
         <span class='kw'>let</span> <span class='ident'>TraitObligationStack</span> { <span class='ident'>obligation</span>, .. } <span class='op'>=</span> <span class='op'>*</span><span class='ident'>stack</span>;
+        <span class='kw'>let</span> <span class='kw-2'>ref</span> <span class='ident'>obligation</span> <span class='op'>=</span> <span class='ident'>Obligation</span> {
+            <span class='ident'>cause</span>: <span class='ident'>obligation</span>.<span class='ident'>cause</span>.<span class='ident'>clone</span>(),
+            <span class='ident'>recursion_depth</span>: <span class='ident'>obligation</span>.<span class='ident'>recursion_depth</span>,
+            <span class='ident'>predicate</span>: <span class='self'>self</span>.<span class='ident'>infcx</span>().<span class='ident'>resolve_type_vars_if_possible</span>(<span class='kw-2'>&amp;</span><span class='ident'>obligation</span>.<span class='ident'>predicate</span>)
+        };
+
+        <span class='kw'>if</span> <span class='ident'>obligation</span>.<span class='ident'>predicate</span>.<span class='ident'>skip_binder</span>().<span class='ident'>self_ty</span>().<span class='ident'>is_ty_var</span>() {
+            <span class='comment'>// FIXME(#20297): Self is a type variable (e.g. `_: AsRef&lt;str&gt;`).</span>
+            <span class='comment'>//</span>
+            <span class='comment'>// This is somewhat problematic, as the current scheme can&#39;t really</span>
+            <span class='comment'>// handle it turning to be a projection. This does end up as truly</span>
+            <span class='comment'>// ambiguous in most cases anyway.</span>
+            <span class='comment'>//</span>
+            <span class='comment'>// Until this is fixed, take the fast path out - this also improves</span>
+            <span class='comment'>// performance by preventing assemble_candidates_from_impls from</span>
+            <span class='comment'>// matching every impl for this trait.</span>
+            <span class='kw'>return</span> <span class='prelude-val'>Ok</span>(<span class='ident'>SelectionCandidateSet</span> { <span class='ident'>vec</span>: <span class='macro'>vec</span><span class='macro'>!</span>[], <span class='ident'>ambiguous</span>: <span class='boolval'>true</span> });
+        }
 
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>candidates</span> <span class='op'>=</span> <span class='ident'>SelectionCandidateSet</span> {
             <span class='ident'>vec</span>: <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
@@ -4003,13 +4028,15 @@
 
                 <span class='comment'>// For other types, we&#39;ll use the builtin rules.</span>
                 <span class='macro'>try</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>assemble_builtin_bound_candidates</span>(<span class='ident'>ty</span>::<span class='ident'>BoundCopy</span>,
-                                                            <span class='ident'>stack</span>,
+                                                            <span class='ident'>obligation</span>,
                                                             <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>candidates</span>));
             }
             <span class='prelude-val'>Some</span>(<span class='ident'>bound</span> <span class='kw-2'>@</span> <span class='ident'>ty</span>::<span class='ident'>BoundSized</span>) <span class='op'>=&gt;</span> {
                 <span class='comment'>// Sized is never implementable by end-users, it is</span>
                 <span class='comment'>// always automatically computed.</span>
-                <span class='macro'>try</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>assemble_builtin_bound_candidates</span>(<span class='ident'>bound</span>, <span class='ident'>stack</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>candidates</span>));
+                <span class='macro'>try</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>assemble_builtin_bound_candidates</span>(<span class='ident'>bound</span>,
+                                                            <span class='ident'>obligation</span>,
+                                                            <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>candidates</span>));
             }
 
             <span class='prelude-val'>None</span> <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>tcx</span>().<span class='ident'>lang_items</span>.<span class='ident'>unsize_trait</span>() <span class='op'>==</span>
@@ -4042,29 +4069,17 @@
                                               <span class='ident'>obligation</span>: <span class='kw-2'>&amp;</span><span class='ident'>TraitObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
                                               <span class='ident'>candidates</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>SelectionCandidateSet</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
     {
-        <span class='kw'>let</span> <span class='ident'>poly_trait_predicate</span> <span class='op'>=</span>
-            <span class='self'>self</span>.<span class='ident'>infcx</span>().<span class='ident'>resolve_type_vars_if_possible</span>(<span class='kw-2'>&amp;</span><span class='ident'>obligation</span>.<span class='ident'>predicate</span>);
-
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;assemble_candidates_for_projected_tys({:?},{:?})&quot;</span>,
-               <span class='ident'>obligation</span>,
-               <span class='ident'>poly_trait_predicate</span>);
+        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;assemble_candidates_for_projected_tys({:?})&quot;</span>, <span class='ident'>obligation</span>);
 
         <span class='comment'>// FIXME(#20297) -- just examining the self-type is very simplistic</span>
 
         <span class='comment'>// before we go into the whole skolemization thing, just</span>
         <span class='comment'>// quickly check if the self-type is a projection at all.</span>
-        <span class='kw'>let</span> <span class='ident'>trait_def_id</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>poly_trait_predicate</span>.<span class='number'>0</span>.<span class='ident'>trait_ref</span>.<span class='ident'>self_ty</span>().<span class='ident'>sty</span> {
+        <span class='kw'>let</span> <span class='ident'>trait_def_id</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>obligation</span>.<span class='ident'>predicate</span>.<span class='number'>0</span>.<span class='ident'>trait_ref</span>.<span class='ident'>self_ty</span>().<span class='ident'>sty</span> {
             <span class='ident'>ty</span>::<span class='ident'>TyProjection</span>(<span class='kw-2'>ref</span> <span class='ident'>data</span>) <span class='op'>=&gt;</span> <span class='ident'>data</span>.<span class='ident'>trait_ref</span>.<span class='ident'>def_id</span>,
             <span class='ident'>ty</span>::<span class='ident'>TyInfer</span>(<span class='ident'>ty</span>::<span class='ident'>TyVar</span>(_)) <span class='op'>=&gt;</span> {
-                <span class='comment'>// If the self-type is an inference variable, then it MAY wind up</span>
-                <span class='comment'>// being a projected type, so induce an ambiguity.</span>
-                <span class='comment'>//</span>
-                <span class='comment'>// FIXME(#20297) -- being strict about this can cause</span>
-                <span class='comment'>// inference failures with BorrowFrom, which is</span>
-                <span class='comment'>// unfortunate. Can we do better here?</span>
-                <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;assemble_candidates_for_projected_tys: ambiguous self-type&quot;</span>);
-                <span class='ident'>candidates</span>.<span class='ident'>ambiguous</span> <span class='op'>=</span> <span class='boolval'>true</span>;
-                <span class='kw'>return</span>;
+                <span class='self'>self</span>.<span class='ident'>tcx</span>().<span class='ident'>sess</span>.<span class='ident'>span_bug</span>(<span class='ident'>obligation</span>.<span class='ident'>cause</span>.<span class='ident'>span</span>,
+                    <span class='string'>&quot;Self=_ should have been handled by assemble_candidates&quot;</span>);
             }
             _ <span class='op'>=&gt;</span> { <span class='kw'>return</span>; }
         };
@@ -4232,7 +4247,7 @@
         <span class='comment'>// ok to skip binder because the substs on closure types never</span>
         <span class='comment'>// touch bound regions, they just capture the in-scope</span>
         <span class='comment'>// type/region parameters</span>
-        <span class='kw'>let</span> <span class='ident'>self_ty</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>shallow_resolve</span>(<span class='op'>*</span><span class='ident'>obligation</span>.<span class='ident'>self_ty</span>().<span class='ident'>skip_binder</span>());
+        <span class='kw'>let</span> <span class='ident'>self_ty</span> <span class='op'>=</span> <span class='op'>*</span><span class='ident'>obligation</span>.<span class='ident'>self_ty</span>().<span class='ident'>skip_binder</span>();
         <span class='kw'>let</span> (<span class='ident'>closure_def_id</span>, <span class='ident'>substs</span>) <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>self_ty</span>.<span class='ident'>sty</span> {
             <span class='ident'>ty</span>::<span class='ident'>TyClosure</span>(<span class='ident'>id</span>, <span class='kw-2'>ref</span> <span class='ident'>substs</span>) <span class='op'>=&gt;</span> (<span class='ident'>id</span>, <span class='ident'>substs</span>),
             <span class='ident'>ty</span>::<span class='ident'>TyInfer</span>(<span class='ident'>ty</span>::<span class='ident'>TyVar</span>(_)) <span class='op'>=&gt;</span> {
@@ -4276,7 +4291,7 @@
         }
 
         <span class='comment'>// ok to skip binder because what we are inspecting doesn&#39;t involve bound regions</span>
-        <span class='kw'>let</span> <span class='ident'>self_ty</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>shallow_resolve</span>(<span class='op'>*</span><span class='ident'>obligation</span>.<span class='ident'>self_ty</span>().<span class='ident'>skip_binder</span>());
+        <span class='kw'>let</span> <span class='ident'>self_ty</span> <span class='op'>=</span> <span class='op'>*</span><span class='ident'>obligation</span>.<span class='ident'>self_ty</span>().<span class='ident'>skip_binder</span>();
         <span class='kw'>match</span> <span class='ident'>self_ty</span>.<span class='ident'>sty</span> {
             <span class='ident'>ty</span>::<span class='ident'>TyInfer</span>(<span class='ident'>ty</span>::<span class='ident'>TyVar</span>(_)) <span class='op'>=&gt;</span> {
                 <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;assemble_fn_pointer_candidates: ambiguous self-type&quot;</span>);
@@ -4285,7 +4300,7 @@
 
             <span class='comment'>// provide an impl, but only for suitable `fn` pointers</span>
             <span class='ident'>ty</span>::<span class='ident'>TyBareFn</span>(_, <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>BareFnTy</span> {
-                <span class='ident'>unsafety</span>: <span class='ident'>ast</span>::<span class='ident'>Unsafety</span>::<span class='ident'>Normal</span>,
+                <span class='ident'>unsafety</span>: <span class='ident'>hir</span>::<span class='ident'>Unsafety</span>::<span class='ident'>Normal</span>,
                 <span class='ident'>abi</span>: <span class='ident'>abi</span>::<span class='ident'>Rust</span>,
                 <span class='ident'>sig</span>: <span class='ident'>ty</span>::<span class='ident'>Binder</span>(<span class='ident'>ty</span>::<span class='ident'>FnSig</span> {
                     <span class='ident'>inputs</span>: _,
@@ -4333,7 +4348,7 @@
                                               <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(), <span class='ident'>SelectionError</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>
     {
         <span class='comment'>// OK to skip binder here because the tests we do below do not involve bound regions</span>
-        <span class='kw'>let</span> <span class='ident'>self_ty</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>shallow_resolve</span>(<span class='op'>*</span><span class='ident'>obligation</span>.<span class='ident'>self_ty</span>().<span class='ident'>skip_binder</span>());
+        <span class='kw'>let</span> <span class='ident'>self_ty</span> <span class='op'>=</span> <span class='op'>*</span><span class='ident'>obligation</span>.<span class='ident'>self_ty</span>().<span class='ident'>skip_binder</span>();
         <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;assemble_candidates_from_default_impls(self_ty={:?})&quot;</span>, <span class='ident'>self_ty</span>);
 
         <span class='kw'>let</span> <span class='ident'>def_id</span> <span class='op'>=</span> <span class='ident'>obligation</span>.<span class='ident'>predicate</span>.<span class='ident'>def_id</span>();
@@ -4389,7 +4404,7 @@
                                           <span class='ident'>candidates</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>SelectionCandidateSet</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
     {
         <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;assemble_candidates_from_object_ty(self_ty={:?})&quot;</span>,
-               <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>shallow_resolve</span>(<span class='op'>*</span><span class='ident'>obligation</span>.<span class='ident'>self_ty</span>().<span class='ident'>skip_binder</span>()));
+               <span class='ident'>obligation</span>.<span class='ident'>self_ty</span>().<span class='ident'>skip_binder</span>());
 
         <span class='comment'>// Object-safety candidates are only applicable to object-safe</span>
         <span class='comment'>// traits. Including this check is useful because it helps</span>
@@ -4404,10 +4419,8 @@
         }
 
         <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>commit_if_ok</span>(<span class='op'>|</span><span class='ident'>snapshot</span><span class='op'>|</span> {
-            <span class='kw'>let</span> <span class='ident'>bound_self_ty</span> <span class='op'>=</span>
-                <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>resolve_type_vars_if_possible</span>(<span class='kw-2'>&amp;</span><span class='ident'>obligation</span>.<span class='ident'>self_ty</span>());
             <span class='kw'>let</span> (<span class='ident'>self_ty</span>, _) <span class='op'>=</span>
-                <span class='self'>self</span>.<span class='ident'>infcx</span>().<span class='ident'>skolemize_late_bound_regions</span>(<span class='kw-2'>&amp;</span><span class='ident'>bound_self_ty</span>, <span class='ident'>snapshot</span>);
+                <span class='self'>self</span>.<span class='ident'>infcx</span>().<span class='ident'>skolemize_late_bound_regions</span>(<span class='kw-2'>&amp;</span><span class='ident'>obligation</span>.<span class='ident'>self_ty</span>(), <span class='ident'>snapshot</span>);
             <span class='kw'>let</span> <span class='ident'>poly_trait_ref</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>self_ty</span>.<span class='ident'>sty</span> {
                 <span class='ident'>ty</span>::<span class='ident'>TyTrait</span>(<span class='kw-2'>ref</span> <span class='ident'>data</span>) <span class='op'>=&gt;</span> {
                     <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>tcx</span>().<span class='ident'>lang_items</span>.<span class='ident'>to_builtin_kind</span>(<span class='ident'>obligation</span>.<span class='ident'>predicate</span>.<span class='ident'>def_id</span>()) {
@@ -4481,15 +4494,14 @@
         <span class='comment'>//     T: Trait</span>
         <span class='comment'>// so it seems ok if we (conservatively) fail to accept that `Unsize`</span>
         <span class='comment'>// obligation above. Should be possible to extend this in the future.</span>
-        <span class='kw'>let</span> <span class='ident'>self_ty</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>tcx</span>().<span class='ident'>no_late_bound_regions</span>(<span class='kw-2'>&amp;</span><span class='ident'>obligation</span>.<span class='ident'>self_ty</span>()) {
+        <span class='kw'>let</span> <span class='ident'>source</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>tcx</span>().<span class='ident'>no_late_bound_regions</span>(<span class='kw-2'>&amp;</span><span class='ident'>obligation</span>.<span class='ident'>self_ty</span>()) {
             <span class='prelude-val'>Some</span>(<span class='ident'>t</span>) <span class='op'>=&gt;</span> <span class='ident'>t</span>,
             <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> {
                 <span class='comment'>// Don&#39;t add any candidates if there are bound regions.</span>
                 <span class='kw'>return</span>;
             }
         };
-        <span class='kw'>let</span> <span class='ident'>source</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>shallow_resolve</span>(<span class='ident'>self_ty</span>);
-        <span class='kw'>let</span> <span class='ident'>target</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>shallow_resolve</span>(<span class='ident'>obligation</span>.<span class='ident'>predicate</span>.<span class='number'>0</span>.<span class='ident'>input_types</span>()[<span class='number'>0</span>]);
+        <span class='kw'>let</span> <span class='ident'>target</span> <span class='op'>=</span> <span class='ident'>obligation</span>.<span class='ident'>predicate</span>.<span class='number'>0</span>.<span class='ident'>input_types</span>()[<span class='number'>0</span>];
 
         <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;assemble_candidates_for_unsizing(source={:?}, target={:?})&quot;</span>,
                <span class='ident'>source</span>, <span class='ident'>target</span>);
@@ -4644,11 +4656,11 @@
 
     <span class='kw'>fn</span> <span class='ident'>assemble_builtin_bound_candidates</span><span class='op'>&lt;</span><span class='lifetime'>&#39;o</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
                                              <span class='ident'>bound</span>: <span class='ident'>ty</span>::<span class='ident'>BuiltinBound</span>,
-                                             <span class='ident'>stack</span>: <span class='kw-2'>&amp;</span><span class='ident'>TraitObligationStack</span><span class='op'>&lt;</span><span class='lifetime'>&#39;o</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+                                             <span class='ident'>obligation</span>: <span class='kw-2'>&amp;</span><span class='ident'>TraitObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
                                              <span class='ident'>candidates</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>SelectionCandidateSet</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
                                              <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(),<span class='ident'>SelectionError</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>
     {
-        <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>builtin_bound</span>(<span class='ident'>bound</span>, <span class='ident'>stack</span>.<span class='ident'>obligation</span>) {
+        <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>builtin_bound</span>(<span class='ident'>bound</span>, <span class='ident'>obligation</span>) {
             <span class='prelude-val'>Ok</span>(<span class='ident'>If</span>(..)) <span class='op'>=&gt;</span> {
                 <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;builtin_bound: bound={:?}&quot;</span>,
                        <span class='ident'>bound</span>);
@@ -4744,10 +4756,10 @@
                     <span class='ident'>ty</span>::<span class='ident'>BoundCopy</span> <span class='op'>=&gt;</span> {
                         <span class='kw'>match</span> <span class='ident'>mutbl</span> {
                             <span class='comment'>// &amp;mut T is affine and hence never `Copy`</span>
-                            <span class='ident'>ast</span>::<span class='ident'>MutMutable</span> <span class='op'>=&gt;</span> <span class='prelude-val'>Err</span>(<span class='ident'>Unimplemented</span>),
+                            <span class='ident'>hir</span>::<span class='ident'>MutMutable</span> <span class='op'>=&gt;</span> <span class='prelude-val'>Err</span>(<span class='ident'>Unimplemented</span>),
 
                             <span class='comment'>// &amp;T is always copyable</span>
-                            <span class='ident'>ast</span>::<span class='ident'>MutImmutable</span> <span class='op'>=&gt;</span> <span class='ident'>ok_if</span>(<span class='ident'>Vec</span>::<span class='ident'>new</span>()),
+                            <span class='ident'>hir</span>::<span class='ident'>MutImmutable</span> <span class='op'>=&gt;</span> <span class='ident'>ok_if</span>(<span class='ident'>Vec</span>::<span class='ident'>new</span>()),
                         }
                     }
 
