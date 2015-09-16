@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["read_macro_defs","Read exported macros."]],"type":[["MacroSelection",""]]});
+initSidebarItems({"fn":[["call_bad_macro_reexport",""],["read_macro_defs","Read exported macros."]],"type":[["MacroSelection",""]]});
