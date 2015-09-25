@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["Sub","\"Greatest lower bound\" (common subtype)"]]});
+initSidebarItems({"struct":[["Sub","Ensures `a` is made a subtype of `b`. Returns `a` on success."]]});
