@@ -1,5 +1,5 @@
 (function() {var implementors = {};
-implementors['std'] = [];implementors['rustc_unicode'] = [];implementors['collections'] = [];implementors['core'] = [];
+implementors['collections'] = [];implementors['core'] = [];
 
             if (window.register_implementors) {
                 window.register_implementors(implementors);
