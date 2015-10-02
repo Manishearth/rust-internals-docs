@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["DefIdSource",""]],"struct":[["TyDecoder",""]],"type":[["DefIdConvert",""]]});
+initSidebarItems({"struct":[["TyDecoder",""]],"type":[["DefIdConvert",""]]});
