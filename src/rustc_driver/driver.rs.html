@@ -1081,6 +1081,7 @@
 <span id="1039">1039</span>
 <span id="1040">1040</span>
 <span id="1041">1041</span>
+<span id="1042">1042</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -1096,7 +1097,7 @@
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>front</span>::<span class='ident'>map</span> <span class='kw'>as</span> <span class='ident'>hir_map</span>;
 <span class='kw'>use</span> <span class='ident'>rustc_mir</span> <span class='kw'>as</span> <span class='ident'>mir</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>session</span>::<span class='ident'>Session</span>;
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>session</span>::<span class='ident'>config</span>::{<span class='self'>self</span>, <span class='ident'>Input</span>, <span class='ident'>OutputFilenames</span>};
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>session</span>::<span class='ident'>config</span>::{<span class='self'>self</span>, <span class='ident'>Input</span>, <span class='ident'>OutputFilenames</span>, <span class='ident'>OutputType</span>};
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>session</span>::<span class='ident'>search_paths</span>::<span class='ident'>PathKind</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>lint</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>metadata</span>;
@@ -1120,6 +1121,7 @@
 
 <span class='kw'>use</span> <span class='ident'>serialize</span>::<span class='ident'>json</span>;
 
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>collections</span>::<span class='ident'>HashMap</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>env</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>ffi</span>::{<span class='ident'>OsString</span>, <span class='ident'>OsStr</span>};
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>fs</span>;
@@ -1201,7 +1203,7 @@
         <span class='kw'>let</span> <span class='ident'>arenas</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>CtxtArenas</span>::<span class='ident'>new</span>();
         <span class='kw'>let</span> <span class='ident'>ast_map</span> <span class='op'>=</span> <span class='ident'>make_map</span>(<span class='kw-2'>&amp;</span><span class='ident'>sess</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>hir_forest</span>);
 
-        <span class='ident'>write_out_deps</span>(<span class='kw-2'>&amp;</span><span class='ident'>sess</span>, <span class='ident'>input</span>, <span class='kw-2'>&amp;</span><span class='ident'>outputs</span>, <span class='kw-2'>&amp;</span><span class='ident'>id</span>[..]);
+        <span class='ident'>write_out_deps</span>(<span class='kw-2'>&amp;</span><span class='ident'>sess</span>, <span class='kw-2'>&amp;</span><span class='ident'>outputs</span>, <span class='kw-2'>&amp;</span><span class='ident'>id</span>);
 
         <span class='macro'>controller_entry_point</span><span class='macro'>!</span>(<span class='ident'>after_write_deps</span>,
                                 <span class='ident'>sess</span>,
@@ -1212,6 +1214,10 @@
                                                                      <span class='kw-2'>&amp;</span><span class='ident'>expanded_crate</span>,
                                                                      <span class='kw-2'>&amp;</span><span class='ident'>ast_map</span>.<span class='ident'>krate</span>(),
                                                                      <span class='kw-2'>&amp;</span><span class='ident'>id</span>[..]));
+
+        <span class='ident'>time</span>(<span class='ident'>sess</span>.<span class='ident'>time_passes</span>(), <span class='string'>&quot;attribute checking&quot;</span>, <span class='op'>||</span> {
+            <span class='ident'>front</span>::<span class='ident'>check_attr</span>::<span class='ident'>check_crate</span>(<span class='kw-2'>&amp;</span><span class='ident'>sess</span>, <span class='kw-2'>&amp;</span><span class='ident'>expanded_crate</span>);
+        });
 
         <span class='ident'>time</span>(<span class='ident'>sess</span>.<span class='ident'>time_passes</span>(), <span class='string'>&quot;early lint checks&quot;</span>, <span class='op'>||</span> {
             <span class='ident'>lint</span>::<span class='ident'>check_ast_crate</span>(<span class='kw-2'>&amp;</span><span class='ident'>sess</span>, <span class='kw-2'>&amp;</span><span class='ident'>expanded_crate</span>)
@@ -1891,16 +1897,16 @@
                                <span class='ident'>trans</span>: <span class='kw-2'>&amp;</span><span class='ident'>trans</span>::<span class='ident'>CrateTranslation</span>,
                                <span class='ident'>outputs</span>: <span class='kw-2'>&amp;</span><span class='ident'>OutputFilenames</span>) {
     <span class='kw'>if</span> <span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>cg</span>.<span class='ident'>no_integrated_as</span> {
-        <span class='kw'>let</span> <span class='ident'>output_type</span> <span class='op'>=</span> <span class='ident'>config</span>::<span class='ident'>OutputTypeAssembly</span>;
-
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>map</span> <span class='op'>=</span> <span class='ident'>HashMap</span>::<span class='ident'>new</span>();
+        <span class='ident'>map</span>.<span class='ident'>insert</span>(<span class='ident'>OutputType</span>::<span class='ident'>Assembly</span>, <span class='prelude-val'>None</span>);
         <span class='ident'>time</span>(<span class='ident'>sess</span>.<span class='ident'>time_passes</span>(), <span class='string'>&quot;LLVM passes&quot;</span>, <span class='op'>||</span>
-            <span class='ident'>write</span>::<span class='ident'>run_passes</span>(<span class='ident'>sess</span>, <span class='ident'>trans</span>, <span class='kw-2'>&amp;</span>[<span class='ident'>output_type</span>], <span class='ident'>outputs</span>));
+            <span class='ident'>write</span>::<span class='ident'>run_passes</span>(<span class='ident'>sess</span>, <span class='ident'>trans</span>, <span class='kw-2'>&amp;</span><span class='ident'>map</span>, <span class='ident'>outputs</span>));
 
         <span class='ident'>write</span>::<span class='ident'>run_assembler</span>(<span class='ident'>sess</span>, <span class='ident'>outputs</span>);
 
         <span class='comment'>// Remove assembly source, unless --save-temps was specified</span>
         <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>cg</span>.<span class='ident'>save_temps</span> {
-            <span class='ident'>fs</span>::<span class='ident'>remove_file</span>(<span class='kw-2'>&amp;</span><span class='ident'>outputs</span>.<span class='ident'>temp_path</span>(<span class='ident'>config</span>::<span class='ident'>OutputTypeAssembly</span>)).<span class='ident'>unwrap</span>();
+            <span class='ident'>fs</span>::<span class='ident'>remove_file</span>(<span class='kw-2'>&amp;</span><span class='ident'>outputs</span>.<span class='ident'>temp_path</span>(<span class='ident'>OutputType</span>::<span class='ident'>Assembly</span>)).<span class='ident'>unwrap</span>();
         }
     } <span class='kw'>else</span> {
         <span class='ident'>time</span>(<span class='ident'>sess</span>.<span class='ident'>time_passes</span>(), <span class='string'>&quot;LLVM passes&quot;</span>, <span class='op'>||</span>
@@ -1931,16 +1937,12 @@
     <span class='ident'>filename</span>.<span class='ident'>replace</span>(<span class='string'>&quot; &quot;</span>, <span class='string'>&quot;\\ &quot;</span>)
 }
 
-<span class='kw'>fn</span> <span class='ident'>write_out_deps</span>(<span class='ident'>sess</span>: <span class='kw-2'>&amp;</span><span class='ident'>Session</span>,
-                  <span class='ident'>input</span>: <span class='kw-2'>&amp;</span><span class='ident'>Input</span>,
-                  <span class='ident'>outputs</span>: <span class='kw-2'>&amp;</span><span class='ident'>OutputFilenames</span>,
-                  <span class='ident'>id</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) {
-
+<span class='kw'>fn</span> <span class='ident'>write_out_deps</span>(<span class='ident'>sess</span>: <span class='kw-2'>&amp;</span><span class='ident'>Session</span>, <span class='ident'>outputs</span>: <span class='kw-2'>&amp;</span><span class='ident'>OutputFilenames</span>, <span class='ident'>id</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) {
     <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>out_filenames</span> <span class='op'>=</span> <span class='ident'>Vec</span>::<span class='ident'>new</span>();
-    <span class='kw'>for</span> <span class='ident'>output_type</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>output_types</span> {
+    <span class='kw'>for</span> <span class='ident'>output_type</span> <span class='kw'>in</span> <span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>output_types</span>.<span class='ident'>keys</span>() {
         <span class='kw'>let</span> <span class='ident'>file</span> <span class='op'>=</span> <span class='ident'>outputs</span>.<span class='ident'>path</span>(<span class='op'>*</span><span class='ident'>output_type</span>);
         <span class='kw'>match</span> <span class='op'>*</span><span class='ident'>output_type</span> {
-            <span class='ident'>config</span>::<span class='ident'>OutputTypeExe</span> <span class='op'>=&gt;</span> {
+            <span class='ident'>OutputType</span>::<span class='ident'>Exe</span> <span class='op'>=&gt;</span> {
                 <span class='kw'>for</span> <span class='ident'>output</span> <span class='kw'>in</span> <span class='ident'>sess</span>.<span class='ident'>crate_types</span>.<span class='ident'>borrow</span>().<span class='ident'>iter</span>() {
                     <span class='kw'>let</span> <span class='ident'>p</span> <span class='op'>=</span> <span class='ident'>link</span>::<span class='ident'>filename_for_input</span>(<span class='ident'>sess</span>, <span class='op'>*</span><span class='ident'>output</span>, <span class='ident'>id</span>,
                                                      <span class='ident'>outputs</span>);
@@ -1951,23 +1953,11 @@
         }
     }
 
-    <span class='comment'>// Write out dependency rules to the dep-info file if requested with</span>
-    <span class='comment'>// --dep-info</span>
-    <span class='kw'>let</span> <span class='ident'>deps_filename</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>write_dependency_info</span> {
-        <span class='comment'>// Use filename from --dep-file argument if given</span>
-        (<span class='boolval'>true</span>, <span class='prelude-val'>Some</span>(<span class='kw-2'>ref</span> <span class='ident'>filename</span>)) <span class='op'>=&gt;</span> <span class='ident'>filename</span>.<span class='ident'>clone</span>(),
-        <span class='comment'>// Use default filename: crate source filename with extension replaced</span>
-        <span class='comment'>// by &quot;.d&quot;</span>
-        (<span class='boolval'>true</span>, <span class='prelude-val'>None</span>) <span class='op'>=&gt;</span> <span class='kw'>match</span> <span class='op'>*</span><span class='ident'>input</span> {
-            <span class='ident'>Input</span>::<span class='ident'>File</span>(..) <span class='op'>=&gt;</span> <span class='ident'>outputs</span>.<span class='ident'>with_extension</span>(<span class='string'>&quot;d&quot;</span>),
-            <span class='ident'>Input</span>::<span class='ident'>Str</span>(..) <span class='op'>=&gt;</span> {
-                <span class='ident'>sess</span>.<span class='ident'>warn</span>(<span class='string'>&quot;can not write --dep-info without a filename \
-                           when compiling stdin.&quot;</span>);
-                <span class='kw'>return</span>
-            },
-        },
-        _ <span class='op'>=&gt;</span> <span class='kw'>return</span>,
-    };
+    <span class='comment'>// Write out dependency rules to the dep-info file if requested</span>
+    <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>output_types</span>.<span class='ident'>contains_key</span>(<span class='kw-2'>&amp;</span><span class='ident'>OutputType</span>::<span class='ident'>DepInfo</span>) {
+        <span class='kw'>return</span>
+    }
+    <span class='kw'>let</span> <span class='ident'>deps_filename</span> <span class='op'>=</span> <span class='ident'>outputs</span>.<span class='ident'>path</span>(<span class='ident'>OutputType</span>::<span class='ident'>DepInfo</span>);
 
     <span class='kw'>let</span> <span class='ident'>result</span> <span class='op'>=</span> (<span class='op'>||</span> <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
         <span class='comment'>// Build a list of files used to compile the output and</span>
@@ -1980,8 +1970,15 @@
                                    .<span class='ident'>collect</span>();
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>file</span> <span class='op'>=</span> <span class='macro'>try</span><span class='macro'>!</span>(<span class='ident'>fs</span>::<span class='ident'>File</span>::<span class='ident'>create</span>(<span class='kw-2'>&amp;</span><span class='ident'>deps_filename</span>));
         <span class='kw'>for</span> <span class='ident'>path</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>out_filenames</span> {
-            <span class='macro'>try</span><span class='macro'>!</span>(<span class='macro'>write</span><span class='macro'>!</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>file</span>,
+            <span class='macro'>try</span><span class='macro'>!</span>(<span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>file</span>,
                         <span class='string'>&quot;{}: {}\n\n&quot;</span>, <span class='ident'>path</span>.<span class='ident'>display</span>(), <span class='ident'>files</span>.<span class='ident'>join</span>(<span class='string'>&quot; &quot;</span>)));
+        }
+
+        <span class='comment'>// Emit a fake target for each input file to the compilation. This</span>
+        <span class='comment'>// prevents `make` from spitting out an error if a file is later</span>
+        <span class='comment'>// deleted. For more info see #28735</span>
+        <span class='kw'>for</span> <span class='ident'>path</span> <span class='kw'>in</span> <span class='ident'>files</span> {
+            <span class='macro'>try</span><span class='macro'>!</span>(<span class='macro'>writeln</span><span class='macro'>!</span>(<span class='ident'>file</span>, <span class='string'>&quot;{}:&quot;</span>, <span class='ident'>path</span>));
         }
         <span class='prelude-val'>Ok</span>(())
     })();
@@ -2096,11 +2093,15 @@
                 <span class='ident'>out_filestem</span>: <span class='ident'>stem</span>,
                 <span class='ident'>single_output_file</span>: <span class='prelude-val'>None</span>,
                 <span class='ident'>extra</span>: <span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>cg</span>.<span class='ident'>extra_filename</span>.<span class='ident'>clone</span>(),
+                <span class='ident'>outputs</span>: <span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>output_types</span>.<span class='ident'>clone</span>(),
             }
         }
 
         <span class='prelude-val'>Some</span>(<span class='kw-2'>ref</span> <span class='ident'>out_file</span>) <span class='op'>=&gt;</span> {
-            <span class='kw'>let</span> <span class='ident'>ofile</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>output_types</span>.<span class='ident'>len</span>() <span class='op'>&gt;</span> <span class='number'>1</span> {
+            <span class='kw'>let</span> <span class='ident'>unnamed_output_types</span> <span class='op'>=</span> <span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>output_types</span>.<span class='ident'>values</span>()
+                                           .<span class='ident'>filter</span>(<span class='op'>|</span><span class='ident'>a</span><span class='op'>|</span> <span class='ident'>a</span>.<span class='ident'>is_none</span>())
+                                           .<span class='ident'>count</span>();
+            <span class='kw'>let</span> <span class='ident'>ofile</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='ident'>unnamed_output_types</span> <span class='op'>&gt;</span> <span class='number'>1</span> {
                 <span class='ident'>sess</span>.<span class='ident'>warn</span>(<span class='string'>&quot;ignoring specified output filename because multiple \
                            outputs were requested&quot;</span>);
                 <span class='prelude-val'>None</span>
@@ -2119,6 +2120,7 @@
                                       .<span class='ident'>to_str</span>().<span class='ident'>unwrap</span>().<span class='ident'>to_string</span>(),
                 <span class='ident'>single_output_file</span>: <span class='ident'>ofile</span>,
                 <span class='ident'>extra</span>: <span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>cg</span>.<span class='ident'>extra_filename</span>.<span class='ident'>clone</span>(),
+                <span class='ident'>outputs</span>: <span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>output_types</span>.<span class='ident'>clone</span>(),
             }
         }
     }

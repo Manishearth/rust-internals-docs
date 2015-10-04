@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["Encoder",""]],"type":[["EncodeResult",""]]});
+initSidebarItems({"fn":[["write_vuint",""]],"struct":[["Encoder",""]],"type":[["EncodeResult",""]]});

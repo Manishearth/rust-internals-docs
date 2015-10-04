@@ -1,1 +1,1 @@
-initSidebarItems({"mod":[["map",""]]});
+initSidebarItems({"mod":[["check_attr",""],["map",""]]});
