@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["ast_ty_to_prim_ty",""],["prim_ty_to_ty",""],["prohibit_projection",""],["prohibit_type_params",""]]});
+initSidebarItems({"fn":[["ast_ty_to_prim_ty","If a type in the AST is a primitive type, return the ty::Ty corresponding to it."],["prim_ty_to_ty",""],["prohibit_projection",""],["prohibit_type_params",""]]});
