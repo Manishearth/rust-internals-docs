@@ -1,1 +1,1 @@
-initSidebarItems({"trait":[["GetDtorType",""]]});
+initSidebarItems({});

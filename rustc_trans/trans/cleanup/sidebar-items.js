@@ -1,1 +1,1 @@
-initSidebarItems({"trait":[["Cleanup",""],["CleanupMethods",""],["DropHintMethods",""]]});
+initSidebarItems({});

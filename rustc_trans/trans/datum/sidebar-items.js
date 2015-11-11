@@ -1,1 +1,1 @@
-initSidebarItems({"trait":[["KindOps",""]]});
+initSidebarItems({});

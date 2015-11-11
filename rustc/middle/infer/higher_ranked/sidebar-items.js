@@ -1,1 +1,1 @@
-initSidebarItems({"trait":[["HigherRankedRelations",""]]});
+initSidebarItems({});

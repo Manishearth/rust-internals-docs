@@ -258,28 +258,6 @@
 <span id="216">216</span>
 <span id="217">217</span>
 <span id="218">218</span>
-<span id="219">219</span>
-<span id="220">220</span>
-<span id="221">221</span>
-<span id="222">222</span>
-<span id="223">223</span>
-<span id="224">224</span>
-<span id="225">225</span>
-<span id="226">226</span>
-<span id="227">227</span>
-<span id="228">228</span>
-<span id="229">229</span>
-<span id="230">230</span>
-<span id="231">231</span>
-<span id="232">232</span>
-<span id="233">233</span>
-<span id="234">234</span>
-<span id="235">235</span>
-<span id="236">236</span>
-<span id="237">237</span>
-<span id="238">238</span>
-<span id="239">239</span>
-<span id="240">240</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -404,7 +382,7 @@
             <span class='kw'>let</span> <span class='ident'>buf</span> <span class='op'>=</span> <span class='ident'>CString</span>::<span class='ident'>new</span>(<span class='ident'>os</span>.<span class='ident'>as_bytes</span>()).<span class='ident'>unwrap</span>();
             <span class='kw'>let</span> <span class='ident'>fd</span> <span class='op'>=</span> <span class='kw'>unsafe</span> {
                 <span class='ident'>libc</span>::<span class='ident'>open</span>(<span class='ident'>buf</span>.<span class='ident'>as_ptr</span>(), <span class='ident'>libc</span>::<span class='ident'>O_RDWR</span> <span class='op'>|</span> <span class='ident'>libc</span>::<span class='ident'>O_CREAT</span>,
-                           <span class='ident'>libc</span>::<span class='ident'>S_IRWXU</span>)
+                           <span class='ident'>libc</span>::<span class='ident'>S_IRWXU</span> <span class='kw'>as</span> <span class='ident'>libc</span>::<span class='ident'>c_int</span>)
             };
             <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>fd</span> <span class='op'>&gt;</span> <span class='number'>0</span>, <span class='string'>&quot;failed to open lockfile: {}&quot;</span>,
                     <span class='ident'>io</span>::<span class='ident'>Error</span>::<span class='ident'>last_os_error</span>());
@@ -447,77 +425,55 @@
 }
 
 <span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>windows</span>)]</span>
+<span class='attribute'>#[<span class='ident'>allow</span>(<span class='ident'>bad_style</span>)]</span>
 <span class='kw'>mod</span> <span class='ident'>imp</span> {
-    <span class='kw'>use</span> <span class='ident'>libc</span>;
     <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>io</span>;
     <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>mem</span>;
-    <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>ffi</span>::<span class='ident'>OsStr</span>;
     <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>os</span>::<span class='ident'>windows</span>::<span class='ident'>prelude</span>::<span class='op'>*</span>;
+    <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>os</span>::<span class='ident'>windows</span>::<span class='ident'>raw</span>::<span class='ident'>HANDLE</span>;
     <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>path</span>::<span class='ident'>Path</span>;
-    <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>ptr</span>;
+    <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>fs</span>::{<span class='ident'>File</span>, <span class='ident'>OpenOptions</span>};
 
-    <span class='kw'>const</span> <span class='ident'>LOCKFILE_EXCLUSIVE_LOCK</span>: <span class='ident'>libc</span>::<span class='ident'>DWORD</span> <span class='op'>=</span> <span class='number'>0x00000002</span>;
+    <span class='kw'>type</span> <span class='ident'>DWORD</span> <span class='op'>=</span> <span class='ident'>u32</span>;
+    <span class='kw'>type</span> <span class='ident'>LPOVERLAPPED</span> <span class='op'>=</span> <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>OVERLAPPED</span>;
+    <span class='kw'>type</span> <span class='ident'>BOOL</span> <span class='op'>=</span> <span class='ident'>i32</span>;
+    <span class='kw'>const</span> <span class='ident'>LOCKFILE_EXCLUSIVE_LOCK</span>: <span class='ident'>DWORD</span> <span class='op'>=</span> <span class='number'>0x00000002</span>;
 
-    <span class='attribute'>#[<span class='ident'>allow</span>(<span class='ident'>non_snake_case</span>)]</span>
+    <span class='attribute'>#[<span class='ident'>repr</span>(<span class='ident'>C</span>)]</span>
+    <span class='kw'>struct</span> <span class='ident'>OVERLAPPED</span> {
+        <span class='ident'>Internal</span>: <span class='ident'>usize</span>,
+        <span class='ident'>InternalHigh</span>: <span class='ident'>usize</span>,
+        <span class='ident'>Pointer</span>: <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>u8</span>,
+        <span class='ident'>hEvent</span>: <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>u8</span>,
+    }
+
     <span class='kw'>extern</span> <span class='string'>&quot;system&quot;</span> {
-        <span class='kw'>fn</span> <span class='ident'>LockFileEx</span>(<span class='ident'>hFile</span>: <span class='ident'>libc</span>::<span class='ident'>HANDLE</span>,
-                      <span class='ident'>dwFlags</span>: <span class='ident'>libc</span>::<span class='ident'>DWORD</span>,
-                      <span class='ident'>dwReserved</span>: <span class='ident'>libc</span>::<span class='ident'>DWORD</span>,
-                      <span class='ident'>nNumberOfBytesToLockLow</span>: <span class='ident'>libc</span>::<span class='ident'>DWORD</span>,
-                      <span class='ident'>nNumberOfBytesToLockHigh</span>: <span class='ident'>libc</span>::<span class='ident'>DWORD</span>,
-                      <span class='ident'>lpOverlapped</span>: <span class='ident'>libc</span>::<span class='ident'>LPOVERLAPPED</span>) <span class='op'>-&gt;</span> <span class='ident'>libc</span>::<span class='ident'>BOOL</span>;
-        <span class='kw'>fn</span> <span class='ident'>UnlockFileEx</span>(<span class='ident'>hFile</span>: <span class='ident'>libc</span>::<span class='ident'>HANDLE</span>,
-                        <span class='ident'>dwReserved</span>: <span class='ident'>libc</span>::<span class='ident'>DWORD</span>,
-                        <span class='ident'>nNumberOfBytesToLockLow</span>: <span class='ident'>libc</span>::<span class='ident'>DWORD</span>,
-                        <span class='ident'>nNumberOfBytesToLockHigh</span>: <span class='ident'>libc</span>::<span class='ident'>DWORD</span>,
-                        <span class='ident'>lpOverlapped</span>: <span class='ident'>libc</span>::<span class='ident'>LPOVERLAPPED</span>) <span class='op'>-&gt;</span> <span class='ident'>libc</span>::<span class='ident'>BOOL</span>;
+        <span class='kw'>fn</span> <span class='ident'>LockFileEx</span>(<span class='ident'>hFile</span>: <span class='ident'>HANDLE</span>,
+                      <span class='ident'>dwFlags</span>: <span class='ident'>DWORD</span>,
+                      <span class='ident'>dwReserved</span>: <span class='ident'>DWORD</span>,
+                      <span class='ident'>nNumberOfBytesToLockLow</span>: <span class='ident'>DWORD</span>,
+                      <span class='ident'>nNumberOfBytesToLockHigh</span>: <span class='ident'>DWORD</span>,
+                      <span class='ident'>lpOverlapped</span>: <span class='ident'>LPOVERLAPPED</span>) <span class='op'>-&gt;</span> <span class='ident'>BOOL</span>;
     }
 
     <span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>Lock</span> {
-        <span class='ident'>handle</span>: <span class='ident'>libc</span>::<span class='ident'>HANDLE</span>,
+        <span class='ident'>_file</span>: <span class='ident'>File</span>,
     }
 
     <span class='kw'>impl</span> <span class='ident'>Lock</span> {
         <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>p</span>: <span class='kw-2'>&amp;</span><span class='ident'>Path</span>) <span class='op'>-&gt;</span> <span class='ident'>Lock</span> {
-            <span class='kw'>let</span> <span class='ident'>os</span>: <span class='kw-2'>&amp;</span><span class='ident'>OsStr</span> <span class='op'>=</span> <span class='ident'>p</span>.<span class='ident'>as_ref</span>();
-            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>p_16</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span>_<span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>os</span>.<span class='ident'>encode_wide</span>().<span class='ident'>collect</span>();
-            <span class='ident'>p_16</span>.<span class='ident'>push</span>(<span class='number'>0</span>);
-            <span class='kw'>let</span> <span class='ident'>handle</span> <span class='op'>=</span> <span class='kw'>unsafe</span> {
-                <span class='ident'>libc</span>::<span class='ident'>CreateFileW</span>(<span class='ident'>p_16</span>.<span class='ident'>as_ptr</span>(),
-                                  <span class='ident'>libc</span>::<span class='ident'>FILE_GENERIC_READ</span> <span class='op'>|</span>
-                                    <span class='ident'>libc</span>::<span class='ident'>FILE_GENERIC_WRITE</span>,
-                                  <span class='ident'>libc</span>::<span class='ident'>FILE_SHARE_READ</span> <span class='op'>|</span>
-                                    <span class='ident'>libc</span>::<span class='ident'>FILE_SHARE_DELETE</span> <span class='op'>|</span>
-                                    <span class='ident'>libc</span>::<span class='ident'>FILE_SHARE_WRITE</span>,
-                                  <span class='ident'>ptr</span>::<span class='ident'>null_mut</span>(),
-                                  <span class='ident'>libc</span>::<span class='ident'>CREATE_ALWAYS</span>,
-                                  <span class='ident'>libc</span>::<span class='ident'>FILE_ATTRIBUTE_NORMAL</span>,
-                                  <span class='ident'>ptr</span>::<span class='ident'>null_mut</span>())
-            };
-            <span class='kw'>if</span> <span class='ident'>handle</span> <span class='op'>==</span> <span class='ident'>libc</span>::<span class='ident'>INVALID_HANDLE_VALUE</span> {
-                <span class='macro'>panic</span><span class='macro'>!</span>(<span class='string'>&quot;create file error: {}&quot;</span>, <span class='ident'>io</span>::<span class='ident'>Error</span>::<span class='ident'>last_os_error</span>());
-            }
-            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>overlapped</span>: <span class='ident'>libc</span>::<span class='ident'>OVERLAPPED</span> <span class='op'>=</span> <span class='kw'>unsafe</span> { <span class='ident'>mem</span>::<span class='ident'>zeroed</span>() };
+            <span class='kw'>let</span> <span class='ident'>f</span> <span class='op'>=</span> <span class='ident'>OpenOptions</span>::<span class='ident'>new</span>().<span class='ident'>read</span>(<span class='boolval'>true</span>).<span class='ident'>write</span>(<span class='boolval'>true</span>).<span class='ident'>create</span>(<span class='boolval'>true</span>)
+                                      .<span class='ident'>open</span>(<span class='ident'>p</span>).<span class='ident'>unwrap</span>();
             <span class='kw'>let</span> <span class='ident'>ret</span> <span class='op'>=</span> <span class='kw'>unsafe</span> {
-                <span class='ident'>LockFileEx</span>(<span class='ident'>handle</span>, <span class='ident'>LOCKFILE_EXCLUSIVE_LOCK</span>, <span class='number'>0</span>, <span class='number'>100</span>, <span class='number'>0</span>,
+                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>overlapped</span>: <span class='ident'>OVERLAPPED</span> <span class='op'>=</span> <span class='ident'>mem</span>::<span class='ident'>zeroed</span>();
+                <span class='ident'>LockFileEx</span>(<span class='ident'>f</span>.<span class='ident'>as_raw_handle</span>(), <span class='ident'>LOCKFILE_EXCLUSIVE_LOCK</span>, <span class='number'>0</span>, <span class='number'>100</span>, <span class='number'>0</span>,
                            <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>overlapped</span>)
             };
             <span class='kw'>if</span> <span class='ident'>ret</span> <span class='op'>==</span> <span class='number'>0</span> {
                 <span class='kw'>let</span> <span class='ident'>err</span> <span class='op'>=</span> <span class='ident'>io</span>::<span class='ident'>Error</span>::<span class='ident'>last_os_error</span>();
-                <span class='kw'>unsafe</span> { <span class='ident'>libc</span>::<span class='ident'>CloseHandle</span>(<span class='ident'>handle</span>); }
                 <span class='macro'>panic</span><span class='macro'>!</span>(<span class='string'>&quot;could not lock `{}`: {}&quot;</span>, <span class='ident'>p</span>.<span class='ident'>display</span>(), <span class='ident'>err</span>);
             }
-            <span class='ident'>Lock</span> { <span class='ident'>handle</span>: <span class='ident'>handle</span> }
-        }
-    }
-
-    <span class='kw'>impl</span> <span class='ident'>Drop</span> <span class='kw'>for</span> <span class='ident'>Lock</span> {
-        <span class='kw'>fn</span> <span class='ident'>drop</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) {
-            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>overlapped</span>: <span class='ident'>libc</span>::<span class='ident'>OVERLAPPED</span> <span class='op'>=</span> <span class='kw'>unsafe</span> { <span class='ident'>mem</span>::<span class='ident'>zeroed</span>() };
-            <span class='kw'>unsafe</span> {
-                <span class='ident'>UnlockFileEx</span>(<span class='self'>self</span>.<span class='ident'>handle</span>, <span class='number'>0</span>, <span class='number'>100</span>, <span class='number'>0</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>overlapped</span>);
-                <span class='ident'>libc</span>::<span class='ident'>CloseHandle</span>(<span class='self'>self</span>.<span class='ident'>handle</span>);
-            }
+            <span class='ident'>Lock</span> { <span class='ident'>_file</span>: <span class='ident'>f</span> }
         }
     }
 }

@@ -468,6 +468,31 @@
 <span id="426">426</span>
 <span id="427">427</span>
 <span id="428">428</span>
+<span id="429">429</span>
+<span id="430">430</span>
+<span id="431">431</span>
+<span id="432">432</span>
+<span id="433">433</span>
+<span id="434">434</span>
+<span id="435">435</span>
+<span id="436">436</span>
+<span id="437">437</span>
+<span id="438">438</span>
+<span id="439">439</span>
+<span id="440">440</span>
+<span id="441">441</span>
+<span id="442">442</span>
+<span id="443">443</span>
+<span id="444">444</span>
+<span id="445">445</span>
+<span id="446">446</span>
+<span id="447">447</span>
+<span id="448">448</span>
+<span id="449">449</span>
+<span id="450">450</span>
+<span id="451">451</span>
+<span id="452">452</span>
+<span id="453">453</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -486,6 +511,8 @@
 
 <span class='kw'>use</span> <span class='ident'>build</span>::{<span class='ident'>BlockAnd</span>, <span class='ident'>Builder</span>};
 <span class='kw'>use</span> <span class='ident'>repr</span>::<span class='op'>*</span>;
+<span class='kw'>use</span> <span class='ident'>rustc_data_structures</span>::<span class='ident'>fnv</span>::<span class='ident'>FnvHashMap</span>;
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>middle</span>::<span class='ident'>const_eval</span>::<span class='ident'>ConstVal</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>middle</span>::<span class='ident'>region</span>::<span class='ident'>CodeExtent</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>middle</span>::<span class='ident'>ty</span>::{<span class='ident'>AdtDef</span>, <span class='ident'>Ty</span>};
 <span class='kw'>use</span> <span class='ident'>hair</span>::<span class='op'>*</span>;
@@ -712,6 +739,13 @@
         <span class='ident'>adt_def</span>: <span class='ident'>AdtDef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
     },
 
+    <span class='comment'>// test the branches of enum</span>
+    <span class='ident'>SwitchInt</span> {
+        <span class='ident'>switch_ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+        <span class='ident'>options</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ConstVal</span><span class='op'>&gt;</span>,
+        <span class='ident'>indices</span>: <span class='ident'>FnvHashMap</span><span class='op'>&lt;</span><span class='ident'>ConstVal</span>, <span class='ident'>usize</span><span class='op'>&gt;</span>,
+    },
+
     <span class='comment'>// test for equality</span>
     <span class='ident'>Eq</span> {
         <span class='ident'>value</span>: <span class='ident'>Literal</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
@@ -786,20 +820,36 @@
 
         <span class='comment'>// otherwise, extract the next match pair and construct tests</span>
         <span class='kw'>let</span> <span class='ident'>match_pair</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='ident'>candidates</span>.<span class='ident'>last</span>().<span class='ident'>unwrap</span>().<span class='ident'>match_pairs</span>[<span class='number'>0</span>];
-        <span class='kw'>let</span> <span class='ident'>test</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>test</span>(<span class='ident'>match_pair</span>);
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>test</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>test</span>(<span class='ident'>match_pair</span>);
+
+        <span class='comment'>// most of the time, the test to perform is simply a function</span>
+        <span class='comment'>// of the main candidate; but for a test like SwitchInt, we</span>
+        <span class='comment'>// may want to add cases based on the candidates that are</span>
+        <span class='comment'>// available</span>
+        <span class='kw'>match</span> <span class='ident'>test</span>.<span class='ident'>kind</span> {
+            <span class='ident'>TestKind</span>::<span class='ident'>SwitchInt</span> { <span class='ident'>switch_ty</span>, <span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>options</span>, <span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>indices</span> } <span class='op'>=&gt;</span> {
+                <span class='kw'>for</span> <span class='ident'>candidate</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>candidates</span> {
+                    <span class='self'>self</span>.<span class='ident'>add_cases_to_switch</span>(<span class='kw-2'>&amp;</span><span class='ident'>match_pair</span>.<span class='ident'>lvalue</span>,
+                                             <span class='ident'>candidate</span>,
+                                             <span class='ident'>switch_ty</span>,
+                                             <span class='ident'>options</span>,
+                                             <span class='ident'>indices</span>);
+                }
+            }
+            _ <span class='op'>=&gt;</span> { }
+        }
+
         <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;match_candidates: test={:?} match_pair={:?}&quot;</span>, <span class='ident'>test</span>, <span class='ident'>match_pair</span>);
         <span class='kw'>let</span> <span class='ident'>target_blocks</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>perform_test</span>(<span class='ident'>block</span>, <span class='kw-2'>&amp;</span><span class='ident'>match_pair</span>.<span class='ident'>lvalue</span>, <span class='kw-2'>&amp;</span><span class='ident'>test</span>);
 
-        <span class='kw'>for</span> (<span class='ident'>outcome</span>, <span class='kw-2'>mut</span> <span class='ident'>target_block</span>) <span class='kw'>in</span> <span class='ident'>target_blocks</span>.<span class='ident'>into_iter</span>().<span class='ident'>enumerate</span>() {
+        <span class='kw'>for</span> (<span class='ident'>outcome</span>, <span class='ident'>target_block</span>) <span class='kw'>in</span> <span class='ident'>target_blocks</span>.<span class='ident'>into_iter</span>().<span class='ident'>enumerate</span>() {
             <span class='kw'>let</span> <span class='ident'>applicable_candidates</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Candidate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span> <span class='op'>=</span>
                 <span class='ident'>candidates</span>.<span class='ident'>iter</span>()
                           .<span class='ident'>filter_map</span>(<span class='op'>|</span><span class='ident'>candidate</span><span class='op'>|</span> {
-                              <span class='macro'>unpack</span><span class='macro'>!</span>(<span class='ident'>target_block</span> <span class='op'>=</span>
-                                      <span class='self'>self</span>.<span class='ident'>candidate_under_assumption</span>(<span class='ident'>target_block</span>,
-                                                                      <span class='kw-2'>&amp;</span><span class='ident'>match_pair</span>.<span class='ident'>lvalue</span>,
-                                                                      <span class='kw-2'>&amp;</span><span class='ident'>test</span>.<span class='ident'>kind</span>,
-                                                                      <span class='ident'>outcome</span>,
-                                                                      <span class='ident'>candidate</span>))
+                              <span class='self'>self</span>.<span class='ident'>candidate_under_assumption</span>(<span class='kw-2'>&amp;</span><span class='ident'>match_pair</span>.<span class='ident'>lvalue</span>,
+                                                              <span class='kw-2'>&amp;</span><span class='ident'>test</span>.<span class='ident'>kind</span>,
+                                                              <span class='ident'>outcome</span>,
+                                                              <span class='ident'>candidate</span>)
                           })
                           .<span class='ident'>collect</span>();
             <span class='self'>self</span>.<span class='ident'>match_candidates</span>(<span class='ident'>span</span>, <span class='ident'>arm_blocks</span>, <span class='ident'>applicable_candidates</span>, <span class='ident'>target_block</span>);

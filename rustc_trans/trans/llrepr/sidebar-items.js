@@ -1,1 +1,1 @@
-initSidebarItems({"trait":[["LlvmRepr",""]]});
+initSidebarItems({});
