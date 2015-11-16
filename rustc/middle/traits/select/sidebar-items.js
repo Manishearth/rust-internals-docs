@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["MethodMatchResult",""],["MethodMatchedData",""]],"struct":[["SelectionCache",""],["SelectionContext",""]]});
+initSidebarItems({"enum":[["MethodMatchResult",""],["MethodMatchedData",""]],"struct":[["EvaluationCache",""],["SelectionCache",""],["SelectionContext",""]]});
