@@ -1,1 +1,1 @@
-initSidebarItems({"mod":[["back",""],["lib",""],["lint","Lints, aka compiler warnings."],["metadata",""],["middle",""],["plugin","Infrastructure for compiler plugins."],["save",""],["session",""],["trans",""],["util",""]]});
+initSidebarItems({"constant":[["DIAGNOSTICS",""]],"mod":[["back",""],["lib",""],["lint","Lints, aka compiler warnings."],["metadata",""],["middle",""],["plugin","Infrastructure for compiler plugins."],["save",""],["session",""],["trans",""],["util",""]]});
