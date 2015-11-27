@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["ConsumeMode",""],["LoanCause",""],["MatchMode",""],["MoveReason",""],["MutateMode",""]],"struct":[["ExprUseVisitor",""]],"trait":[["Delegate","This trait defines the callbacks you can expect to receive when employing the ExprUseVisitor."]]});

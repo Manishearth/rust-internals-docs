@@ -2893,8 +2893,6 @@
 <span id="2851">2851</span>
 <span id="2852">2852</span>
 <span id="2853">2853</span>
-<span id="2854">2854</span>
-<span id="2855">2855</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -2933,9 +2931,7 @@
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ptr</span>::<span class='ident'>P</span>;
 
 <span class='kw'>use</span> <span class='ident'>rustc_trans</span>::<span class='ident'>back</span>::<span class='ident'>link</span>;
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>metadata</span>::<span class='ident'>cstore</span>;
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>metadata</span>::<span class='ident'>csearch</span>;
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>metadata</span>::<span class='ident'>decoder</span>;
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>middle</span>::<span class='ident'>cstore</span>::{<span class='self'>self</span>, <span class='ident'>CrateStore</span>};
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>middle</span>::<span class='ident'>def</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>middle</span>::<span class='ident'>def_id</span>::{<span class='ident'>DefId</span>, <span class='ident'>DefIndex</span>};
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>middle</span>::<span class='ident'>subst</span>::{<span class='self'>self</span>, <span class='ident'>ParamSpace</span>, <span class='ident'>VecPerParamSpace</span>};
@@ -3024,6 +3020,8 @@
     <span class='kw'>pub</span> <span class='ident'>external_traits</span>: <span class='ident'>HashMap</span><span class='op'>&lt;</span><span class='ident'>DefId</span>, <span class='ident'>Trait</span><span class='op'>&gt;</span>,
 }
 
+<span class='kw'>struct</span> <span class='ident'>CrateNum</span>(<span class='ident'>ast</span>::<span class='ident'>CrateNum</span>);
+
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>Clean</span><span class='op'>&lt;</span><span class='ident'>Crate</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>visit_ast</span>::<span class='ident'>RustdocVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
     <span class='kw'>fn</span> <span class='ident'>clean</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cx</span>: <span class='kw-2'>&amp;</span><span class='ident'>DocContext</span>) <span class='op'>-&gt;</span> <span class='ident'>Crate</span> {
         <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>session</span>::<span class='ident'>config</span>::<span class='ident'>Input</span>;
@@ -3033,9 +3031,9 @@
         }
 
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>externs</span> <span class='op'>=</span> <span class='ident'>Vec</span>::<span class='ident'>new</span>();
-        <span class='ident'>cx</span>.<span class='ident'>sess</span>().<span class='ident'>cstore</span>.<span class='ident'>iter_crate_data</span>(<span class='op'>|</span><span class='ident'>n</span>, <span class='ident'>meta</span><span class='op'>|</span> {
-            <span class='ident'>externs</span>.<span class='ident'>push</span>((<span class='ident'>n</span>, <span class='ident'>meta</span>.<span class='ident'>clean</span>(<span class='ident'>cx</span>)));
-        });
+        <span class='kw'>for</span> <span class='ident'>cnum</span> <span class='kw'>in</span> <span class='ident'>cx</span>.<span class='ident'>sess</span>().<span class='ident'>cstore</span>.<span class='ident'>crates</span>() {
+            <span class='ident'>externs</span>.<span class='ident'>push</span>((<span class='ident'>cnum</span>, <span class='ident'>CrateNum</span>(<span class='ident'>cnum</span>).<span class='ident'>clean</span>(<span class='ident'>cx</span>)));
+        }
         <span class='ident'>externs</span>.<span class='ident'>sort_by</span>(<span class='op'>|</span><span class='kw-2'>&amp;</span>(<span class='ident'>a</span>, _), <span class='kw-2'>&amp;</span>(<span class='ident'>b</span>, _)<span class='op'>|</span> <span class='ident'>a</span>.<span class='ident'>cmp</span>(<span class='kw-2'>&amp;</span><span class='ident'>b</span>));
 
         <span class='comment'>// Figure out the name of this crate</span>
@@ -3117,24 +3115,22 @@
     <span class='kw'>pub</span> <span class='ident'>primitives</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>PrimitiveType</span><span class='op'>&gt;</span>,
 }
 
-<span class='kw'>impl</span> <span class='ident'>Clean</span><span class='op'>&lt;</span><span class='ident'>ExternalCrate</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>cstore</span>::<span class='ident'>crate_metadata</span> {
+<span class='kw'>impl</span> <span class='ident'>Clean</span><span class='op'>&lt;</span><span class='ident'>ExternalCrate</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>CrateNum</span> {
     <span class='kw'>fn</span> <span class='ident'>clean</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cx</span>: <span class='kw-2'>&amp;</span><span class='ident'>DocContext</span>) <span class='op'>-&gt;</span> <span class='ident'>ExternalCrate</span> {
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>primitives</span> <span class='op'>=</span> <span class='ident'>Vec</span>::<span class='ident'>new</span>();
         <span class='ident'>cx</span>.<span class='ident'>tcx_opt</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>tcx</span><span class='op'>|</span> {
-            <span class='ident'>csearch</span>::<span class='ident'>each_top_level_item_of_crate</span>(<span class='kw-2'>&amp;</span><span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>cstore</span>,
-                                                  <span class='self'>self</span>.<span class='ident'>cnum</span>,
-                                                  <span class='op'>|</span><span class='ident'>def</span>, _, _<span class='op'>|</span> {
-                <span class='kw'>let</span> <span class='ident'>did</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>def</span> {
-                    <span class='ident'>decoder</span>::<span class='ident'>DlDef</span>(<span class='ident'>def</span>::<span class='ident'>DefMod</span>(<span class='ident'>did</span>)) <span class='op'>=&gt;</span> <span class='ident'>did</span>,
-                    _ <span class='op'>=&gt;</span> <span class='kw'>return</span>
+            <span class='kw'>for</span> <span class='ident'>item</span> <span class='kw'>in</span> <span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>cstore</span>.<span class='ident'>crate_top_level_items</span>(<span class='self'>self</span>.<span class='number'>0</span>) {
+                <span class='kw'>let</span> <span class='ident'>did</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>item</span>.<span class='ident'>def</span> {
+                    <span class='ident'>cstore</span>::<span class='ident'>DlDef</span>(<span class='ident'>def</span>::<span class='ident'>DefMod</span>(<span class='ident'>did</span>)) <span class='op'>=&gt;</span> <span class='ident'>did</span>,
+                    _ <span class='op'>=&gt;</span> <span class='kw'>continue</span>
                 };
                 <span class='kw'>let</span> <span class='ident'>attrs</span> <span class='op'>=</span> <span class='ident'>inline</span>::<span class='ident'>load_attrs</span>(<span class='ident'>cx</span>, <span class='ident'>tcx</span>, <span class='ident'>did</span>);
                 <span class='ident'>PrimitiveType</span>::<span class='ident'>find</span>(<span class='kw-2'>&amp;</span><span class='ident'>attrs</span>).<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>prim</span><span class='op'>|</span> <span class='ident'>primitives</span>.<span class='ident'>push</span>(<span class='ident'>prim</span>));
-            })
+            }
         });
         <span class='ident'>ExternalCrate</span> {
-            <span class='ident'>name</span>: <span class='self'>self</span>.<span class='ident'>name</span>.<span class='ident'>to_string</span>(),
-            <span class='ident'>attrs</span>: <span class='ident'>decoder</span>::<span class='ident'>get_crate_attributes</span>(<span class='self'>self</span>.<span class='ident'>data</span>()).<span class='ident'>clean</span>(<span class='ident'>cx</span>),
+            <span class='ident'>name</span>: <span class='ident'>cx</span>.<span class='ident'>sess</span>().<span class='ident'>cstore</span>.<span class='ident'>crate_name</span>(<span class='self'>self</span>.<span class='number'>0</span>),
+            <span class='ident'>attrs</span>: <span class='ident'>cx</span>.<span class='ident'>sess</span>().<span class='ident'>cstore</span>.<span class='ident'>crate_attrs</span>(<span class='self'>self</span>.<span class='number'>0</span>).<span class='ident'>clean</span>(<span class='ident'>cx</span>),
             <span class='ident'>primitives</span>: <span class='ident'>primitives</span>,
         }
     }
@@ -3554,7 +3550,7 @@
                 (<span class='ident'>tcx</span>.<span class='ident'>lang_items</span>.<span class='ident'>sync_trait</span>().<span class='ident'>unwrap</span>(),
                  <span class='ident'>external_path</span>(<span class='ident'>cx</span>, <span class='string'>&quot;Sync&quot;</span>, <span class='prelude-val'>None</span>, <span class='macro'>vec</span><span class='macro'>!</span>[], <span class='kw-2'>&amp;</span><span class='ident'>empty</span>)),
         };
-        <span class='kw'>let</span> <span class='ident'>fqn</span> <span class='op'>=</span> <span class='ident'>csearch</span>::<span class='ident'>get_item_path</span>(<span class='ident'>tcx</span>, <span class='ident'>did</span>);
+        <span class='kw'>let</span> <span class='ident'>fqn</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>cstore</span>.<span class='ident'>item_path</span>(<span class='ident'>did</span>);
         <span class='kw'>let</span> <span class='ident'>fqn</span> <span class='op'>=</span> <span class='ident'>fqn</span>.<span class='ident'>into_iter</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>i</span><span class='op'>|</span> <span class='ident'>i</span>.<span class='ident'>to_string</span>()).<span class='ident'>collect</span>();
         <span class='ident'>cx</span>.<span class='ident'>external_paths</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>as_mut</span>().<span class='ident'>unwrap</span>().<span class='ident'>insert</span>(<span class='ident'>did</span>,
                                                                 (<span class='ident'>fqn</span>, <span class='ident'>TypeTrait</span>));
@@ -3576,7 +3572,7 @@
             <span class='prelude-val'>Some</span>(<span class='ident'>tcx</span>) <span class='op'>=&gt;</span> <span class='ident'>tcx</span>,
             <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='kw'>return</span> <span class='ident'>RegionBound</span>(<span class='ident'>Lifetime</span>::<span class='ident'>statik</span>())
         };
-        <span class='kw'>let</span> <span class='ident'>fqn</span> <span class='op'>=</span> <span class='ident'>csearch</span>::<span class='ident'>get_item_path</span>(<span class='ident'>tcx</span>, <span class='self'>self</span>.<span class='ident'>def_id</span>);
+        <span class='kw'>let</span> <span class='ident'>fqn</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>cstore</span>.<span class='ident'>item_path</span>(<span class='self'>self</span>.<span class='ident'>def_id</span>);
         <span class='kw'>let</span> <span class='ident'>fqn</span> <span class='op'>=</span> <span class='ident'>fqn</span>.<span class='ident'>into_iter</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>i</span><span class='op'>|</span> <span class='ident'>i</span>.<span class='ident'>to_string</span>())
                      .<span class='ident'>collect</span>::<span class='op'>&lt;</span><span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>String</span><span class='op'>&gt;&gt;</span>();
         <span class='kw'>let</span> <span class='ident'>path</span> <span class='op'>=</span> <span class='ident'>external_path</span>(<span class='ident'>cx</span>, <span class='ident'>fqn</span>.<span class='ident'>last</span>().<span class='ident'>unwrap</span>(),
@@ -4038,7 +4034,7 @@
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>names</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(_) <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>map</span>.<span class='ident'>as_local_node_id</span>(<span class='ident'>did</span>) {
             <span class='macro'>vec</span><span class='macro'>!</span>[].<span class='ident'>into_iter</span>()
         } <span class='kw'>else</span> {
-            <span class='ident'>csearch</span>::<span class='ident'>get_method_arg_names</span>(<span class='kw-2'>&amp;</span><span class='ident'>cx</span>.<span class='ident'>tcx</span>().<span class='ident'>sess</span>.<span class='ident'>cstore</span>, <span class='ident'>did</span>).<span class='ident'>into_iter</span>()
+            <span class='ident'>cx</span>.<span class='ident'>tcx</span>().<span class='ident'>sess</span>.<span class='ident'>cstore</span>.<span class='ident'>method_arg_names</span>(<span class='ident'>did</span>).<span class='ident'>into_iter</span>()
         }.<span class='ident'>peekable</span>();
         <span class='kw'>if</span> <span class='ident'>names</span>.<span class='ident'>peek</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>s</span><span class='op'>|</span> <span class='kw-2'>&amp;</span><span class='op'>*</span><span class='op'>*</span><span class='ident'>s</span>) <span class='op'>==</span> <span class='prelude-val'>Some</span>(<span class='string'>&quot;self&quot;</span>) {
             <span class='kw'>let</span> _ <span class='op'>=</span> <span class='ident'>names</span>.<span class='ident'>next</span>();
@@ -4563,7 +4559,7 @@
             <span class='ident'>ty</span>::<span class='ident'>TyStruct</span>(<span class='ident'>def</span>, <span class='ident'>substs</span>) <span class='op'>|</span>
             <span class='ident'>ty</span>::<span class='ident'>TyEnum</span>(<span class='ident'>def</span>, <span class='ident'>substs</span>) <span class='op'>=&gt;</span> {
                 <span class='kw'>let</span> <span class='ident'>did</span> <span class='op'>=</span> <span class='ident'>def</span>.<span class='ident'>did</span>;
-                <span class='kw'>let</span> <span class='ident'>fqn</span> <span class='op'>=</span> <span class='ident'>csearch</span>::<span class='ident'>get_item_path</span>(<span class='ident'>cx</span>.<span class='ident'>tcx</span>(), <span class='ident'>did</span>);
+                <span class='kw'>let</span> <span class='ident'>fqn</span> <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>tcx</span>().<span class='ident'>sess</span>.<span class='ident'>cstore</span>.<span class='ident'>item_path</span>(<span class='ident'>did</span>);
                 <span class='kw'>let</span> <span class='ident'>fqn</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span>_<span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>fqn</span>.<span class='ident'>into_iter</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>i</span><span class='op'>|</span> <span class='ident'>i</span>.<span class='ident'>to_string</span>()).<span class='ident'>collect</span>();
                 <span class='kw'>let</span> <span class='ident'>kind</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>sty</span> {
                     <span class='ident'>ty</span>::<span class='ident'>TyStruct</span>(..) <span class='op'>=&gt;</span> <span class='ident'>TypeStruct</span>,
@@ -4581,7 +4577,7 @@
             }
             <span class='ident'>ty</span>::<span class='ident'>TyTrait</span>(<span class='kw'>box</span> <span class='ident'>ty</span>::<span class='ident'>TraitTy</span> { <span class='kw-2'>ref</span> <span class='ident'>principal</span>, <span class='kw-2'>ref</span> <span class='ident'>bounds</span> }) <span class='op'>=&gt;</span> {
                 <span class='kw'>let</span> <span class='ident'>did</span> <span class='op'>=</span> <span class='ident'>principal</span>.<span class='ident'>def_id</span>();
-                <span class='kw'>let</span> <span class='ident'>fqn</span> <span class='op'>=</span> <span class='ident'>csearch</span>::<span class='ident'>get_item_path</span>(<span class='ident'>cx</span>.<span class='ident'>tcx</span>(), <span class='ident'>did</span>);
+                <span class='kw'>let</span> <span class='ident'>fqn</span> <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>tcx</span>().<span class='ident'>sess</span>.<span class='ident'>cstore</span>.<span class='ident'>item_path</span>(<span class='ident'>did</span>);
                 <span class='kw'>let</span> <span class='ident'>fqn</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span>_<span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>fqn</span>.<span class='ident'>into_iter</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>i</span><span class='op'>|</span> <span class='ident'>i</span>.<span class='ident'>to_string</span>()).<span class='ident'>collect</span>();
                 <span class='kw'>let</span> (<span class='ident'>typarams</span>, <span class='ident'>bindings</span>) <span class='op'>=</span> <span class='ident'>bounds</span>.<span class='ident'>clean</span>(<span class='ident'>cx</span>);
                 <span class='kw'>let</span> <span class='ident'>path</span> <span class='op'>=</span> <span class='ident'>external_path</span>(<span class='ident'>cx</span>, <span class='kw-2'>&amp;</span><span class='ident'>fqn</span>.<span class='ident'>last</span>().<span class='ident'>unwrap</span>().<span class='ident'>to_string</span>(),
@@ -4635,9 +4631,9 @@
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>Clean</span><span class='op'>&lt;</span><span class='ident'>Item</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>ty</span>::<span class='ident'>FieldDefData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;static</span><span class='op'>&gt;</span> {
     <span class='kw'>fn</span> <span class='ident'>clean</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cx</span>: <span class='kw-2'>&amp;</span><span class='ident'>DocContext</span>) <span class='op'>-&gt;</span> <span class='ident'>Item</span> {
         <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>parse</span>::<span class='ident'>token</span>::<span class='ident'>special_idents</span>::<span class='ident'>unnamed_field</span>;
-        <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>metadata</span>::<span class='ident'>csearch</span>;
-
-        <span class='kw'>let</span> <span class='ident'>attr_map</span> <span class='op'>=</span> <span class='ident'>csearch</span>::<span class='ident'>get_struct_field_attrs</span>(<span class='kw-2'>&amp;</span><span class='ident'>cx</span>.<span class='ident'>tcx</span>().<span class='ident'>sess</span>.<span class='ident'>cstore</span>, <span class='self'>self</span>.<span class='ident'>did</span>);
+        <span class='comment'>// FIXME: possible O(n^2)-ness! Not my fault.</span>
+        <span class='kw'>let</span> <span class='ident'>attr_map</span> <span class='op'>=</span>
+            <span class='ident'>cx</span>.<span class='ident'>tcx</span>().<span class='ident'>sess</span>.<span class='ident'>cstore</span>.<span class='ident'>crate_struct_field_attrs</span>(<span class='self'>self</span>.<span class='ident'>did</span>.<span class='ident'>krate</span>);
 
         <span class='kw'>let</span> (<span class='ident'>name</span>, <span class='ident'>attrs</span>) <span class='op'>=</span> <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>name</span> <span class='op'>==</span> <span class='ident'>unnamed_field</span>.<span class='ident'>name</span> {
             (<span class='prelude-val'>None</span>, <span class='prelude-val'>None</span>)
@@ -5713,7 +5709,7 @@
         <span class='prelude-val'>Some</span>(<span class='ident'>did</span>) <span class='op'>=&gt;</span> <span class='ident'>did</span>,
         <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='kw'>return</span> <span class='ident'>fallback</span>(<span class='kw'>box</span> <span class='ident'>t</span>.<span class='ident'>clean</span>(<span class='ident'>cx</span>)),
     };
-    <span class='kw'>let</span> <span class='ident'>fqn</span> <span class='op'>=</span> <span class='ident'>csearch</span>::<span class='ident'>get_item_path</span>(<span class='ident'>cx</span>.<span class='ident'>tcx</span>(), <span class='ident'>did</span>);
+    <span class='kw'>let</span> <span class='ident'>fqn</span> <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>tcx</span>().<span class='ident'>sess</span>.<span class='ident'>cstore</span>.<span class='ident'>item_path</span>(<span class='ident'>did</span>);
     <span class='kw'>let</span> <span class='ident'>fqn</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>String</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>fqn</span>.<span class='ident'>into_iter</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>i</span><span class='op'>|</span> {
         <span class='ident'>i</span>.<span class='ident'>to_string</span>()
     }).<span class='ident'>collect</span>();
