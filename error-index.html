@@ -5870,8 +5870,75 @@ implement a function for easy instantiation. Examples:</p>
 <div class="error-undescribed error-used"><h2 id="E0491" class="section-header"><a href="#E0491">E0491</a></h2>
 <p>No description.</p>
 </div>
-<div class="error-undescribed error-used"><h2 id="E0492" class="section-header"><a href="#E0492">E0492</a></h2>
-<p>No description.</p>
+<div class="error-described error-used"><h2 id="E0492" class="section-header"><a href="#E0492">E0492</a></h2>
+<p>A borrow of a constant containing interior mutability was attempted. Erroneous
+code example:</p>
+<pre class='rust rust-example-rendered'>
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>sync</span>::<span class='ident'>atomic</span>::{<span class='ident'>AtomicUsize</span>, <span class='ident'>ATOMIC_USIZE_INIT</span>};
+
+<span class='kw'>const</span> <span class='ident'>A</span>: <span class='ident'>AtomicUsize</span> <span class='op'>=</span> <span class='ident'>ATOMIC_USIZE_INIT</span>;
+<span class='kw'>static</span> <span class='ident'>B</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;static</span> <span class='ident'>AtomicUsize</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='ident'>A</span>;
+<span class='comment'>// error: cannot borrow a constant which contains interior mutability, create a</span>
+<span class='comment'>//        static instead</span></pre>
+
+<p>A <code>const</code> represents a constant value that should never change. If one takes
+a <code>&amp;</code> reference to the constant, then one is taking a pointer to some memory
+location containing the value. Normally this is perfectly fine: most values
+can&#39;t be changed via a shared <code>&amp;</code> pointer, but interior mutability would allow
+it. That is, a constant value could be mutated. On the other hand, a <code>static</code> is
+explicitly a single memory location, which can be mutated at will.</p>
+
+<p>So, in order to solve this error, either use statics which are <code>Sync</code>:</p>
+<pre class='rust rust-example-rendered'>
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>sync</span>::<span class='ident'>atomic</span>::{<span class='ident'>AtomicUsize</span>, <span class='ident'>ATOMIC_USIZE_INIT</span>};
+
+<span class='kw'>static</span> <span class='ident'>A</span>: <span class='ident'>AtomicUsize</span> <span class='op'>=</span> <span class='ident'>ATOMIC_USIZE_INIT</span>;
+<span class='kw'>static</span> <span class='ident'>B</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;static</span> <span class='ident'>AtomicUsize</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='ident'>A</span>; <span class='comment'>// ok!</span></pre>
+
+<p>You can also have this error while using a cell type:</p>
+<pre class='rust rust-example-rendered'>
+<span class='attribute'>#<span class='op'>!</span>[<span class='ident'>feature</span>(<span class='ident'>const_fn</span>)]</span>
+
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cell</span>::<span class='ident'>Cell</span>;
+
+<span class='kw'>const</span> <span class='ident'>A</span>: <span class='ident'>Cell</span><span class='op'>&lt;</span><span class='ident'>usize</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>Cell</span>::<span class='ident'>new</span>(<span class='number'>1</span>);
+<span class='kw'>const</span> <span class='ident'>B</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;static</span> <span class='ident'>Cell</span><span class='op'>&lt;</span><span class='ident'>usize</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='ident'>A</span>;
+<span class='comment'>// error: cannot borrow a constant which contains interior mutability, create</span>
+<span class='comment'>//        a static instead</span>
+
+<span class='comment'>// or:</span>
+<span class='kw'>struct</span> <span class='ident'>C</span> { <span class='ident'>a</span>: <span class='ident'>Cell</span><span class='op'>&lt;</span><span class='ident'>usize</span><span class='op'>&gt;</span> }
+
+<span class='kw'>const</span> <span class='ident'>D</span>: <span class='ident'>C</span> <span class='op'>=</span> <span class='ident'>C</span> { <span class='ident'>a</span>: <span class='ident'>Cell</span>::<span class='ident'>new</span>(<span class='number'>1</span>) };
+<span class='kw'>const</span> <span class='ident'>E</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;static</span> <span class='ident'>Cell</span><span class='op'>&lt;</span><span class='ident'>usize</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='ident'>D</span>.<span class='ident'>a</span>; <span class='comment'>// error</span>
+
+<span class='comment'>// or:</span>
+<span class='kw'>const</span> <span class='ident'>F</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;static</span> <span class='ident'>C</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='ident'>D</span>; <span class='comment'>// error</span></pre>
+
+<p>This is because cell types do operations that are not thread-safe. Due to this,
+they don&#39;t implement Sync and thus can&#39;t be placed in statics. In this
+case, <code>StaticMutex</code> would work just fine, but it isn&#39;t stable yet:
+<a href="https://doc.rust-lang.org/nightly/std/sync/struct.StaticMutex.html">https://doc.rust-lang.org/nightly/std/sync/struct.StaticMutex.html</a></p>
+
+<p>However, if you still wish to use these types, you can achieve this by an unsafe
+wrapper:</p>
+<pre class='rust rust-example-rendered'>
+<span class='attribute'>#<span class='op'>!</span>[<span class='ident'>feature</span>(<span class='ident'>const_fn</span>)]</span>
+
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cell</span>::<span class='ident'>Cell</span>;
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>marker</span>::<span class='ident'>Sync</span>;
+
+<span class='kw'>struct</span> <span class='ident'>NotThreadSafe</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
+    <span class='ident'>value</span>: <span class='ident'>Cell</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>,
+}
+
+<span class='kw'>unsafe</span> <span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>Sync</span> <span class='kw'>for</span> <span class='ident'>NotThreadSafe</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {}
+
+<span class='kw'>static</span> <span class='ident'>A</span>: <span class='ident'>NotThreadSafe</span><span class='op'>&lt;</span><span class='ident'>usize</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>NotThreadSafe</span> { <span class='ident'>value</span> : <span class='ident'>Cell</span>::<span class='ident'>new</span>(<span class='number'>1</span>) };
+<span class='kw'>static</span> <span class='ident'>B</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;static</span> <span class='ident'>NotThreadSafe</span><span class='op'>&lt;</span><span class='ident'>usize</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='ident'>A</span>; <span class='comment'>// ok!</span></pre>
+
+<p>Remember this solution is unsafe! You will have to ensure that accesses to the
+cell are synchronized.</p>
 </div>
 <div class="error-described error-used"><h2 id="E0493" class="section-header"><a href="#E0493">E0493</a></h2>
 <p>A type with a destructor was assigned to an invalid type of variable. Erroneous
