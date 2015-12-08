@@ -1,1 +1,0 @@
-initSidebarItems({"mod":[["build","Used by `rustc` when compiling a plugin crate."],["load","Used by `rustc` when loading a plugin."],["registry","Used by plugin crates to tell `rustc` about the plugins they provide."]]});

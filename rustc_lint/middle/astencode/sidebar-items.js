@@ -1,1 +1,0 @@
-initSidebarItems({"fn":[["decode_inlined_item","Decodes an item from its AST in the cdata's metadata and adds it to the ast-map."],["encode_cast_kind",""],["encode_inlined_item",""]]});

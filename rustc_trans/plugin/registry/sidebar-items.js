@@ -1,1 +1,0 @@
-initSidebarItems({"struct":[["Registry","Structure used to register plugins."]]});
