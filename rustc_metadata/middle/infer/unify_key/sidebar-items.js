@@ -1,1 +1,1 @@
-initSidebarItems({"trait":[["ToType",""]]});
+initSidebarItems({"struct":[["RegionVidKey",""]],"trait":[["ToType",""]]});

@@ -713,38 +713,6 @@
 <span id="670">670</span>
 <span id="671">671</span>
 <span id="672">672</span>
-<span id="673">673</span>
-<span id="674">674</span>
-<span id="675">675</span>
-<span id="676">676</span>
-<span id="677">677</span>
-<span id="678">678</span>
-<span id="679">679</span>
-<span id="680">680</span>
-<span id="681">681</span>
-<span id="682">682</span>
-<span id="683">683</span>
-<span id="684">684</span>
-<span id="685">685</span>
-<span id="686">686</span>
-<span id="687">687</span>
-<span id="688">688</span>
-<span id="689">689</span>
-<span id="690">690</span>
-<span id="691">691</span>
-<span id="692">692</span>
-<span id="693">693</span>
-<span id="694">694</span>
-<span id="695">695</span>
-<span id="696">696</span>
-<span id="697">697</span>
-<span id="698">698</span>
-<span id="699">699</span>
-<span id="700">700</span>
-<span id="701">701</span>
-<span id="702">702</span>
-<span id="703">703</span>
-<span id="704">704</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -762,10 +730,6 @@
 
 <span class='kw'>use</span> <span class='ident'>cell</span>::<span class='ident'>UnsafeCell</span>;
 <span class='kw'>use</span> <span class='ident'>mem</span>;
-
-<span class='comment'>// Sure wish we had macro hygiene, no?</span>
-<span class='attribute'>#[<span class='ident'>doc</span>(<span class='ident'>hidden</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>imp</span>::<span class='ident'>Key</span> <span class='kw'>as</span> <span class='ident'>__KeyInner</span>;
 
 <span class='doccomment'>/// A thread local storage key which owns its contents.</span>
 <span class='doccomment'>///</span>
@@ -809,40 +773,26 @@
 <span class='doccomment'>/// });</span>
 <span class='doccomment'>/// ```</span>
 <span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>LocalKey</span><span class='op'>&lt;</span><span class='ident'>T</span>:<span class='lifetime'>&#39;static</span><span class='op'>&gt;</span> {
-    <span class='comment'>// The key itself may be tagged with #[thread_local], and this `Key` is</span>
-    <span class='comment'>// stored as a `static`, and it&#39;s not valid for a static to reference the</span>
-    <span class='comment'>// address of another thread_local static. For this reason we kinda wonkily</span>
-    <span class='comment'>// work around this by generating a shim function which will give us the</span>
-    <span class='comment'>// address of the inner TLS key at runtime.</span>
+<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>LocalKey</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='lifetime'>&#39;static</span><span class='op'>&gt;</span> {
+    <span class='comment'>// This outer `LocalKey&lt;T&gt;` type is what&#39;s going to be stored in statics,</span>
+    <span class='comment'>// but actual data inside will sometimes be tagged with #[thread_local].</span>
+    <span class='comment'>// It&#39;s not valid for a true static to reference a #[thread_local] static,</span>
+    <span class='comment'>// so we get around that by exposing an accessor through a layer of function</span>
+    <span class='comment'>// indirection (this thunk).</span>
     <span class='comment'>//</span>
-    <span class='comment'>// This is trivially devirtualizable by LLVM because we never store anything</span>
-    <span class='comment'>// to this field and rustc can declare the `static` as constant as well.</span>
-    <span class='ident'>inner</span>: <span class='kw'>fn</span>() <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;static</span> <span class='ident'>__KeyInner</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>,
+    <span class='comment'>// Note that the thunk is itself unsafe because the returned lifetime of the</span>
+    <span class='comment'>// slot where data lives, `&#39;static`, is not actually valid. The lifetime</span>
+    <span class='comment'>// here is actually `&#39;thread`!</span>
+    <span class='comment'>//</span>
+    <span class='comment'>// Although this is an extra layer of indirection, it should in theory be</span>
+    <span class='comment'>// trivially devirtualizable by LLVM because the value of `inner` never</span>
+    <span class='comment'>// changes and the constant should be readonly within a crate. This mainly</span>
+    <span class='comment'>// only runs into problems when TLS statics are exported across crates.</span>
+    <span class='ident'>inner</span>: <span class='kw'>unsafe</span> <span class='kw'>fn</span>() <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='lifetime'>&#39;static</span> <span class='ident'>UnsafeCell</span><span class='op'>&lt;</span><span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span>,
 
     <span class='comment'>// initialization routine to invoke to create a value</span>
     <span class='ident'>init</span>: <span class='kw'>fn</span>() <span class='op'>-&gt;</span> <span class='ident'>T</span>,
 }
-
-<span class='comment'>// Macro pain #4586:</span>
-<span class='comment'>//</span>
-<span class='comment'>// When cross compiling, rustc will load plugins and macros from the *host*</span>
-<span class='comment'>// platform before search for macros from the target platform. This is primarily</span>
-<span class='comment'>// done to detect, for example, plugins. Ideally the macro below would be</span>
-<span class='comment'>// defined once per module below, but unfortunately this means we have the</span>
-<span class='comment'>// following situation:</span>
-<span class='comment'>//</span>
-<span class='comment'>// 1. We compile libstd for x86_64-unknown-linux-gnu, this thread_local!() macro</span>
-<span class='comment'>//    will inject #[thread_local] statics.</span>
-<span class='comment'>// 2. We then try to compile a program for arm-linux-androideabi</span>
-<span class='comment'>// 3. The compiler has a host of linux and a target of android, so it loads</span>
-<span class='comment'>//    macros from the *linux* libstd.</span>
-<span class='comment'>// 4. The macro generates a #[thread_local] field, but the android libstd does</span>
-<span class='comment'>//    not use #[thread_local]</span>
-<span class='comment'>// 5. Compile error about structs with wrong fields.</span>
-<span class='comment'>//</span>
-<span class='comment'>// To get around this, we&#39;re forced to inject the #[cfg] logic into the macro</span>
-<span class='comment'>// itself. Woohoo.</span>
 
 <span class='doccomment'>/// Declare a new thread local storage key of type `std::thread::LocalKey`.</span>
 <span class='doccomment'>///</span>
@@ -851,36 +801,14 @@
 <span class='attribute'>#[<span class='ident'>macro_export</span>]</span>
 <span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
 <span class='attribute'>#[<span class='ident'>allow_internal_unstable</span>]</span>
-<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>not</span>(<span class='ident'>no_elf_tls</span>))]</span>
 <span class='macro'>macro_rules</span><span class='macro'>!</span> <span class='ident'>thread_local</span> {
     (<span class='kw'>static</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span>:<span class='ident'>ident</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>t</span>:<span class='ident'>ty</span> <span class='op'>=</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>init</span>:<span class='ident'>expr</span>) <span class='op'>=&gt;</span> (
         <span class='kw'>static</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>crate</span>::<span class='ident'>thread</span>::<span class='ident'>LocalKey</span><span class='op'>&lt;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>t</span><span class='op'>&gt;</span> <span class='op'>=</span>
-            <span class='macro'>__thread_local_inner</span><span class='macro'>!</span>(<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>t</span>, <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>init</span>,
-                <span class='attribute'>#[<span class='ident'>cfg_attr</span>(<span class='ident'>all</span>(<span class='ident'>any</span>(<span class='ident'>target_os</span> <span class='op'>=</span> <span class='string'>&quot;macos&quot;</span>, <span class='ident'>target_os</span> <span class='op'>=</span> <span class='string'>&quot;linux&quot;</span>),
-                               <span class='ident'>not</span>(<span class='ident'>target_arch</span> <span class='op'>=</span> <span class='string'>&quot;aarch64&quot;</span>)),
-                           <span class='ident'>thread_local</span>)]</span>);
+            <span class='macro'>__thread_local_inner</span><span class='macro'>!</span>(<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>t</span>, <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>init</span>);
     );
     (<span class='kw'>pub</span> <span class='kw'>static</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span>:<span class='ident'>ident</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>t</span>:<span class='ident'>ty</span> <span class='op'>=</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>init</span>:<span class='ident'>expr</span>) <span class='op'>=&gt;</span> (
         <span class='kw'>pub</span> <span class='kw'>static</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>crate</span>::<span class='ident'>thread</span>::<span class='ident'>LocalKey</span><span class='op'>&lt;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>t</span><span class='op'>&gt;</span> <span class='op'>=</span>
-            <span class='macro'>__thread_local_inner</span><span class='macro'>!</span>(<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>t</span>, <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>init</span>,
-                <span class='attribute'>#[<span class='ident'>cfg_attr</span>(<span class='ident'>all</span>(<span class='ident'>any</span>(<span class='ident'>target_os</span> <span class='op'>=</span> <span class='string'>&quot;macos&quot;</span>, <span class='ident'>target_os</span> <span class='op'>=</span> <span class='string'>&quot;linux&quot;</span>),
-                               <span class='ident'>not</span>(<span class='ident'>target_arch</span> <span class='op'>=</span> <span class='string'>&quot;aarch64&quot;</span>)),
-                           <span class='ident'>thread_local</span>)]</span>);
-    );
-}
-
-<span class='attribute'>#[<span class='ident'>macro_export</span>]</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='attribute'>#[<span class='ident'>allow_internal_unstable</span>]</span>
-<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>no_elf_tls</span>)]</span>
-<span class='macro'>macro_rules</span><span class='macro'>!</span> <span class='ident'>thread_local</span> {
-    (<span class='kw'>static</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span>:<span class='ident'>ident</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>t</span>:<span class='ident'>ty</span> <span class='op'>=</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>init</span>:<span class='ident'>expr</span>) <span class='op'>=&gt;</span> (
-        <span class='kw'>static</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>crate</span>::<span class='ident'>thread</span>::<span class='ident'>LocalKey</span><span class='op'>&lt;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>t</span><span class='op'>&gt;</span> <span class='op'>=</span>
-            <span class='macro'>__thread_local_inner</span><span class='macro'>!</span>(<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>t</span>, <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>init</span>, <span class='attribute'>#[]</span>);
-    );
-    (<span class='kw'>pub</span> <span class='kw'>static</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span>:<span class='ident'>ident</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>t</span>:<span class='ident'>ty</span> <span class='op'>=</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>init</span>:<span class='ident'>expr</span>) <span class='op'>=&gt;</span> (
-        <span class='kw'>pub</span> <span class='kw'>static</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>crate</span>::<span class='ident'>thread</span>::<span class='ident'>LocalKey</span><span class='op'>&lt;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>t</span><span class='op'>&gt;</span> <span class='op'>=</span>
-            <span class='macro'>__thread_local_inner</span><span class='macro'>!</span>(<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>t</span>, <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>init</span>, <span class='attribute'>#[]</span>);
+            <span class='macro'>__thread_local_inner</span><span class='macro'>!</span>(<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>t</span>, <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>init</span>);
     );
 }
 
@@ -891,12 +819,25 @@
 <span class='attribute'>#[<span class='ident'>macro_export</span>]</span>
 <span class='attribute'>#[<span class='ident'>allow_internal_unstable</span>]</span>
 <span class='macro'>macro_rules</span><span class='macro'>!</span> <span class='ident'>__thread_local_inner</span> {
-    (<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>t</span>:<span class='ident'>ty</span>, <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>init</span>:<span class='ident'>expr</span>, <span class='attribute'>#[$(<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>attr</span>:<span class='ident'>meta</span>),<span class='op'>*</span>]</span>) <span class='op'>=&gt;</span> {{
-        $(<span class='attribute'>#[<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>attr</span>]</span>)<span class='op'>*</span>
-        <span class='kw'>static</span> <span class='ident'>__KEY</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>crate</span>::<span class='ident'>thread</span>::<span class='ident'>__LocalKeyInner</span><span class='op'>&lt;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>t</span><span class='op'>&gt;</span> <span class='op'>=</span>
-            <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>crate</span>::<span class='ident'>thread</span>::<span class='ident'>__LocalKeyInner</span>::<span class='ident'>new</span>();
+    (<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>t</span>:<span class='ident'>ty</span>, <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>init</span>:<span class='ident'>expr</span>) <span class='op'>=&gt;</span> {{
         <span class='kw'>fn</span> <span class='ident'>__init</span>() <span class='op'>-&gt;</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>t</span> { <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>init</span> }
-        <span class='kw'>fn</span> <span class='ident'>__getit</span>() <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;static</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>crate</span>::<span class='ident'>thread</span>::<span class='ident'>__LocalKeyInner</span><span class='op'>&lt;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>t</span><span class='op'>&gt;</span> { <span class='kw-2'>&amp;</span><span class='ident'>__KEY</span> }
+
+        <span class='kw'>unsafe</span> <span class='kw'>fn</span> <span class='ident'>__getit</span>() <span class='op'>-&gt;</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>crate</span>::<span class='ident'>option</span>::<span class='prelude-ty'>Option</span><span class='op'>&lt;</span>
+            <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;static</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>crate</span>::<span class='ident'>cell</span>::<span class='ident'>UnsafeCell</span><span class='op'>&lt;</span>
+                <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>crate</span>::<span class='ident'>option</span>::<span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>t</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span>
+        {
+            <span class='attribute'>#[<span class='ident'>thread_local</span>]</span>
+            <span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_thread_local</span>)]</span>
+            <span class='kw'>static</span> <span class='ident'>__KEY</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>crate</span>::<span class='ident'>thread</span>::<span class='ident'>__ElfLocalKeyInner</span><span class='op'>&lt;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>t</span><span class='op'>&gt;</span> <span class='op'>=</span>
+                <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>crate</span>::<span class='ident'>thread</span>::<span class='ident'>__ElfLocalKeyInner</span>::<span class='ident'>new</span>();
+
+            <span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>not</span>(<span class='ident'>target_thread_local</span>))]</span>
+            <span class='kw'>static</span> <span class='ident'>__KEY</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>crate</span>::<span class='ident'>thread</span>::<span class='ident'>__OsLocalKeyInner</span><span class='op'>&lt;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>t</span><span class='op'>&gt;</span> <span class='op'>=</span>
+                <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>crate</span>::<span class='ident'>thread</span>::<span class='ident'>__OsLocalKeyInner</span>::<span class='ident'>new</span>();
+
+            <span class='ident'>__KEY</span>.<span class='ident'>get</span>()
+        }
+
         <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>crate</span>::<span class='ident'>thread</span>::<span class='ident'>LocalKey</span>::<span class='ident'>new</span>(<span class='ident'>__getit</span>, <span class='ident'>__init</span>)
     }}
 }
@@ -938,11 +879,11 @@
     <span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;thread_local_internals&quot;</span>,
                <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;recently added to create a key&quot;</span>,
                <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;0&quot;</span>)]</span>
-    <span class='kw'>pub</span> <span class='kw'>const</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>inner</span>: <span class='kw'>fn</span>() <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;static</span> <span class='ident'>__KeyInner</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>,
+    <span class='kw'>pub</span> <span class='kw'>const</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>inner</span>: <span class='kw'>unsafe</span> <span class='kw'>fn</span>() <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='lifetime'>&#39;static</span> <span class='ident'>UnsafeCell</span><span class='op'>&lt;</span><span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span>,
                      <span class='ident'>init</span>: <span class='kw'>fn</span>() <span class='op'>-&gt;</span> <span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='ident'>LocalKey</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
         <span class='ident'>LocalKey</span> {
             <span class='ident'>inner</span>: <span class='ident'>inner</span>,
-            <span class='ident'>init</span>: <span class='ident'>init</span>
+            <span class='ident'>init</span>: <span class='ident'>init</span>,
         }
     }
 
@@ -959,10 +900,10 @@
     <span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>with</span><span class='op'>&lt;</span><span class='ident'>F</span>, <span class='ident'>R</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;static</span> <span class='self'>self</span>, <span class='ident'>f</span>: <span class='ident'>F</span>) <span class='op'>-&gt;</span> <span class='ident'>R</span>
                       <span class='kw'>where</span> <span class='ident'>F</span>: <span class='ident'>FnOnce</span>(<span class='kw-2'>&amp;</span><span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='ident'>R</span> {
-        <span class='kw'>let</span> <span class='ident'>slot</span> <span class='op'>=</span> (<span class='self'>self</span>.<span class='ident'>inner</span>)();
         <span class='kw'>unsafe</span> {
-            <span class='kw'>let</span> <span class='ident'>slot</span> <span class='op'>=</span> <span class='ident'>slot</span>.<span class='ident'>get</span>().<span class='ident'>expect</span>(<span class='string'>&quot;cannot access a TLS value during or \
-                                          after it is destroyed&quot;</span>);
+            <span class='kw'>let</span> <span class='ident'>slot</span> <span class='op'>=</span> (<span class='self'>self</span>.<span class='ident'>inner</span>)();
+            <span class='kw'>let</span> <span class='ident'>slot</span> <span class='op'>=</span> <span class='ident'>slot</span>.<span class='ident'>expect</span>(<span class='string'>&quot;cannot access a TLS value during or \
+                                    after it is destroyed&quot;</span>);
             <span class='ident'>f</span>(<span class='kw'>match</span> <span class='op'>*</span><span class='ident'>slot</span>.<span class='ident'>get</span>() {
                 <span class='prelude-val'>Some</span>(<span class='kw-2'>ref</span> <span class='ident'>inner</span>) <span class='op'>=&gt;</span> <span class='ident'>inner</span>,
                 <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='self'>self</span>.<span class='ident'>init</span>(<span class='ident'>slot</span>),
@@ -1018,7 +959,7 @@
                <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27716&quot;</span>)]</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>state</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;static</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>LocalKeyState</span> {
         <span class='kw'>unsafe</span> {
-            <span class='kw'>match</span> (<span class='self'>self</span>.<span class='ident'>inner</span>)().<span class='ident'>get</span>() {
+            <span class='kw'>match</span> (<span class='self'>self</span>.<span class='ident'>inner</span>)() {
                 <span class='prelude-val'>Some</span>(<span class='ident'>cell</span>) <span class='op'>=&gt;</span> {
                     <span class='kw'>match</span> <span class='op'>*</span><span class='ident'>cell</span>.<span class='ident'>get</span>() {
                         <span class='prelude-val'>Some</span>(..) <span class='op'>=&gt;</span> <span class='ident'>LocalKeyState</span>::<span class='ident'>Valid</span>,
@@ -1031,11 +972,9 @@
     }
 }
 
-<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>all</span>(<span class='ident'>any</span>(<span class='ident'>target_os</span> <span class='op'>=</span> <span class='string'>&quot;macos&quot;</span>, <span class='ident'>target_os</span> <span class='op'>=</span> <span class='string'>&quot;linux&quot;</span>),
-          <span class='ident'>not</span>(<span class='ident'>target_arch</span> <span class='op'>=</span> <span class='string'>&quot;aarch64&quot;</span>),
-          <span class='ident'>not</span>(<span class='ident'>no_elf_tls</span>)))]</span>
+<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_thread_local</span>)]</span>
 <span class='attribute'>#[<span class='ident'>doc</span>(<span class='ident'>hidden</span>)]</span>
-<span class='kw'>mod</span> <span class='ident'>imp</span> {
+<span class='kw'>pub</span> <span class='kw'>mod</span> <span class='ident'>elf</span> {
     <span class='kw'>use</span> <span class='ident'>cell</span>::{<span class='ident'>Cell</span>, <span class='ident'>UnsafeCell</span>};
     <span class='kw'>use</span> <span class='ident'>intrinsics</span>;
     <span class='kw'>use</span> <span class='ident'>ptr</span>;
@@ -1179,11 +1118,8 @@
     }
 }
 
-<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>any</span>(<span class='ident'>not</span>(<span class='ident'>any</span>(<span class='ident'>target_os</span> <span class='op'>=</span> <span class='string'>&quot;macos&quot;</span>, <span class='ident'>target_os</span> <span class='op'>=</span> <span class='string'>&quot;linux&quot;</span>)),
-          <span class='ident'>target_arch</span> <span class='op'>=</span> <span class='string'>&quot;aarch64&quot;</span>,
-          <span class='ident'>no_elf_tls</span>))]</span>
 <span class='attribute'>#[<span class='ident'>doc</span>(<span class='ident'>hidden</span>)]</span>
-<span class='kw'>mod</span> <span class='ident'>imp</span> {
+<span class='kw'>pub</span> <span class='kw'>mod</span> <span class='ident'>os</span> {
     <span class='kw'>use</span> <span class='ident'>prelude</span>::<span class='ident'>v1</span>::<span class='op'>*</span>;
 
     <span class='kw'>use</span> <span class='ident'>cell</span>::{<span class='ident'>Cell</span>, <span class='ident'>UnsafeCell</span>};

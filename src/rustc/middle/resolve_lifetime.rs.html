@@ -957,7 +957,7 @@
                         <span class='comment'>/* lifetime decl */</span> <span class='ident'>ast</span>::<span class='ident'>NodeId</span>),
     <span class='ident'>DefLateBoundRegion</span>(<span class='ident'>ty</span>::<span class='ident'>DebruijnIndex</span>,
                        <span class='comment'>/* lifetime decl */</span> <span class='ident'>ast</span>::<span class='ident'>NodeId</span>),
-    <span class='ident'>DefFreeRegion</span>(<span class='comment'>/* block scope */</span> <span class='ident'>region</span>::<span class='ident'>DestructionScopeData</span>,
+    <span class='ident'>DefFreeRegion</span>(<span class='ident'>region</span>::<span class='ident'>CallSiteScopeData</span>,
                   <span class='comment'>/* lifetime decl */</span> <span class='ident'>ast</span>::<span class='ident'>NodeId</span>),
 }
 
@@ -994,13 +994,13 @@
 <span class='kw'>enum</span> <span class='ident'>ScopeChain</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
     <span class='doccomment'>/// EarlyScope(i, [&#39;a, &#39;b, ...], s) extends s with early-bound</span>
     <span class='doccomment'>/// lifetimes, assigning indexes &#39;a =&gt; i, &#39;b =&gt; i+1, ... etc.</span>
-    <span class='ident'>EarlyScope</span>(<span class='ident'>subst</span>::<span class='ident'>ParamSpace</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>hir</span>::<span class='ident'>LifetimeDef</span><span class='op'>&gt;</span>, <span class='ident'>Scope</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>),
+    <span class='ident'>EarlyScope</span>(<span class='ident'>subst</span>::<span class='ident'>ParamSpace</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> [<span class='ident'>hir</span>::<span class='ident'>LifetimeDef</span>], <span class='ident'>Scope</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>),
     <span class='doccomment'>/// LateScope([&#39;a, &#39;b, ...], s) extends s with late-bound</span>
     <span class='doccomment'>/// lifetimes introduced by the declaration binder_id.</span>
-    <span class='ident'>LateScope</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>hir</span>::<span class='ident'>LifetimeDef</span><span class='op'>&gt;</span>, <span class='ident'>Scope</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>),
-    <span class='doccomment'>/// lifetimes introduced by items within a code block are scoped</span>
-    <span class='doccomment'>/// to that block.</span>
-    <span class='ident'>BlockScope</span>(<span class='ident'>region</span>::<span class='ident'>DestructionScopeData</span>, <span class='ident'>Scope</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>),
+    <span class='ident'>LateScope</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> [<span class='ident'>hir</span>::<span class='ident'>LifetimeDef</span>], <span class='ident'>Scope</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>),
+
+    <span class='doccomment'>/// lifetimes introduced by a fn are scoped to the call-site for that fn.</span>
+    <span class='ident'>FnScope</span> { <span class='ident'>fn_id</span>: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>, <span class='ident'>body_id</span>: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>, <span class='ident'>s</span>: <span class='ident'>Scope</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> },
     <span class='ident'>RootScope</span>
 }
 
@@ -1010,15 +1010,16 @@
 
 <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>krate</span>(<span class='ident'>sess</span>: <span class='kw-2'>&amp;</span><span class='ident'>Session</span>, <span class='ident'>krate</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Crate</span>, <span class='ident'>def_map</span>: <span class='kw-2'>&amp;</span><span class='ident'>DefMap</span>) <span class='op'>-&gt;</span> <span class='ident'>NamedRegionMap</span> {
     <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>named_region_map</span> <span class='op'>=</span> <span class='ident'>NodeMap</span>();
-    <span class='ident'>krate</span>.<span class='ident'>visit_all_items</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>LifetimeContext</span> {
-        <span class='ident'>sess</span>: <span class='ident'>sess</span>,
-        <span class='ident'>named_region_map</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>named_region_map</span>,
-        <span class='ident'>scope</span>: <span class='kw-2'>&amp;</span><span class='ident'>ROOT_SCOPE</span>,
-        <span class='ident'>def_map</span>: <span class='ident'>def_map</span>,
-        <span class='ident'>trait_ref_hack</span>: <span class='boolval'>false</span>,
-        <span class='ident'>labels_in_fn</span>: <span class='macro'>vec</span><span class='macro'>!</span>[],
+    <span class='ident'>sess</span>.<span class='ident'>abort_if_new_errors</span>(<span class='op'>||</span> {
+        <span class='ident'>krate</span>.<span class='ident'>visit_all_items</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>LifetimeContext</span> {
+            <span class='ident'>sess</span>: <span class='ident'>sess</span>,
+            <span class='ident'>named_region_map</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>named_region_map</span>,
+            <span class='ident'>scope</span>: <span class='kw-2'>&amp;</span><span class='ident'>ROOT_SCOPE</span>,
+            <span class='ident'>def_map</span>: <span class='ident'>def_map</span>,
+            <span class='ident'>trait_ref_hack</span>: <span class='boolval'>false</span>,
+            <span class='ident'>labels_in_fn</span>: <span class='macro'>vec</span><span class='macro'>!</span>[],
+        });
     });
-    <span class='ident'>sess</span>.<span class='ident'>abort_if_errors</span>();
     <span class='ident'>named_region_map</span>
 }
 
@@ -1087,20 +1088,20 @@
     }
 
     <span class='kw'>fn</span> <span class='ident'>visit_fn</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>fk</span>: <span class='ident'>FnKind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;v</span><span class='op'>&gt;</span>, <span class='ident'>fd</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;v</span> <span class='ident'>hir</span>::<span class='ident'>FnDecl</span>,
-                <span class='ident'>b</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;v</span> <span class='ident'>hir</span>::<span class='ident'>Block</span>, <span class='ident'>s</span>: <span class='ident'>Span</span>, _: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>) {
+                <span class='ident'>b</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;v</span> <span class='ident'>hir</span>::<span class='ident'>Block</span>, <span class='ident'>s</span>: <span class='ident'>Span</span>, <span class='ident'>fn_id</span>: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>) {
         <span class='kw'>match</span> <span class='ident'>fk</span> {
             <span class='ident'>FnKind</span>::<span class='ident'>ItemFn</span>(_, <span class='ident'>generics</span>, _, _, _, _) <span class='op'>=&gt;</span> {
                 <span class='self'>self</span>.<span class='ident'>visit_early_late</span>(<span class='ident'>subst</span>::<span class='ident'>FnSpace</span>, <span class='ident'>generics</span>, <span class='op'>|</span><span class='ident'>this</span><span class='op'>|</span> {
-                    <span class='ident'>this</span>.<span class='ident'>walk_fn</span>(<span class='ident'>fk</span>, <span class='ident'>fd</span>, <span class='ident'>b</span>, <span class='ident'>s</span>)
+                    <span class='ident'>this</span>.<span class='ident'>add_scope_and_walk_fn</span>(<span class='ident'>fk</span>, <span class='ident'>fd</span>, <span class='ident'>b</span>, <span class='ident'>s</span>, <span class='ident'>fn_id</span>)
                 })
             }
             <span class='ident'>FnKind</span>::<span class='ident'>Method</span>(_, <span class='ident'>sig</span>, _) <span class='op'>=&gt;</span> {
                 <span class='self'>self</span>.<span class='ident'>visit_early_late</span>(<span class='ident'>subst</span>::<span class='ident'>FnSpace</span>, <span class='kw-2'>&amp;</span><span class='ident'>sig</span>.<span class='ident'>generics</span>, <span class='op'>|</span><span class='ident'>this</span><span class='op'>|</span> {
-                    <span class='ident'>this</span>.<span class='ident'>walk_fn</span>(<span class='ident'>fk</span>, <span class='ident'>fd</span>, <span class='ident'>b</span>, <span class='ident'>s</span>)
+                    <span class='ident'>this</span>.<span class='ident'>add_scope_and_walk_fn</span>(<span class='ident'>fk</span>, <span class='ident'>fd</span>, <span class='ident'>b</span>, <span class='ident'>s</span>, <span class='ident'>fn_id</span>)
                 })
             }
             <span class='ident'>FnKind</span>::<span class='ident'>Closure</span> <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>walk_fn</span>(<span class='ident'>fk</span>, <span class='ident'>fd</span>, <span class='ident'>b</span>, <span class='ident'>s</span>)
+                <span class='self'>self</span>.<span class='ident'>add_scope_and_walk_fn</span>(<span class='ident'>fk</span>, <span class='ident'>fd</span>, <span class='ident'>b</span>, <span class='ident'>s</span>, <span class='ident'>fn_id</span>)
             }
         }
     }
@@ -1120,7 +1121,7 @@
                 <span class='comment'>// a trait ref, which introduces a binding scope.</span>
                 <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>def_map</span>.<span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='ident'>ty</span>.<span class='ident'>id</span>).<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>d</span><span class='op'>|</span> (<span class='ident'>d</span>.<span class='ident'>base_def</span>, <span class='ident'>d</span>.<span class='ident'>depth</span>)) {
                     <span class='prelude-val'>Some</span>((<span class='ident'>def</span>::<span class='ident'>DefTrait</span>(..), <span class='number'>0</span>)) <span class='op'>=&gt;</span> {
-                        <span class='self'>self</span>.<span class='ident'>with</span>(<span class='ident'>LateScope</span>(<span class='kw-2'>&amp;</span><span class='ident'>Vec</span>::<span class='ident'>new</span>(), <span class='self'>self</span>.<span class='ident'>scope</span>), <span class='op'>|</span>_, <span class='ident'>this</span><span class='op'>|</span> {
+                        <span class='self'>self</span>.<span class='ident'>with</span>(<span class='ident'>LateScope</span>(<span class='kw-2'>&amp;</span>[], <span class='self'>self</span>.<span class='ident'>scope</span>), <span class='op'>|</span>_, <span class='ident'>this</span><span class='op'>|</span> {
                             <span class='ident'>this</span>.<span class='ident'>visit_path</span>(<span class='ident'>path</span>, <span class='ident'>ty</span>.<span class='ident'>id</span>);
                         });
                     }
@@ -1149,12 +1150,6 @@
         }
 
         <span class='ident'>replace</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>.<span class='ident'>labels_in_fn</span>, <span class='ident'>saved</span>);
-    }
-
-    <span class='kw'>fn</span> <span class='ident'>visit_block</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>b</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Block</span>) {
-        <span class='self'>self</span>.<span class='ident'>with</span>(<span class='ident'>BlockScope</span>(<span class='ident'>region</span>::<span class='ident'>DestructionScopeData</span>::<span class='ident'>new</span>(<span class='ident'>b</span>.<span class='ident'>id</span>),
-                             <span class='self'>self</span>.<span class='ident'>scope</span>),
-                  <span class='op'>|</span>_, <span class='ident'>this</span><span class='op'>|</span> <span class='ident'>intravisit</span>::<span class='ident'>walk_block</span>(<span class='ident'>this</span>, <span class='ident'>b</span>));
     }
 
     <span class='kw'>fn</span> <span class='ident'>visit_lifetime</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>lifetime_ref</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Lifetime</span>) {
@@ -1352,7 +1347,7 @@
                                            <span class='ident'>label_span</span>: <span class='ident'>Span</span>) {
         <span class='kw'>loop</span> {
             <span class='kw'>match</span> <span class='op'>*</span><span class='ident'>scope</span> {
-                <span class='ident'>BlockScope</span>(_, <span class='ident'>s</span>) <span class='op'>=&gt;</span> { <span class='ident'>scope</span> <span class='op'>=</span> <span class='ident'>s</span>; }
+                <span class='ident'>FnScope</span> { <span class='ident'>s</span>, .. } <span class='op'>=&gt;</span> { <span class='ident'>scope</span> <span class='op'>=</span> <span class='ident'>s</span>; }
                 <span class='ident'>RootScope</span> <span class='op'>=&gt;</span> { <span class='kw'>return</span>; }
 
                 <span class='ident'>EarlyScope</span>(_, <span class='ident'>lifetimes</span>, <span class='ident'>s</span>) <span class='op'>|</span>
@@ -1376,14 +1371,13 @@
 }
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> <span class='ident'>LifetimeContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-    <span class='comment'>// This is just like intravisit::walk_fn, except that it extracts the</span>
-    <span class='comment'>// labels of the function body and swaps them in before visiting</span>
-    <span class='comment'>// the function body itself.</span>
-    <span class='kw'>fn</span> <span class='ident'>walk_fn</span><span class='op'>&lt;</span><span class='lifetime'>&#39;b</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                   <span class='ident'>fk</span>: <span class='ident'>FnKind</span>,
-                   <span class='ident'>fd</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>FnDecl</span>,
-                   <span class='ident'>fb</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;b</span> <span class='ident'>hir</span>::<span class='ident'>Block</span>,
-                   <span class='ident'>_span</span>: <span class='ident'>Span</span>) {
+    <span class='kw'>fn</span> <span class='ident'>add_scope_and_walk_fn</span><span class='op'>&lt;</span><span class='lifetime'>&#39;b</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
+                                 <span class='ident'>fk</span>: <span class='ident'>FnKind</span>,
+                                 <span class='ident'>fd</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>FnDecl</span>,
+                                 <span class='ident'>fb</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;b</span> <span class='ident'>hir</span>::<span class='ident'>Block</span>,
+                                 <span class='ident'>_span</span>: <span class='ident'>Span</span>,
+                                 <span class='ident'>fn_id</span>: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>) {
+
         <span class='kw'>match</span> <span class='ident'>fk</span> {
             <span class='ident'>FnKind</span>::<span class='ident'>ItemFn</span>(_, <span class='ident'>generics</span>, _, _, _, _) <span class='op'>=&gt;</span> {
                 <span class='ident'>intravisit</span>::<span class='ident'>walk_fn_decl</span>(<span class='self'>self</span>, <span class='ident'>fd</span>);
@@ -1403,7 +1397,8 @@
         <span class='comment'>// `self.labels_in_fn`.</span>
         <span class='ident'>extract_labels</span>(<span class='self'>self</span>, <span class='ident'>fb</span>);
 
-        <span class='self'>self</span>.<span class='ident'>visit_block</span>(<span class='ident'>fb</span>);
+        <span class='self'>self</span>.<span class='ident'>with</span>(<span class='ident'>FnScope</span> { <span class='ident'>fn_id</span>: <span class='ident'>fn_id</span>, <span class='ident'>body_id</span>: <span class='ident'>fb</span>.<span class='ident'>id</span>, <span class='ident'>s</span>: <span class='self'>self</span>.<span class='ident'>scope</span> },
+                  <span class='op'>|</span><span class='ident'>_old_scope</span>, <span class='ident'>this</span><span class='op'>|</span> <span class='ident'>this</span>.<span class='ident'>visit_block</span>(<span class='ident'>fb</span>))
     }
 
     <span class='kw'>fn</span> <span class='ident'>with</span><span class='op'>&lt;</span><span class='ident'>F</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>wrap_scope</span>: <span class='ident'>ScopeChain</span>, <span class='ident'>f</span>: <span class='ident'>F</span>) <span class='kw'>where</span>
@@ -1474,8 +1469,11 @@
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>scope</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>scope</span>;
         <span class='kw'>loop</span> {
             <span class='kw'>match</span> <span class='op'>*</span><span class='ident'>scope</span> {
-                <span class='ident'>BlockScope</span>(<span class='ident'>blk_scope</span>, <span class='ident'>s</span>) <span class='op'>=&gt;</span> {
-                    <span class='kw'>return</span> <span class='self'>self</span>.<span class='ident'>resolve_free_lifetime_ref</span>(<span class='ident'>blk_scope</span>, <span class='ident'>lifetime_ref</span>, <span class='ident'>s</span>);
+                <span class='ident'>FnScope</span> {<span class='ident'>fn_id</span>, <span class='ident'>body_id</span>, <span class='ident'>s</span> } <span class='op'>=&gt;</span> {
+                    <span class='kw'>return</span> <span class='self'>self</span>.<span class='ident'>resolve_free_lifetime_ref</span>(
+                        <span class='ident'>region</span>::<span class='ident'>CallSiteScopeData</span> { <span class='ident'>fn_id</span>: <span class='ident'>fn_id</span>, <span class='ident'>body_id</span>: <span class='ident'>body_id</span> },
+                        <span class='ident'>lifetime_ref</span>,
+                        <span class='ident'>s</span>);
                 }
 
                 <span class='ident'>RootScope</span> <span class='op'>=&gt;</span> {
@@ -1519,7 +1517,7 @@
     }
 
     <span class='kw'>fn</span> <span class='ident'>resolve_free_lifetime_ref</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                                 <span class='ident'>scope_data</span>: <span class='ident'>region</span>::<span class='ident'>DestructionScopeData</span>,
+                                 <span class='ident'>scope_data</span>: <span class='ident'>region</span>::<span class='ident'>CallSiteScopeData</span>,
                                  <span class='ident'>lifetime_ref</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Lifetime</span>,
                                  <span class='ident'>scope</span>: <span class='ident'>Scope</span>) {
         <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;resolve_free_lifetime_ref \
@@ -1537,8 +1535,10 @@
                     scope_data: {:?} scope: {:?} search_result: {:?}&quot;</span>,
                    <span class='ident'>scope_data</span>, <span class='ident'>scope</span>, <span class='ident'>search_result</span>);
             <span class='kw'>match</span> <span class='op'>*</span><span class='ident'>scope</span> {
-                <span class='ident'>BlockScope</span>(<span class='ident'>blk_scope_data</span>, <span class='ident'>s</span>) <span class='op'>=&gt;</span> {
-                    <span class='ident'>scope_data</span> <span class='op'>=</span> <span class='ident'>blk_scope_data</span>;
+                <span class='ident'>FnScope</span> { <span class='ident'>fn_id</span>, <span class='ident'>body_id</span>, <span class='ident'>s</span> } <span class='op'>=&gt;</span> {
+                    <span class='ident'>scope_data</span> <span class='op'>=</span> <span class='ident'>region</span>::<span class='ident'>CallSiteScopeData</span> {
+                        <span class='ident'>fn_id</span>: <span class='ident'>fn_id</span>, <span class='ident'>body_id</span>: <span class='ident'>body_id</span>
+                    };
                     <span class='ident'>scope</span> <span class='op'>=</span> <span class='ident'>s</span>;
                 }
 
@@ -1576,7 +1576,7 @@
                     <span class='ident'>lifetime_ref</span>.<span class='ident'>name</span>);
     }
 
-    <span class='kw'>fn</span> <span class='ident'>check_lifetime_defs</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>old_scope</span>: <span class='ident'>Scope</span>, <span class='ident'>lifetimes</span>: <span class='kw-2'>&amp;</span><span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>hir</span>::<span class='ident'>LifetimeDef</span><span class='op'>&gt;</span>) {
+    <span class='kw'>fn</span> <span class='ident'>check_lifetime_defs</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>old_scope</span>: <span class='ident'>Scope</span>, <span class='ident'>lifetimes</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>hir</span>::<span class='ident'>LifetimeDef</span>]) {
         <span class='kw'>for</span> <span class='ident'>i</span> <span class='kw'>in</span> <span class='number'>0</span>..<span class='ident'>lifetimes</span>.<span class='ident'>len</span>() {
             <span class='kw'>let</span> <span class='ident'>lifetime_i</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='ident'>lifetimes</span>[<span class='ident'>i</span>];
 
@@ -1626,7 +1626,7 @@
 
         <span class='kw'>loop</span> {
             <span class='kw'>match</span> <span class='op'>*</span><span class='ident'>old_scope</span> {
-                <span class='ident'>BlockScope</span>(_, <span class='ident'>s</span>) <span class='op'>=&gt;</span> {
+                <span class='ident'>FnScope</span> { <span class='ident'>s</span>, .. } <span class='op'>=&gt;</span> {
                     <span class='ident'>old_scope</span> <span class='op'>=</span> <span class='ident'>s</span>;
                 }
 
@@ -1668,7 +1668,7 @@
     }
 }
 
-<span class='kw'>fn</span> <span class='ident'>search_lifetimes</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='ident'>lifetimes</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>hir</span>::<span class='ident'>LifetimeDef</span><span class='op'>&gt;</span>,
+<span class='kw'>fn</span> <span class='ident'>search_lifetimes</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='ident'>lifetimes</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> [<span class='ident'>hir</span>::<span class='ident'>LifetimeDef</span>],
                     <span class='ident'>lifetime_ref</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Lifetime</span>)
                     <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span>(<span class='ident'>u32</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>hir</span>::<span class='ident'>Lifetime</span>)<span class='op'>&gt;</span> {
     <span class='kw'>for</span> (<span class='ident'>i</span>, <span class='ident'>lifetime_decl</span>) <span class='kw'>in</span> <span class='ident'>lifetimes</span>.<span class='ident'>iter</span>().<span class='ident'>enumerate</span>() {
@@ -1779,7 +1779,7 @@
         <span class='kw'>match</span> <span class='op'>*</span><span class='self'>self</span> {
             <span class='ident'>EarlyScope</span>(<span class='ident'>space</span>, <span class='ident'>defs</span>, _) <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;EarlyScope({:?}, {:?})&quot;</span>, <span class='ident'>space</span>, <span class='ident'>defs</span>),
             <span class='ident'>LateScope</span>(<span class='ident'>defs</span>, _) <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;LateScope({:?})&quot;</span>, <span class='ident'>defs</span>),
-            <span class='ident'>BlockScope</span>(<span class='ident'>id</span>, _) <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;BlockScope({:?})&quot;</span>, <span class='ident'>id</span>),
+            <span class='ident'>FnScope</span> { <span class='ident'>fn_id</span>, <span class='ident'>body_id</span>, <span class='ident'>s</span>: _ } <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;FnScope({:?}, {:?})&quot;</span>, <span class='ident'>fn_id</span>, <span class='ident'>body_id</span>),
             <span class='ident'>RootScope</span> <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;RootScope&quot;</span>),
         }
     }

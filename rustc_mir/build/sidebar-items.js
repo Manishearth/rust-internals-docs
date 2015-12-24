@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["construct",""]]});
+initSidebarItems({"fn":[["construct",""]],"struct":[["BlockAnd",""],["Builder",""]]});
