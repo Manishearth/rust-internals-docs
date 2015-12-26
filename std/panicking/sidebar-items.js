@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["set_handler","Registers a custom panic handler, replacing any that was previously registered."],["take_handler","Unregisters the current panic handler, returning it."]],"struct":[["Location","A struct containing information about the location of a panic."],["PanicInfo","A struct providing information about a panic."]]});
