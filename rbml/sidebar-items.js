@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["EbmlEncoderTag",""],["Error",""]],"mod":[["reader",""],["writer",""]],"struct":[["Doc","Common data structures"],["TaggedDoc",""]]});
+initSidebarItems({"enum":[["EbmlEncoderTag",""],["Error",""]],"mod":[["leb128",""],["opaque",""],["reader",""],["writer",""]],"struct":[["Doc","Common data structures"],["TaggedDoc",""]]});
