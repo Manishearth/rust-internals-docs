@@ -2322,29 +2322,6 @@
 <span id="2279">2279</span>
 <span id="2280">2280</span>
 <span id="2281">2281</span>
-<span id="2282">2282</span>
-<span id="2283">2283</span>
-<span id="2284">2284</span>
-<span id="2285">2285</span>
-<span id="2286">2286</span>
-<span id="2287">2287</span>
-<span id="2288">2288</span>
-<span id="2289">2289</span>
-<span id="2290">2290</span>
-<span id="2291">2291</span>
-<span id="2292">2292</span>
-<span id="2293">2293</span>
-<span id="2294">2294</span>
-<span id="2295">2295</span>
-<span id="2296">2296</span>
-<span id="2297">2297</span>
-<span id="2298">2298</span>
-<span id="2299">2299</span>
-<span id="2300">2300</span>
-<span id="2301">2301</span>
-<span id="2302">2302</span>
-<span id="2303">2303</span>
-<span id="2304">2304</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -2382,13 +2359,12 @@ lazilly and on demand, and include logic that checks for cycles.
 Demand is driven by calls to `AstConv::get_item_type_scheme` or
 `AstConv::lookup_trait_def`.
 
-Currently, we &quot;convert&quot; types and traits in three phases (note that
+Currently, we &quot;convert&quot; types and traits in two phases (note that
 conversion only affects the types of items / enum variants / methods;
 it does not e.g. compute the types of individual expressions):
 
 0. Intrinsics
-1. Trait definitions
-2. Type definitions
+1. Trait/Type definitions
 
 Conversion itself is done by simply walking each of the items in turn
 and invoking an appropriate function (e.g., `trait_def_of_item` or
@@ -2404,11 +2380,6 @@ There are some shortcomings in this design:
 - Because the type scheme includes defaults, cycles through type
   parameter defaults are illegal even if those defaults are never
   employed. This is not necessarily a bug.
-- The phasing of trait definitions before type definitions does not
-  seem to be necessary, sufficient, or particularly helpful, given that
-  processing a trait definition can trigger processing a type def and
-  vice versa. However, if I remove it, I get ICEs, so some more work is
-  needed in that area. -nmatsakis
 
 */</span>
 
@@ -2427,12 +2398,13 @@ There are some shortcomings in this design:
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>ty</span>::<span class='ident'>fold</span>::{<span class='ident'>TypeFolder</span>};
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>ty</span>::<span class='ident'>util</span>::<span class='ident'>IntTypeExt</span>;
 <span class='kw'>use</span> <span class='ident'>rscope</span>::<span class='op'>*</span>;
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>dep_graph</span>::<span class='ident'>DepNode</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>front</span>::<span class='ident'>map</span> <span class='kw'>as</span> <span class='ident'>hir_map</span>;
-<span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>common</span>::{<span class='ident'>ErrorReported</span>, <span class='ident'>memoized</span>};
+<span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>common</span>::{<span class='ident'>ErrorReported</span>, <span class='ident'>MemoizationMap</span>};
 <span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>nodemap</span>::{<span class='ident'>FnvHashMap</span>, <span class='ident'>FnvHashSet</span>};
 <span class='kw'>use</span> <span class='ident'>write_ty_to_tcx</span>;
 
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cell</span>::{<span class='ident'>Cell</span>, <span class='ident'>RefCell</span>};
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cell</span>::<span class='ident'>RefCell</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>collections</span>::<span class='ident'>HashSet</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>rc</span>::<span class='ident'>Rc</span>;
 
@@ -2451,9 +2423,6 @@ There are some shortcomings in this design:
 
 <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>collect_item_types</span>(<span class='ident'>tcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>ctxt</span>) {
     <span class='kw'>let</span> <span class='ident'>ccx</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='ident'>CrateCtxt</span> { <span class='ident'>tcx</span>: <span class='ident'>tcx</span>, <span class='ident'>stack</span>: <span class='ident'>RefCell</span>::<span class='ident'>new</span>(<span class='ident'>Vec</span>::<span class='ident'>new</span>()) };
-
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>visitor</span> <span class='op'>=</span> <span class='ident'>CollectTraitDefVisitor</span>{ <span class='ident'>ccx</span>: <span class='ident'>ccx</span> };
-    <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>krate</span>().<span class='ident'>visit_all_items</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>visitor</span>);
 
     <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>visitor</span> <span class='op'>=</span> <span class='ident'>CollectItemTypesVisitor</span>{ <span class='ident'>ccx</span>: <span class='ident'>ccx</span> };
     <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>krate</span>().<span class='ident'>visit_all_items</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>visitor</span>);
@@ -2494,41 +2463,17 @@ There are some shortcomings in this design:
 }
 
 <span class='comment'>///////////////////////////////////////////////////////////////////////////</span>
-<span class='comment'>// First phase: just collect *trait definitions* -- basically, the set</span>
-<span class='comment'>// of type parameters and supertraits. This is information we need to</span>
-<span class='comment'>// know later when parsing field defs.</span>
-
-<span class='kw'>struct</span> <span class='ident'>CollectTraitDefVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>: <span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-    <span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>CrateCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
-}
-
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;v</span><span class='op'>&gt;</span> <span class='ident'>intravisit</span>::<span class='ident'>Visitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;v</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>CollectTraitDefVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>visit_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>i</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Item</span>) {
-        <span class='kw'>match</span> <span class='ident'>i</span>.<span class='ident'>node</span> {
-            <span class='ident'>hir</span>::<span class='ident'>ItemTrait</span>(..) <span class='op'>=&gt;</span> {
-                <span class='comment'>// computing the trait def also fills in the table</span>
-                <span class='kw'>let</span> _ <span class='op'>=</span> <span class='ident'>trait_def_of_item</span>(<span class='self'>self</span>.<span class='ident'>ccx</span>, <span class='ident'>i</span>);
-            }
-            _ <span class='op'>=&gt;</span> { }
-        }
-    }
-}
-
-<span class='comment'>///////////////////////////////////////////////////////////////////////////</span>
-<span class='comment'>// Second phase: collection proper.</span>
 
 <span class='kw'>struct</span> <span class='ident'>CollectItemTypesVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>: <span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
     <span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>CrateCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
 }
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;v</span><span class='op'>&gt;</span> <span class='ident'>intravisit</span>::<span class='ident'>Visitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;v</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>CollectItemTypesVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>visit_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>i</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Item</span>) {
-        <span class='ident'>convert_item</span>(<span class='self'>self</span>.<span class='ident'>ccx</span>, <span class='ident'>i</span>);
-        <span class='ident'>intravisit</span>::<span class='ident'>walk_item</span>(<span class='self'>self</span>, <span class='ident'>i</span>);
-    }
-    <span class='kw'>fn</span> <span class='ident'>visit_foreign_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>i</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>ForeignItem</span>) {
-        <span class='ident'>convert_foreign_item</span>(<span class='self'>self</span>.<span class='ident'>ccx</span>, <span class='ident'>i</span>);
-        <span class='ident'>intravisit</span>::<span class='ident'>walk_foreign_item</span>(<span class='self'>self</span>, <span class='ident'>i</span>);
+    <span class='kw'>fn</span> <span class='ident'>visit_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>item</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Item</span>) {
+        <span class='kw'>let</span> <span class='ident'>tcx</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>ccx</span>.<span class='ident'>tcx</span>;
+        <span class='kw'>let</span> <span class='ident'>item_def_id</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>local_def_id</span>(<span class='ident'>item</span>.<span class='ident'>id</span>);
+        <span class='kw'>let</span> <span class='ident'>_task</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>dep_graph</span>.<span class='ident'>in_task</span>(<span class='ident'>DepNode</span>::<span class='ident'>CollectItem</span>(<span class='ident'>item_def_id</span>));
+        <span class='ident'>convert_item</span>(<span class='self'>self</span>.<span class='ident'>ccx</span>, <span class='ident'>item</span>);
     }
 }
 
@@ -3051,8 +2996,12 @@ There are some shortcomings in this design:
     <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;convert: item {} with id {}&quot;</span>, <span class='ident'>it</span>.<span class='ident'>name</span>, <span class='ident'>it</span>.<span class='ident'>id</span>);
     <span class='kw'>match</span> <span class='ident'>it</span>.<span class='ident'>node</span> {
         <span class='comment'>// These don&#39;t define types.</span>
-        <span class='ident'>hir</span>::<span class='ident'>ItemExternCrate</span>(_) <span class='op'>|</span> <span class='ident'>hir</span>::<span class='ident'>ItemUse</span>(_) <span class='op'>|</span>
-        <span class='ident'>hir</span>::<span class='ident'>ItemForeignMod</span>(_) <span class='op'>|</span> <span class='ident'>hir</span>::<span class='ident'>ItemMod</span>(_) <span class='op'>=&gt;</span> {
+        <span class='ident'>hir</span>::<span class='ident'>ItemExternCrate</span>(_) <span class='op'>|</span> <span class='ident'>hir</span>::<span class='ident'>ItemUse</span>(_) <span class='op'>|</span> <span class='ident'>hir</span>::<span class='ident'>ItemMod</span>(_) <span class='op'>=&gt;</span> {
+        }
+        <span class='ident'>hir</span>::<span class='ident'>ItemForeignMod</span>(<span class='kw-2'>ref</span> <span class='ident'>foreign_mod</span>) <span class='op'>=&gt;</span> {
+            <span class='kw'>for</span> <span class='ident'>item</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>foreign_mod</span>.<span class='ident'>items</span> {
+                <span class='ident'>convert_foreign_item</span>(<span class='ident'>ccx</span>, <span class='ident'>item</span>);
+            }
         }
         <span class='ident'>hir</span>::<span class='ident'>ItemEnum</span>(<span class='kw-2'>ref</span> <span class='ident'>enum_definition</span>, _) <span class='op'>=&gt;</span> {
             <span class='kw'>let</span> (<span class='ident'>scheme</span>, <span class='ident'>predicates</span>) <span class='op'>=</span> <span class='ident'>convert_typed_item</span>(<span class='ident'>ccx</span>, <span class='ident'>it</span>);
@@ -3631,16 +3580,11 @@ There are some shortcomings in this design:
         <span class='ident'>substs</span>: <span class='ident'>substs</span>,
     };
 
-    <span class='kw'>let</span> <span class='ident'>trait_def</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>TraitDef</span> {
-        <span class='ident'>paren_sugar</span>: <span class='ident'>paren_sugar</span>,
-        <span class='ident'>unsafety</span>: <span class='ident'>unsafety</span>,
-        <span class='ident'>generics</span>: <span class='ident'>ty_generics</span>,
-        <span class='ident'>trait_ref</span>: <span class='ident'>trait_ref</span>,
-        <span class='ident'>associated_type_names</span>: <span class='ident'>associated_type_names</span>,
-        <span class='ident'>nonblanket_impls</span>: <span class='ident'>RefCell</span>::<span class='ident'>new</span>(<span class='ident'>FnvHashMap</span>()),
-        <span class='ident'>blanket_impls</span>: <span class='ident'>RefCell</span>::<span class='ident'>new</span>(<span class='macro'>vec</span><span class='macro'>!</span>[]),
-        <span class='ident'>flags</span>: <span class='ident'>Cell</span>::<span class='ident'>new</span>(<span class='ident'>ty</span>::<span class='ident'>TraitFlags</span>::<span class='ident'>NO_TRAIT_FLAGS</span>)
-    };
+    <span class='kw'>let</span> <span class='ident'>trait_def</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>TraitDef</span>::<span class='ident'>new</span>(<span class='ident'>unsafety</span>,
+                                      <span class='ident'>paren_sugar</span>,
+                                      <span class='ident'>ty_generics</span>,
+                                      <span class='ident'>trait_ref</span>,
+                                      <span class='ident'>associated_type_names</span>);
 
     <span class='kw'>return</span> <span class='ident'>tcx</span>.<span class='ident'>intern_trait_def</span>(<span class='ident'>trait_def</span>);
 
@@ -3800,12 +3744,17 @@ There are some shortcomings in this design:
 }
 
 <span class='kw'>fn</span> <span class='ident'>type_scheme_of_item</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>,<span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>,<span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                <span class='ident'>it</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Item</span>)
+                                <span class='ident'>item</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Item</span>)
                                 <span class='op'>-&gt;</span> <span class='ident'>ty</span>::<span class='ident'>TypeScheme</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
 {
-    <span class='ident'>memoized</span>(<span class='kw-2'>&amp;</span><span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>tcache</span>,
-             <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>local_def_id</span>(<span class='ident'>it</span>.<span class='ident'>id</span>),
-             <span class='op'>|</span>_<span class='op'>|</span> <span class='ident'>compute_type_scheme_of_item</span>(<span class='ident'>ccx</span>, <span class='ident'>it</span>))
+    <span class='kw'>let</span> <span class='ident'>item_def_id</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>local_def_id</span>(<span class='ident'>item</span>.<span class='ident'>id</span>);
+    <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>tcache</span>.<span class='ident'>memoize</span>(<span class='ident'>item_def_id</span>, <span class='op'>||</span> {
+        <span class='comment'>// NB. Since the `memoized` function enters a new task, and we</span>
+        <span class='comment'>// are giving this task access to the item `item`, we must</span>
+        <span class='comment'>// register a read.</span>
+        <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>dep_graph</span>.<span class='ident'>read</span>(<span class='ident'>DepNode</span>::<span class='ident'>Hir</span>(<span class='ident'>item_def_id</span>));
+        <span class='ident'>compute_type_scheme_of_item</span>(<span class='ident'>ccx</span>, <span class='ident'>item</span>)
+    })
 }
 
 <span class='kw'>fn</span> <span class='ident'>compute_type_scheme_of_item</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>,<span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>,<span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
@@ -3919,13 +3868,18 @@ There are some shortcomings in this design:
 
 <span class='kw'>fn</span> <span class='ident'>type_scheme_of_foreign_item</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(
     <span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>it</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>ForeignItem</span>,
+    <span class='ident'>item</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>ForeignItem</span>,
     <span class='ident'>abi</span>: <span class='ident'>abi</span>::<span class='ident'>Abi</span>)
     <span class='op'>-&gt;</span> <span class='ident'>ty</span>::<span class='ident'>TypeScheme</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
 {
-    <span class='ident'>memoized</span>(<span class='kw-2'>&amp;</span><span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>tcache</span>,
-             <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>local_def_id</span>(<span class='ident'>it</span>.<span class='ident'>id</span>),
-             <span class='op'>|</span>_<span class='op'>|</span> <span class='ident'>compute_type_scheme_of_foreign_item</span>(<span class='ident'>ccx</span>, <span class='ident'>it</span>, <span class='ident'>abi</span>))
+    <span class='kw'>let</span> <span class='ident'>item_def_id</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>local_def_id</span>(<span class='ident'>item</span>.<span class='ident'>id</span>);
+    <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>tcache</span>.<span class='ident'>memoize</span>(<span class='ident'>item_def_id</span>, <span class='op'>||</span> {
+        <span class='comment'>// NB. Since the `memoized` function enters a new task, and we</span>
+        <span class='comment'>// are giving this task access to the item `item`, we must</span>
+        <span class='comment'>// register a read.</span>
+        <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>dep_graph</span>.<span class='ident'>read</span>(<span class='ident'>DepNode</span>::<span class='ident'>Hir</span>(<span class='ident'>item_def_id</span>));
+        <span class='ident'>compute_type_scheme_of_foreign_item</span>(<span class='ident'>ccx</span>, <span class='ident'>item</span>, <span class='ident'>abi</span>)
+    })
 }
 
 <span class='kw'>fn</span> <span class='ident'>compute_type_scheme_of_foreign_item</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(

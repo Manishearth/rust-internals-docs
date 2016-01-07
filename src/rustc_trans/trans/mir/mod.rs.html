@@ -236,6 +236,9 @@
 <span id="193">193</span>
 <span id="194">194</span>
 <span id="195">195</span>
+<span id="196">196</span>
+<span id="197">197</span>
+<span id="198">198</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -267,6 +270,9 @@
 <span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>MirContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;bcx</span>, <span class='lifetime'>&#39;tcx</span>:<span class='lifetime'>&#39;bcx</span><span class='op'>&gt;</span> {
     <span class='ident'>mir</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;bcx</span> <span class='ident'>mir</span>::<span class='ident'>Mir</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
 
+    <span class='doccomment'>/// Function context</span>
+    <span class='ident'>fcx</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;bcx</span> <span class='ident'>common</span>::<span class='ident'>FunctionContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;bcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+
     <span class='doccomment'>/// When unwinding is initiated, we have to store this personality</span>
     <span class='doccomment'>/// value somewhere so that we can load it and re-use it in the</span>
     <span class='doccomment'>/// resume instruction. The personality is (afaik) some kind of</span>
@@ -278,6 +284,9 @@
 
     <span class='doccomment'>/// A `Block` for each MIR `BasicBlock`</span>
     <span class='ident'>blocks</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Block</span><span class='op'>&lt;</span><span class='lifetime'>&#39;bcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
+
+    <span class='doccomment'>/// Cached unreachable block</span>
+    <span class='ident'>unreachable_block</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Block</span><span class='op'>&lt;</span><span class='lifetime'>&#39;bcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
 
     <span class='doccomment'>/// An LLVM alloca for each MIR `VarDecl`</span>
     <span class='ident'>vars</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>LvalueRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
@@ -346,7 +355,10 @@
     <span class='comment'>// Allocate a `Block` for every basic block</span>
     <span class='kw'>let</span> <span class='ident'>block_bcxs</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Block</span><span class='op'>&lt;</span><span class='lifetime'>&#39;bcx</span>,<span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span> <span class='op'>=</span>
         <span class='ident'>mir_blocks</span>.<span class='ident'>iter</span>()
-                  .<span class='ident'>map</span>(<span class='op'>|</span><span class='kw-2'>&amp;</span><span class='ident'>bb</span><span class='op'>|</span> <span class='ident'>fcx</span>.<span class='ident'>new_block</span>(<span class='boolval'>false</span>, <span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;{:?}&quot;</span>, <span class='ident'>bb</span>), <span class='prelude-val'>None</span>))
+                  .<span class='ident'>map</span>(<span class='op'>|</span><span class='kw-2'>&amp;</span><span class='ident'>bb</span><span class='op'>|</span>{
+                      <span class='kw'>let</span> <span class='ident'>is_cleanup</span> <span class='op'>=</span> <span class='ident'>mir</span>.<span class='ident'>basic_block_data</span>(<span class='ident'>bb</span>).<span class='ident'>is_cleanup</span>;
+                      <span class='ident'>fcx</span>.<span class='ident'>new_block</span>(<span class='ident'>is_cleanup</span>, <span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;{:?}&quot;</span>, <span class='ident'>bb</span>), <span class='prelude-val'>None</span>)
+                  })
                   .<span class='ident'>collect</span>();
 
     <span class='comment'>// Branch to the START block</span>
@@ -355,8 +367,10 @@
 
     <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>mircx</span> <span class='op'>=</span> <span class='ident'>MirContext</span> {
         <span class='ident'>mir</span>: <span class='ident'>mir</span>,
+        <span class='ident'>fcx</span>: <span class='ident'>fcx</span>,
         <span class='ident'>llpersonalityslot</span>: <span class='prelude-val'>None</span>,
         <span class='ident'>blocks</span>: <span class='ident'>block_bcxs</span>,
+        <span class='ident'>unreachable_block</span>: <span class='prelude-val'>None</span>,
         <span class='ident'>vars</span>: <span class='ident'>vars</span>,
         <span class='ident'>temps</span>: <span class='ident'>temps</span>,
         <span class='ident'>args</span>: <span class='ident'>args</span>,
@@ -364,16 +378,8 @@
 
     <span class='comment'>// Translate the body of each block</span>
     <span class='kw'>for</span> <span class='kw-2'>&amp;</span><span class='ident'>bb</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>mir_blocks</span> {
-        <span class='kw'>if</span> <span class='ident'>bb</span> <span class='op'>!=</span> <span class='ident'>mir</span>::<span class='ident'>DIVERGE_BLOCK</span> {
-            <span class='ident'>mircx</span>.<span class='ident'>trans_block</span>(<span class='ident'>bb</span>);
-        }
+        <span class='ident'>mircx</span>.<span class='ident'>trans_block</span>(<span class='ident'>bb</span>);
     }
-
-    <span class='comment'>// Total hack: translate DIVERGE_BLOCK last. This is so that any</span>
-    <span class='comment'>// panics which the fn may do can initialize the</span>
-    <span class='comment'>// `llpersonalityslot` cell. We don&#39;t do this up front because the</span>
-    <span class='comment'>// LLVM type of it is (frankly) annoying to compute.</span>
-    <span class='ident'>mircx</span>.<span class='ident'>trans_block</span>(<span class='ident'>mir</span>::<span class='ident'>DIVERGE_BLOCK</span>);
 }
 
 <span class='doccomment'>/// Produce, for each argument, a `ValueRef` pointing at the</span>

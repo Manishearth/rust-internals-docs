@@ -3235,6 +3235,32 @@
 <span id="3192">3192</span>
 <span id="3193">3193</span>
 <span id="3194">3194</span>
+<span id="3195">3195</span>
+<span id="3196">3196</span>
+<span id="3197">3197</span>
+<span id="3198">3198</span>
+<span id="3199">3199</span>
+<span id="3200">3200</span>
+<span id="3201">3201</span>
+<span id="3202">3202</span>
+<span id="3203">3203</span>
+<span id="3204">3204</span>
+<span id="3205">3205</span>
+<span id="3206">3206</span>
+<span id="3207">3207</span>
+<span id="3208">3208</span>
+<span id="3209">3209</span>
+<span id="3210">3210</span>
+<span id="3211">3211</span>
+<span id="3212">3212</span>
+<span id="3213">3213</span>
+<span id="3214">3214</span>
+<span id="3215">3215</span>
+<span id="3216">3216</span>
+<span id="3217">3217</span>
+<span id="3218">3218</span>
+<span id="3219">3219</span>
+<span id="3220">3220</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -3281,6 +3307,7 @@
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>pat_util</span>::<span class='ident'>simple_name</span>;
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>subst</span>::<span class='ident'>Substs</span>;
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>Ty</span>, <span class='ident'>HasTypeFlags</span>};
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>dep_graph</span>::<span class='ident'>DepNode</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>front</span>::<span class='ident'>map</span> <span class='kw'>as</span> <span class='ident'>hir_map</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>util</span>::<span class='ident'>common</span>::<span class='ident'>time</span>;
 <span class='kw'>use</span> <span class='ident'>rustc_mir</span>::<span class='ident'>mir_map</span>::<span class='ident'>MirMap</span>;
@@ -3288,6 +3315,7 @@
 <span class='kw'>use</span> <span class='ident'>session</span>::<span class='ident'>Session</span>;
 <span class='kw'>use</span> <span class='ident'>trans</span>::<span class='ident'>_match</span>;
 <span class='kw'>use</span> <span class='ident'>trans</span>::<span class='ident'>adt</span>;
+<span class='kw'>use</span> <span class='ident'>trans</span>::<span class='ident'>assert_dep_graph</span>;
 <span class='kw'>use</span> <span class='ident'>trans</span>::<span class='ident'>attributes</span>;
 <span class='kw'>use</span> <span class='ident'>trans</span>::<span class='ident'>build</span>::<span class='op'>*</span>;
 <span class='kw'>use</span> <span class='ident'>trans</span>::<span class='ident'>builder</span>::{<span class='ident'>Builder</span>, <span class='ident'>noname</span>};
@@ -4196,22 +4224,28 @@
     <span class='ident'>sess</span>.<span class='ident'>target</span>.<span class='ident'>target</span>.<span class='ident'>options</span>.<span class='ident'>is_like_msvc</span> <span class='op'>&amp;&amp;</span> <span class='ident'>sess</span>.<span class='ident'>target</span>.<span class='ident'>target</span>.<span class='ident'>arch</span> <span class='op'>==</span> <span class='string'>&quot;x86&quot;</span>
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>need_invoke</span>(<span class='ident'>bcx</span>: <span class='ident'>Block</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
+<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>avoid_invoke</span>(<span class='ident'>bcx</span>: <span class='ident'>Block</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
     <span class='comment'>// FIXME(#25869) currently SEH-based unwinding is pretty buggy in LLVM and</span>
     <span class='comment'>//               is being overhauled as this is being written. Until that</span>
     <span class='comment'>//               time such that upstream LLVM&#39;s implementation is more solid</span>
     <span class='comment'>//               and we start binding it we need to skip invokes for any</span>
     <span class='comment'>//               target which wants SEH-based unwinding.</span>
     <span class='kw'>if</span> <span class='ident'>bcx</span>.<span class='ident'>sess</span>().<span class='ident'>no_landing_pads</span>() <span class='op'>||</span> <span class='ident'>wants_msvc_seh</span>(<span class='ident'>bcx</span>.<span class='ident'>sess</span>()) {
-        <span class='kw'>return</span> <span class='boolval'>false</span>;
+        <span class='boolval'>true</span>
+    } <span class='kw'>else</span> <span class='kw'>if</span> <span class='ident'>bcx</span>.<span class='ident'>is_lpad</span> {
+        <span class='comment'>// Avoid using invoke if we are already inside a landing pad.</span>
+        <span class='boolval'>true</span>
+    } <span class='kw'>else</span> {
+        <span class='boolval'>false</span>
     }
+}
 
-    <span class='comment'>// Avoid using invoke if we are already inside a landing pad.</span>
-    <span class='kw'>if</span> <span class='ident'>bcx</span>.<span class='ident'>is_lpad</span> {
-        <span class='kw'>return</span> <span class='boolval'>false</span>;
+<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>need_invoke</span>(<span class='ident'>bcx</span>: <span class='ident'>Block</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
+    <span class='kw'>if</span> <span class='ident'>avoid_invoke</span>(<span class='ident'>bcx</span>) {
+        <span class='boolval'>false</span>
+    } <span class='kw'>else</span> {
+        <span class='ident'>bcx</span>.<span class='ident'>fcx</span>.<span class='ident'>needs_invoke</span>()
     }
-
-    <span class='ident'>bcx</span>.<span class='ident'>fcx</span>.<span class='ident'>needs_invoke</span>()
 }
 
 <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>load_if_immediate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;blk</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>cx</span>: <span class='ident'>Block</span><span class='op'>&lt;</span><span class='lifetime'>&#39;blk</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>v</span>: <span class='ident'>ValueRef</span>, <span class='ident'>t</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>ValueRef</span> {
@@ -6216,8 +6250,15 @@
                          <span class='ident'>mir_map</span>: <span class='kw-2'>&amp;</span><span class='ident'>MirMap</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
                          <span class='ident'>analysis</span>: <span class='ident'>ty</span>::<span class='ident'>CrateAnalysis</span>)
                          <span class='op'>-&gt;</span> <span class='ident'>CrateTranslation</span> {
-    <span class='kw'>let</span> <span class='ident'>ty</span>::<span class='ident'>CrateAnalysis</span> { <span class='ident'>export_map</span>, <span class='ident'>reachable</span>, <span class='ident'>name</span>, .. } <span class='op'>=</span> <span class='ident'>analysis</span>;
+    <span class='kw'>let</span> <span class='ident'>_task</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>dep_graph</span>.<span class='ident'>in_task</span>(<span class='ident'>DepNode</span>::<span class='ident'>TransCrate</span>);
+
+    <span class='comment'>// Be careful with this krate: obviously it gives access to the</span>
+    <span class='comment'>// entire contents of the krate. So if you push any subtasks of</span>
+    <span class='comment'>// `TransCrate`, you need to be careful to register &quot;reads&quot; of the</span>
+    <span class='comment'>// particular items that will be processed.</span>
     <span class='kw'>let</span> <span class='ident'>krate</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>krate</span>();
+
+    <span class='kw'>let</span> <span class='ident'>ty</span>::<span class='ident'>CrateAnalysis</span> { <span class='ident'>export_map</span>, <span class='ident'>reachable</span>, <span class='ident'>name</span>, .. } <span class='op'>=</span> <span class='ident'>analysis</span>;
 
     <span class='kw'>let</span> <span class='ident'>check_overflow</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>v</span>) <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>debugging_opts</span>.<span class='ident'>force_overflow_checks</span> {
         <span class='ident'>v</span>
@@ -6372,6 +6413,8 @@
     };
     <span class='kw'>let</span> <span class='ident'>no_builtins</span> <span class='op'>=</span> <span class='ident'>attr</span>::<span class='ident'>contains_name</span>(<span class='kw-2'>&amp;</span><span class='ident'>krate</span>.<span class='ident'>attrs</span>, <span class='string'>&quot;no_builtins&quot;</span>);
 
+    <span class='ident'>assert_dep_graph</span>::<span class='ident'>assert_dep_graph</span>(<span class='ident'>tcx</span>);
+
     <span class='ident'>CrateTranslation</span> {
         <span class='ident'>modules</span>: <span class='ident'>modules</span>,
         <span class='ident'>metadata_module</span>: <span class='ident'>metadata_module</span>,
@@ -6424,7 +6467,16 @@
                 <span class='comment'>// skip modules, they will be uncovered by the TransModVisitor</span>
             }
             _ <span class='op'>=&gt;</span> {
-                <span class='ident'>trans_item</span>(<span class='self'>self</span>.<span class='ident'>ccx</span>, <span class='ident'>i</span>);
+                <span class='kw'>let</span> <span class='ident'>def_id</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>ccx</span>.<span class='ident'>tcx</span>().<span class='ident'>map</span>.<span class='ident'>local_def_id</span>(<span class='ident'>i</span>.<span class='ident'>id</span>);
+                <span class='kw'>let</span> <span class='ident'>tcx</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>ccx</span>.<span class='ident'>tcx</span>();
+
+                <span class='comment'>// Create a subtask for trans&#39;ing a particular item. We are</span>
+                <span class='comment'>// giving `trans_item` access to this item, so also record a read.</span>
+                <span class='ident'>tcx</span>.<span class='ident'>dep_graph</span>.<span class='ident'>with_task</span>(<span class='ident'>DepNode</span>::<span class='ident'>TransCrateItem</span>(<span class='ident'>def_id</span>), <span class='op'>||</span> {
+                    <span class='ident'>tcx</span>.<span class='ident'>dep_graph</span>.<span class='ident'>read</span>(<span class='ident'>DepNode</span>::<span class='ident'>Hir</span>(<span class='ident'>def_id</span>));
+                    <span class='ident'>trans_item</span>(<span class='self'>self</span>.<span class='ident'>ccx</span>, <span class='ident'>i</span>);
+                });
+
                 <span class='ident'>intravisit</span>::<span class='ident'>walk_item</span>(<span class='self'>self</span>, <span class='ident'>i</span>);
             }
         }

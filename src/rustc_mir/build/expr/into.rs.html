@@ -321,6 +321,19 @@
 <span id="278">278</span>
 <span id="279">279</span>
 <span id="280">280</span>
+<span id="281">281</span>
+<span id="282">282</span>
+<span id="283">283</span>
+<span id="284">284</span>
+<span id="285">285</span>
+<span id="286">286</span>
+<span id="287">287</span>
+<span id="288">288</span>
+<span id="289">289</span>
+<span id="290">290</span>
+<span id="291">291</span>
+<span id="292">292</span>
+<span id="293">293</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -339,6 +352,7 @@
 <span class='kw'>use</span> <span class='ident'>build</span>::<span class='ident'>scope</span>::<span class='ident'>LoopScope</span>;
 <span class='kw'>use</span> <span class='ident'>hair</span>::<span class='op'>*</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>middle</span>::<span class='ident'>region</span>::<span class='ident'>CodeExtent</span>;
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>middle</span>::<span class='ident'>ty</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>mir</span>::<span class='ident'>repr</span>::<span class='op'>*</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>codemap</span>::<span class='ident'>Span</span>;
 
@@ -534,23 +548,35 @@
                 <span class='ident'>this</span>.<span class='ident'>exit_scope</span>(<span class='ident'>expr_span</span>, <span class='ident'>extent</span>, <span class='ident'>block</span>, <span class='ident'>END_BLOCK</span>);
                 <span class='ident'>this</span>.<span class='ident'>cfg</span>.<span class='ident'>start_new_block</span>().<span class='ident'>unit</span>()
             }
-            <span class='ident'>ExprKind</span>::<span class='ident'>Call</span> { <span class='ident'>fun</span>, <span class='ident'>args</span> } <span class='op'>=&gt;</span> {
+            <span class='ident'>ExprKind</span>::<span class='ident'>Call</span> { <span class='ident'>ty</span>, <span class='ident'>fun</span>, <span class='ident'>args</span> } <span class='op'>=&gt;</span> {
+                <span class='kw'>let</span> <span class='ident'>diverges</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>ty</span>.<span class='ident'>sty</span> {
+                    <span class='ident'>ty</span>::<span class='ident'>TyBareFn</span>(_, <span class='kw-2'>ref</span> <span class='ident'>f</span>) <span class='op'>=&gt;</span> <span class='ident'>f</span>.<span class='ident'>sig</span>.<span class='number'>0</span>.<span class='ident'>output</span>.<span class='ident'>diverges</span>(),
+                    _ <span class='op'>=&gt;</span> <span class='boolval'>false</span>
+                };
                 <span class='kw'>let</span> <span class='ident'>fun</span> <span class='op'>=</span> <span class='macro'>unpack</span><span class='macro'>!</span>(<span class='ident'>block</span> <span class='op'>=</span> <span class='ident'>this</span>.<span class='ident'>as_operand</span>(<span class='ident'>block</span>, <span class='ident'>fun</span>));
                 <span class='kw'>let</span> <span class='ident'>args</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span>_<span class='op'>&gt;</span> <span class='op'>=</span>
                     <span class='ident'>args</span>.<span class='ident'>into_iter</span>()
                         .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>arg</span><span class='op'>|</span> <span class='macro'>unpack</span><span class='macro'>!</span>(<span class='ident'>block</span> <span class='op'>=</span> <span class='ident'>this</span>.<span class='ident'>as_operand</span>(<span class='ident'>block</span>, <span class='ident'>arg</span>)))
                         .<span class='ident'>collect</span>();
+
                 <span class='kw'>let</span> <span class='ident'>success</span> <span class='op'>=</span> <span class='ident'>this</span>.<span class='ident'>cfg</span>.<span class='ident'>start_new_block</span>();
-                <span class='kw'>let</span> <span class='ident'>panic</span> <span class='op'>=</span> <span class='ident'>this</span>.<span class='ident'>diverge_cleanup</span>();
-                <span class='ident'>this</span>.<span class='ident'>cfg</span>.<span class='ident'>terminate</span>(<span class='ident'>block</span>,
-                                   <span class='ident'>Terminator</span>::<span class='ident'>Call</span> {
-                                       <span class='ident'>data</span>: <span class='ident'>CallData</span> {
-                                           <span class='ident'>destination</span>: <span class='ident'>destination</span>.<span class='ident'>clone</span>(),
-                                           <span class='ident'>func</span>: <span class='ident'>fun</span>,
-                                           <span class='ident'>args</span>: <span class='ident'>args</span>,
-                                       },
-                                       <span class='ident'>targets</span>: (<span class='ident'>success</span>, <span class='ident'>panic</span>),
-                                   });
+                <span class='kw'>let</span> <span class='ident'>cleanup</span> <span class='op'>=</span> <span class='ident'>this</span>.<span class='ident'>diverge_cleanup</span>();
+                <span class='ident'>this</span>.<span class='ident'>cfg</span>.<span class='ident'>terminate</span>(<span class='ident'>block</span>, <span class='ident'>Terminator</span>::<span class='ident'>Call</span> {
+                    <span class='ident'>func</span>: <span class='ident'>fun</span>,
+                    <span class='ident'>args</span>: <span class='ident'>args</span>,
+                    <span class='ident'>kind</span>: <span class='kw'>match</span> (<span class='ident'>cleanup</span>, <span class='ident'>diverges</span>) {
+                        (<span class='prelude-val'>None</span>, <span class='boolval'>true</span>) <span class='op'>=&gt;</span> <span class='ident'>CallKind</span>::<span class='ident'>Diverging</span>,
+                        (<span class='prelude-val'>Some</span>(<span class='ident'>c</span>), <span class='boolval'>true</span>) <span class='op'>=&gt;</span> <span class='ident'>CallKind</span>::<span class='ident'>DivergingCleanup</span>(<span class='ident'>c</span>),
+                        (<span class='prelude-val'>None</span>, <span class='boolval'>false</span>) <span class='op'>=&gt;</span> <span class='ident'>CallKind</span>::<span class='ident'>Converging</span> {
+                            <span class='ident'>destination</span>: <span class='ident'>destination</span>.<span class='ident'>clone</span>(),
+                            <span class='ident'>target</span>: <span class='ident'>success</span>
+                        },
+                        (<span class='prelude-val'>Some</span>(<span class='ident'>c</span>), <span class='boolval'>false</span>) <span class='op'>=&gt;</span> <span class='ident'>CallKind</span>::<span class='ident'>ConvergingCleanup</span> {
+                            <span class='ident'>destination</span>: <span class='ident'>destination</span>.<span class='ident'>clone</span>(),
+                            <span class='ident'>targets</span>: (<span class='ident'>success</span>, <span class='ident'>c</span>)
+                        }
+                    }
+                });
                 <span class='ident'>success</span>.<span class='ident'>unit</span>()
             }
 
