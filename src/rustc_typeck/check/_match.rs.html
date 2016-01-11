@@ -868,6 +868,12 @@
 <span id="825">825</span>
 <span id="826">826</span>
 <span id="827">827</span>
+<span id="828">828</span>
+<span id="829">829</span>
+<span id="830">830</span>
+<span id="831">831</span>
+<span id="832">832</span>
+<span id="833">833</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -890,6 +896,7 @@
 <span class='kw'>use</span> <span class='ident'>check</span>::{<span class='ident'>check_expr_coercable_to_type</span>, <span class='ident'>demand</span>, <span class='ident'>FnCtxt</span>, <span class='ident'>Expectation</span>};
 <span class='kw'>use</span> <span class='ident'>check</span>::{<span class='ident'>check_expr_with_lvalue_pref</span>};
 <span class='kw'>use</span> <span class='ident'>check</span>::{<span class='ident'>instantiate_path</span>, <span class='ident'>resolve_ty_and_def_ufcs</span>, <span class='ident'>structurally_resolved_type</span>};
+<span class='kw'>use</span> <span class='ident'>lint</span>;
 <span class='kw'>use</span> <span class='ident'>require_same_types</span>;
 <span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>nodemap</span>::<span class='ident'>FnvHashMap</span>;
 <span class='kw'>use</span> <span class='ident'>session</span>::<span class='ident'>Session</span>;
@@ -1009,7 +1016,7 @@
                 <span class='kw'>if</span> <span class='ident'>pat_is_resolved_const</span>(<span class='kw-2'>&amp;</span><span class='ident'>tcx</span>.<span class='ident'>def_map</span>.<span class='ident'>borrow</span>(), <span class='ident'>pat</span>) <span class='op'>=&gt;</span> {
             <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>hir</span>::<span class='ident'>PatEnum</span>(<span class='kw-2'>ref</span> <span class='ident'>path</span>, <span class='kw-2'>ref</span> <span class='ident'>subpats</span>) <span class='op'>=</span> <span class='ident'>pat</span>.<span class='ident'>node</span> {
                 <span class='kw'>if</span> <span class='op'>!</span>(<span class='ident'>subpats</span>.<span class='ident'>is_some</span>() <span class='op'>&amp;&amp;</span> <span class='ident'>subpats</span>.<span class='ident'>as_ref</span>().<span class='ident'>unwrap</span>().<span class='ident'>is_empty</span>()) {
-                    <span class='ident'>bad_struct_kind_err</span>(<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>pat</span>.<span class='ident'>span</span>, <span class='ident'>path</span>, <span class='boolval'>false</span>);
+                    <span class='ident'>bad_struct_kind_err</span>(<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>pat</span>, <span class='ident'>path</span>, <span class='boolval'>false</span>);
                     <span class='kw'>return</span>;
                 }
             }
@@ -1461,10 +1468,21 @@
 }
 
 <span class='comment'>// This function exists due to the warning &quot;diagnostic code E0164 already used&quot;</span>
-<span class='kw'>fn</span> <span class='ident'>bad_struct_kind_err</span>(<span class='ident'>sess</span>: <span class='kw-2'>&amp;</span><span class='ident'>Session</span>, <span class='ident'>span</span>: <span class='ident'>Span</span>, <span class='ident'>path</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Path</span>, <span class='ident'>is_warning</span>: <span class='ident'>bool</span>) {
+<span class='kw'>fn</span> <span class='ident'>bad_struct_kind_err</span>(<span class='ident'>sess</span>: <span class='kw-2'>&amp;</span><span class='ident'>Session</span>, <span class='ident'>pat</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Pat</span>, <span class='ident'>path</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Path</span>, <span class='ident'>lint</span>: <span class='ident'>bool</span>) {
     <span class='kw'>let</span> <span class='ident'>name</span> <span class='op'>=</span> <span class='ident'>pprust</span>::<span class='ident'>path_to_string</span>(<span class='ident'>path</span>);
-    <span class='macro'>span_err_or_warn</span><span class='macro'>!</span>(<span class='ident'>is_warning</span>, <span class='ident'>sess</span>, <span class='ident'>span</span>, <span class='ident'>E0164</span>,
-        <span class='string'>&quot;`{}` does not name a tuple variant or a tuple struct&quot;</span>, <span class='ident'>name</span>);
+    <span class='kw'>let</span> <span class='ident'>msg</span> <span class='op'>=</span> <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;`{}` does not name a tuple variant or a tuple struct&quot;</span>, <span class='ident'>name</span>);
+    <span class='kw'>if</span> <span class='ident'>lint</span> {
+        <span class='kw'>let</span> <span class='ident'>expanded_msg</span> <span class='op'>=</span>
+            <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;{}; RFC 218 disallowed matching of unit variants or unit structs via {}(..)&quot;</span>,
+                    <span class='ident'>msg</span>,
+                    <span class='ident'>name</span>);
+        <span class='ident'>sess</span>.<span class='ident'>add_lint</span>(<span class='ident'>lint</span>::<span class='ident'>builtin</span>::<span class='ident'>MATCH_OF_UNIT_VARIANT_VIA_PAREN_DOTDOT</span>,
+                      <span class='ident'>pat</span>.<span class='ident'>id</span>,
+                      <span class='ident'>pat</span>.<span class='ident'>span</span>,
+                      <span class='ident'>expanded_msg</span>);
+    } <span class='kw'>else</span> {
+        <span class='macro'>span_err</span><span class='macro'>!</span>(<span class='ident'>sess</span>, <span class='ident'>pat</span>.<span class='ident'>span</span>, <span class='ident'>E0164</span>, <span class='string'>&quot;{}&quot;</span>, <span class='ident'>msg</span>);
+    }
 }
 
 <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>check_pat_enum</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>pcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>pat_ctxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
@@ -1528,11 +1546,8 @@
                      <span class='ident'>opt_ty</span>, <span class='ident'>def</span>, <span class='ident'>pat</span>.<span class='ident'>span</span>, <span class='ident'>pat</span>.<span class='ident'>id</span>);
 
     <span class='kw'>let</span> <span class='ident'>report_bad_struct_kind</span> <span class='op'>=</span> <span class='op'>|</span><span class='ident'>is_warning</span><span class='op'>|</span> {
-        <span class='ident'>bad_struct_kind_err</span>(<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>pat</span>.<span class='ident'>span</span>, <span class='ident'>path</span>, <span class='ident'>is_warning</span>);
-        <span class='kw'>if</span> <span class='ident'>is_warning</span> {
-            <span class='kw'>return</span>;
-        }
-
+        <span class='ident'>bad_struct_kind_err</span>(<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>pat</span>, <span class='ident'>path</span>, <span class='ident'>is_warning</span>);
+        <span class='kw'>if</span> <span class='ident'>is_warning</span> { <span class='kw'>return</span>; }
         <span class='ident'>fcx</span>.<span class='ident'>write_error</span>(<span class='ident'>pat</span>.<span class='ident'>id</span>);
         <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>subpats</span>) <span class='op'>=</span> <span class='ident'>subpats</span> {
             <span class='kw'>for</span> <span class='ident'>pat</span> <span class='kw'>in</span> <span class='ident'>subpats</span> {
@@ -1570,12 +1585,6 @@
                 <span class='ident'>report_bad_struct_kind</span>(<span class='ident'>is_special_case</span>);
                 <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>is_special_case</span> {
                     <span class='kw'>return</span>
-                } <span class='kw'>else</span> {
-                    <span class='comment'>// Boo! Too painful to attach this to the actual warning,</span>
-                    <span class='comment'>// it should go away at some point though.</span>
-                    <span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>span_note_without_error</span>(<span class='ident'>pat</span>.<span class='ident'>span</span>,
-                        <span class='string'>&quot;this warning will become a HARD ERROR in a future release. \
-                        See RFC 218 for details.&quot;</span>);
                 }
             }
             (<span class='ident'>variant</span>.<span class='ident'>fields</span>
@@ -1589,7 +1598,10 @@
         <span class='ident'>ty</span>::<span class='ident'>TyStruct</span>(<span class='ident'>struct_def</span>, <span class='ident'>expected_substs</span>) <span class='op'>=&gt;</span> {
             <span class='kw'>let</span> <span class='ident'>variant</span> <span class='op'>=</span> <span class='ident'>struct_def</span>.<span class='ident'>struct_variant</span>();
             <span class='kw'>if</span> <span class='ident'>is_tuple_struct_pat</span> <span class='op'>&amp;&amp;</span> <span class='ident'>variant</span>.<span class='ident'>kind</span>() <span class='op'>!=</span> <span class='ident'>ty</span>::<span class='ident'>VariantKind</span>::<span class='ident'>Tuple</span> {
-                <span class='ident'>report_bad_struct_kind</span>(<span class='boolval'>false</span>);
+                <span class='comment'>// Matching unit structs with tuple variant patterns (`UnitVariant(..)`)</span>
+                <span class='comment'>// is allowed for backward compatibility.</span>
+                <span class='kw'>let</span> <span class='ident'>is_special_case</span> <span class='op'>=</span> <span class='ident'>variant</span>.<span class='ident'>kind</span>() <span class='op'>==</span> <span class='ident'>ty</span>::<span class='ident'>VariantKind</span>::<span class='ident'>Unit</span>;
+                <span class='ident'>report_bad_struct_kind</span>(<span class='ident'>is_special_case</span>);
                 <span class='kw'>return</span>;
             }
             (<span class='ident'>variant</span>.<span class='ident'>fields</span>
