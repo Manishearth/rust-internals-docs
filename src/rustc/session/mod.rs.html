@@ -526,6 +526,24 @@
 <span id="483">483</span>
 <span id="484">484</span>
 <span id="485">485</span>
+<span id="486">486</span>
+<span id="487">487</span>
+<span id="488">488</span>
+<span id="489">489</span>
+<span id="490">490</span>
+<span id="491">491</span>
+<span id="492">492</span>
+<span id="493">493</span>
+<span id="494">494</span>
+<span id="495">495</span>
+<span id="496">496</span>
+<span id="497">497</span>
+<span id="498">498</span>
+<span id="499">499</span>
+<span id="500">500</span>
+<span id="501">501</span>
+<span id="502">502</span>
+<span id="503">503</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -546,7 +564,8 @@
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>::{<span class='ident'>NodeId</span>, <span class='ident'>NodeIdAssigner</span>, <span class='ident'>Name</span>};
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>codemap</span>::<span class='ident'>Span</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>errors</span>::{<span class='self'>self</span>, <span class='ident'>DiagnosticBuilder</span>};
-<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>errors</span>::<span class='ident'>emitter</span>::{<span class='ident'>Emitter</span>, <span class='ident'>BasicEmitter</span>};
+<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>errors</span>::<span class='ident'>emitter</span>::{<span class='ident'>Emitter</span>, <span class='ident'>BasicEmitter</span>, <span class='ident'>EmitterWriter</span>};
+<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>errors</span>::<span class='ident'>json</span>::<span class='ident'>JsonEmitter</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>diagnostics</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>feature_gate</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>parse</span>;
@@ -934,12 +953,19 @@
     <span class='kw'>let</span> <span class='ident'>treat_err_as_bug</span> <span class='op'>=</span> <span class='ident'>sopts</span>.<span class='ident'>treat_err_as_bug</span>;
 
     <span class='kw'>let</span> <span class='ident'>codemap</span> <span class='op'>=</span> <span class='ident'>Rc</span>::<span class='ident'>new</span>(<span class='ident'>codemap</span>::<span class='ident'>CodeMap</span>::<span class='ident'>new</span>());
+    <span class='kw'>let</span> <span class='ident'>emitter</span>: <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>Emitter</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>sopts</span>.<span class='ident'>error_format</span> {
+        <span class='ident'>config</span>::<span class='ident'>ErrorOutputType</span>::<span class='ident'>HumanReadable</span>(<span class='ident'>color_config</span>) <span class='op'>=&gt;</span> {
+            <span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='ident'>EmitterWriter</span>::<span class='ident'>stderr</span>(<span class='ident'>color_config</span>, <span class='prelude-val'>Some</span>(<span class='ident'>registry</span>), <span class='ident'>codemap</span>.<span class='ident'>clone</span>()))
+        }
+        <span class='ident'>config</span>::<span class='ident'>ErrorOutputType</span>::<span class='ident'>Json</span> <span class='op'>=&gt;</span> {
+            <span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='ident'>JsonEmitter</span>::<span class='ident'>stderr</span>(<span class='prelude-val'>Some</span>(<span class='ident'>registry</span>), <span class='ident'>codemap</span>.<span class='ident'>clone</span>()))
+        }
+    };
+
     <span class='kw'>let</span> <span class='ident'>diagnostic_handler</span> <span class='op'>=</span>
-        <span class='ident'>errors</span>::<span class='ident'>Handler</span>::<span class='ident'>new</span>(<span class='ident'>sopts</span>.<span class='ident'>color</span>,
-                             <span class='prelude-val'>Some</span>(<span class='ident'>registry</span>),
-                             <span class='ident'>can_print_warnings</span>,
-                             <span class='ident'>treat_err_as_bug</span>,
-                             <span class='ident'>codemap</span>.<span class='ident'>clone</span>());
+        <span class='ident'>errors</span>::<span class='ident'>Handler</span>::<span class='ident'>with_emitter</span>(<span class='ident'>can_print_warnings</span>,
+                                      <span class='ident'>treat_err_as_bug</span>,
+                                      <span class='ident'>emitter</span>);
 
     <span class='ident'>build_session_</span>(<span class='ident'>sopts</span>, <span class='ident'>local_crate_source_file</span>, <span class='ident'>diagnostic_handler</span>, <span class='ident'>codemap</span>, <span class='ident'>cstore</span>)
 }
@@ -1002,14 +1028,24 @@
     <span class='ident'>sess</span>
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>early_error</span>(<span class='ident'>color</span>: <span class='ident'>errors</span>::<span class='ident'>ColorConfig</span>, <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) <span class='op'>-&gt;</span> <span class='op'>!</span> {
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>emitter</span> <span class='op'>=</span> <span class='ident'>BasicEmitter</span>::<span class='ident'>stderr</span>(<span class='ident'>color</span>);
+<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>early_error</span>(<span class='ident'>output</span>: <span class='ident'>config</span>::<span class='ident'>ErrorOutputType</span>, <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) <span class='op'>-&gt;</span> <span class='op'>!</span> {
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>emitter</span>: <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>Emitter</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>output</span> {
+        <span class='ident'>config</span>::<span class='ident'>ErrorOutputType</span>::<span class='ident'>HumanReadable</span>(<span class='ident'>color_config</span>) <span class='op'>=&gt;</span> {
+            <span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='ident'>BasicEmitter</span>::<span class='ident'>stderr</span>(<span class='ident'>color_config</span>))
+        }
+        <span class='ident'>config</span>::<span class='ident'>ErrorOutputType</span>::<span class='ident'>Json</span> <span class='op'>=&gt;</span> <span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='ident'>JsonEmitter</span>::<span class='ident'>basic</span>()),
+    };
     <span class='ident'>emitter</span>.<span class='ident'>emit</span>(<span class='prelude-val'>None</span>, <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='ident'>errors</span>::<span class='ident'>Level</span>::<span class='ident'>Fatal</span>);
     <span class='macro'>panic</span><span class='macro'>!</span>(<span class='ident'>errors</span>::<span class='ident'>FatalError</span>);
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>early_warn</span>(<span class='ident'>color</span>: <span class='ident'>errors</span>::<span class='ident'>ColorConfig</span>, <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) {
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>emitter</span> <span class='op'>=</span> <span class='ident'>BasicEmitter</span>::<span class='ident'>stderr</span>(<span class='ident'>color</span>);
+<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>early_warn</span>(<span class='ident'>output</span>: <span class='ident'>config</span>::<span class='ident'>ErrorOutputType</span>, <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) {
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>emitter</span>: <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>Emitter</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>output</span> {
+        <span class='ident'>config</span>::<span class='ident'>ErrorOutputType</span>::<span class='ident'>HumanReadable</span>(<span class='ident'>color_config</span>) <span class='op'>=&gt;</span> {
+            <span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='ident'>BasicEmitter</span>::<span class='ident'>stderr</span>(<span class='ident'>color_config</span>))
+        }
+        <span class='ident'>config</span>::<span class='ident'>ErrorOutputType</span>::<span class='ident'>Json</span> <span class='op'>=&gt;</span> <span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='ident'>JsonEmitter</span>::<span class='ident'>basic</span>()),
+    };
     <span class='ident'>emitter</span>.<span class='ident'>emit</span>(<span class='prelude-val'>None</span>, <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='ident'>errors</span>::<span class='ident'>Level</span>::<span class='ident'>Warning</span>);
 }
 </pre>
