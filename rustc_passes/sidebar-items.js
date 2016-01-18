@@ -1,0 +1,1 @@
+initSidebarItems({"mod":[["const_fn","Verifies that const fn arguments are immutable by value bindings and the const fn body doesn't contain any statements"],["no_asm",""]]});
