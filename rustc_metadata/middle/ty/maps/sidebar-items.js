@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["AdtDefs",""],["ImplItems",""],["ImplOrTraitItems",""],["ImplTraitRefs",""],["InherentImpls",""],["ItemVariances",""],["Predicates",""],["ReprHints",""],["SuperPredicates",""],["Tcache",""],["TraitDefs",""],["TraitItemDefIds",""],["TraitItems",""]]});

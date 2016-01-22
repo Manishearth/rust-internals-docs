@@ -1,0 +1,1 @@
+initSidebarItems({"mod":[["const_fn","Verifies that const fn arguments are immutable by value bindings and the const fn body doesn't contain any statements"],["consts",""],["loops",""],["no_asm",""],["rvalues",""],["static_recursion",""]]});

@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["AutoAdjustment",""],["AutoRef",""],["CustomCoerceUnsized",""]],"struct":[["AutoDerefRef","Represents coercing a pointer to a different kind of pointer - where 'kind' here means either or both of raw vs borrowed vs unique and fat vs thin."]]});

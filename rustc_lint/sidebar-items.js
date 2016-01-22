@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["register_builtins","Tell the `LintStore` about all the built-in lints (the ones defined in this crate and the ones defined in `rustc::lint::builtin`)."]],"mod":[["lint","Lints, aka compiler warnings."],["middle",""],["session",""],["util",""]]});

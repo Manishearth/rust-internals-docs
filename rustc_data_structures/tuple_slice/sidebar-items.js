@@ -1,0 +1,1 @@
+initSidebarItems({"trait":[["TupleSlice","Allows to view uniform tuples as slices"]]});

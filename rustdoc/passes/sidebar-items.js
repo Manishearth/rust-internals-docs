@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["collapse_docs",""],["strip_hidden","Strip items marked `#[doc(hidden)]`"],["strip_private","Strip private items from the point of view of a crate or externally from a crate, specified by the `xcrate` flag."],["unindent",""],["unindent_comments",""]]});

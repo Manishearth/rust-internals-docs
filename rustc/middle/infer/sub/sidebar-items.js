@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Sub","Ensures `a` is made a subtype of `b`. Returns `a` on success."]]});

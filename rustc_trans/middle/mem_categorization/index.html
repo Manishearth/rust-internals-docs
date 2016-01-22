@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="rustdoc">
+    <meta name="description" content="API documentation for the Rust `mem_categorization` mod in crate `rustc_trans`.">
+    <meta name="keywords" content="rust, rustlang, rust-lang, mem_categorization">
+
+    <title>rustc_trans::middle::mem_categorization - Rust</title>
+
+    <link rel="stylesheet" type="text/css" href="../../../rustdoc.css">
+    <link rel="stylesheet" type="text/css" href="../../../main.css">
+
+    <link rel="shortcut icon" href="https://doc.rust-lang.org/favicon.ico">
+    
+</head>
+<body class="rustdoc">
+    <!--[if lte IE 8]>
+    <div class="warning">
+        This old browser is unsupported and will most likely display funky
+        things.
+    </div>
+    <![endif]-->
+
+    
+
+    <nav class="sidebar">
+        <a href='../../../rustc_trans/index.html'><img src='https://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png' alt='' width='100'></a>
+        <p class='location'><a href='../../index.html'>rustc_trans</a>::<wbr><a href='../index.html'>middle</a></p><script>window.sidebarCurrent = {name: 'mem_categorization', ty: 'mod', relpath: '../'};</script><script defer src="../sidebar-items.js"></script>
+    </nav>
+
+    <nav class="sub">
+        <form class="search-form js-only">
+            <div class="search-container">
+                <input class="search-input" name="search"
+                       autocomplete="off"
+                       placeholder="Click or press ‘S’ to search, ‘?’ for more options…"
+                       type="search">
+            </div>
+        </form>
+    </nav>
+
+    <section id='main' class="content mod">
+<h1 class='fqn'><span class='in-band'>Module <a href='../../index.html'>rustc_trans</a>::<wbr><a href='../index.html'>middle</a>::<wbr><a class='mod' href=''>mem_categorization</a></span><span class='out-of-band'><span id='render-detail'>
+            <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
+                [<span class='inner'>&#x2212;</span>]
+            </a>
+        </span><a id='src-17315' class='srclink' href='../../../rustc/middle/mem_categorization/index.html?gotosrc=17315' title='goto source code'>[src]</a></span></h1>
+<div class='stability'><em class='stab unstable'>Unstable (<code>rustc_private</code>)</em></div><div class='docblock'>
+<h1 id='categorization' class='section-header'><a href='#categorization'>Categorization</a></h1>
+<p>The job of the categorization module is to analyze an expression to
+determine what kind of memory is used in evaluating it (for example,
+where dereferences occur and what kind of pointer is dereferenced;
+whether the memory is mutable; etc)</p>
+
+<p>Categorization effectively transforms all of our expressions into
+expressions of the following forms (the actual enum has many more
+possibilities, naturally, but they are all variants of these base
+forms):</p>
+<pre class='rust rust-example-rendered'>
+<span class='ident'>E</span> <span class='op'>=</span> <span class='ident'>rvalue</span>    <span class='comment'>// some computed rvalue</span>
+  <span class='op'>|</span> <span class='ident'>x</span>         <span class='comment'>// address of a local variable or argument</span>
+  <span class='op'>|</span> <span class='op'>*</span><span class='ident'>E</span>        <span class='comment'>// deref of a ptr</span>
+  <span class='op'>|</span> <span class='ident'>E</span>.<span class='ident'>comp</span>    <span class='comment'>// access to an interior component</span></pre>
+
+<p>Imagine a routine ToAddr(Expr) that evaluates an expression and returns an
+address where the result is to be found.  If Expr is an lvalue, then this
+is the address of the lvalue.  If Expr is an rvalue, this is the address of
+some temporary spot in memory where the result is stored.</p>
+
+<p>Now, cat_expr() classifies the expression Expr and the address A=ToAddr(Expr)
+as follows:</p>
+
+<ul>
+<li>cat: what kind of expression was this?  This is a subset of the
+full expression forms which only includes those that we care about
+for the purpose of the analysis.</li>
+<li>mutbl: mutability of the address A</li>
+<li>ty: the type of data found at the address A</li>
+</ul>
+
+<p>The resulting categorization tree differs somewhat from the expressions
+themselves.  For example, auto-derefs are explicit.  Also, an index a[b] is
+decomposed into two operations: a dereference to reach the array data and
+then an index to jump forward to the relevant item.</p>
+
+<h2 id='by-reference-upvars' class='section-header'><a href='#by-reference-upvars'>By-reference upvars</a></h2>
+<p>One part of the translation which may be non-obvious is that we translate
+closure upvars into the dereference of a borrowed pointer; this more closely
+resembles the runtime translation. So, for example, if we had:</p>
+<pre class='rust rust-example-rendered'>
+<span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>x</span> <span class='op'>=</span> <span class='number'>3</span>;
+<span class='kw'>let</span> <span class='ident'>y</span> <span class='op'>=</span> <span class='number'>5</span>;
+<span class='kw'>let</span> <span class='ident'>inc</span> <span class='op'>=</span> <span class='op'>||</span> <span class='ident'>x</span> <span class='op'>+=</span> <span class='ident'>y</span>;</pre>
+
+<p>Then when we categorize <code>x</code> (<em>within</em> the closure) we would yield a
+result of <code>*x&#39;</code>, effectively, where <code>x&#39;</code> is a <code>Categorization::Upvar</code> reference
+tied to <code>x</code>. The type of <code>x&#39;</code> will be a borrowed pointer.</p>
+</div><h2 id='structs' class='section-header'><a href="#structs">Structs</a></h2>
+<table>
+                    <tr class='unstable module-item'>
+                        <td><a class='struct' href='struct.MemCategorizationContext.html'
+                               title='rustc_trans::middle::mem_categorization::MemCategorizationContext'>MemCategorizationContext</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                
+                    <tr class='unstable module-item'>
+                        <td><a class='struct' href='struct.Upvar.html'
+                               title='rustc_trans::middle::mem_categorization::Upvar'>Upvar</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                
+                    <tr class='unstable module-item'>
+                        <td><a class='struct' href='struct.cmt_.html'
+                               title='rustc_trans::middle::mem_categorization::cmt_'>cmt_</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                </table><h2 id='enums' class='section-header'><a href="#enums">Enums</a></h2>
+<table>
+                    <tr class='unstable module-item'>
+                        <td><a class='enum' href='enum.Aliasability.html'
+                               title='rustc_trans::middle::mem_categorization::Aliasability'>Aliasability</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                
+                    <tr class='unstable module-item'>
+                        <td><a class='enum' href='enum.AliasableReason.html'
+                               title='rustc_trans::middle::mem_categorization::AliasableReason'>AliasableReason</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                
+                    <tr class='unstable module-item'>
+                        <td><a class='enum' href='enum.Categorization.html'
+                               title='rustc_trans::middle::mem_categorization::Categorization'>Categorization</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                
+                    <tr class='unstable module-item'>
+                        <td><a class='enum' href='enum.ElementKind.html'
+                               title='rustc_trans::middle::mem_categorization::ElementKind'>ElementKind</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                
+                    <tr class='unstable module-item'>
+                        <td><a class='enum' href='enum.FieldName.html'
+                               title='rustc_trans::middle::mem_categorization::FieldName'>FieldName</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                
+                    <tr class='unstable module-item'>
+                        <td><a class='enum' href='enum.InteriorKind.html'
+                               title='rustc_trans::middle::mem_categorization::InteriorKind'>InteriorKind</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                
+                    <tr class='unstable module-item'>
+                        <td><a class='enum' href='enum.InteriorOffsetKind.html'
+                               title='rustc_trans::middle::mem_categorization::InteriorOffsetKind'>InteriorOffsetKind</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                
+                    <tr class='unstable module-item'>
+                        <td><a class='enum' href='enum.MutabilityCategory.html'
+                               title='rustc_trans::middle::mem_categorization::MutabilityCategory'>MutabilityCategory</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                
+                    <tr class='unstable module-item'>
+                        <td><a class='enum' href='enum.Note.html'
+                               title='rustc_trans::middle::mem_categorization::Note'>Note</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                
+                    <tr class='unstable module-item'>
+                        <td><a class='enum' href='enum.PointerKind.html'
+                               title='rustc_trans::middle::mem_categorization::PointerKind'>PointerKind</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                
+                    <tr class='unstable module-item'>
+                        <td><a class='enum' href='enum.deref_kind.html'
+                               title='rustc_trans::middle::mem_categorization::deref_kind'>deref_kind</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                </table><h2 id='traits' class='section-header'><a href="#traits">Traits</a></h2>
+<table>
+                    <tr class='unstable module-item'>
+                        <td><a class='trait' href='trait.ast_node.html'
+                               title='rustc_trans::middle::mem_categorization::ast_node'>ast_node</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                </table><h2 id='functions' class='section-header'><a href="#functions">Functions</a></h2>
+<table>
+                    <tr class='unstable module-item'>
+                        <td><a class='fn' href='fn.ptr_sigil.html'
+                               title='rustc_trans::middle::mem_categorization::ptr_sigil'>ptr_sigil</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                </table><h2 id='types' class='section-header'><a href="#types">Type Definitions</a></h2>
+<table>
+                    <tr class='unstable module-item'>
+                        <td><a class='type' href='type.McResult.html'
+                               title='rustc_trans::middle::mem_categorization::McResult'>McResult</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                
+                    <tr class='unstable module-item'>
+                        <td><a class='type' href='type.cmt.html'
+                               title='rustc_trans::middle::mem_categorization::cmt'>cmt</a></td>
+                        <td class='docblock short'>
+                            [<em class='stab unstable'>Unstable</em>] 
+                        </td>
+                    </tr>
+                </table></section>
+    <section id='search' class="content hidden"></section>
+
+    <section class="footer"></section>
+
+    <aside id="help" class="hidden">
+        <div>
+            <h1 class="hidden">Help</h1>
+
+            <div class="shortcuts">
+                <h2>Keyboard Shortcuts</h2>
+
+                <dl>
+                    <dt>?</dt>
+                    <dd>Show this help dialog</dd>
+                    <dt>S</dt>
+                    <dd>Focus the search field</dd>
+                    <dt>&larrb;</dt>
+                    <dd>Move up in search results</dd>
+                    <dt>&rarrb;</dt>
+                    <dd>Move down in search results</dd>
+                    <dt>&#9166;</dt>
+                    <dd>Go to active search result</dd>
+                </dl>
+            </div>
+
+            <div class="infos">
+                <h2>Search Tricks</h2>
+
+                <p>
+                    Prefix searches with a type followed by a colon (e.g.
+                    <code>fn:</code>) to restrict the search to a given type.
+                </p>
+
+                <p>
+                    Accepted types are: <code>fn</code>, <code>mod</code>,
+                    <code>struct</code>, <code>enum</code>,
+                    <code>trait</code>, <code>type</code>, <code>macro</code>,
+                    and <code>const</code>.
+                </p>
+
+                <p>
+                    Search functions by type signature (e.g.
+                    <code>vec -> usize</code>)
+                </p>
+            </div>
+        </div>
+    </aside>
+
+    
+
+    <script>
+        window.rootPath = "../../../";
+        window.currentCrate = "rustc_trans";
+        window.playgroundUrl = "";
+    </script>
+    <script src="../../../jquery.js"></script>
+    <script src="../../../main.js"></script>
+    
+    <script defer src="../../../search-index.js"></script>
+</body>
+</html>
