@@ -1,1 +1,0 @@
-initSidebarItems({"mod":[["erase_regions","This pass erases all early-bound regions from the types occuring in the MIR. We want to do this once just before trans, so trans does not have to take care erasing regions all over the place."],["simplify_cfg",""]],"trait":[["MirPass",""]]});

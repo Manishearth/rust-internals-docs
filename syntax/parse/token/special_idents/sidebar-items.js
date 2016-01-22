@@ -1,1 +1,0 @@
-initSidebarItems({"constant":[["clownshoe_abi",""],["invalid",""],["matchers",""],["opaque",""],["prelude_import",""],["self_",""],["static_lifetime",""],["statik",""],["super_",""],["tt",""],["type_self",""],["unnamed_field",""]]});

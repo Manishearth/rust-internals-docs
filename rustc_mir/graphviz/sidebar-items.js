@@ -1,1 +1,0 @@
-initSidebarItems({"fn":[["write_mir_graphviz","Write a graphviz DOT graph for the given MIR."]]});

@@ -1,1 +1,0 @@
-initSidebarItems({"fn":[["write_mir_pretty","Write out a human-readable textual representation for the given MIR."]]});

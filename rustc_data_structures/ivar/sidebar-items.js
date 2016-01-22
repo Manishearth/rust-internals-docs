@@ -1,1 +1,0 @@
-initSidebarItems({"struct":[["Ivar","A write-once variable. When constructed, it is empty, and can only be set once."]]});

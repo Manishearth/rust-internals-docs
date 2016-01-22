@@ -1,1 +1,0 @@
-initSidebarItems({"fn":[["register_builtins",""]],"mod":[["deriving","The compiler code necessary to implement the `#[derive]` extensions."]]});
