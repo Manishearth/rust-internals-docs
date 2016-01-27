@@ -1164,6 +1164,20 @@
 <span id="1121">1121</span>
 <span id="1122">1122</span>
 <span id="1123">1123</span>
+<span id="1124">1124</span>
+<span id="1125">1125</span>
+<span id="1126">1126</span>
+<span id="1127">1127</span>
+<span id="1128">1128</span>
+<span id="1129">1129</span>
+<span id="1130">1130</span>
+<span id="1131">1131</span>
+<span id="1132">1132</span>
+<span id="1133">1133</span>
+<span id="1134">1134</span>
+<span id="1135">1135</span>
+<span id="1136">1136</span>
+<span id="1137">1137</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -1202,7 +1216,7 @@
 <span class='kw'>use</span> <span class='ident'>rustc_front</span>::<span class='ident'>hir</span>;
 <span class='kw'>use</span> <span class='ident'>rustc_front</span>::<span class='ident'>lowering</span>::{<span class='ident'>lower_crate</span>, <span class='ident'>LoweringContext</span>};
 <span class='kw'>use</span> <span class='ident'>rustc_passes</span>::{<span class='ident'>no_asm</span>, <span class='ident'>loops</span>, <span class='ident'>consts</span>, <span class='ident'>const_fn</span>, <span class='ident'>rvalues</span>, <span class='ident'>static_recursion</span>};
-<span class='kw'>use</span> <span class='ident'>super</span>::<span class='ident'>Compilation</span>;
+<span class='kw'>use</span> <span class='ident'>super</span>::{<span class='ident'>Compilation</span>, <span class='ident'>CompileResult</span>, <span class='ident'>compile_result_from_err_count</span>};
 
 <span class='kw'>use</span> <span class='ident'>serialize</span>::<span class='ident'>json</span>;
 
@@ -1224,45 +1238,50 @@
 <span class='kw'>use</span> <span class='ident'>syntax</span>;
 <span class='kw'>use</span> <span class='ident'>syntax_ext</span>;
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>compile_input</span>(<span class='ident'>sess</span>: <span class='ident'>Session</span>,
+<span class='macro'>macro_rules</span><span class='macro'>!</span> <span class='ident'>throw_if_errors</span> {
+    (<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>tsess</span>: <span class='ident'>expr</span>) <span class='op'>=&gt;</span> {{
+        <span class='kw'>let</span> <span class='ident'>err_count</span> <span class='op'>=</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>tsess</span>.<span class='ident'>err_count</span>();
+        <span class='kw'>if</span> <span class='ident'>err_count</span> <span class='op'>&gt;</span> <span class='number'>0</span> {
+            <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>err_count</span>);
+        }
+    }}
+}
+
+<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>compile_input</span>(<span class='ident'>sess</span>: <span class='kw-2'>&amp;</span><span class='ident'>Session</span>,
                      <span class='ident'>cstore</span>: <span class='kw-2'>&amp;</span><span class='ident'>CStore</span>,
                      <span class='ident'>cfg</span>: <span class='ident'>ast</span>::<span class='ident'>CrateConfig</span>,
                      <span class='ident'>input</span>: <span class='kw-2'>&amp;</span><span class='ident'>Input</span>,
                      <span class='ident'>outdir</span>: <span class='kw-2'>&amp;</span><span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>PathBuf</span><span class='op'>&gt;</span>,
                      <span class='ident'>output</span>: <span class='kw-2'>&amp;</span><span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>PathBuf</span><span class='op'>&gt;</span>,
                      <span class='ident'>addl_plugins</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>String</span><span class='op'>&gt;&gt;</span>,
-                     <span class='ident'>control</span>: <span class='ident'>CompileController</span>) {
+                     <span class='ident'>control</span>: <span class='ident'>CompileController</span>) <span class='op'>-&gt;</span> <span class='ident'>CompileResult</span> {
     <span class='macro'>macro_rules</span><span class='macro'>!</span> <span class='ident'>controller_entry_point</span>{(<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>point</span>: <span class='ident'>ident</span>, <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>tsess</span>: <span class='ident'>expr</span>, <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>make_state</span>: <span class='ident'>expr</span>) <span class='op'>=&gt;</span> ({
         <span class='kw'>let</span> <span class='ident'>state</span> <span class='op'>=</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>make_state</span>;
         (<span class='ident'>control</span>.<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>point</span>.<span class='ident'>callback</span>)(<span class='ident'>state</span>);
 
-        <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>tsess</span>.<span class='ident'>abort_if_errors</span>();
         <span class='kw'>if</span> <span class='ident'>control</span>.<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>point</span>.<span class='ident'>stop</span> <span class='op'>==</span> <span class='ident'>Compilation</span>::<span class='ident'>Stop</span> {
-            <span class='kw'>return</span>;
+            <span class='kw'>return</span> <span class='ident'>compile_result_from_err_count</span>(<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>tsess</span>.<span class='ident'>err_count</span>());
         }
     })}
 
     <span class='comment'>// We need nested scopes here, because the intermediate results can keep</span>
     <span class='comment'>// large chunks of memory alive and we want to free them as soon as</span>
     <span class='comment'>// possible to keep the peak memory usage low</span>
-    <span class='kw'>let</span> <span class='ident'>result</span> <span class='op'>=</span> {
+    <span class='kw'>let</span> (<span class='ident'>outputs</span>, <span class='ident'>trans</span>) <span class='op'>=</span> {
         <span class='kw'>let</span> (<span class='ident'>outputs</span>, <span class='ident'>expanded_crate</span>, <span class='ident'>id</span>) <span class='op'>=</span> {
-            <span class='kw'>let</span> <span class='ident'>krate</span> <span class='op'>=</span> <span class='ident'>phase_1_parse_input</span>(<span class='kw-2'>&amp;</span><span class='ident'>sess</span>, <span class='ident'>cfg</span>, <span class='ident'>input</span>);
+            <span class='kw'>let</span> <span class='ident'>krate</span> <span class='op'>=</span> <span class='ident'>phase_1_parse_input</span>(<span class='ident'>sess</span>, <span class='ident'>cfg</span>, <span class='ident'>input</span>);
 
             <span class='macro'>controller_entry_point</span><span class='macro'>!</span>(<span class='ident'>after_parse</span>,
                                     <span class='ident'>sess</span>,
-                                    <span class='ident'>CompileState</span>::<span class='ident'>state_after_parse</span>(<span class='ident'>input</span>, <span class='kw-2'>&amp;</span><span class='ident'>sess</span>, <span class='ident'>outdir</span>, <span class='kw-2'>&amp;</span><span class='ident'>krate</span>));
+                                    <span class='ident'>CompileState</span>::<span class='ident'>state_after_parse</span>(<span class='ident'>input</span>, <span class='ident'>sess</span>, <span class='ident'>outdir</span>, <span class='kw-2'>&amp;</span><span class='ident'>krate</span>));
 
-            <span class='kw'>let</span> <span class='ident'>outputs</span> <span class='op'>=</span> <span class='ident'>build_output_filenames</span>(<span class='ident'>input</span>, <span class='ident'>outdir</span>, <span class='ident'>output</span>, <span class='kw-2'>&amp;</span><span class='ident'>krate</span>.<span class='ident'>attrs</span>, <span class='kw-2'>&amp;</span><span class='ident'>sess</span>);
-            <span class='kw'>let</span> <span class='ident'>id</span> <span class='op'>=</span> <span class='ident'>link</span>::<span class='ident'>find_crate_name</span>(<span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>sess</span>), <span class='kw-2'>&amp;</span><span class='ident'>krate</span>.<span class='ident'>attrs</span>, <span class='ident'>input</span>);
-            <span class='kw'>let</span> <span class='ident'>expanded_crate</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>phase_2_configure_and_expand</span>(<span class='kw-2'>&amp;</span><span class='ident'>sess</span>,
-                                                                    <span class='kw-2'>&amp;</span><span class='ident'>cstore</span>,
-                                                                    <span class='ident'>krate</span>,
-                                                                    <span class='kw-2'>&amp;</span><span class='ident'>id</span>[..],
-                                                                    <span class='ident'>addl_plugins</span>) {
-                <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='kw'>return</span>,
-                <span class='prelude-val'>Some</span>(<span class='ident'>k</span>) <span class='op'>=&gt;</span> <span class='ident'>k</span>,
-            };
+            <span class='kw'>let</span> <span class='ident'>outputs</span> <span class='op'>=</span> <span class='ident'>build_output_filenames</span>(<span class='ident'>input</span>, <span class='ident'>outdir</span>, <span class='ident'>output</span>, <span class='kw-2'>&amp;</span><span class='ident'>krate</span>.<span class='ident'>attrs</span>, <span class='ident'>sess</span>);
+            <span class='kw'>let</span> <span class='ident'>id</span> <span class='op'>=</span> <span class='ident'>link</span>::<span class='ident'>find_crate_name</span>(<span class='prelude-val'>Some</span>(<span class='ident'>sess</span>), <span class='kw-2'>&amp;</span><span class='ident'>krate</span>.<span class='ident'>attrs</span>, <span class='ident'>input</span>);
+            <span class='kw'>let</span> <span class='ident'>expanded_crate</span> <span class='op'>=</span> <span class='macro'>try</span><span class='macro'>!</span>(<span class='ident'>phase_2_configure_and_expand</span>(<span class='ident'>sess</span>,
+                                                                   <span class='kw-2'>&amp;</span><span class='ident'>cstore</span>,
+                                                                   <span class='ident'>krate</span>,
+                                                                   <span class='kw-2'>&amp;</span><span class='ident'>id</span>[..],
+                                                                   <span class='ident'>addl_plugins</span>));
 
             (<span class='ident'>outputs</span>, <span class='ident'>expanded_crate</span>, <span class='ident'>id</span>)
         };
@@ -1270,14 +1289,14 @@
         <span class='macro'>controller_entry_point</span><span class='macro'>!</span>(<span class='ident'>after_expand</span>,
                                 <span class='ident'>sess</span>,
                                 <span class='ident'>CompileState</span>::<span class='ident'>state_after_expand</span>(<span class='ident'>input</span>,
-                                                                 <span class='kw-2'>&amp;</span><span class='ident'>sess</span>,
+                                                                 <span class='ident'>sess</span>,
                                                                  <span class='ident'>outdir</span>,
                                                                  <span class='kw-2'>&amp;</span><span class='ident'>expanded_crate</span>,
                                                                  <span class='kw-2'>&amp;</span><span class='ident'>id</span>[..]));
 
-        <span class='kw'>let</span> <span class='ident'>expanded_crate</span> <span class='op'>=</span> <span class='ident'>assign_node_ids</span>(<span class='kw-2'>&amp;</span><span class='ident'>sess</span>, <span class='ident'>expanded_crate</span>);
+        <span class='kw'>let</span> <span class='ident'>expanded_crate</span> <span class='op'>=</span> <span class='ident'>assign_node_ids</span>(<span class='ident'>sess</span>, <span class='ident'>expanded_crate</span>);
         <span class='comment'>// Lower ast -&gt; hir.</span>
-        <span class='kw'>let</span> <span class='ident'>lcx</span> <span class='op'>=</span> <span class='ident'>LoweringContext</span>::<span class='ident'>new</span>(<span class='kw-2'>&amp;</span><span class='ident'>sess</span>, <span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>expanded_crate</span>));
+        <span class='kw'>let</span> <span class='ident'>lcx</span> <span class='op'>=</span> <span class='ident'>LoweringContext</span>::<span class='ident'>new</span>(<span class='ident'>sess</span>, <span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>expanded_crate</span>));
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>hir_forest</span> <span class='op'>=</span> <span class='ident'>time</span>(<span class='ident'>sess</span>.<span class='ident'>time_passes</span>(),
                                   <span class='string'>&quot;lowering ast -&gt; hir&quot;</span>,
                                   <span class='op'>||</span> <span class='ident'>hir_map</span>::<span class='ident'>Forest</span>::<span class='ident'>new</span>(<span class='ident'>lower_crate</span>(<span class='kw-2'>&amp;</span><span class='ident'>lcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>expanded_crate</span>)));
@@ -1289,14 +1308,14 @@
         }
 
         <span class='kw'>let</span> <span class='ident'>arenas</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>CtxtArenas</span>::<span class='ident'>new</span>();
-        <span class='kw'>let</span> <span class='ident'>hir_map</span> <span class='op'>=</span> <span class='ident'>make_map</span>(<span class='kw-2'>&amp;</span><span class='ident'>sess</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>hir_forest</span>);
+        <span class='kw'>let</span> <span class='ident'>hir_map</span> <span class='op'>=</span> <span class='ident'>make_map</span>(<span class='ident'>sess</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>hir_forest</span>);
 
-        <span class='ident'>write_out_deps</span>(<span class='kw-2'>&amp;</span><span class='ident'>sess</span>, <span class='kw-2'>&amp;</span><span class='ident'>outputs</span>, <span class='kw-2'>&amp;</span><span class='ident'>id</span>);
+        <span class='ident'>write_out_deps</span>(<span class='ident'>sess</span>, <span class='kw-2'>&amp;</span><span class='ident'>outputs</span>, <span class='kw-2'>&amp;</span><span class='ident'>id</span>);
 
         <span class='macro'>controller_entry_point</span><span class='macro'>!</span>(<span class='ident'>after_write_deps</span>,
                                 <span class='ident'>sess</span>,
                                 <span class='ident'>CompileState</span>::<span class='ident'>state_after_write_deps</span>(<span class='ident'>input</span>,
-                                                                     <span class='kw-2'>&amp;</span><span class='ident'>sess</span>,
+                                                                     <span class='ident'>sess</span>,
                                                                      <span class='ident'>outdir</span>,
                                                                      <span class='kw-2'>&amp;</span><span class='ident'>hir_map</span>,
                                                                      <span class='kw-2'>&amp;</span><span class='ident'>expanded_crate</span>,
@@ -1305,12 +1324,12 @@
                                                                      <span class='kw-2'>&amp;</span><span class='ident'>lcx</span>));
 
         <span class='ident'>time</span>(<span class='ident'>sess</span>.<span class='ident'>time_passes</span>(), <span class='string'>&quot;attribute checking&quot;</span>, <span class='op'>||</span> {
-            <span class='ident'>front</span>::<span class='ident'>check_attr</span>::<span class='ident'>check_crate</span>(<span class='kw-2'>&amp;</span><span class='ident'>sess</span>, <span class='kw-2'>&amp;</span><span class='ident'>expanded_crate</span>);
+            <span class='ident'>front</span>::<span class='ident'>check_attr</span>::<span class='ident'>check_crate</span>(<span class='ident'>sess</span>, <span class='kw-2'>&amp;</span><span class='ident'>expanded_crate</span>);
         });
 
         <span class='ident'>time</span>(<span class='ident'>sess</span>.<span class='ident'>time_passes</span>(),
              <span class='string'>&quot;early lint checks&quot;</span>,
-             <span class='op'>||</span> <span class='ident'>lint</span>::<span class='ident'>check_ast_crate</span>(<span class='kw-2'>&amp;</span><span class='ident'>sess</span>, <span class='kw-2'>&amp;</span><span class='ident'>expanded_crate</span>));
+             <span class='op'>||</span> <span class='ident'>lint</span>::<span class='ident'>check_ast_crate</span>(<span class='ident'>sess</span>, <span class='kw-2'>&amp;</span><span class='ident'>expanded_crate</span>));
 
         <span class='kw'>let</span> <span class='ident'>opt_crate</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>debugging_opts</span>.<span class='ident'>keep_ast</span> <span class='op'>||</span>
                            <span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>debugging_opts</span>.<span class='ident'>save_analysis</span> {
@@ -1320,67 +1339,62 @@
             <span class='prelude-val'>None</span>
         };
 
-        <span class='ident'>phase_3_run_analysis_passes</span>(<span class='kw-2'>&amp;</span><span class='ident'>sess</span>,
-                                    <span class='kw-2'>&amp;</span><span class='ident'>cstore</span>,
-                                    <span class='ident'>hir_map</span>,
-                                    <span class='kw-2'>&amp;</span><span class='ident'>arenas</span>,
-                                    <span class='kw-2'>&amp;</span><span class='ident'>id</span>,
-                                    <span class='ident'>control</span>.<span class='ident'>make_glob_map</span>,
-                                    <span class='op'>|</span><span class='ident'>tcx</span>, <span class='ident'>mir_map</span>, <span class='ident'>analysis</span><span class='op'>|</span> {
+        <span class='macro'>try</span><span class='macro'>!</span>(<span class='macro'>try</span><span class='macro'>!</span>(<span class='ident'>phase_3_run_analysis_passes</span>(<span class='ident'>sess</span>,
+                                         <span class='kw-2'>&amp;</span><span class='ident'>cstore</span>,
+                                         <span class='ident'>hir_map</span>,
+                                         <span class='kw-2'>&amp;</span><span class='ident'>arenas</span>,
+                                         <span class='kw-2'>&amp;</span><span class='ident'>id</span>,
+                                         <span class='ident'>control</span>.<span class='ident'>make_glob_map</span>,
+                                         <span class='op'>|</span><span class='ident'>tcx</span>, <span class='ident'>mir_map</span>, <span class='ident'>analysis</span><span class='op'>|</span> {
+            {
+                <span class='kw'>let</span> <span class='ident'>state</span> <span class='op'>=</span>
+                    <span class='ident'>CompileState</span>::<span class='ident'>state_after_analysis</span>(<span class='ident'>input</span>,
+                                                       <span class='kw-2'>&amp;</span><span class='ident'>tcx</span>.<span class='ident'>sess</span>,
+                                                       <span class='ident'>outdir</span>,
+                                                       <span class='ident'>opt_crate</span>,
+                                                       <span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>krate</span>(),
+                                                       <span class='kw-2'>&amp;</span><span class='ident'>analysis</span>,
+                                                       <span class='kw-2'>&amp;</span><span class='ident'>mir_map</span>,
+                                                       <span class='ident'>tcx</span>,
+                                                       <span class='kw-2'>&amp;</span><span class='ident'>lcx</span>,
+                                                       <span class='kw-2'>&amp;</span><span class='ident'>id</span>);
+                (<span class='ident'>control</span>.<span class='ident'>after_analysis</span>.<span class='ident'>callback</span>)(<span class='ident'>state</span>);
 
-                                        {
-                                            <span class='kw'>let</span> <span class='ident'>state</span> <span class='op'>=</span>
-                                                <span class='ident'>CompileState</span>::<span class='ident'>state_after_analysis</span>(<span class='ident'>input</span>,
-                                                                                   <span class='kw-2'>&amp;</span><span class='ident'>tcx</span>.<span class='ident'>sess</span>,
-                                                                                   <span class='ident'>outdir</span>,
-                                                                                   <span class='ident'>opt_crate</span>,
-                                                                                   <span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>krate</span>(),
-                                                                                   <span class='kw-2'>&amp;</span><span class='ident'>analysis</span>,
-                                                                                   <span class='kw-2'>&amp;</span><span class='ident'>mir_map</span>,
-                                                                                   <span class='ident'>tcx</span>,
-                                                                                   <span class='kw-2'>&amp;</span><span class='ident'>lcx</span>,
-                                                                                   <span class='kw-2'>&amp;</span><span class='ident'>id</span>);
-                                            (<span class='ident'>control</span>.<span class='ident'>after_analysis</span>.<span class='ident'>callback</span>)(<span class='ident'>state</span>);
+                <span class='macro'>throw_if_errors</span><span class='macro'>!</span>(<span class='ident'>tcx</span>.<span class='ident'>sess</span>);
+                <span class='kw'>if</span> <span class='ident'>control</span>.<span class='ident'>after_analysis</span>.<span class='ident'>stop</span> <span class='op'>==</span> <span class='ident'>Compilation</span>::<span class='ident'>Stop</span> {
+                    <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='number'>0usize</span>);
+                }
+            }
 
-                                            <span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>abort_if_errors</span>();
-                                            <span class='kw'>if</span> <span class='ident'>control</span>.<span class='ident'>after_analysis</span>.<span class='ident'>stop</span> <span class='op'>==</span> <span class='ident'>Compilation</span>::<span class='ident'>Stop</span> {
-                                                <span class='kw'>return</span> <span class='prelude-val'>Err</span>(());
-                                            }
-                                        }
+            <span class='kw'>if</span> <span class='macro'>log_enabled</span><span class='macro'>!</span>(::<span class='ident'>log</span>::<span class='ident'>INFO</span>) {
+                <span class='macro'>println</span><span class='macro'>!</span>(<span class='string'>&quot;Pre-trans&quot;</span>);
+                <span class='ident'>tcx</span>.<span class='ident'>print_debug_stats</span>();
+            }
+            <span class='kw'>let</span> <span class='ident'>trans</span> <span class='op'>=</span> <span class='ident'>phase_4_translate_to_llvm</span>(<span class='ident'>tcx</span>,
+                                                  <span class='ident'>mir_map</span>,
+                                                  <span class='ident'>analysis</span>);
 
-                                        <span class='kw'>if</span> <span class='macro'>log_enabled</span><span class='macro'>!</span>(::<span class='ident'>log</span>::<span class='ident'>INFO</span>) {
-                                            <span class='macro'>println</span><span class='macro'>!</span>(<span class='string'>&quot;Pre-trans&quot;</span>);
-                                            <span class='ident'>tcx</span>.<span class='ident'>print_debug_stats</span>();
-                                        }
-                                        <span class='kw'>let</span> <span class='ident'>trans</span> <span class='op'>=</span> <span class='ident'>phase_4_translate_to_llvm</span>(<span class='ident'>tcx</span>,
-                                                                              <span class='ident'>mir_map</span>,
-                                                                              <span class='ident'>analysis</span>);
+            <span class='kw'>if</span> <span class='macro'>log_enabled</span><span class='macro'>!</span>(::<span class='ident'>log</span>::<span class='ident'>INFO</span>) {
+                <span class='macro'>println</span><span class='macro'>!</span>(<span class='string'>&quot;Post-trans&quot;</span>);
+                <span class='ident'>tcx</span>.<span class='ident'>print_debug_stats</span>();
+            }
 
-                                        <span class='kw'>if</span> <span class='macro'>log_enabled</span><span class='macro'>!</span>(::<span class='ident'>log</span>::<span class='ident'>INFO</span>) {
-                                            <span class='macro'>println</span><span class='macro'>!</span>(<span class='string'>&quot;Post-trans&quot;</span>);
-                                            <span class='ident'>tcx</span>.<span class='ident'>print_debug_stats</span>();
-                                        }
+            <span class='comment'>// Discard interned strings as they are no longer required.</span>
+            <span class='ident'>token</span>::<span class='ident'>get_ident_interner</span>().<span class='ident'>clear</span>();
 
-                                        <span class='comment'>// Discard interned strings as they are no longer required.</span>
-                                        <span class='ident'>token</span>::<span class='ident'>get_ident_interner</span>().<span class='ident'>clear</span>();
-
-                                        <span class='prelude-val'>Ok</span>((<span class='ident'>outputs</span>, <span class='ident'>trans</span>))
-                                    })
+            <span class='prelude-val'>Ok</span>((<span class='ident'>outputs</span>, <span class='ident'>trans</span>))
+        })))
     };
 
-    <span class='kw'>let</span> (<span class='ident'>outputs</span>, <span class='ident'>trans</span>) <span class='op'>=</span> <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Ok</span>(<span class='ident'>out</span>) <span class='op'>=</span> <span class='ident'>result</span> {
-        <span class='ident'>out</span>
-    } <span class='kw'>else</span> {
-        <span class='kw'>return</span>;
-    };
-
-    <span class='ident'>phase_5_run_llvm_passes</span>(<span class='kw-2'>&amp;</span><span class='ident'>sess</span>, <span class='kw-2'>&amp;</span><span class='ident'>trans</span>, <span class='kw-2'>&amp;</span><span class='ident'>outputs</span>);
+    <span class='macro'>try</span><span class='macro'>!</span>(<span class='ident'>phase_5_run_llvm_passes</span>(<span class='ident'>sess</span>, <span class='kw-2'>&amp;</span><span class='ident'>trans</span>, <span class='kw-2'>&amp;</span><span class='ident'>outputs</span>));
 
     <span class='macro'>controller_entry_point</span><span class='macro'>!</span>(<span class='ident'>after_llvm</span>,
                             <span class='ident'>sess</span>,
-                            <span class='ident'>CompileState</span>::<span class='ident'>state_after_llvm</span>(<span class='ident'>input</span>, <span class='kw-2'>&amp;</span><span class='ident'>sess</span>, <span class='ident'>outdir</span>, <span class='kw-2'>&amp;</span><span class='ident'>trans</span>));
+                            <span class='ident'>CompileState</span>::<span class='ident'>state_after_llvm</span>(<span class='ident'>input</span>, <span class='ident'>sess</span>, <span class='ident'>outdir</span>, <span class='kw-2'>&amp;</span><span class='ident'>trans</span>));
 
-    <span class='ident'>phase_6_link_output</span>(<span class='kw-2'>&amp;</span><span class='ident'>sess</span>, <span class='kw-2'>&amp;</span><span class='ident'>trans</span>, <span class='kw-2'>&amp;</span><span class='ident'>outputs</span>);
+    <span class='ident'>phase_6_link_output</span>(<span class='ident'>sess</span>, <span class='kw-2'>&amp;</span><span class='ident'>trans</span>, <span class='kw-2'>&amp;</span><span class='ident'>outputs</span>);
+
+    <span class='prelude-val'>Ok</span>(())
 }
 
 <span class='doccomment'>/// The name used for source code that doesn&#39;t originate in a file</span>
@@ -1624,7 +1638,7 @@
                                     <span class='kw-2'>mut</span> <span class='ident'>krate</span>: <span class='ident'>ast</span>::<span class='ident'>Crate</span>,
                                     <span class='ident'>crate_name</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>,
                                     <span class='ident'>addl_plugins</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>String</span><span class='op'>&gt;&gt;</span>)
-                                    <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>Crate</span><span class='op'>&gt;</span> {
+                                    <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>Crate</span>, <span class='ident'>usize</span><span class='op'>&gt;</span> {
     <span class='kw'>let</span> <span class='ident'>time_passes</span> <span class='op'>=</span> <span class='ident'>sess</span>.<span class='ident'>time_passes</span>();
 
     <span class='comment'>// strip before anything else because crate metadata may use #[cfg_attr]</span>
@@ -1636,9 +1650,13 @@
     <span class='comment'>// baz! should not use this definition unless foo is enabled.</span>
 
     <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>feature_gated_cfgs</span> <span class='op'>=</span> <span class='macro'>vec</span><span class='macro'>!</span>[];
-    <span class='ident'>krate</span> <span class='op'>=</span> <span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;configuration 1&quot;</span>, <span class='op'>||</span> {
-        <span class='ident'>syntax</span>::<span class='ident'>config</span>::<span class='ident'>strip_unconfigured_items</span>(<span class='ident'>sess</span>.<span class='ident'>diagnostic</span>(), <span class='ident'>krate</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>feature_gated_cfgs</span>)
-    });
+    <span class='ident'>krate</span> <span class='op'>=</span> <span class='macro'>try</span><span class='macro'>!</span>(<span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;configuration 1&quot;</span>, <span class='op'>||</span> {
+        <span class='ident'>sess</span>.<span class='ident'>track_errors</span>(<span class='op'>||</span> {
+            <span class='ident'>syntax</span>::<span class='ident'>config</span>::<span class='ident'>strip_unconfigured_items</span>(<span class='ident'>sess</span>.<span class='ident'>diagnostic</span>(),
+                                                     <span class='ident'>krate</span>,
+                                                     <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>feature_gated_cfgs</span>)
+        })
+    }));
 
     <span class='op'>*</span><span class='ident'>sess</span>.<span class='ident'>crate_types</span>.<span class='ident'>borrow_mut</span>() <span class='op'>=</span> <span class='ident'>collect_crate_types</span>(<span class='ident'>sess</span>, <span class='kw-2'>&amp;</span><span class='ident'>krate</span>.<span class='ident'>attrs</span>);
     <span class='op'>*</span><span class='ident'>sess</span>.<span class='ident'>crate_metadata</span>.<span class='ident'>borrow_mut</span>() <span class='op'>=</span> <span class='ident'>collect_crate_metadata</span>(<span class='ident'>sess</span>, <span class='kw-2'>&amp;</span><span class='ident'>krate</span>.<span class='ident'>attrs</span>);
@@ -1647,15 +1665,17 @@
         <span class='ident'>middle</span>::<span class='ident'>recursion_limit</span>::<span class='ident'>update_recursion_limit</span>(<span class='ident'>sess</span>, <span class='kw-2'>&amp;</span><span class='ident'>krate</span>);
     });
 
-    <span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;gated macro checking&quot;</span>, <span class='op'>||</span> {
-        <span class='kw'>let</span> <span class='ident'>features</span> <span class='op'>=</span> <span class='ident'>syntax</span>::<span class='ident'>feature_gate</span>::<span class='ident'>check_crate_macros</span>(<span class='ident'>sess</span>.<span class='ident'>codemap</span>(),
-                                                                <span class='kw-2'>&amp;</span><span class='ident'>sess</span>.<span class='ident'>parse_sess</span>.<span class='ident'>span_diagnostic</span>,
-                                                                <span class='kw-2'>&amp;</span><span class='ident'>krate</span>);
+    <span class='macro'>try</span><span class='macro'>!</span>(<span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;gated macro checking&quot;</span>, <span class='op'>||</span> {
+        <span class='ident'>sess</span>.<span class='ident'>track_errors</span>(<span class='op'>||</span> {
+            <span class='kw'>let</span> <span class='ident'>features</span> <span class='op'>=</span>
+              <span class='ident'>syntax</span>::<span class='ident'>feature_gate</span>::<span class='ident'>check_crate_macros</span>(<span class='ident'>sess</span>.<span class='ident'>codemap</span>(),
+                                                       <span class='kw-2'>&amp;</span><span class='ident'>sess</span>.<span class='ident'>parse_sess</span>.<span class='ident'>span_diagnostic</span>,
+                                                       <span class='kw-2'>&amp;</span><span class='ident'>krate</span>);
 
-        <span class='comment'>// these need to be set &quot;early&quot; so that expansion sees `quote` if enabled.</span>
-        <span class='op'>*</span><span class='ident'>sess</span>.<span class='ident'>features</span>.<span class='ident'>borrow_mut</span>() <span class='op'>=</span> <span class='ident'>features</span>;
-        <span class='ident'>sess</span>.<span class='ident'>abort_if_errors</span>();
-    });
+            <span class='comment'>// these need to be set &quot;early&quot; so that expansion sees `quote` if enabled.</span>
+            <span class='op'>*</span><span class='ident'>sess</span>.<span class='ident'>features</span>.<span class='ident'>borrow_mut</span>() <span class='op'>=</span> <span class='ident'>features</span>;
+        })
+    }));
 
 
     <span class='ident'>krate</span> <span class='op'>=</span> <span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;crate injection&quot;</span>, <span class='op'>||</span> {
@@ -1692,7 +1712,7 @@
     <span class='kw'>let</span> <span class='ident'>Registry</span> { <span class='ident'>syntax_exts</span>, <span class='ident'>early_lint_passes</span>, <span class='ident'>late_lint_passes</span>, <span class='ident'>lint_groups</span>,
                    <span class='ident'>llvm_passes</span>, <span class='ident'>attributes</span>, .. } <span class='op'>=</span> <span class='ident'>registry</span>;
 
-    {
+    <span class='macro'>try</span><span class='macro'>!</span>(<span class='ident'>sess</span>.<span class='ident'>track_errors</span>(<span class='op'>||</span> {
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>ls</span> <span class='op'>=</span> <span class='ident'>sess</span>.<span class='ident'>lint_store</span>.<span class='ident'>borrow_mut</span>();
         <span class='kw'>for</span> <span class='ident'>pass</span> <span class='kw'>in</span> <span class='ident'>early_lint_passes</span> {
             <span class='ident'>ls</span>.<span class='ident'>register_early_pass</span>(<span class='prelude-val'>Some</span>(<span class='ident'>sess</span>), <span class='boolval'>true</span>, <span class='ident'>pass</span>);
@@ -1707,17 +1727,14 @@
 
         <span class='op'>*</span><span class='ident'>sess</span>.<span class='ident'>plugin_llvm_passes</span>.<span class='ident'>borrow_mut</span>() <span class='op'>=</span> <span class='ident'>llvm_passes</span>;
         <span class='op'>*</span><span class='ident'>sess</span>.<span class='ident'>plugin_attributes</span>.<span class='ident'>borrow_mut</span>() <span class='op'>=</span> <span class='ident'>attributes</span>.<span class='ident'>clone</span>();
-    }
+    }));
 
     <span class='comment'>// Lint plugins are registered; now we can process command line flags.</span>
     <span class='kw'>if</span> <span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>describe_lints</span> {
         <span class='ident'>super</span>::<span class='ident'>describe_lints</span>(<span class='kw-2'>&amp;</span><span class='op'>*</span><span class='ident'>sess</span>.<span class='ident'>lint_store</span>.<span class='ident'>borrow</span>(), <span class='boolval'>true</span>);
-        <span class='kw'>return</span> <span class='prelude-val'>None</span>;
+        <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='number'>0</span>);
     }
-    <span class='ident'>sess</span>.<span class='ident'>lint_store</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>process_command_line</span>(<span class='ident'>sess</span>);
-
-    <span class='comment'>// Abort if there are errors from lint processing or a plugin registrar.</span>
-    <span class='ident'>sess</span>.<span class='ident'>abort_if_errors</span>();
+    <span class='macro'>try</span><span class='macro'>!</span>(<span class='ident'>sess</span>.<span class='ident'>track_errors</span>(<span class='op'>||</span> <span class='ident'>sess</span>.<span class='ident'>lint_store</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>process_command_line</span>(<span class='ident'>sess</span>)));
 
     <span class='ident'>krate</span> <span class='op'>=</span> <span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;expansion&quot;</span>, <span class='op'>||</span> {
         <span class='comment'>// Windows dlls do not have rpaths, so they don&#39;t know how to find their</span>
@@ -1760,31 +1777,38 @@
     <span class='comment'>// of macro expansion.  This runs before #[cfg] to try to catch as</span>
     <span class='comment'>// much as possible (e.g. help the programmer avoid platform</span>
     <span class='comment'>// specific differences)</span>
-    <span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;complete gated feature checking 1&quot;</span>, <span class='op'>||</span> {
-        <span class='kw'>let</span> <span class='ident'>features</span> <span class='op'>=</span> <span class='ident'>syntax</span>::<span class='ident'>feature_gate</span>::<span class='ident'>check_crate</span>(<span class='ident'>sess</span>.<span class='ident'>codemap</span>(),
-                                                         <span class='kw-2'>&amp;</span><span class='ident'>sess</span>.<span class='ident'>parse_sess</span>.<span class='ident'>span_diagnostic</span>,
-                                                         <span class='kw-2'>&amp;</span><span class='ident'>krate</span>,
-                                                         <span class='kw-2'>&amp;</span><span class='ident'>attributes</span>,
-                                                         <span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>unstable_features</span>);
-        <span class='op'>*</span><span class='ident'>sess</span>.<span class='ident'>features</span>.<span class='ident'>borrow_mut</span>() <span class='op'>=</span> <span class='ident'>features</span>;
-        <span class='ident'>sess</span>.<span class='ident'>abort_if_errors</span>();
-    });
+    <span class='macro'>try</span><span class='macro'>!</span>(<span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;complete gated feature checking 1&quot;</span>, <span class='op'>||</span> {
+        <span class='ident'>sess</span>.<span class='ident'>track_errors</span>(<span class='op'>||</span> {
+            <span class='kw'>let</span> <span class='ident'>features</span> <span class='op'>=</span> <span class='ident'>syntax</span>::<span class='ident'>feature_gate</span>::<span class='ident'>check_crate</span>(<span class='ident'>sess</span>.<span class='ident'>codemap</span>(),
+                                                             <span class='kw-2'>&amp;</span><span class='ident'>sess</span>.<span class='ident'>parse_sess</span>.<span class='ident'>span_diagnostic</span>,
+                                                             <span class='kw-2'>&amp;</span><span class='ident'>krate</span>,
+                                                             <span class='kw-2'>&amp;</span><span class='ident'>attributes</span>,
+                                                             <span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>unstable_features</span>);
+            <span class='op'>*</span><span class='ident'>sess</span>.<span class='ident'>features</span>.<span class='ident'>borrow_mut</span>() <span class='op'>=</span> <span class='ident'>features</span>;
+        })
+    }));
 
     <span class='comment'>// JBC: make CFG processing part of expansion to avoid this problem:</span>
 
     <span class='comment'>// strip again, in case expansion added anything with a #[cfg].</span>
-    <span class='ident'>krate</span> <span class='op'>=</span> <span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;configuration 2&quot;</span>, <span class='op'>||</span> {
-        <span class='ident'>syntax</span>::<span class='ident'>config</span>::<span class='ident'>strip_unconfigured_items</span>(<span class='ident'>sess</span>.<span class='ident'>diagnostic</span>(), <span class='ident'>krate</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>feature_gated_cfgs</span>)
-    });
+    <span class='ident'>krate</span> <span class='op'>=</span> <span class='macro'>try</span><span class='macro'>!</span>(<span class='ident'>sess</span>.<span class='ident'>track_errors</span>(<span class='op'>||</span> {
+        <span class='kw'>let</span> <span class='ident'>krate</span> <span class='op'>=</span> <span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;configuration 2&quot;</span>, <span class='op'>||</span> {
+            <span class='ident'>syntax</span>::<span class='ident'>config</span>::<span class='ident'>strip_unconfigured_items</span>(<span class='ident'>sess</span>.<span class='ident'>diagnostic</span>(),
+                                                     <span class='ident'>krate</span>,
+                                                     <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>feature_gated_cfgs</span>)
+        });
 
-    <span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;gated configuration checking&quot;</span>, <span class='op'>||</span> {
-        <span class='kw'>let</span> <span class='ident'>features</span> <span class='op'>=</span> <span class='ident'>sess</span>.<span class='ident'>features</span>.<span class='ident'>borrow</span>();
-        <span class='ident'>feature_gated_cfgs</span>.<span class='ident'>sort</span>();
-        <span class='ident'>feature_gated_cfgs</span>.<span class='ident'>dedup</span>();
-        <span class='kw'>for</span> <span class='ident'>cfg</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>feature_gated_cfgs</span> {
-            <span class='ident'>cfg</span>.<span class='ident'>check_and_emit</span>(<span class='ident'>sess</span>.<span class='ident'>diagnostic</span>(), <span class='kw-2'>&amp;</span><span class='ident'>features</span>, <span class='ident'>sess</span>.<span class='ident'>codemap</span>());
-        }
-    });
+        <span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;gated configuration checking&quot;</span>, <span class='op'>||</span> {
+            <span class='kw'>let</span> <span class='ident'>features</span> <span class='op'>=</span> <span class='ident'>sess</span>.<span class='ident'>features</span>.<span class='ident'>borrow</span>();
+            <span class='ident'>feature_gated_cfgs</span>.<span class='ident'>sort</span>();
+            <span class='ident'>feature_gated_cfgs</span>.<span class='ident'>dedup</span>();
+            <span class='kw'>for</span> <span class='ident'>cfg</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>feature_gated_cfgs</span> {
+                <span class='ident'>cfg</span>.<span class='ident'>check_and_emit</span>(<span class='ident'>sess</span>.<span class='ident'>diagnostic</span>(), <span class='kw-2'>&amp;</span><span class='ident'>features</span>, <span class='ident'>sess</span>.<span class='ident'>codemap</span>());
+            }
+        });
+
+        <span class='ident'>krate</span>
+    }));
 
     <span class='ident'>krate</span> <span class='op'>=</span> <span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;maybe building test harness&quot;</span>, <span class='op'>||</span> {
         <span class='ident'>syntax</span>::<span class='ident'>test</span>::<span class='ident'>modify_for_testing</span>(<span class='kw-2'>&amp;</span><span class='ident'>sess</span>.<span class='ident'>parse_sess</span>, <span class='kw-2'>&amp;</span><span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>cfg</span>, <span class='ident'>krate</span>, <span class='ident'>sess</span>.<span class='ident'>diagnostic</span>())
@@ -1805,15 +1829,16 @@
     <span class='comment'>// One final feature gating of the true AST that gets compiled</span>
     <span class='comment'>// later, to make sure we&#39;ve got everything (e.g. configuration</span>
     <span class='comment'>// can insert new attributes via `cfg_attr`)</span>
-    <span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;complete gated feature checking 2&quot;</span>, <span class='op'>||</span> {
-        <span class='kw'>let</span> <span class='ident'>features</span> <span class='op'>=</span> <span class='ident'>syntax</span>::<span class='ident'>feature_gate</span>::<span class='ident'>check_crate</span>(<span class='ident'>sess</span>.<span class='ident'>codemap</span>(),
-                                                         <span class='kw-2'>&amp;</span><span class='ident'>sess</span>.<span class='ident'>parse_sess</span>.<span class='ident'>span_diagnostic</span>,
-                                                         <span class='kw-2'>&amp;</span><span class='ident'>krate</span>,
-                                                         <span class='kw-2'>&amp;</span><span class='ident'>attributes</span>,
-                                                         <span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>unstable_features</span>);
-        <span class='op'>*</span><span class='ident'>sess</span>.<span class='ident'>features</span>.<span class='ident'>borrow_mut</span>() <span class='op'>=</span> <span class='ident'>features</span>;
-        <span class='ident'>sess</span>.<span class='ident'>abort_if_errors</span>();
-    });
+    <span class='macro'>try</span><span class='macro'>!</span>(<span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;complete gated feature checking 2&quot;</span>, <span class='op'>||</span> {
+        <span class='ident'>sess</span>.<span class='ident'>track_errors</span>(<span class='op'>||</span> {
+            <span class='kw'>let</span> <span class='ident'>features</span> <span class='op'>=</span> <span class='ident'>syntax</span>::<span class='ident'>feature_gate</span>::<span class='ident'>check_crate</span>(<span class='ident'>sess</span>.<span class='ident'>codemap</span>(),
+                                                             <span class='kw-2'>&amp;</span><span class='ident'>sess</span>.<span class='ident'>parse_sess</span>.<span class='ident'>span_diagnostic</span>,
+                                                             <span class='kw-2'>&amp;</span><span class='ident'>krate</span>,
+                                                             <span class='kw-2'>&amp;</span><span class='ident'>attributes</span>,
+                                                             <span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>unstable_features</span>);
+            <span class='op'>*</span><span class='ident'>sess</span>.<span class='ident'>features</span>.<span class='ident'>borrow_mut</span>() <span class='op'>=</span> <span class='ident'>features</span>;
+        })
+    }));
 
     <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
          <span class='string'>&quot;const fn bodies and arguments&quot;</span>,
@@ -1823,7 +1848,7 @@
         <span class='macro'>println</span><span class='macro'>!</span>(<span class='string'>&quot;Post-expansion node count: {}&quot;</span>, <span class='ident'>count_nodes</span>(<span class='kw-2'>&amp;</span><span class='ident'>krate</span>));
     }
 
-    <span class='prelude-val'>Some</span>(<span class='ident'>krate</span>)
+    <span class='prelude-val'>Ok</span>(<span class='ident'>krate</span>)
 }
 
 <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>assign_node_ids</span>(<span class='ident'>sess</span>: <span class='kw-2'>&amp;</span><span class='ident'>Session</span>, <span class='ident'>krate</span>: <span class='ident'>ast</span>::<span class='ident'>Crate</span>) <span class='op'>-&gt;</span> <span class='ident'>ast</span>::<span class='ident'>Crate</span> {
@@ -1868,7 +1893,7 @@
                                                <span class='ident'>name</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>,
                                                <span class='ident'>make_glob_map</span>: <span class='ident'>resolve</span>::<span class='ident'>MakeGlobMap</span>,
                                                <span class='ident'>f</span>: <span class='ident'>F</span>)
-                                               <span class='op'>-&gt;</span> <span class='ident'>R</span>
+                                               <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>R</span>, <span class='ident'>usize</span><span class='op'>&gt;</span>
     <span class='kw'>where</span> <span class='ident'>F</span>: <span class='kw'>for</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> <span class='ident'>FnOnce</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>ty</span>::<span class='ident'>ctxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>MirMap</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>ty</span>::<span class='ident'>CrateAnalysis</span>) <span class='op'>-&gt;</span> <span class='ident'>R</span>
 {
     <span class='kw'>let</span> <span class='ident'>time_passes</span> <span class='op'>=</span> <span class='ident'>sess</span>.<span class='ident'>time_passes</span>();
@@ -1878,9 +1903,11 @@
          <span class='string'>&quot;external crate/lib resolution&quot;</span>,
          <span class='op'>||</span> <span class='ident'>LocalCrateReader</span>::<span class='ident'>new</span>(<span class='ident'>sess</span>, <span class='ident'>cstore</span>, <span class='kw-2'>&amp;</span><span class='ident'>hir_map</span>).<span class='ident'>read_crates</span>(<span class='ident'>krate</span>));
 
-    <span class='kw'>let</span> <span class='ident'>lang_items</span> <span class='op'>=</span> <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
-                          <span class='string'>&quot;language item collection&quot;</span>,
-                          <span class='op'>||</span> <span class='ident'>middle</span>::<span class='ident'>lang_items</span>::<span class='ident'>collect_language_items</span>(<span class='kw-2'>&amp;</span><span class='ident'>sess</span>, <span class='kw-2'>&amp;</span><span class='ident'>hir_map</span>));
+    <span class='kw'>let</span> <span class='ident'>lang_items</span> <span class='op'>=</span> <span class='macro'>try</span><span class='macro'>!</span>(<span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;language item collection&quot;</span>, <span class='op'>||</span> {
+        <span class='ident'>sess</span>.<span class='ident'>track_errors</span>(<span class='op'>||</span> {
+            <span class='ident'>middle</span>::<span class='ident'>lang_items</span>::<span class='ident'>collect_language_items</span>(<span class='kw-2'>&amp;</span><span class='ident'>sess</span>, <span class='kw-2'>&amp;</span><span class='ident'>hir_map</span>)
+        })
+    }));
 
     <span class='kw'>let</span> <span class='ident'>resolve</span>::<span class='ident'>CrateMap</span> {
         <span class='ident'>def_map</span>,
@@ -1927,98 +1954,98 @@
                                <span class='ident'>lang_items</span>,
                                <span class='ident'>stability</span>::<span class='ident'>Index</span>::<span class='ident'>new</span>(<span class='ident'>krate</span>),
                                <span class='op'>|</span><span class='ident'>tcx</span><span class='op'>|</span> {
-                                   <span class='comment'>// passes are timed inside typeck</span>
-                                   <span class='ident'>typeck</span>::<span class='ident'>check_crate</span>(<span class='ident'>tcx</span>, <span class='ident'>trait_map</span>);
+        <span class='comment'>// passes are timed inside typeck</span>
+        <span class='ident'>typeck</span>::<span class='ident'>check_crate</span>(<span class='ident'>tcx</span>, <span class='ident'>trait_map</span>);
 
-                                   <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
-                                        <span class='string'>&quot;const checking&quot;</span>,
-                                        <span class='op'>||</span> <span class='ident'>consts</span>::<span class='ident'>check_crate</span>(<span class='ident'>tcx</span>));
+        <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
+             <span class='string'>&quot;const checking&quot;</span>,
+             <span class='op'>||</span> <span class='ident'>consts</span>::<span class='ident'>check_crate</span>(<span class='ident'>tcx</span>));
 
-                                   <span class='kw'>let</span> <span class='ident'>access_levels</span> <span class='op'>=</span>
-                                       <span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;privacy checking&quot;</span>, <span class='op'>||</span> {
-                                           <span class='ident'>rustc_privacy</span>::<span class='ident'>check_crate</span>(<span class='ident'>tcx</span>,
-                                                                      <span class='kw-2'>&amp;</span><span class='ident'>export_map</span>,
-                                                                      <span class='ident'>external_exports</span>)
-                                       });
+        <span class='kw'>let</span> <span class='ident'>access_levels</span> <span class='op'>=</span>
+            <span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;privacy checking&quot;</span>, <span class='op'>||</span> {
+                <span class='ident'>rustc_privacy</span>::<span class='ident'>check_crate</span>(<span class='ident'>tcx</span>,
+                                           <span class='kw-2'>&amp;</span><span class='ident'>export_map</span>,
+                                           <span class='ident'>external_exports</span>)
+            });
 
-                                   <span class='comment'>// Do not move this check past lint</span>
-                                   <span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;stability index&quot;</span>, <span class='op'>||</span> {
-                                       <span class='ident'>tcx</span>.<span class='ident'>stability</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>build</span>(<span class='ident'>tcx</span>, <span class='ident'>krate</span>, <span class='kw-2'>&amp;</span><span class='ident'>access_levels</span>)
-                                   });
+        <span class='comment'>// Do not move this check past lint</span>
+        <span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;stability index&quot;</span>, <span class='op'>||</span> {
+            <span class='ident'>tcx</span>.<span class='ident'>stability</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>build</span>(<span class='ident'>tcx</span>, <span class='ident'>krate</span>, <span class='kw-2'>&amp;</span><span class='ident'>access_levels</span>)
+        });
 
-                                   <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
-                                        <span class='string'>&quot;intrinsic checking&quot;</span>,
-                                        <span class='op'>||</span> <span class='ident'>middle</span>::<span class='ident'>intrinsicck</span>::<span class='ident'>check_crate</span>(<span class='ident'>tcx</span>));
+        <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
+             <span class='string'>&quot;intrinsic checking&quot;</span>,
+             <span class='op'>||</span> <span class='ident'>middle</span>::<span class='ident'>intrinsicck</span>::<span class='ident'>check_crate</span>(<span class='ident'>tcx</span>));
 
-                                   <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
-                                        <span class='string'>&quot;effect checking&quot;</span>,
-                                        <span class='op'>||</span> <span class='ident'>middle</span>::<span class='ident'>effect</span>::<span class='ident'>check_crate</span>(<span class='ident'>tcx</span>));
+        <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
+             <span class='string'>&quot;effect checking&quot;</span>,
+             <span class='op'>||</span> <span class='ident'>middle</span>::<span class='ident'>effect</span>::<span class='ident'>check_crate</span>(<span class='ident'>tcx</span>));
 
-                                   <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
-                                        <span class='string'>&quot;match checking&quot;</span>,
-                                        <span class='op'>||</span> <span class='ident'>middle</span>::<span class='ident'>check_match</span>::<span class='ident'>check_crate</span>(<span class='ident'>tcx</span>));
+        <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
+             <span class='string'>&quot;match checking&quot;</span>,
+             <span class='op'>||</span> <span class='ident'>middle</span>::<span class='ident'>check_match</span>::<span class='ident'>check_crate</span>(<span class='ident'>tcx</span>));
 
-                                   <span class='kw'>let</span> <span class='ident'>mir_map</span> <span class='op'>=</span>
-                                       <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
-                                            <span class='string'>&quot;MIR dump&quot;</span>,
-                                            <span class='op'>||</span> <span class='ident'>mir</span>::<span class='ident'>mir_map</span>::<span class='ident'>build_mir_for_crate</span>(<span class='ident'>tcx</span>));
+        <span class='kw'>let</span> <span class='ident'>mir_map</span> <span class='op'>=</span>
+            <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
+                 <span class='string'>&quot;MIR dump&quot;</span>,
+                 <span class='op'>||</span> <span class='ident'>mir</span>::<span class='ident'>mir_map</span>::<span class='ident'>build_mir_for_crate</span>(<span class='ident'>tcx</span>));
 
-                                   <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
-                                        <span class='string'>&quot;liveness checking&quot;</span>,
-                                        <span class='op'>||</span> <span class='ident'>middle</span>::<span class='ident'>liveness</span>::<span class='ident'>check_crate</span>(<span class='ident'>tcx</span>));
+        <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
+             <span class='string'>&quot;liveness checking&quot;</span>,
+             <span class='op'>||</span> <span class='ident'>middle</span>::<span class='ident'>liveness</span>::<span class='ident'>check_crate</span>(<span class='ident'>tcx</span>));
 
-                                   <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
-                                        <span class='string'>&quot;borrow checking&quot;</span>,
-                                        <span class='op'>||</span> <span class='ident'>borrowck</span>::<span class='ident'>check_crate</span>(<span class='ident'>tcx</span>));
+        <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
+             <span class='string'>&quot;borrow checking&quot;</span>,
+             <span class='op'>||</span> <span class='ident'>borrowck</span>::<span class='ident'>check_crate</span>(<span class='ident'>tcx</span>));
 
-                                   <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
-                                        <span class='string'>&quot;rvalue checking&quot;</span>,
-                                        <span class='op'>||</span> <span class='ident'>rvalues</span>::<span class='ident'>check_crate</span>(<span class='ident'>tcx</span>));
+        <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
+             <span class='string'>&quot;rvalue checking&quot;</span>,
+             <span class='op'>||</span> <span class='ident'>rvalues</span>::<span class='ident'>check_crate</span>(<span class='ident'>tcx</span>));
 
-                                   <span class='comment'>// Avoid overwhelming user with errors if type checking failed.</span>
-                                   <span class='comment'>// I&#39;m not sure how helpful this is, to be honest, but it avoids</span>
-                                   <span class='comment'>// a</span>
-                                   <span class='comment'>// lot of annoying errors in the compile-fail tests (basically,</span>
-                                   <span class='comment'>// lint warnings and so on -- kindck used to do this abort, but</span>
-                                   <span class='comment'>// kindck is gone now). -nmatsakis</span>
-                                   <span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>abort_if_errors</span>();
+        <span class='comment'>// Avoid overwhelming user with errors if type checking failed.</span>
+        <span class='comment'>// I&#39;m not sure how helpful this is, to be honest, but it avoids</span>
+        <span class='comment'>// a</span>
+        <span class='comment'>// lot of annoying errors in the compile-fail tests (basically,</span>
+        <span class='comment'>// lint warnings and so on -- kindck used to do this abort, but</span>
+        <span class='comment'>// kindck is gone now). -nmatsakis</span>
+        <span class='macro'>throw_if_errors</span><span class='macro'>!</span>(<span class='ident'>tcx</span>.<span class='ident'>sess</span>);
 
-                                   <span class='kw'>let</span> <span class='ident'>reachable_map</span> <span class='op'>=</span>
-                                       <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
-                                            <span class='string'>&quot;reachability checking&quot;</span>,
-                                            <span class='op'>||</span> <span class='ident'>reachable</span>::<span class='ident'>find_reachable</span>(<span class='ident'>tcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>access_levels</span>));
+        <span class='kw'>let</span> <span class='ident'>reachable_map</span> <span class='op'>=</span>
+            <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
+                 <span class='string'>&quot;reachability checking&quot;</span>,
+                 <span class='op'>||</span> <span class='ident'>reachable</span>::<span class='ident'>find_reachable</span>(<span class='ident'>tcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>access_levels</span>));
 
-                                   <span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;death checking&quot;</span>, <span class='op'>||</span> {
-                                       <span class='ident'>middle</span>::<span class='ident'>dead</span>::<span class='ident'>check_crate</span>(<span class='ident'>tcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>access_levels</span>);
-                                   });
+        <span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;death checking&quot;</span>, <span class='op'>||</span> {
+            <span class='ident'>middle</span>::<span class='ident'>dead</span>::<span class='ident'>check_crate</span>(<span class='ident'>tcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>access_levels</span>);
+        });
 
-                                   <span class='kw'>let</span> <span class='kw-2'>ref</span> <span class='ident'>lib_features_used</span> <span class='op'>=</span>
-                                       <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
-                                            <span class='string'>&quot;stability checking&quot;</span>,
-                                            <span class='op'>||</span> <span class='ident'>stability</span>::<span class='ident'>check_unstable_api_usage</span>(<span class='ident'>tcx</span>));
+        <span class='kw'>let</span> <span class='kw-2'>ref</span> <span class='ident'>lib_features_used</span> <span class='op'>=</span>
+            <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
+                 <span class='string'>&quot;stability checking&quot;</span>,
+                 <span class='op'>||</span> <span class='ident'>stability</span>::<span class='ident'>check_unstable_api_usage</span>(<span class='ident'>tcx</span>));
 
-                                   <span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;unused lib feature checking&quot;</span>, <span class='op'>||</span> {
-                                       <span class='ident'>stability</span>::<span class='ident'>check_unused_or_stable_features</span>(<span class='kw-2'>&amp;</span><span class='ident'>tcx</span>.<span class='ident'>sess</span>,
-                                                                                  <span class='ident'>lib_features_used</span>)
-                                   });
+        <span class='ident'>time</span>(<span class='ident'>time_passes</span>, <span class='string'>&quot;unused lib feature checking&quot;</span>, <span class='op'>||</span> {
+            <span class='ident'>stability</span>::<span class='ident'>check_unused_or_stable_features</span>(<span class='kw-2'>&amp;</span><span class='ident'>tcx</span>.<span class='ident'>sess</span>,
+                                                       <span class='ident'>lib_features_used</span>)
+        });
 
-                                   <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
-                                        <span class='string'>&quot;lint checking&quot;</span>,
-                                        <span class='op'>||</span> <span class='ident'>lint</span>::<span class='ident'>check_crate</span>(<span class='ident'>tcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>access_levels</span>));
+        <span class='ident'>time</span>(<span class='ident'>time_passes</span>,
+             <span class='string'>&quot;lint checking&quot;</span>,
+             <span class='op'>||</span> <span class='ident'>lint</span>::<span class='ident'>check_crate</span>(<span class='ident'>tcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>access_levels</span>));
 
-                                   <span class='comment'>// The above three passes generate errors w/o aborting</span>
-                                   <span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>abort_if_errors</span>();
+        <span class='comment'>// The above three passes generate errors w/o aborting</span>
+        <span class='macro'>throw_if_errors</span><span class='macro'>!</span>(<span class='ident'>tcx</span>.<span class='ident'>sess</span>);
 
-                                   <span class='ident'>f</span>(<span class='ident'>tcx</span>,
-                                     <span class='ident'>mir_map</span>,
-                                     <span class='ident'>ty</span>::<span class='ident'>CrateAnalysis</span> {
-                                         <span class='ident'>export_map</span>: <span class='ident'>export_map</span>,
-                                         <span class='ident'>access_levels</span>: <span class='ident'>access_levels</span>,
-                                         <span class='ident'>reachable</span>: <span class='ident'>reachable_map</span>,
-                                         <span class='ident'>name</span>: <span class='ident'>name</span>,
-                                         <span class='ident'>glob_map</span>: <span class='ident'>glob_map</span>,
-                                     })
-                               })
+        <span class='prelude-val'>Ok</span>(<span class='ident'>f</span>(<span class='ident'>tcx</span>,
+          <span class='ident'>mir_map</span>,
+          <span class='ident'>ty</span>::<span class='ident'>CrateAnalysis</span> {
+              <span class='ident'>export_map</span>: <span class='ident'>export_map</span>,
+              <span class='ident'>access_levels</span>: <span class='ident'>access_levels</span>,
+              <span class='ident'>reachable</span>: <span class='ident'>reachable_map</span>,
+              <span class='ident'>name</span>: <span class='ident'>name</span>,
+              <span class='ident'>glob_map</span>: <span class='ident'>glob_map</span>,
+          }))
+    })
 }
 
 <span class='doccomment'>/// Run the translation phase to LLVM, after which the AST and analysis can</span>
@@ -2047,7 +2074,7 @@
 <span class='doccomment'>/// as a side effect.</span>
 <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>phase_5_run_llvm_passes</span>(<span class='ident'>sess</span>: <span class='kw-2'>&amp;</span><span class='ident'>Session</span>,
                                <span class='ident'>trans</span>: <span class='kw-2'>&amp;</span><span class='ident'>trans</span>::<span class='ident'>CrateTranslation</span>,
-                               <span class='ident'>outputs</span>: <span class='kw-2'>&amp;</span><span class='ident'>OutputFilenames</span>) {
+                               <span class='ident'>outputs</span>: <span class='kw-2'>&amp;</span><span class='ident'>OutputFilenames</span>) <span class='op'>-&gt;</span> <span class='ident'>CompileResult</span> {
     <span class='kw'>if</span> <span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>cg</span>.<span class='ident'>no_integrated_as</span> {
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>map</span> <span class='op'>=</span> <span class='ident'>HashMap</span>::<span class='ident'>new</span>();
         <span class='ident'>map</span>.<span class='ident'>insert</span>(<span class='ident'>OutputType</span>::<span class='ident'>Assembly</span>, <span class='prelude-val'>None</span>);
@@ -2067,7 +2094,8 @@
              <span class='op'>||</span> <span class='ident'>write</span>::<span class='ident'>run_passes</span>(<span class='ident'>sess</span>, <span class='ident'>trans</span>, <span class='kw-2'>&amp;</span><span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>output_types</span>, <span class='ident'>outputs</span>));
     }
 
-    <span class='ident'>sess</span>.<span class='ident'>abort_if_errors</span>();
+    <span class='macro'>throw_if_errors</span><span class='macro'>!</span>(<span class='ident'>sess</span>);
+    <span class='prelude-val'>Ok</span>(())
 }
 
 <span class='doccomment'>/// Run the linker on any artifacts that resulted from the LLVM run.</span>
