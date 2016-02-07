@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["Backtrace",""],["Error",""],["NodeIndex",""],["ObligationForest",""],["Outcome",""],["Snapshot",""]]});
+initSidebarItems({"struct":[["Backtrace",""],["Error",""],["ObligationForest",""],["Outcome",""],["Snapshot",""]]});

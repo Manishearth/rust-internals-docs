@@ -178,6 +178,49 @@
 <span id="135">135</span>
 <span id="136">136</span>
 <span id="137">137</span>
+<span id="138">138</span>
+<span id="139">139</span>
+<span id="140">140</span>
+<span id="141">141</span>
+<span id="142">142</span>
+<span id="143">143</span>
+<span id="144">144</span>
+<span id="145">145</span>
+<span id="146">146</span>
+<span id="147">147</span>
+<span id="148">148</span>
+<span id="149">149</span>
+<span id="150">150</span>
+<span id="151">151</span>
+<span id="152">152</span>
+<span id="153">153</span>
+<span id="154">154</span>
+<span id="155">155</span>
+<span id="156">156</span>
+<span id="157">157</span>
+<span id="158">158</span>
+<span id="159">159</span>
+<span id="160">160</span>
+<span id="161">161</span>
+<span id="162">162</span>
+<span id="163">163</span>
+<span id="164">164</span>
+<span id="165">165</span>
+<span id="166">166</span>
+<span id="167">167</span>
+<span id="168">168</span>
+<span id="169">169</span>
+<span id="170">170</span>
+<span id="171">171</span>
+<span id="172">172</span>
+<span id="173">173</span>
+<span id="174">174</span>
+<span id="175">175</span>
+<span id="176">176</span>
+<span id="177">177</span>
+<span id="178">178</span>
+<span id="179">179</span>
+<span id="180">180</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -200,6 +243,7 @@
 <span class='doccomment'>//! allocated (and both have a fairly large capacity).</span>
 
 <span class='kw'>use</span> <span class='ident'>rustc_data_structures</span>::<span class='ident'>veccell</span>::<span class='ident'>VecCell</span>;
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cell</span>::<span class='ident'>Cell</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>sync</span>::<span class='ident'>mpsc</span>::{<span class='self'>self</span>, <span class='ident'>Sender</span>, <span class='ident'>Receiver</span>};
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>thread</span>;
 
@@ -219,6 +263,13 @@
 
 <span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>DepGraphThreadData</span> {
     <span class='ident'>enabled</span>: <span class='ident'>bool</span>,
+
+    <span class='comment'>// Local counter that just tracks how many tasks are pushed onto the</span>
+    <span class='comment'>// stack, so that we still get an error in the case where one is</span>
+    <span class='comment'>// missing. If dep-graph construction is enabled, we&#39;d get the same</span>
+    <span class='comment'>// error when processing tasks later on, but that&#39;s annoying because</span>
+    <span class='comment'>// it lacks precision about the source of the error.</span>
+    <span class='ident'>tasks_pushed</span>: <span class='ident'>Cell</span><span class='op'>&lt;</span><span class='ident'>usize</span><span class='op'>&gt;</span>,
 
     <span class='comment'>// current buffer, where we accumulate messages</span>
     <span class='ident'>messages</span>: <span class='ident'>VecCell</span><span class='op'>&lt;</span><span class='ident'>DepMessage</span><span class='op'>&gt;</span>,
@@ -240,16 +291,24 @@
         <span class='kw'>let</span> (<span class='ident'>tx1</span>, <span class='ident'>rx1</span>) <span class='op'>=</span> <span class='ident'>mpsc</span>::<span class='ident'>channel</span>();
         <span class='kw'>let</span> (<span class='ident'>tx2</span>, <span class='ident'>rx2</span>) <span class='op'>=</span> <span class='ident'>mpsc</span>::<span class='ident'>channel</span>();
         <span class='kw'>let</span> (<span class='ident'>txq</span>, <span class='ident'>rxq</span>) <span class='op'>=</span> <span class='ident'>mpsc</span>::<span class='ident'>channel</span>();
+
         <span class='kw'>if</span> <span class='ident'>enabled</span> {
             <span class='ident'>thread</span>::<span class='ident'>spawn</span>(<span class='kw'>move</span> <span class='op'>||</span> <span class='ident'>main</span>(<span class='ident'>rx1</span>, <span class='ident'>tx2</span>, <span class='ident'>txq</span>));
         }
+
         <span class='ident'>DepGraphThreadData</span> {
             <span class='ident'>enabled</span>: <span class='ident'>enabled</span>,
+            <span class='ident'>tasks_pushed</span>: <span class='ident'>Cell</span>::<span class='ident'>new</span>(<span class='number'>0</span>),
             <span class='ident'>messages</span>: <span class='ident'>VecCell</span>::<span class='ident'>with_capacity</span>(<span class='ident'>INITIAL_CAPACITY</span>),
             <span class='ident'>swap_in</span>: <span class='ident'>rx2</span>,
             <span class='ident'>swap_out</span>: <span class='ident'>tx1</span>,
             <span class='ident'>query_in</span>: <span class='ident'>rxq</span>,
         }
+    }
+
+    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>enabled</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
+        <span class='self'>self</span>.<span class='ident'>enabled</span>
     }
 
     <span class='doccomment'>/// Sends the current batch of messages to the thread. Installs a</span>
@@ -281,12 +340,39 @@
     <span class='doccomment'>/// the buffer is full, this may swap.)</span>
     <span class='attribute'>#[<span class='ident'>inline</span>]</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>enqueue</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>message</span>: <span class='ident'>DepMessage</span>) {
-        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>enabled</span> {
-            <span class='kw'>let</span> <span class='ident'>len</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>messages</span>.<span class='ident'>push</span>(<span class='ident'>message</span>);
-            <span class='kw'>if</span> <span class='ident'>len</span> <span class='op'>==</span> <span class='ident'>INITIAL_CAPACITY</span> {
-                <span class='self'>self</span>.<span class='ident'>swap</span>();
-            }
+        <span class='comment'>// Regardless of whether dep graph construction is enabled, we</span>
+        <span class='comment'>// still want to check that we always have a valid task on the</span>
+        <span class='comment'>// stack when a read/write/etc event occurs.</span>
+        <span class='kw'>match</span> <span class='ident'>message</span> {
+            <span class='ident'>DepMessage</span>::<span class='ident'>Read</span>(_) <span class='op'>|</span> <span class='ident'>DepMessage</span>::<span class='ident'>Write</span>(_) <span class='op'>=&gt;</span>
+                <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>tasks_pushed</span>.<span class='ident'>get</span>() <span class='op'>==</span> <span class='number'>0</span> {
+                    <span class='self'>self</span>.<span class='ident'>invalid_message</span>(<span class='string'>&quot;read/write but no current task&quot;</span>)
+                },
+            <span class='ident'>DepMessage</span>::<span class='ident'>PushTask</span>(_) <span class='op'>|</span> <span class='ident'>DepMessage</span>::<span class='ident'>PushIgnore</span> <span class='op'>=&gt;</span>
+                <span class='self'>self</span>.<span class='ident'>tasks_pushed</span>.<span class='ident'>set</span>(<span class='self'>self</span>.<span class='ident'>tasks_pushed</span>.<span class='ident'>get</span>() <span class='op'>+</span> <span class='number'>1</span>),
+            <span class='ident'>DepMessage</span>::<span class='ident'>PopTask</span>(_) <span class='op'>|</span> <span class='ident'>DepMessage</span>::<span class='ident'>PopIgnore</span> <span class='op'>=&gt;</span>
+                <span class='self'>self</span>.<span class='ident'>tasks_pushed</span>.<span class='ident'>set</span>(<span class='self'>self</span>.<span class='ident'>tasks_pushed</span>.<span class='ident'>get</span>() <span class='op'>-</span> <span class='number'>1</span>),
+            <span class='ident'>DepMessage</span>::<span class='ident'>Query</span> <span class='op'>=&gt;</span>
+                (),
         }
+
+        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>enabled</span> {
+            <span class='self'>self</span>.<span class='ident'>enqueue_enabled</span>(<span class='ident'>message</span>);
+        }
+    }
+
+    <span class='comment'>// Outline this fn since I expect it may want to be inlined</span>
+    <span class='comment'>// separately.</span>
+    <span class='kw'>fn</span> <span class='ident'>enqueue_enabled</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>message</span>: <span class='ident'>DepMessage</span>) {
+        <span class='kw'>let</span> <span class='ident'>len</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>messages</span>.<span class='ident'>push</span>(<span class='ident'>message</span>);
+        <span class='kw'>if</span> <span class='ident'>len</span> <span class='op'>==</span> <span class='ident'>INITIAL_CAPACITY</span> {
+            <span class='self'>self</span>.<span class='ident'>swap</span>();
+        }
+    }
+
+    <span class='comment'>// Outline this too.</span>
+    <span class='kw'>fn</span> <span class='ident'>invalid_message</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>string</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) {
+        <span class='macro'>panic</span><span class='macro'>!</span>(<span class='string'>&quot;{}; see src/librustc/dep_graph/README.md for more information&quot;</span>, <span class='ident'>string</span>)
     }
 }
 

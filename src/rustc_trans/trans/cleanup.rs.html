@@ -1321,6 +1321,17 @@
 <span id="1278">1278</span>
 <span id="1279">1279</span>
 <span id="1280">1280</span>
+<span id="1281">1281</span>
+<span id="1282">1282</span>
+<span id="1283">1283</span>
+<span id="1284">1284</span>
+<span id="1285">1285</span>
+<span id="1286">1286</span>
+<span id="1287">1287</span>
+<span id="1288">1288</span>
+<span id="1289">1289</span>
+<span id="1290">1290</span>
+<span id="1291">1291</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -1524,6 +1535,7 @@
 <span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>CachedEarlyExit</span> {
     <span class='ident'>label</span>: <span class='ident'>EarlyExitLabel</span>,
     <span class='ident'>cleanup_block</span>: <span class='ident'>BasicBlockRef</span>,
+    <span class='ident'>last_cleanup</span>: <span class='ident'>usize</span>,
 }
 
 <span class='kw'>pub</span> <span class='kw'>trait</span> <span class='ident'>Cleanup</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
@@ -1884,7 +1896,7 @@
         <span class='kw'>for</span> <span class='ident'>scope</span> <span class='kw'>in</span> <span class='self'>self</span>.<span class='ident'>scopes</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>iter_mut</span>().<span class='ident'>rev</span>() {
             <span class='kw'>if</span> <span class='ident'>scope</span>.<span class='ident'>kind</span>.<span class='ident'>is_ast_with_id</span>(<span class='ident'>cleanup_scope</span>) {
                 <span class='ident'>scope</span>.<span class='ident'>cleanups</span>.<span class='ident'>push</span>(<span class='ident'>cleanup</span>);
-                <span class='ident'>scope</span>.<span class='ident'>clear_cached_exits</span>();
+                <span class='ident'>scope</span>.<span class='ident'>cached_landing_pad</span> <span class='op'>=</span> <span class='prelude-val'>None</span>;
                 <span class='kw'>return</span>;
             } <span class='kw'>else</span> {
                 <span class='comment'>// will be adding a cleanup to some enclosing scope</span>
@@ -1909,7 +1921,7 @@
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>scopes</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>scopes</span>.<span class='ident'>borrow_mut</span>();
         <span class='kw'>let</span> <span class='ident'>scope</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> (<span class='op'>*</span><span class='ident'>scopes</span>)[<span class='ident'>custom_scope</span>.<span class='ident'>index</span>];
         <span class='ident'>scope</span>.<span class='ident'>cleanups</span>.<span class='ident'>push</span>(<span class='ident'>cleanup</span>);
-        <span class='ident'>scope</span>.<span class='ident'>clear_cached_exits</span>();
+        <span class='ident'>scope</span>.<span class='ident'>cached_landing_pad</span> <span class='op'>=</span> <span class='prelude-val'>None</span>;
     }
 
     <span class='doccomment'>/// Returns true if there are pending cleanups that should execute on panic.</span>
@@ -2047,6 +2059,7 @@
         <span class='kw'>let</span> <span class='ident'>orig_scopes_len</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>scopes_len</span>();
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>prev_llbb</span>;
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>popped_scopes</span> <span class='op'>=</span> <span class='macro'>vec</span><span class='macro'>!</span>();
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>skip</span> <span class='op'>=</span> <span class='number'>0</span>;
 
         <span class='comment'>// First we pop off all the cleanup stacks that are</span>
         <span class='comment'>// traversed until the exit is reached, pushing them</span>
@@ -2093,20 +2106,25 @@
                 }
             }
 
+            <span class='comment'>// Pop off the scope, since we may be generating</span>
+            <span class='comment'>// unwinding code for it.</span>
+            <span class='kw'>let</span> <span class='ident'>top_scope</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>pop_scope</span>();
+            <span class='kw'>let</span> <span class='ident'>cached_exit</span> <span class='op'>=</span> <span class='ident'>top_scope</span>.<span class='ident'>cached_early_exit</span>(<span class='ident'>label</span>);
+            <span class='ident'>popped_scopes</span>.<span class='ident'>push</span>(<span class='ident'>top_scope</span>);
+
             <span class='comment'>// Check if we have already cached the unwinding of this</span>
             <span class='comment'>// scope for this label. If so, we can stop popping scopes</span>
             <span class='comment'>// and branch to the cached label, since it contains the</span>
             <span class='comment'>// cleanups for any subsequent scopes.</span>
-            <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>exit</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>top_scope</span>(<span class='op'>|</span><span class='ident'>s</span><span class='op'>|</span> <span class='ident'>s</span>.<span class='ident'>cached_early_exit</span>(<span class='ident'>label</span>)) {
+            <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>((<span class='ident'>exit</span>, <span class='ident'>last_cleanup</span>)) <span class='op'>=</span> <span class='ident'>cached_exit</span> {
                 <span class='ident'>prev_llbb</span> <span class='op'>=</span> <span class='ident'>exit</span>;
+                <span class='ident'>skip</span> <span class='op'>=</span> <span class='ident'>last_cleanup</span>;
                 <span class='kw'>break</span>;
             }
 
-            <span class='comment'>// Pop off the scope, since we will be generating</span>
-            <span class='comment'>// unwinding code for it. If we are searching for a loop exit,</span>
+            <span class='comment'>// If we are searching for a loop exit,</span>
             <span class='comment'>// and this scope is that loop, then stop popping and set</span>
             <span class='comment'>// `prev_llbb` to the appropriate exit block from the loop.</span>
-            <span class='ident'>popped_scopes</span>.<span class='ident'>push</span>(<span class='self'>self</span>.<span class='ident'>pop_scope</span>());
             <span class='kw'>let</span> <span class='ident'>scope</span> <span class='op'>=</span> <span class='ident'>popped_scopes</span>.<span class='ident'>last</span>().<span class='ident'>unwrap</span>();
             <span class='kw'>match</span> <span class='ident'>label</span> {
                 <span class='ident'>UnwindExit</span>(..) <span class='op'>|</span> <span class='ident'>ReturnExit</span> <span class='op'>=&gt;</span> { }
@@ -2150,13 +2168,15 @@
                 <span class='kw'>let</span> <span class='ident'>bcx_in</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>new_block</span>(<span class='kw-2'>&amp;</span><span class='ident'>name</span>[..], <span class='prelude-val'>None</span>);
                 <span class='kw'>let</span> <span class='ident'>exit_label</span> <span class='op'>=</span> <span class='ident'>label</span>.<span class='ident'>start</span>(<span class='ident'>bcx_in</span>);
                 <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>bcx_out</span> <span class='op'>=</span> <span class='ident'>bcx_in</span>;
-                <span class='kw'>for</span> <span class='ident'>cleanup</span> <span class='kw'>in</span> <span class='ident'>scope</span>.<span class='ident'>cleanups</span>.<span class='ident'>iter</span>().<span class='ident'>rev</span>() {
+                <span class='kw'>let</span> <span class='ident'>len</span> <span class='op'>=</span> <span class='ident'>scope</span>.<span class='ident'>cleanups</span>.<span class='ident'>len</span>();
+                <span class='kw'>for</span> <span class='ident'>cleanup</span> <span class='kw'>in</span> <span class='ident'>scope</span>.<span class='ident'>cleanups</span>.<span class='ident'>iter</span>().<span class='ident'>rev</span>().<span class='ident'>take</span>(<span class='ident'>len</span> <span class='op'>-</span> <span class='ident'>skip</span>) {
                     <span class='ident'>bcx_out</span> <span class='op'>=</span> <span class='ident'>cleanup</span>.<span class='ident'>trans</span>(<span class='ident'>bcx_out</span>, <span class='ident'>scope</span>.<span class='ident'>debug_loc</span>);
                 }
+                <span class='ident'>skip</span> <span class='op'>=</span> <span class='number'>0</span>;
                 <span class='ident'>exit_label</span>.<span class='ident'>branch</span>(<span class='ident'>bcx_out</span>, <span class='ident'>prev_llbb</span>);
                 <span class='ident'>prev_llbb</span> <span class='op'>=</span> <span class='ident'>bcx_in</span>.<span class='ident'>llbb</span>;
 
-                <span class='ident'>scope</span>.<span class='ident'>add_cached_early_exit</span>(<span class='ident'>exit_label</span>, <span class='ident'>prev_llbb</span>);
+                <span class='ident'>scope</span>.<span class='ident'>add_cached_early_exit</span>(<span class='ident'>exit_label</span>, <span class='ident'>prev_llbb</span>, <span class='ident'>len</span>);
             }
             <span class='self'>self</span>.<span class='ident'>push_scope</span>(<span class='ident'>scope</span>);
         }
@@ -2262,18 +2282,20 @@
 
     <span class='kw'>fn</span> <span class='ident'>cached_early_exit</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
                          <span class='ident'>label</span>: <span class='ident'>EarlyExitLabel</span>)
-                         <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>BasicBlockRef</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>cached_early_exits</span>.<span class='ident'>iter</span>().
+                         <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span>(<span class='ident'>BasicBlockRef</span>, <span class='ident'>usize</span>)<span class='op'>&gt;</span> {
+        <span class='self'>self</span>.<span class='ident'>cached_early_exits</span>.<span class='ident'>iter</span>().<span class='ident'>rev</span>().
             <span class='ident'>find</span>(<span class='op'>|</span><span class='ident'>e</span><span class='op'>|</span> <span class='ident'>e</span>.<span class='ident'>label</span> <span class='op'>==</span> <span class='ident'>label</span>).
-            <span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>e</span><span class='op'>|</span> <span class='ident'>e</span>.<span class='ident'>cleanup_block</span>)
+            <span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>e</span><span class='op'>|</span> (<span class='ident'>e</span>.<span class='ident'>cleanup_block</span>, <span class='ident'>e</span>.<span class='ident'>last_cleanup</span>))
     }
 
     <span class='kw'>fn</span> <span class='ident'>add_cached_early_exit</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
                              <span class='ident'>label</span>: <span class='ident'>EarlyExitLabel</span>,
-                             <span class='ident'>blk</span>: <span class='ident'>BasicBlockRef</span>) {
+                             <span class='ident'>blk</span>: <span class='ident'>BasicBlockRef</span>,
+                             <span class='ident'>last_cleanup</span>: <span class='ident'>usize</span>) {
         <span class='self'>self</span>.<span class='ident'>cached_early_exits</span>.<span class='ident'>push</span>(
             <span class='ident'>CachedEarlyExit</span> { <span class='ident'>label</span>: <span class='ident'>label</span>,
-                              <span class='ident'>cleanup_block</span>: <span class='ident'>blk</span> });
+                              <span class='ident'>cleanup_block</span>: <span class='ident'>blk</span>,
+                              <span class='ident'>last_cleanup</span>: <span class='ident'>last_cleanup</span>});
     }
 
     <span class='doccomment'>/// True if this scope has cleanups that need unwinding</span>
