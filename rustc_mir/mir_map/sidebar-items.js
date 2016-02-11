@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["build_mir_for_crate",""]],"type":[["MirMap",""]]});
+initSidebarItems({"fn":[["build_mir_for_crate",""]]});
