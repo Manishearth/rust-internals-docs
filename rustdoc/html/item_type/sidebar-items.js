@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["ItemType","Item type. Corresponds to `clean::ItemEnum` variants."]]});
+initSidebarItems({"enum":[["ItemType","Item type. Corresponds to `clean::ItemEnum` variants.The search index uses item types encoded as smaller numbers which equal to discriminants. JavaScript then is used to decode them into the original value. Consequently, every change to this type should be synchronized to the `itemTypes` mapping table in `static/main.js`."]]});

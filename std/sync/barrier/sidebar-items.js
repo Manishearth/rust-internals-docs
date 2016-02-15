@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["Barrier","A barrier enables multiple threads to synchronize the beginning of some computation."],["BarrierWaitResult","A result returned from wait."]]});
+initSidebarItems({"struct":[["Barrier","A barrier enables multiple threads to synchronize the beginning of some computation."],["BarrierWaitResult","A result returned from wait.Currently this opaque structure only has one method, `.is_leader()`. Only one thread will receive a result that will return `true` from this function."]]});

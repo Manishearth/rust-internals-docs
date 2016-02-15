@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["AssocOp","Associative operator with precedence."],["Fixity",""]]});
+initSidebarItems({"enum":[["AssocOp","Associative operator with precedence.This is the enum which specifies operator precedence and fixity to the parser."],["Fixity",""]]});

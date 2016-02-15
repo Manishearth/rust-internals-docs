@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["Registry","Structure used to register plugins."]]});
+initSidebarItems({"struct":[["Registry","Structure used to register plugins.A plugin registrar function takes an `&mut Registry` and should call methods to register its plugins.This struct has public fields and other methods for use by `rustc` itself. They are not documented here, and plugin authors should not use them."]]});
