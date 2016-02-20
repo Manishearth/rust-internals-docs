@@ -305,23 +305,67 @@ special annotation here, it’s the default thing that Rust does.</p>
 
 <h2 id='the-details' class='section-header'><a href='#the-details'>The details</a></h2>
 <p>The reason that we cannot use a binding after we’ve moved it is subtle, but
-important. When we write code like this:</p>
+important. </p>
+
+<p>When we write code like this:</p>
+<span class='rusttest'>fn main() {
+    let x = 10;
+}</span><pre class='rust rust-example-rendered'>
+<span class='kw'>let</span> <span class='ident'>x</span> <span class='op'>=</span> <span class='number'>10</span>;</pre>
+
+<p>Rust allocates memory for an integer [i32] on the <a href="the-stack-and-the-heap.html">stack</a>, copies the bit
+pattern representing the value of 10 to the allocated memory and binds the
+variable name x to this memory region for future reference.</p>
+
+<p>Now consider the following code fragment:</p>
 <span class='rusttest'>fn main() {
     let v = vec![1, 2, 3];
     
-    let v2 = v;
+    let mut v2 = v;
 }</span><pre class='rust rust-example-rendered'>
 <span class='kw'>let</span> <span class='ident'>v</span> <span class='op'>=</span> <span class='macro'>vec</span><span class='macro'>!</span>[<span class='number'>1</span>, <span class='number'>2</span>, <span class='number'>3</span>];
 
-<span class='kw'>let</span> <span class='ident'>v2</span> <span class='op'>=</span> <span class='ident'>v</span>;</pre>
+<span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>v2</span> <span class='op'>=</span> <span class='ident'>v</span>;</pre>
 
-<p>The first line allocates memory for the vector object, <code>v</code>, and for the data it
-contains. The vector object is stored on the <a href="the-stack-and-the-heap.html">stack</a> and contains a pointer
-to the content (<code>[1, 2, 3]</code>) stored on the <a href="the-stack-and-the-heap.html">heap</a>. When we move <code>v</code> to <code>v2</code>,
-it creates a copy of that pointer, for <code>v2</code>. Which means that there would be two
-pointers to the content of the vector on the heap. It would violate Rust’s
-safety guarantees by introducing a data race. Therefore, Rust forbids using <code>v</code>
-after we’ve done the move.</p>
+<p>The first line allocates memory for the vector object <code>v</code> on the stack like
+it does for <code>x</code> above. But in addition to that it also allocates some memory
+on the <a href="the-stack-and-the-heap.html">heap</a> for the actual data (<code>[1, 2, 3]</code>). Rust copies the address
+of this heap allocation to an internal pointer, which is part of the vector
+object placed on the stack (let&#39;s call it the data pointer). </p>
+
+<p>It is worth pointing out (even at the risk of stating the obvious) that the
+vector object and its data live in separate memory regions instead of being a
+single contiguous memory allocation (due to reasons we will not go into at
+this point of time). These two parts of the vector (the one on the stack and
+one on the heap) must agree with each other at all times with regards to
+things like the length, capacity etc.</p>
+
+<p>When we move <code>v</code> to <code>v2</code>, rust actually does a bitwise copy of the vector
+object <code>v</code> into the stack allocation represented by <code>v2</code>. This shallow copy
+does not create a copy of the heap allocation containing the actual data.
+Which means that there would be two pointers to the contents of the vector
+both pointing to the same memory allocation on the heap. It would violate
+Rust’s safety guarantees by introducing a data race if one could access both
+<code>v</code> and <code>v2</code> at the same time. </p>
+
+<p>For example if we truncated the vector to just two elements through <code>v2</code>:</p>
+<span class='rusttest'>fn main() {
+    let v = vec![1, 2, 3];
+    let mut v2 = v;
+    v2.truncate(2);
+}</span><pre class='rust rust-example-rendered'>
+<span class='ident'>v2</span>.<span class='ident'>truncate</span>(<span class='number'>2</span>);</pre>
+
+<p>and <code>v1</code> were still accessible we&#39;d end up with an invalid vector since <code>v1</code>
+would not know that the heap data has been truncated. Now, the part of the
+vector <code>v1</code> on the stack does not agree with the corresponding part on the
+heap. <code>v1</code> still thinks there are three elements in the vector and will
+happily let us access the non existent element <code>v1[2]</code> but as you might
+already know this is a recipe for disaster. Especially because it might lead
+to a segmentation fault or worse allow an unauthorized user to read from
+memory to which they don&#39;t have access.</p>
+
+<p>This is why Rust forbids using <code>v</code> after we’ve done the move.</p>
 
 <p>It’s also important to note that optimizations may remove the actual copy of
 the bytes on the stack, depending on circumstances. So it may not be as
