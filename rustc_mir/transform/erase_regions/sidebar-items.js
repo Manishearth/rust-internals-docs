@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["erase_regions",""]],"struct":[["EraseRegions",""]]});
+initSidebarItems({"fn":[["erase_regions",""]]});
