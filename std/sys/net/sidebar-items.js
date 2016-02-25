@@ -1,1 +1,1 @@
-initSidebarItems({"mod":[["netc",""]]});
+initSidebarItems({});
