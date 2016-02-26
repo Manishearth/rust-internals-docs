@@ -1,5 +1,5 @@
 (function() {var implementors = {};
-implementors['std'] = [];implementors['rand'] = [];implementors['rand'] = [];implementors['std'] = [];implementors['std'] = [];
+implementors['std'] = [];implementors['rand'] = [];implementors['rand'] = [];implementors['std'] = [];implementors['std'] = [];implementors['std'] = [];
 
             if (window.register_implementors) {
                 window.register_implementors(implementors);
