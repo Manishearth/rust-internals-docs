@@ -1,1 +1,1 @@
-initSidebarItems({"mod":[["ops","Overloadable operators"]]});
+initSidebarItems({"mod":[["ops","Overloadable operators."]]});
