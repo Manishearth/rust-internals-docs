@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["coerce",""],["eqtype",""],["suptype",""],["suptype_with_fn","As `suptype`, but call `handle_err` if unification for subtyping fails."]]});
+initSidebarItems({"fn":[["coerce",""],["eqtype",""],["suptype",""]]});

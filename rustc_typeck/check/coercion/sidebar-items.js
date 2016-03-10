@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["mk_assignty",""]]});
+initSidebarItems({"fn":[["try","Attempt to coerce an expression to a type, and return the adjusted type of the expression, if successful. Adjustments are only recorded if the coercion succeeded. The expressions *must not* have any pre-existing adjustments."],["try_find_lub","Given some expressions, their known unified type and another expression, tries to unify the types, potentially inserting coercions on any of the provided expressions and returns their LUB (aka \"common supertype\")."]]});

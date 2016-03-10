@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["AccessLevel",""],["ImportUse",""],["LastPrivate",""],["PrivateDep",""]],"struct":[["AccessLevels",""]],"type":[["ExternalExports",""]]});
+initSidebarItems({"enum":[["AccessLevel",""]],"struct":[["AccessLevels",""]],"type":[["ExternalExports",""]]});

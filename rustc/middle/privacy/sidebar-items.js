@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["AccessLevel",""],["ImportUse",""],["LastPrivate",""],["PrivateDep",""]],"struct":[["AccessLevels",""]],"type":[["ExternalExports","A set containing all exported definitions from external crates. The set does not contain any entries from local crates."]]});
+initSidebarItems({"enum":[["AccessLevel",""]],"struct":[["AccessLevels",""]],"type":[["ExternalExports","A set containing all exported definitions from external crates. The set does not contain any entries from local crates."]]});

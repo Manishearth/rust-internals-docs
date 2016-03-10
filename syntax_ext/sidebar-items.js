@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["register_builtins",""]],"mod":[["deriving","The compiler code necessary to implement the `#[derive]` extensions.FIXME (#2810): hygiene. Search for \"__\" strings (in other files too). We also assume \"extra\" is the standard library, and \"std\" is the core library."]]});
+initSidebarItems({"fn":[["register_builtins",""]],"mod":[["deriving","The compiler code necessary to implement the `#[derive]` extensions."]]});
