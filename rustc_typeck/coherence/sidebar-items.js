@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["check_coherence",""]]});
+initSidebarItems({"fn":[["check_coherence",""],["report_duplicate_item",""]]});
