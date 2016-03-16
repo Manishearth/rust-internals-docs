@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["Row",""]],"struct":[["FmtStrs",""],["Recorder",""]]});
+initSidebarItems({"enum":[["Row",""]]});
