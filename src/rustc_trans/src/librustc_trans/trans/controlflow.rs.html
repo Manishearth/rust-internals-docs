@@ -477,19 +477,6 @@
 <span id="434">434</span>
 <span id="435">435</span>
 <span id="436">436</span>
-<span id="437">437</span>
-<span id="438">438</span>
-<span id="439">439</span>
-<span id="440">440</span>
-<span id="441">441</span>
-<span id="442">442</span>
-<span id="443">443</span>
-<span id="444">444</span>
-<span id="445">445</span>
-<span id="446">446</span>
-<span id="447">447</span>
-<span id="448">448</span>
-<span id="449">449</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -504,10 +491,11 @@
 <span class='kw'>use</span> <span class='ident'>llvm</span>::<span class='ident'>ValueRef</span>;
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>def</span>::<span class='ident'>Def</span>;
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>lang_items</span>::{<span class='ident'>PanicFnLangItem</span>, <span class='ident'>PanicBoundsCheckFnLangItem</span>};
+<span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>subst</span>::<span class='ident'>Substs</span>;
 <span class='kw'>use</span> <span class='ident'>trans</span>::<span class='ident'>base</span>::<span class='op'>*</span>;
 <span class='kw'>use</span> <span class='ident'>trans</span>::<span class='ident'>basic_block</span>::<span class='ident'>BasicBlock</span>;
 <span class='kw'>use</span> <span class='ident'>trans</span>::<span class='ident'>build</span>::<span class='op'>*</span>;
-<span class='kw'>use</span> <span class='ident'>trans</span>::<span class='ident'>callee</span>;
+<span class='kw'>use</span> <span class='ident'>trans</span>::<span class='ident'>callee</span>::{<span class='ident'>Callee</span>, <span class='ident'>ArgVals</span>};
 <span class='kw'>use</span> <span class='ident'>trans</span>::<span class='ident'>cleanup</span>::<span class='ident'>CleanupMethods</span>;
 <span class='kw'>use</span> <span class='ident'>trans</span>::<span class='ident'>cleanup</span>;
 <span class='kw'>use</span> <span class='ident'>trans</span>::<span class='ident'>common</span>::<span class='op'>*</span>;
@@ -517,7 +505,6 @@
 <span class='kw'>use</span> <span class='ident'>trans</span>::<span class='ident'>expr</span>;
 <span class='kw'>use</span> <span class='ident'>trans</span>::<span class='ident'>machine</span>;
 <span class='kw'>use</span> <span class='ident'>trans</span>;
-<span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>ty</span>;
 
 <span class='kw'>use</span> <span class='ident'>rustc_front</span>::<span class='ident'>hir</span>;
 <span class='kw'>use</span> <span class='ident'>rustc_front</span>::<span class='ident'>util</span> <span class='kw'>as</span> <span class='ident'>ast_util</span>;
@@ -645,9 +632,8 @@
                             <span class='ident'>els</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Expr</span><span class='op'>&gt;</span>,
                             <span class='ident'>dest</span>: <span class='ident'>expr</span>::<span class='ident'>Dest</span>)
                             <span class='op'>-&gt;</span> <span class='ident'>Block</span><span class='op'>&lt;</span><span class='lifetime'>&#39;blk</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;trans_if(bcx={}, if_id={}, cond={:?}, thn={}, dest={})&quot;</span>,
-           <span class='ident'>bcx</span>.<span class='ident'>to_str</span>(), <span class='ident'>if_id</span>, <span class='ident'>cond</span>, <span class='ident'>thn</span>.<span class='ident'>id</span>,
-           <span class='ident'>dest</span>.<span class='ident'>to_string</span>(<span class='ident'>bcx</span>.<span class='ident'>ccx</span>()));
+    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;trans_if(bcx={}, if_id={}, cond={:?}, thn={}, dest={:?})&quot;</span>,
+           <span class='ident'>bcx</span>.<span class='ident'>to_str</span>(), <span class='ident'>if_id</span>, <span class='ident'>cond</span>, <span class='ident'>thn</span>.<span class='ident'>id</span>, <span class='ident'>dest</span>);
     <span class='kw'>let</span> <span class='ident'>_icx</span> <span class='op'>=</span> <span class='ident'>push_ctxt</span>(<span class='string'>&quot;trans_if&quot;</span>);
 
     <span class='kw'>if</span> <span class='ident'>bcx</span>.<span class='ident'>unreachable</span>.<span class='ident'>get</span>() {
@@ -856,14 +842,12 @@
 
     <span class='kw'>let</span> <span class='ident'>fcx</span> <span class='op'>=</span> <span class='ident'>bcx</span>.<span class='ident'>fcx</span>;
     <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>bcx</span> <span class='op'>=</span> <span class='ident'>bcx</span>;
-    <span class='kw'>let</span> <span class='ident'>dest</span> <span class='op'>=</span> <span class='kw'>match</span> (<span class='ident'>fcx</span>.<span class='ident'>llretslotptr</span>.<span class='ident'>get</span>(), <span class='ident'>retval_expr</span>) {
-        (<span class='prelude-val'>Some</span>(_), <span class='prelude-val'>Some</span>(<span class='ident'>retval_expr</span>)) <span class='op'>=&gt;</span> {
-            <span class='kw'>let</span> <span class='ident'>ret_ty</span> <span class='op'>=</span> <span class='ident'>expr_ty_adjusted</span>(<span class='ident'>bcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>retval_expr</span>);
-            <span class='ident'>expr</span>::<span class='ident'>SaveIn</span>(<span class='ident'>fcx</span>.<span class='ident'>get_ret_slot</span>(<span class='ident'>bcx</span>, <span class='ident'>ty</span>::<span class='ident'>FnConverging</span>(<span class='ident'>ret_ty</span>), <span class='string'>&quot;ret_slot&quot;</span>))
-        }
-        _ <span class='op'>=&gt;</span> <span class='ident'>expr</span>::<span class='ident'>Ignore</span>,
-    };
     <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>x</span>) <span class='op'>=</span> <span class='ident'>retval_expr</span> {
+        <span class='kw'>let</span> <span class='ident'>dest</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='ident'>fcx</span>.<span class='ident'>llretslotptr</span>.<span class='ident'>get</span>().<span class='ident'>is_some</span>() {
+            <span class='ident'>expr</span>::<span class='ident'>SaveIn</span>(<span class='ident'>fcx</span>.<span class='ident'>get_ret_slot</span>(<span class='ident'>bcx</span>, <span class='string'>&quot;ret_slot&quot;</span>))
+        } <span class='kw'>else</span> {
+            <span class='ident'>expr</span>::<span class='ident'>Ignore</span>
+        };
         <span class='ident'>bcx</span> <span class='op'>=</span> <span class='ident'>expr</span>::<span class='ident'>trans_into</span>(<span class='ident'>bcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>x</span>, <span class='ident'>dest</span>);
         <span class='kw'>match</span> <span class='ident'>dest</span> {
             <span class='ident'>expr</span>::<span class='ident'>SaveIn</span>(<span class='ident'>slot</span>) <span class='kw'>if</span> <span class='ident'>fcx</span>.<span class='ident'>needs_ret_allocas</span> <span class='op'>=&gt;</span> {
@@ -899,13 +883,8 @@
     <span class='kw'>let</span> <span class='ident'>expr_file_line</span> <span class='op'>=</span> <span class='ident'>consts</span>::<span class='ident'>addr_of</span>(<span class='ident'>ccx</span>, <span class='ident'>expr_file_line_const</span>, <span class='ident'>align</span>, <span class='string'>&quot;panic_loc&quot;</span>);
     <span class='kw'>let</span> <span class='ident'>args</span> <span class='op'>=</span> <span class='macro'>vec</span><span class='macro'>!</span>(<span class='ident'>expr_file_line</span>);
     <span class='kw'>let</span> <span class='ident'>did</span> <span class='op'>=</span> <span class='ident'>langcall</span>(<span class='ident'>bcx</span>, <span class='prelude-val'>Some</span>(<span class='ident'>call_info</span>.<span class='ident'>span</span>), <span class='string'>&quot;&quot;</span>, <span class='ident'>PanicFnLangItem</span>);
-    <span class='kw'>let</span> <span class='ident'>bcx</span> <span class='op'>=</span> <span class='ident'>callee</span>::<span class='ident'>trans_lang_call</span>(<span class='ident'>bcx</span>,
-                                      <span class='ident'>did</span>,
-                                      <span class='kw-2'>&amp;</span><span class='ident'>args</span>[..],
-                                      <span class='prelude-val'>Some</span>(<span class='ident'>expr</span>::<span class='ident'>Ignore</span>),
-                                      <span class='ident'>call_info</span>.<span class='ident'>debug_loc</span>()).<span class='ident'>bcx</span>;
-    <span class='ident'>Unreachable</span>(<span class='ident'>bcx</span>);
-    <span class='kw'>return</span> <span class='ident'>bcx</span>;
+    <span class='ident'>Callee</span>::<span class='ident'>def</span>(<span class='ident'>ccx</span>, <span class='ident'>did</span>, <span class='ident'>ccx</span>.<span class='ident'>tcx</span>().<span class='ident'>mk_substs</span>(<span class='ident'>Substs</span>::<span class='ident'>empty</span>()))
+        .<span class='ident'>call</span>(<span class='ident'>bcx</span>, <span class='ident'>call_info</span>.<span class='ident'>debug_loc</span>(), <span class='ident'>ArgVals</span>(<span class='kw-2'>&amp;</span><span class='ident'>args</span>), <span class='prelude-val'>None</span>).<span class='ident'>bcx</span>
 }
 
 <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>trans_fail_bounds_check</span><span class='op'>&lt;</span><span class='lifetime'>&#39;blk</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>bcx</span>: <span class='ident'>Block</span><span class='op'>&lt;</span><span class='lifetime'>&#39;blk</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
@@ -932,13 +911,8 @@
     <span class='kw'>let</span> <span class='ident'>file_line</span> <span class='op'>=</span> <span class='ident'>consts</span>::<span class='ident'>addr_of</span>(<span class='ident'>ccx</span>, <span class='ident'>file_line_const</span>, <span class='ident'>align</span>, <span class='string'>&quot;panic_bounds_check_loc&quot;</span>);
     <span class='kw'>let</span> <span class='ident'>args</span> <span class='op'>=</span> <span class='macro'>vec</span><span class='macro'>!</span>(<span class='ident'>file_line</span>, <span class='ident'>index</span>, <span class='ident'>len</span>);
     <span class='kw'>let</span> <span class='ident'>did</span> <span class='op'>=</span> <span class='ident'>langcall</span>(<span class='ident'>bcx</span>, <span class='prelude-val'>Some</span>(<span class='ident'>call_info</span>.<span class='ident'>span</span>), <span class='string'>&quot;&quot;</span>, <span class='ident'>PanicBoundsCheckFnLangItem</span>);
-    <span class='kw'>let</span> <span class='ident'>bcx</span> <span class='op'>=</span> <span class='ident'>callee</span>::<span class='ident'>trans_lang_call</span>(<span class='ident'>bcx</span>,
-                                      <span class='ident'>did</span>,
-                                      <span class='kw-2'>&amp;</span><span class='ident'>args</span>[..],
-                                      <span class='prelude-val'>Some</span>(<span class='ident'>expr</span>::<span class='ident'>Ignore</span>),
-                                      <span class='ident'>call_info</span>.<span class='ident'>debug_loc</span>()).<span class='ident'>bcx</span>;
-    <span class='ident'>Unreachable</span>(<span class='ident'>bcx</span>);
-    <span class='kw'>return</span> <span class='ident'>bcx</span>;
+    <span class='ident'>Callee</span>::<span class='ident'>def</span>(<span class='ident'>ccx</span>, <span class='ident'>did</span>, <span class='ident'>ccx</span>.<span class='ident'>tcx</span>().<span class='ident'>mk_substs</span>(<span class='ident'>Substs</span>::<span class='ident'>empty</span>()))
+        .<span class='ident'>call</span>(<span class='ident'>bcx</span>, <span class='ident'>call_info</span>.<span class='ident'>debug_loc</span>(), <span class='ident'>ArgVals</span>(<span class='kw-2'>&amp;</span><span class='ident'>args</span>), <span class='prelude-val'>None</span>).<span class='ident'>bcx</span>
 }
 </pre>
 </section>

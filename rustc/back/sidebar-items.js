@@ -1,1 +1,1 @@
-initSidebarItems({"mod":[["abi",""],["rpath",""],["svh","Calculation and management of a Strict Version Hash for crates"]]});
+initSidebarItems({"mod":[["rpath",""],["svh","Calculation and management of a Strict Version Hash for crates"]]});
