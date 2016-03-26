@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["RootMode",""]],"trait":[["ItemPathBuffer","Unifying Trait for different kinds of item paths we might construct. The basic interface is that components get pushed: the instance can also customize how we handle the root of a crate."]]});
