@@ -1,1 +1,1 @@
-initSidebarItems({"constant":[["DIAGNOSTICS",""]],"macro":[["down_cast_data!",""]],"mod":[["back",""],["diagnostics",""],["lib",""],["lint","Lints, aka compiler warnings."],["middle",""],["save",""],["session",""],["trans",""],["util",""]]});
+initSidebarItems({"constant":[["DIAGNOSTICS",""]],"fn":[["trans_crate",""]],"mod":[["back",""],["diagnostics",""],["lint","Lints, aka compiler warnings."],["middle",""],["session",""],["util",""]],"struct":[["CrateTranslation",""],["Disr",""],["ModuleTranslation",""]]});
