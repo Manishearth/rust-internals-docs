@@ -6286,6 +6286,35 @@
 <span id="6243">6243</span>
 <span id="6244">6244</span>
 <span id="6245">6245</span>
+<span id="6246">6246</span>
+<span id="6247">6247</span>
+<span id="6248">6248</span>
+<span id="6249">6249</span>
+<span id="6250">6250</span>
+<span id="6251">6251</span>
+<span id="6252">6252</span>
+<span id="6253">6253</span>
+<span id="6254">6254</span>
+<span id="6255">6255</span>
+<span id="6256">6256</span>
+<span id="6257">6257</span>
+<span id="6258">6258</span>
+<span id="6259">6259</span>
+<span id="6260">6260</span>
+<span id="6261">6261</span>
+<span id="6262">6262</span>
+<span id="6263">6263</span>
+<span id="6264">6264</span>
+<span id="6265">6265</span>
+<span id="6266">6266</span>
+<span id="6267">6267</span>
+<span id="6268">6268</span>
+<span id="6269">6269</span>
+<span id="6270">6270</span>
+<span id="6271">6271</span>
+<span id="6272">6272</span>
+<span id="6273">6273</span>
+<span id="6274">6274</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -6543,6 +6572,7 @@
     <span class='doccomment'>/// the previous token or None (only stashed sometimes).</span>
     <span class='kw'>pub</span> <span class='ident'>last_token</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>token</span>::<span class='ident'>Token</span><span class='op'>&gt;&gt;</span>,
     <span class='ident'>last_token_interpolated</span>: <span class='ident'>bool</span>,
+    <span class='ident'>last_token_eof</span>: <span class='ident'>bool</span>,
     <span class='kw'>pub</span> <span class='ident'>buffer</span>: [<span class='ident'>TokenAndSpan</span>; <span class='number'>4</span>],
     <span class='kw'>pub</span> <span class='ident'>buffer_start</span>: <span class='ident'>isize</span>,
     <span class='kw'>pub</span> <span class='ident'>buffer_end</span>: <span class='ident'>isize</span>,
@@ -6655,6 +6685,7 @@
             <span class='ident'>last_span</span>: <span class='ident'>span</span>,
             <span class='ident'>last_token</span>: <span class='prelude-val'>None</span>,
             <span class='ident'>last_token_interpolated</span>: <span class='boolval'>false</span>,
+            <span class='ident'>last_token_eof</span>: <span class='boolval'>false</span>,
             <span class='ident'>buffer</span>: [
                 <span class='ident'>placeholder</span>.<span class='ident'>clone</span>(),
                 <span class='ident'>placeholder</span>.<span class='ident'>clone</span>(),
@@ -7244,7 +7275,9 @@
     {
         <span class='self'>self</span>.<span class='ident'>expect</span>(<span class='ident'>bra</span>)?;
         <span class='kw'>let</span> <span class='ident'>result</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>parse_seq_to_before_end</span>(<span class='ident'>ket</span>, <span class='ident'>sep</span>, <span class='ident'>f</span>);
-        <span class='self'>self</span>.<span class='ident'>bump</span>();
+        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>token</span> <span class='op'>==</span> <span class='op'>*</span><span class='ident'>ket</span> {
+            <span class='self'>self</span>.<span class='ident'>bump</span>();
+        }
         <span class='prelude-val'>Ok</span>(<span class='ident'>result</span>)
     }
 
@@ -7287,6 +7320,15 @@
 
     <span class='doccomment'>/// Advance the parser by one token</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>bump</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) {
+        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>last_token_eof</span> {
+            <span class='comment'>// Bumping after EOF is a bad sign, usually an infinite loop.</span>
+            <span class='self'>self</span>.<span class='ident'>bug</span>(<span class='string'>&quot;attempted to bump the parser past EOF (may be stuck in a loop)&quot;</span>);
+        }
+
+        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>token</span> <span class='op'>==</span> <span class='ident'>token</span>::<span class='ident'>Eof</span> {
+            <span class='self'>self</span>.<span class='ident'>last_token_eof</span> <span class='op'>=</span> <span class='boolval'>true</span>;
+        }
+
         <span class='self'>self</span>.<span class='ident'>last_span</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>span</span>;
         <span class='comment'>// Stash token for error recovery (sometimes; clone is not necessarily cheap).</span>
         <span class='self'>self</span>.<span class='ident'>last_token</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>token</span>.<span class='ident'>is_ident</span>() <span class='op'>||</span>
@@ -7570,15 +7612,21 @@
                     <span class='prelude-val'>Ok</span>(<span class='ident'>cua</span>) <span class='op'>=&gt;</span> <span class='ident'>cua</span>,
                     <span class='prelude-val'>Err</span>(<span class='ident'>e</span>) <span class='op'>=&gt;</span> {
                         <span class='kw'>loop</span> {
-                            <span class='ident'>p</span>.<span class='ident'>bump</span>();
-                            <span class='kw'>if</span> <span class='ident'>p</span>.<span class='ident'>token</span> <span class='op'>==</span> <span class='ident'>token</span>::<span class='ident'>Semi</span> {
-                                <span class='ident'>p</span>.<span class='ident'>bump</span>();
-                                <span class='kw'>break</span>;
-                            }
+                            <span class='kw'>match</span> <span class='ident'>p</span>.<span class='ident'>token</span> {
+                                <span class='ident'>token</span>::<span class='ident'>Eof</span> <span class='op'>=&gt;</span> <span class='kw'>break</span>,
 
-                            <span class='kw'>if</span> <span class='ident'>p</span>.<span class='ident'>token</span> <span class='op'>==</span> <span class='ident'>token</span>::<span class='ident'>OpenDelim</span>(<span class='ident'>token</span>::<span class='ident'>DelimToken</span>::<span class='ident'>Brace</span>) {
-                                <span class='ident'>p</span>.<span class='ident'>parse_token_tree</span>()?;
-                                <span class='kw'>break</span>;
+                                <span class='ident'>token</span>::<span class='ident'>CloseDelim</span>(<span class='ident'>token</span>::<span class='ident'>Brace</span>) <span class='op'>|</span>
+                                <span class='ident'>token</span>::<span class='ident'>Semi</span> <span class='op'>=&gt;</span> {
+                                    <span class='ident'>p</span>.<span class='ident'>bump</span>();
+                                    <span class='kw'>break</span>;
+                                }
+
+                                <span class='ident'>token</span>::<span class='ident'>OpenDelim</span>(<span class='ident'>token</span>::<span class='ident'>Brace</span>) <span class='op'>=&gt;</span> {
+                                    <span class='ident'>p</span>.<span class='ident'>parse_token_tree</span>()?;
+                                    <span class='kw'>break</span>;
+                                }
+
+                                _ <span class='op'>=&gt;</span> <span class='ident'>p</span>.<span class='ident'>bump</span>()
                             }
                         }
 
@@ -8361,8 +8409,15 @@
                     <span class='ident'>start</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>P</span><span class='op'>&lt;</span><span class='ident'>Expr</span><span class='op'>&gt;&gt;</span>,
                     <span class='ident'>end</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>P</span><span class='op'>&lt;</span><span class='ident'>Expr</span><span class='op'>&gt;&gt;</span>,
                     <span class='ident'>limits</span>: <span class='ident'>RangeLimits</span>)
-                    <span class='op'>-&gt;</span> <span class='ident'>ast</span>::<span class='ident'>ExprKind</span> {
-        <span class='ident'>ExprKind</span>::<span class='ident'>Range</span>(<span class='ident'>start</span>, <span class='ident'>end</span>, <span class='ident'>limits</span>)
+                    <span class='op'>-&gt;</span> <span class='ident'>PResult</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>ast</span>::<span class='ident'>ExprKind</span><span class='op'>&gt;</span> {
+        <span class='kw'>if</span> <span class='ident'>end</span>.<span class='ident'>is_none</span>() <span class='op'>&amp;&amp;</span> <span class='ident'>limits</span> <span class='op'>==</span> <span class='ident'>RangeLimits</span>::<span class='ident'>Closed</span> {
+            <span class='prelude-val'>Err</span>(<span class='self'>self</span>.<span class='ident'>span_fatal_help</span>(<span class='self'>self</span>.<span class='ident'>span</span>,
+                                     <span class='string'>&quot;inclusive range with no end&quot;</span>,
+                                     <span class='string'>&quot;inclusive ranges must be bounded at the end \
+                                      (`...b` or `a...b`)&quot;</span>))
+        } <span class='kw'>else</span> {
+            <span class='prelude-val'>Ok</span>(<span class='ident'>ExprKind</span>::<span class='ident'>Range</span>(<span class='ident'>start</span>, <span class='ident'>end</span>, <span class='ident'>limits</span>))
+        }
     }
 
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>mk_field</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>expr</span>: <span class='ident'>P</span><span class='op'>&lt;</span><span class='ident'>Expr</span><span class='op'>&gt;</span>, <span class='ident'>ident</span>: <span class='ident'>ast</span>::<span class='ident'>SpannedIdent</span>) <span class='op'>-&gt;</span> <span class='ident'>ast</span>::<span class='ident'>ExprKind</span> {
@@ -9288,12 +9343,12 @@
                 <span class='ident'>lhs</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>mk_expr</span>(<span class='ident'>lhs_span</span>.<span class='ident'>lo</span>, <span class='ident'>rhs</span>.<span class='ident'>span</span>.<span class='ident'>hi</span>,
                                    <span class='ident'>ExprKind</span>::<span class='ident'>Type</span>(<span class='ident'>lhs</span>, <span class='ident'>rhs</span>), <span class='prelude-val'>None</span>);
                 <span class='kw'>continue</span>
-            } <span class='kw'>else</span> <span class='kw'>if</span> <span class='ident'>op</span> <span class='op'>==</span> <span class='ident'>AssocOp</span>::<span class='ident'>DotDot</span> {
-                <span class='comment'>// If we didn’t have to handle `x..`, it would be pretty easy to generalise</span>
-                <span class='comment'>// it to the Fixity::None code.</span>
+            } <span class='kw'>else</span> <span class='kw'>if</span> <span class='ident'>op</span> <span class='op'>==</span> <span class='ident'>AssocOp</span>::<span class='ident'>DotDot</span> <span class='op'>||</span> <span class='ident'>op</span> <span class='op'>==</span> <span class='ident'>AssocOp</span>::<span class='ident'>DotDotDot</span> {
+                <span class='comment'>// If we didn’t have to handle `x..`/`x...`, it would be pretty easy to</span>
+                <span class='comment'>// generalise it to the Fixity::None code.</span>
                 <span class='comment'>//</span>
-                <span class='comment'>// We have 2 alternatives here: `x..y` and `x..` The other two variants are</span>
-                <span class='comment'>// handled with `parse_prefix_range_expr` call above.</span>
+                <span class='comment'>// We have 2 alternatives here: `x..y`/`x...y` and `x..`/`x...` The other</span>
+                <span class='comment'>// two variants are handled with `parse_prefix_range_expr` call above.</span>
                 <span class='kw'>let</span> <span class='ident'>rhs</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>is_at_start_of_range_notation_rhs</span>() {
                     <span class='kw'>let</span> <span class='ident'>rhs</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>parse_assoc_expr_with</span>(<span class='ident'>op</span>.<span class='ident'>precedence</span>() <span class='op'>+</span> <span class='number'>1</span>,
                                                          <span class='ident'>LhsExpr</span>::<span class='ident'>NotYetParsed</span>);
@@ -9312,7 +9367,13 @@
                 } <span class='kw'>else</span> {
                     <span class='ident'>cur_op_span</span>
                 });
-                <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>mk_range</span>(<span class='prelude-val'>Some</span>(<span class='ident'>lhs</span>), <span class='ident'>rhs</span>, <span class='ident'>RangeLimits</span>::<span class='ident'>HalfOpen</span>);
+                <span class='kw'>let</span> <span class='ident'>limits</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='ident'>op</span> <span class='op'>==</span> <span class='ident'>AssocOp</span>::<span class='ident'>DotDot</span> {
+                    <span class='ident'>RangeLimits</span>::<span class='ident'>HalfOpen</span>
+                } <span class='kw'>else</span> {
+                    <span class='ident'>RangeLimits</span>::<span class='ident'>Closed</span>
+                };
+
+                <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='macro'>try</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>mk_range</span>(<span class='prelude-val'>Some</span>(<span class='ident'>lhs</span>), <span class='ident'>rhs</span>, <span class='ident'>limits</span>));
                 <span class='ident'>lhs</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>mk_expr</span>(<span class='ident'>lhs_span</span>.<span class='ident'>lo</span>, <span class='ident'>rhs_span</span>.<span class='ident'>hi</span>, <span class='ident'>r</span>, <span class='prelude-val'>None</span>);
                 <span class='kw'>break</span>
             }
@@ -9330,8 +9391,8 @@
                         <span class='ident'>this</span>.<span class='ident'>parse_assoc_expr_with</span>(<span class='ident'>op</span>.<span class='ident'>precedence</span>() <span class='op'>+</span> <span class='number'>1</span>,
                             <span class='ident'>LhsExpr</span>::<span class='ident'>NotYetParsed</span>)
                 }),
-                <span class='comment'>// the only operator handled here is `...` (the other non-associative operators are</span>
-                <span class='comment'>// special-cased above)</span>
+                <span class='comment'>// We currently have no non-associative operators that are not handled above by</span>
+                <span class='comment'>// the special cases. The code is here only for future convenience.</span>
                 <span class='ident'>Fixity</span>::<span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='self'>self</span>.<span class='ident'>with_res</span>(
                     <span class='ident'>restrictions</span> <span class='op'>-</span> <span class='ident'>Restrictions</span>::<span class='ident'>RESTRICTION_STMT_EXPR</span>,
                     <span class='op'>|</span><span class='ident'>this</span><span class='op'>|</span> {
@@ -9372,13 +9433,8 @@
                     <span class='kw'>let</span> <span class='ident'>aopexpr</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>mk_assign_op</span>(<span class='ident'>codemap</span>::<span class='ident'>respan</span>(<span class='ident'>cur_op_span</span>, <span class='ident'>aop</span>), <span class='ident'>lhs</span>, <span class='ident'>rhs</span>);
                     <span class='self'>self</span>.<span class='ident'>mk_expr</span>(<span class='ident'>lhs_span</span>.<span class='ident'>lo</span>, <span class='ident'>rhs_span</span>.<span class='ident'>hi</span>, <span class='ident'>aopexpr</span>, <span class='prelude-val'>None</span>)
                 }
-                <span class='ident'>AssocOp</span>::<span class='ident'>DotDotDot</span> <span class='op'>=&gt;</span> {
-                    <span class='kw'>let</span> (<span class='ident'>lhs_span</span>, <span class='ident'>rhs_span</span>) <span class='op'>=</span> (<span class='ident'>lhs</span>.<span class='ident'>span</span>, <span class='ident'>rhs</span>.<span class='ident'>span</span>);
-                    <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>mk_range</span>(<span class='prelude-val'>Some</span>(<span class='ident'>lhs</span>), <span class='prelude-val'>Some</span>(<span class='ident'>rhs</span>), <span class='ident'>RangeLimits</span>::<span class='ident'>Closed</span>);
-                    <span class='self'>self</span>.<span class='ident'>mk_expr</span>(<span class='ident'>lhs_span</span>.<span class='ident'>lo</span>, <span class='ident'>rhs_span</span>.<span class='ident'>hi</span>, <span class='ident'>r</span>, <span class='prelude-val'>None</span>)
-                }
-                <span class='ident'>AssocOp</span>::<span class='ident'>As</span> <span class='op'>|</span> <span class='ident'>AssocOp</span>::<span class='ident'>Colon</span> <span class='op'>|</span> <span class='ident'>AssocOp</span>::<span class='ident'>DotDot</span> <span class='op'>=&gt;</span> {
-                    <span class='self'>self</span>.<span class='ident'>bug</span>(<span class='string'>&quot;As, Colon or DotDot branch reached&quot;</span>)
+                <span class='ident'>AssocOp</span>::<span class='ident'>As</span> <span class='op'>|</span> <span class='ident'>AssocOp</span>::<span class='ident'>Colon</span> <span class='op'>|</span> <span class='ident'>AssocOp</span>::<span class='ident'>DotDot</span> <span class='op'>|</span> <span class='ident'>AssocOp</span>::<span class='ident'>DotDotDot</span> <span class='op'>=&gt;</span> {
+                    <span class='self'>self</span>.<span class='ident'>bug</span>(<span class='string'>&quot;As, Colon, DotDot or DotDotDot branch reached&quot;</span>)
                 }
             };
 
@@ -9422,21 +9478,23 @@
             <span class='comment'>// RHS must be parsed with more associativity than the dots.</span>
             <span class='kw'>let</span> <span class='ident'>next_prec</span> <span class='op'>=</span> <span class='ident'>AssocOp</span>::<span class='ident'>from_token</span>(<span class='kw-2'>&amp;</span><span class='ident'>tok</span>).<span class='ident'>unwrap</span>().<span class='ident'>precedence</span>() <span class='op'>+</span> <span class='number'>1</span>;
             <span class='prelude-val'>Some</span>(<span class='self'>self</span>.<span class='ident'>parse_assoc_expr_with</span>(<span class='ident'>next_prec</span>,
-                                                 <span class='ident'>LhsExpr</span>::<span class='ident'>NotYetParsed</span>)
-            .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>x</span><span class='op'>|</span>{
-                <span class='ident'>hi</span> <span class='op'>=</span> <span class='ident'>x</span>.<span class='ident'>span</span>.<span class='ident'>hi</span>;
-                <span class='ident'>x</span>
-            })?)
+                                            <span class='ident'>LhsExpr</span>::<span class='ident'>NotYetParsed</span>)
+                .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>x</span><span class='op'>|</span>{
+                    <span class='ident'>hi</span> <span class='op'>=</span> <span class='ident'>x</span>.<span class='ident'>span</span>.<span class='ident'>hi</span>;
+                    <span class='ident'>x</span>
+                })?)
          } <span class='kw'>else</span> {
             <span class='prelude-val'>None</span>
         };
-        <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>mk_range</span>(<span class='prelude-val'>None</span>,
-                              <span class='ident'>opt_end</span>,
-                              <span class='kw'>if</span> <span class='ident'>tok</span> <span class='op'>==</span> <span class='ident'>token</span>::<span class='ident'>DotDot</span> {
-                                  <span class='ident'>RangeLimits</span>::<span class='ident'>HalfOpen</span>
-                              } <span class='kw'>else</span> {
-                                  <span class='ident'>RangeLimits</span>::<span class='ident'>Closed</span>
-                              });
+        <span class='kw'>let</span> <span class='ident'>limits</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='ident'>tok</span> <span class='op'>==</span> <span class='ident'>token</span>::<span class='ident'>DotDot</span> {
+            <span class='ident'>RangeLimits</span>::<span class='ident'>HalfOpen</span>
+        } <span class='kw'>else</span> {
+            <span class='ident'>RangeLimits</span>::<span class='ident'>Closed</span>
+        };
+
+        <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='macro'>try</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>mk_range</span>(<span class='prelude-val'>None</span>,
+                                   <span class='ident'>opt_end</span>,
+                                   <span class='ident'>limits</span>));
         <span class='prelude-val'>Ok</span>(<span class='self'>self</span>.<span class='ident'>mk_expr</span>(<span class='ident'>lo</span>, <span class='ident'>hi</span>, <span class='ident'>r</span>, <span class='ident'>attrs</span>))
     }
 

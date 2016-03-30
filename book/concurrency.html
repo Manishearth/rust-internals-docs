@@ -280,6 +280,67 @@ fn main() {
     <span class='macro'>println</span><span class='macro'>!</span>(<span class='string'>&quot;{}&quot;</span>, <span class='ident'>handle</span>.<span class='ident'>join</span>().<span class='ident'>unwrap</span>());
 }</pre>
 
+<p>As closures can capture variables from their environment, we can also try to
+bring some data into the other thread:</p>
+
+<span class='rusttest'>use std::thread;
+
+fn main() {
+    let x = 1;
+    thread::spawn(|| {
+        println!(&quot;x is {}&quot;, x);
+    });
+}
+</span><pre class='rust rust-example-rendered'>
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>thread</span>;
+
+<span class='kw'>fn</span> <span class='ident'>main</span>() {
+    <span class='kw'>let</span> <span class='ident'>x</span> <span class='op'>=</span> <span class='number'>1</span>;
+    <span class='ident'>thread</span>::<span class='ident'>spawn</span>(<span class='op'>||</span> {
+        <span class='macro'>println</span><span class='macro'>!</span>(<span class='string'>&quot;x is {}&quot;</span>, <span class='ident'>x</span>);
+    });
+}</pre>
+
+<p>However, this gives us an error:</p>
+
+<pre><code class="language-text">5:19: 7:6 error: closure may outlive the current function, but it
+                 borrows `x`, which is owned by the current function
+...
+5:19: 7:6 help: to force the closure to take ownership of `x` (and any other referenced variables),
+          use the `move` keyword, as shown:
+      thread::spawn(move || {
+          println!(&quot;x is {}&quot;, x);
+      });
+</code></pre>
+
+<p>This is because by default closures capture variables by reference, and thus the
+closure only captures a <em>reference to <code>x</code></em>. This is a problem, because the
+thread may outlive the scope of <code>x</code>, leading to a dangling pointer.</p>
+
+<p>To fix this, we use a <code>move</code> closure as mentioned in the error message. <code>move</code>
+closures are explained in depth <a href="closures.html#move-closures">here</a>; basically
+they move variables from their environment into themselves. This means that <code>x</code>
+is now owned by the closure, and cannot be used in <code>main()</code> after the call to
+<code>spawn()</code>.</p>
+
+<span class='rusttest'>use std::thread;
+
+fn main() {
+    let x = 1;
+    thread::spawn(move || {
+        println!(&quot;x is {}&quot;, x);
+    });
+}
+</span><pre class='rust rust-example-rendered'>
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>thread</span>;
+
+<span class='kw'>fn</span> <span class='ident'>main</span>() {
+    <span class='kw'>let</span> <span class='ident'>x</span> <span class='op'>=</span> <span class='number'>1</span>;
+    <span class='ident'>thread</span>::<span class='ident'>spawn</span>(<span class='kw'>move</span> <span class='op'>||</span> {
+        <span class='macro'>println</span><span class='macro'>!</span>(<span class='string'>&quot;x is {}&quot;</span>, <span class='ident'>x</span>);
+    });
+}</pre>
+
 <p>Many languages have the ability to execute threads, but it&#39;s wildly unsafe.
 There are entire books about how to prevent errors that occur from shared
 mutable state. Rust helps out with its type system here as well, by preventing
@@ -344,22 +405,79 @@ fn main() {
 </code></pre>
 
 <p>Rust knows this wouldn&#39;t be safe! If we had a reference to <code>data</code> in each
-thread, and the thread takes ownership of the reference, we&#39;d have three
-owners!</p>
+thread, and the thread takes ownership of the reference, we&#39;d have three owners!
+<code>data</code> gets moved out of <code>main</code> in the first call to <code>spawn()</code>, so subsequent
+calls in the loop cannot use this variable.</p>
 
-<p>So, we need some type that lets us have more than one reference to a value and
-that we can share between threads, that is it must implement <code>Sync</code>.</p>
+<p>So, we need some type that lets us have more than one owning reference to a
+value. Usually, we&#39;d use <code>Rc&lt;T&gt;</code> for this, which is a reference counted type
+that provides shared ownership. It has some runtime bookkeeping that keeps track
+of the number of references to it, hence the &quot;reference count&quot; part of its name.</p>
 
-<p>We&#39;ll use <code>Arc&lt;T&gt;</code>, Rust&#39;s standard atomic reference count type, which
-wraps a value up with some extra runtime bookkeeping which allows us to
-share the ownership of the value between multiple references at the same time.</p>
+<p>Calling <code>clone()</code> on an <code>Rc&lt;T&gt;</code> will return a new owned reference and bump the
+internal reference count. We create one of these for each thread:</p>
 
-<p>The bookkeeping consists of a count of how many of these references exist to
-the value, hence the reference count part of the name.</p>
+<span class='rusttest'>use std::thread;
+use std::time::Duration;
+use std::rc::Rc;
+
+fn main() {
+    let mut data = Rc::new(vec![1, 2, 3]);
+
+    for i in 0..3 {
+        // create a new owned reference
+        let data_ref = data.clone();
+
+        // use it in a thread
+        thread::spawn(move || {
+            data_ref[i] += 1;
+        });
+    }
+
+    thread::sleep(Duration::from_millis(50));
+}
+</span><pre class='rust rust-example-rendered'>
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>thread</span>;
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>time</span>::<span class='ident'>Duration</span>;
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>rc</span>::<span class='ident'>Rc</span>;
+
+<span class='kw'>fn</span> <span class='ident'>main</span>() {
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>data</span> <span class='op'>=</span> <span class='ident'>Rc</span>::<span class='ident'>new</span>(<span class='macro'>vec</span><span class='macro'>!</span>[<span class='number'>1</span>, <span class='number'>2</span>, <span class='number'>3</span>]);
+
+    <span class='kw'>for</span> <span class='ident'>i</span> <span class='kw'>in</span> <span class='number'>0</span>..<span class='number'>3</span> {
+        <span class='comment'>// create a new owned reference</span>
+        <span class='kw'>let</span> <span class='ident'>data_ref</span> <span class='op'>=</span> <span class='ident'>data</span>.<span class='ident'>clone</span>();
+
+        <span class='comment'>// use it in a thread</span>
+        <span class='ident'>thread</span>::<span class='ident'>spawn</span>(<span class='kw'>move</span> <span class='op'>||</span> {
+            <span class='ident'>data_ref</span>[<span class='ident'>i</span>] <span class='op'>+=</span> <span class='number'>1</span>;
+        });
+    }
+
+    <span class='ident'>thread</span>::<span class='ident'>sleep</span>(<span class='ident'>Duration</span>::<span class='ident'>from_millis</span>(<span class='number'>50</span>));
+}</pre>
+
+<p>This won&#39;t work, however, and will give us the error:</p>
+
+<pre><code class="language-text">13:9: 13:22 error: the trait `core::marker::Send` is not
+            implemented for the type `alloc::rc::Rc&lt;collections::vec::Vec&lt;i32&gt;&gt;`
+...
+13:9: 13:22 note: `alloc::rc::Rc&lt;collections::vec::Vec&lt;i32&gt;&gt;`
+            cannot be sent between threads safely
+</code></pre>
+
+<p>As the error message mentions, <code>Rc</code> cannot be sent between threads safely. This
+is because the internal reference count is not maintained in a thread safe
+matter and can have a data race.</p>
+
+<p>To solve this, we&#39;ll use <code>Arc&lt;T&gt;</code>, Rust&#39;s standard atomic reference count type.</p>
 
 <p>The Atomic part means <code>Arc&lt;T&gt;</code> can safely be accessed from multiple threads.
 To do this the compiler guarantees that mutations of the internal count use
 indivisible operations which can&#39;t have data races.</p>
+
+<p>In essence, <code>Arc&lt;T&gt;</code> is a type that lets us share ownership of data <em>across
+threads</em>.</p>
 
 <span class='rusttest'>use std::thread;
 use std::sync::Arc;
@@ -395,7 +513,7 @@ fn main() {
     <span class='ident'>thread</span>::<span class='ident'>sleep</span>(<span class='ident'>Duration</span>::<span class='ident'>from_millis</span>(<span class='number'>50</span>));
 }</pre>
 
-<p>We now call <code>clone()</code> on our <code>Arc&lt;T&gt;</code>, which increases the internal count.
+<p>Similarly to last time, we use <code>clone()</code> to create a new owned handle.
 This handle is then moved into the new thread.</p>
 
 <p>And... still gives us an error.</p>
@@ -405,14 +523,20 @@ This handle is then moved into the new thread.</p>
                              ^~~~
 </code></pre>
 
-<p><code>Arc&lt;T&gt;</code> assumes one more property about its contents to ensure that it is safe
-to share across threads: it assumes its contents are <code>Sync</code>. This is true for
-our value if it&#39;s immutable, but we want to be able to mutate it, so we need
-something else to persuade the borrow checker we know what we&#39;re doing.</p>
+<p><code>Arc&lt;T&gt;</code> by default has immutable contents. It allows the <em>sharing</em> of data
+between threads, but shared mutable data is unsafe and when threads are
+involved can cause data races!</p>
 
-<p>It looks like we need some type that allows us to safely mutate a shared value,
-for example a type that can ensure only one thread at a time is able to
-mutate the value inside it at any one time.</p>
+<p>Usually when we wish to make something in an immutable position mutable, we use
+<code>Cell&lt;T&gt;</code> or <code>RefCell&lt;T&gt;</code> which allow safe mutation via runtime checks or
+otherwise (see also: <a href="choosing-your-guarantees.html">Choosing Your Guarantees</a>).
+However, similar to <code>Rc</code>, these are not thread safe. If we try using these, we
+will get an error about these types not being <code>Sync</code>, and the code will fail to
+compile.</p>
+
+<p>It looks like we need some type that allows us to safely mutate a shared value
+across threads, for example a type that can ensure only one thread at a time is
+able to mutate the value inside it at any one time.</p>
 
 <p>For that, we can use the <code>Mutex&lt;T&gt;</code> type!</p>
 
@@ -457,7 +581,17 @@ fn main() {
 <p>Note that the value of <code>i</code> is bound (copied) to the closure and not shared
 among the threads.</p>
 
-<p>Also note that <a href="../std/sync/struct.Mutex.html#method.lock"><code>lock</code></a> method of
+<p>We&#39;re &quot;locking&quot; the mutex here. A mutex (short for &quot;mutual exclusion&quot;), as
+mentioned, only allows one thread at a time to access a value. When we wish to
+access the value, we use <code>lock()</code> on it. This will &quot;lock&quot; the mutex, and no
+other thread will be able to lock it (and hence, do anything with the value)
+until we&#39;re done with it. If a thread attempts to lock a mutex which is already
+locked, it will wait until the other thread releases the lock.</p>
+
+<p>The lock &quot;release&quot; here is implicit; when the result of the lock (in this case,
+<code>data</code>) goes out of scope, the lock is automatically released.</p>
+
+<p>Note that <a href="../std/sync/struct.Mutex.html#method.lock"><code>lock</code></a> method of
 <a href="../std/sync/struct.Mutex.html"><code>Mutex</code></a> has this signature:</p>
 
 <span class='rusttest'>fn main() {
