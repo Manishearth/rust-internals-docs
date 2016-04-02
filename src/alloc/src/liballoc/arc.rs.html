@@ -1250,6 +1250,9 @@
 <span id="1207">1207</span>
 <span id="1208">1208</span>
 <span id="1209">1209</span>
+<span id="1210">1210</span>
+<span id="1211">1211</span>
+<span id="1212">1212</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -1476,7 +1479,7 @@
     <span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;arc_unique&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.4.0&quot;</span>)]</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>try_unwrap</span>(<span class='ident'>this</span>: <span class='kw'>Self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>T</span>, <span class='kw'>Self</span><span class='op'>&gt;</span> {
         <span class='comment'>// See `drop` for why all these atomics are like this</span>
-        <span class='kw'>if</span> <span class='ident'>this</span>.<span class='ident'>inner</span>().<span class='ident'>strong</span>.<span class='ident'>compare_and_swap</span>(<span class='number'>1</span>, <span class='number'>0</span>, <span class='ident'>Release</span>) <span class='op'>!=</span> <span class='number'>1</span> {
+        <span class='kw'>if</span> <span class='ident'>this</span>.<span class='ident'>inner</span>().<span class='ident'>strong</span>.<span class='ident'>compare_exchange</span>(<span class='number'>1</span>, <span class='number'>0</span>, <span class='ident'>Release</span>, <span class='ident'>Relaxed</span>).<span class='ident'>is_err</span>() {
             <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>this</span>);
         }
 
@@ -1509,11 +1512,11 @@
     <span class='doccomment'>/// ```</span>
     <span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;arc_weak&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.4.0&quot;</span>)]</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>downgrade</span>(<span class='ident'>this</span>: <span class='kw-2'>&amp;</span><span class='kw'>Self</span>) <span class='op'>-&gt;</span> <span class='ident'>Weak</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-        <span class='kw'>loop</span> {
-            <span class='comment'>// This Relaxed is OK because we&#39;re checking the value in the CAS</span>
-            <span class='comment'>// below.</span>
-            <span class='kw'>let</span> <span class='ident'>cur</span> <span class='op'>=</span> <span class='ident'>this</span>.<span class='ident'>inner</span>().<span class='ident'>weak</span>.<span class='ident'>load</span>(<span class='ident'>Relaxed</span>);
+        <span class='comment'>// This Relaxed is OK because we&#39;re checking the value in the CAS</span>
+        <span class='comment'>// below.</span>
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>cur</span> <span class='op'>=</span> <span class='ident'>this</span>.<span class='ident'>inner</span>().<span class='ident'>weak</span>.<span class='ident'>load</span>(<span class='ident'>Relaxed</span>);
 
+        <span class='kw'>loop</span> {
             <span class='comment'>// check if the weak counter is currently &quot;locked&quot;; if so, spin.</span>
             <span class='kw'>if</span> <span class='ident'>cur</span> <span class='op'>==</span> <span class='ident'>usize</span>::<span class='ident'>MAX</span> {
                 <span class='kw'>continue</span>;
@@ -1526,8 +1529,9 @@
             <span class='comment'>// Unlike with Clone(), we need this to be an Acquire read to</span>
             <span class='comment'>// synchronize with the write coming from `is_unique`, so that the</span>
             <span class='comment'>// events prior to that write happen before this read.</span>
-            <span class='kw'>if</span> <span class='ident'>this</span>.<span class='ident'>inner</span>().<span class='ident'>weak</span>.<span class='ident'>compare_and_swap</span>(<span class='ident'>cur</span>, <span class='ident'>cur</span> <span class='op'>+</span> <span class='number'>1</span>, <span class='ident'>Acquire</span>) <span class='op'>==</span> <span class='ident'>cur</span> {
-                <span class='kw'>return</span> <span class='ident'>Weak</span> { <span class='ident'>_ptr</span>: <span class='ident'>this</span>.<span class='ident'>_ptr</span> };
+            <span class='kw'>match</span> <span class='ident'>this</span>.<span class='ident'>inner</span>().<span class='ident'>weak</span>.<span class='ident'>compare_exchange_weak</span>(<span class='ident'>cur</span>, <span class='ident'>cur</span> <span class='op'>+</span> <span class='number'>1</span>, <span class='ident'>Acquire</span>, <span class='ident'>Relaxed</span>) {
+                <span class='prelude-val'>Ok</span>(_) <span class='op'>=&gt;</span> <span class='kw'>return</span> <span class='ident'>Weak</span> { <span class='ident'>_ptr</span>: <span class='ident'>this</span>.<span class='ident'>_ptr</span> },
+                <span class='prelude-val'>Err</span>(<span class='ident'>old</span>) <span class='op'>=&gt;</span> <span class='ident'>cur</span> <span class='op'>=</span> <span class='ident'>old</span>,
             }
         }
     }
@@ -1669,7 +1673,7 @@
         <span class='comment'>// before release writes (i.e., decrements) to `strong`. Since we hold a</span>
         <span class='comment'>// weak count, there&#39;s no chance the ArcInner itself could be</span>
         <span class='comment'>// deallocated.</span>
-        <span class='kw'>if</span> <span class='ident'>this</span>.<span class='ident'>inner</span>().<span class='ident'>strong</span>.<span class='ident'>compare_and_swap</span>(<span class='number'>1</span>, <span class='number'>0</span>, <span class='ident'>Acquire</span>) <span class='op'>!=</span> <span class='number'>1</span> {
+        <span class='kw'>if</span> <span class='ident'>this</span>.<span class='ident'>inner</span>().<span class='ident'>strong</span>.<span class='ident'>compare_exchange</span>(<span class='number'>1</span>, <span class='number'>0</span>, <span class='ident'>Acquire</span>, <span class='ident'>Relaxed</span>).<span class='ident'>is_err</span>() {
             <span class='comment'>// Another strong pointer exists; clone</span>
             <span class='op'>*</span><span class='ident'>this</span> <span class='op'>=</span> <span class='ident'>Arc</span>::<span class='ident'>new</span>((<span class='op'>*</span><span class='op'>*</span><span class='ident'>this</span>).<span class='ident'>clone</span>());
         } <span class='kw'>else</span> <span class='kw'>if</span> <span class='ident'>this</span>.<span class='ident'>inner</span>().<span class='ident'>weak</span>.<span class='ident'>load</span>(<span class='ident'>Relaxed</span>) <span class='op'>!=</span> <span class='number'>1</span> {
@@ -1759,7 +1763,7 @@
         <span class='comment'>// The acquire label here ensures a happens-before relationship with any</span>
         <span class='comment'>// writes to `strong` prior to decrements of the `weak` count (via drop,</span>
         <span class='comment'>// which uses Release).</span>
-        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>inner</span>().<span class='ident'>weak</span>.<span class='ident'>compare_and_swap</span>(<span class='number'>1</span>, <span class='ident'>usize</span>::<span class='ident'>MAX</span>, <span class='ident'>Acquire</span>) <span class='op'>==</span> <span class='number'>1</span> {
+        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>inner</span>().<span class='ident'>weak</span>.<span class='ident'>compare_exchange</span>(<span class='number'>1</span>, <span class='ident'>usize</span>::<span class='ident'>MAX</span>, <span class='ident'>Acquire</span>, <span class='ident'>Relaxed</span>).<span class='ident'>is_ok</span>() {
             <span class='comment'>// Due to the previous acquire read, this will observe any writes to</span>
             <span class='comment'>// `strong` that were due to upgrading weak pointers; only strong</span>
             <span class='comment'>// clones remain, which require that the strong count is &gt; 1 anyway.</span>
@@ -1871,12 +1875,14 @@
         <span class='comment'>// We use a CAS loop to increment the strong count instead of a</span>
         <span class='comment'>// fetch_add because once the count hits 0 it must never be above 0.</span>
         <span class='kw'>let</span> <span class='ident'>inner</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>inner</span>();
+
+        <span class='comment'>// Relaxed load because any write of 0 that we can observe</span>
+        <span class='comment'>// leaves the field in a permanently zero state (so a</span>
+        <span class='comment'>// &quot;stale&quot; read of 0 is fine), and any other value is</span>
+        <span class='comment'>// confirmed via the CAS below.</span>
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>n</span> <span class='op'>=</span> <span class='ident'>inner</span>.<span class='ident'>strong</span>.<span class='ident'>load</span>(<span class='ident'>Relaxed</span>);
+
         <span class='kw'>loop</span> {
-            <span class='comment'>// Relaxed load because any write of 0 that we can observe</span>
-            <span class='comment'>// leaves the field in a permanently zero state (so a</span>
-            <span class='comment'>// &quot;stale&quot; read of 0 is fine), and any other value is</span>
-            <span class='comment'>// confirmed via the CAS below.</span>
-            <span class='kw'>let</span> <span class='ident'>n</span> <span class='op'>=</span> <span class='ident'>inner</span>.<span class='ident'>strong</span>.<span class='ident'>load</span>(<span class='ident'>Relaxed</span>);
             <span class='kw'>if</span> <span class='ident'>n</span> <span class='op'>==</span> <span class='number'>0</span> {
                 <span class='kw'>return</span> <span class='prelude-val'>None</span>;
             }
@@ -1887,9 +1893,9 @@
             }
 
             <span class='comment'>// Relaxed is valid for the same reason it is on Arc&#39;s Clone impl</span>
-            <span class='kw'>let</span> <span class='ident'>old</span> <span class='op'>=</span> <span class='ident'>inner</span>.<span class='ident'>strong</span>.<span class='ident'>compare_and_swap</span>(<span class='ident'>n</span>, <span class='ident'>n</span> <span class='op'>+</span> <span class='number'>1</span>, <span class='ident'>Relaxed</span>);
-            <span class='kw'>if</span> <span class='ident'>old</span> <span class='op'>==</span> <span class='ident'>n</span> {
-                <span class='kw'>return</span> <span class='prelude-val'>Some</span>(<span class='ident'>Arc</span> { <span class='ident'>_ptr</span>: <span class='self'>self</span>.<span class='ident'>_ptr</span> });
+            <span class='kw'>match</span> <span class='ident'>inner</span>.<span class='ident'>strong</span>.<span class='ident'>compare_exchange_weak</span>(<span class='ident'>n</span>, <span class='ident'>n</span> <span class='op'>+</span> <span class='number'>1</span>, <span class='ident'>Relaxed</span>, <span class='ident'>Relaxed</span>) {
+                <span class='prelude-val'>Ok</span>(_) <span class='op'>=&gt;</span> <span class='kw'>return</span> <span class='prelude-val'>Some</span>(<span class='ident'>Arc</span> { <span class='ident'>_ptr</span>: <span class='self'>self</span>.<span class='ident'>_ptr</span> }),
+                <span class='prelude-val'>Err</span>(<span class='ident'>old</span>) <span class='op'>=&gt;</span> <span class='ident'>n</span> <span class='op'>=</span> <span class='ident'>old</span>,
             }
         }
     }
