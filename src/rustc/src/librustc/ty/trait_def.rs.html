@@ -11,6 +11,7 @@
 
     <link rel="stylesheet" type="text/css" href="../../../../../rustdoc.css">
     <link rel="stylesheet" type="text/css" href="../../../../../main.css">
+    
 
     <link rel="shortcut icon" href="https://doc.rust-lang.org/favicon.ico">
     
@@ -322,7 +323,6 @@
 <span id="279">279</span>
 <span id="280">280</span>
 <span id="281">281</span>
-<span id="282">282</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -335,15 +335,15 @@
 <span class='comment'>// except according to those terms.</span>
 
 <span class='kw'>use</span> <span class='ident'>dep_graph</span>::<span class='ident'>DepNode</span>;
-<span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>def_id</span>::<span class='ident'>DefId</span>;
+<span class='kw'>use</span> <span class='ident'>hir</span>::<span class='ident'>def_id</span>::<span class='ident'>DefId</span>;
 <span class='kw'>use</span> <span class='ident'>traits</span>::{<span class='self'>self</span>, <span class='ident'>specialization_graph</span>};
 <span class='kw'>use</span> <span class='ident'>ty</span>;
 <span class='kw'>use</span> <span class='ident'>ty</span>::<span class='ident'>fast_reject</span>;
 <span class='kw'>use</span> <span class='ident'>ty</span>::{<span class='ident'>Ty</span>, <span class='ident'>TyCtxt</span>, <span class='ident'>TraitRef</span>};
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>borrow</span>::{<span class='ident'>Borrow</span>};
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cell</span>::{<span class='ident'>Cell</span>, <span class='ident'>Ref</span>, <span class='ident'>RefCell</span>};
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cell</span>::{<span class='ident'>Cell</span>, <span class='ident'>RefCell</span>};
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>::<span class='ident'>Name</span>;
-<span class='kw'>use</span> <span class='ident'>rustc_front</span>::<span class='ident'>hir</span>;
+<span class='kw'>use</span> <span class='ident'>hir</span>;
 <span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>nodemap</span>::<span class='ident'>FnvHashMap</span>;
 
 <span class='doccomment'>/// As `TypeScheme` but for a trait ref.</span>
@@ -369,10 +369,17 @@
     <span class='doccomment'>/// for resolving `X::Foo` type markers.</span>
     <span class='kw'>pub</span> <span class='ident'>associated_type_names</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Name</span><span class='op'>&gt;</span>,
 
-    <span class='comment'>// Impls of this trait. To allow for quicker lookup, the impls are indexed</span>
-    <span class='comment'>// by a simplified version of their Self type: impls with a simplifiable</span>
-    <span class='comment'>// Self are stored in nonblanket_impls keyed by it, while all other impls</span>
-    <span class='comment'>// are stored in blanket_impls.</span>
+    <span class='comment'>// Impls of a trait. To allow for quicker lookup, the impls are indexed by a</span>
+    <span class='comment'>// simplified version of their `Self` type: impls with a simplifiable `Self`</span>
+    <span class='comment'>// are stored in `nonblanket_impls` keyed by it, while all other impls are</span>
+    <span class='comment'>// stored in `blanket_impls`.</span>
+    <span class='comment'>//</span>
+    <span class='comment'>// A similar division is used within `specialization_graph`, but the ones</span>
+    <span class='comment'>// here are (1) stored as a flat list for the trait and (2) populated prior</span>
+    <span class='comment'>// to -- and used while -- determining specialization order.</span>
+    <span class='comment'>//</span>
+    <span class='comment'>// FIXME: solve the reentrancy issues and remove these lists in favor of the</span>
+    <span class='comment'>// ones in `specialization_graph`.</span>
     <span class='comment'>//</span>
     <span class='comment'>// These lists are tracked by `DepNode::TraitImpls`; we don&#39;t use</span>
     <span class='comment'>// a DepTrackingMap but instead have the `TraitDef` insert the</span>
@@ -510,7 +517,7 @@
             <span class='comment'>// if the impl is non-local, it&#39;s placed directly into the</span>
             <span class='comment'>// specialization graph using parent information drawn from metadata.</span>
             <span class='self'>self</span>.<span class='ident'>specialization_graph</span>.<span class='ident'>borrow_mut</span>()
-                .<span class='ident'>record_impl_from_cstore</span>(<span class='ident'>parent_impl</span>, <span class='ident'>impl_def_id</span>)
+                .<span class='ident'>record_impl_from_cstore</span>(<span class='ident'>tcx</span>, <span class='ident'>parent_impl</span>, <span class='ident'>impl_def_id</span>)
         }
     }
 
@@ -587,14 +594,6 @@
             }
         }
     }
-
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>borrow_impl_lists</span><span class='op'>&lt;</span><span class='lifetime'>&#39;s</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;s</span> <span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-                                 <span class='op'>-&gt;</span> (<span class='ident'>Ref</span><span class='op'>&lt;</span><span class='lifetime'>&#39;s</span>, <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>DefId</span><span class='op'>&gt;&gt;</span>,
-                                     <span class='ident'>Ref</span><span class='op'>&lt;</span><span class='lifetime'>&#39;s</span>, <span class='ident'>FnvHashMap</span><span class='op'>&lt;</span><span class='ident'>fast_reject</span>::<span class='ident'>SimplifiedType</span>, <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>DefId</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span>) {
-        <span class='self'>self</span>.<span class='ident'>read_trait_impls</span>(<span class='ident'>tcx</span>);
-        (<span class='self'>self</span>.<span class='ident'>blanket_impls</span>.<span class='ident'>borrow</span>(), <span class='self'>self</span>.<span class='ident'>nonblanket_impls</span>.<span class='ident'>borrow</span>())
-    }
-
 }
 
 <span class='macro'>bitflags</span><span class='macro'>!</span> {

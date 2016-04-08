@@ -11,6 +11,7 @@
 
     <link rel="stylesheet" type="text/css" href="../../../../../../rustdoc.css">
     <link rel="stylesheet" type="text/css" href="../../../../../../main.css">
+    
 
     <link rel="shortcut icon" href="https://doc.rust-lang.org/favicon.ico">
     
@@ -551,6 +552,21 @@
 <span id="508">508</span>
 <span id="509">509</span>
 <span id="510">510</span>
+<span id="511">511</span>
+<span id="512">512</span>
+<span id="513">513</span>
+<span id="514">514</span>
+<span id="515">515</span>
+<span id="516">516</span>
+<span id="517">517</span>
+<span id="518">518</span>
+<span id="519">519</span>
+<span id="520">520</span>
+<span id="521">521</span>
+<span id="522">522</span>
+<span id="523">523</span>
+<span id="524">524</span>
+<span id="525">525</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -568,14 +584,15 @@
 <span class='kw'>use</span> <span class='ident'>CrateCtxt</span>;
 
 <span class='kw'>use</span> <span class='ident'>astconv</span>::<span class='ident'>AstConv</span>;
-<span class='kw'>use</span> <span class='ident'>check</span>::{<span class='self'>self</span>, <span class='ident'>FnCtxt</span>};
-<span class='kw'>use</span> <span class='ident'>front</span>::<span class='ident'>map</span> <span class='kw'>as</span> <span class='ident'>hir_map</span>;
+<span class='kw'>use</span> <span class='ident'>check</span>::{<span class='self'>self</span>, <span class='ident'>FnCtxt</span>, <span class='ident'>UnresolvedTypeAction</span>, <span class='ident'>autoderef</span>};
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>::<span class='ident'>map</span> <span class='kw'>as</span> <span class='ident'>hir_map</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>Ty</span>, <span class='ident'>ToPolyTraitRef</span>, <span class='ident'>ToPredicate</span>, <span class='ident'>TypeFoldable</span>};
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>cstore</span>::{<span class='self'>self</span>, <span class='ident'>CrateStore</span>};
-<span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>def</span>::<span class='ident'>Def</span>;
-<span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>def_id</span>::<span class='ident'>DefId</span>;
+<span class='kw'>use</span> <span class='ident'>hir</span>::<span class='ident'>def</span>::<span class='ident'>Def</span>;
+<span class='kw'>use</span> <span class='ident'>hir</span>::<span class='ident'>def_id</span>::<span class='ident'>DefId</span>;
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>lang_items</span>::<span class='ident'>FnOnceTraitLangItem</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::<span class='ident'>subst</span>::<span class='ident'>Substs</span>;
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::<span class='ident'>LvaluePreference</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>traits</span>::{<span class='ident'>Obligation</span>, <span class='ident'>SelectionContext</span>};
 <span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>nodemap</span>::{<span class='ident'>FnvHashSet</span>};
 
@@ -583,9 +600,9 @@
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>codemap</span>::<span class='ident'>Span</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>errors</span>::<span class='ident'>DiagnosticBuilder</span>;
-<span class='kw'>use</span> <span class='ident'>rustc_front</span>::<span class='ident'>print</span>::<span class='ident'>pprust</span>;
-<span class='kw'>use</span> <span class='ident'>rustc_front</span>::<span class='ident'>hir</span>;
-<span class='kw'>use</span> <span class='ident'>rustc_front</span>::<span class='ident'>hir</span>::<span class='ident'>Expr_</span>;
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>::<span class='ident'>print</span> <span class='kw'>as</span> <span class='ident'>pprust</span>;
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>;
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>::<span class='ident'>Expr_</span>;
 
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cell</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cmp</span>::<span class='ident'>Ordering</span>;
@@ -604,23 +621,37 @@
             <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Ok</span>(<span class='ident'>fn_once_trait_did</span>) <span class='op'>=</span>
                     <span class='ident'>cx</span>.<span class='ident'>lang_items</span>.<span class='ident'>require</span>(<span class='ident'>FnOnceTraitLangItem</span>) {
                 <span class='kw'>let</span> <span class='ident'>infcx</span> <span class='op'>=</span> <span class='ident'>fcx</span>.<span class='ident'>infcx</span>();
-                <span class='ident'>infcx</span>.<span class='ident'>probe</span>(<span class='op'>|</span>_<span class='op'>|</span> {
-                    <span class='kw'>let</span> <span class='ident'>fn_once_substs</span> <span class='op'>=</span>
-                        <span class='ident'>Substs</span>::<span class='ident'>new_trait</span>(<span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>infcx</span>.<span class='ident'>next_ty_var</span>()],
-                                          <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
-                                          <span class='ident'>ty</span>);
-                    <span class='kw'>let</span> <span class='ident'>trait_ref</span> <span class='op'>=</span>
-                      <span class='ident'>ty</span>::<span class='ident'>TraitRef</span>::<span class='ident'>new</span>(<span class='ident'>fn_once_trait_did</span>,
-                                        <span class='ident'>cx</span>.<span class='ident'>mk_substs</span>(<span class='ident'>fn_once_substs</span>));
-                    <span class='kw'>let</span> <span class='ident'>poly_trait_ref</span> <span class='op'>=</span> <span class='ident'>trait_ref</span>.<span class='ident'>to_poly_trait_ref</span>();
-                    <span class='kw'>let</span> <span class='ident'>obligation</span> <span class='op'>=</span> <span class='ident'>Obligation</span>::<span class='ident'>misc</span>(<span class='ident'>span</span>,
-                                                      <span class='ident'>fcx</span>.<span class='ident'>body_id</span>,
-                                                      <span class='ident'>poly_trait_ref</span>
-                                                         .<span class='ident'>to_predicate</span>());
-                    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>selcx</span> <span class='op'>=</span> <span class='ident'>SelectionContext</span>::<span class='ident'>new</span>(<span class='ident'>infcx</span>);
+                <span class='kw'>let</span> (_, _, <span class='ident'>opt_is_fn</span>) <span class='op'>=</span> <span class='ident'>autoderef</span>(<span class='ident'>fcx</span>,
+                                                  <span class='ident'>span</span>,
+                                                  <span class='ident'>ty</span>,
+                                                  <span class='op'>||</span> <span class='prelude-val'>None</span>,
+                                                  <span class='ident'>UnresolvedTypeAction</span>::<span class='ident'>Ignore</span>,
+                                                  <span class='ident'>LvaluePreference</span>::<span class='ident'>NoPreference</span>,
+                                                  <span class='op'>|</span><span class='ident'>ty</span>, _<span class='op'>|</span> {
+                    <span class='ident'>infcx</span>.<span class='ident'>probe</span>(<span class='op'>|</span>_<span class='op'>|</span> {
+                        <span class='kw'>let</span> <span class='ident'>fn_once_substs</span> <span class='op'>=</span>
+                            <span class='ident'>Substs</span>::<span class='ident'>new_trait</span>(<span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>infcx</span>.<span class='ident'>next_ty_var</span>()],
+                                              <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
+                                              <span class='ident'>ty</span>);
+                        <span class='kw'>let</span> <span class='ident'>trait_ref</span> <span class='op'>=</span>
+                          <span class='ident'>ty</span>::<span class='ident'>TraitRef</span>::<span class='ident'>new</span>(<span class='ident'>fn_once_trait_did</span>,
+                                            <span class='ident'>cx</span>.<span class='ident'>mk_substs</span>(<span class='ident'>fn_once_substs</span>));
+                        <span class='kw'>let</span> <span class='ident'>poly_trait_ref</span> <span class='op'>=</span> <span class='ident'>trait_ref</span>.<span class='ident'>to_poly_trait_ref</span>();
+                        <span class='kw'>let</span> <span class='ident'>obligation</span> <span class='op'>=</span> <span class='ident'>Obligation</span>::<span class='ident'>misc</span>(<span class='ident'>span</span>,
+                                                          <span class='ident'>fcx</span>.<span class='ident'>body_id</span>,
+                                                          <span class='ident'>poly_trait_ref</span>
+                                                             .<span class='ident'>to_predicate</span>());
+                        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>selcx</span> <span class='op'>=</span> <span class='ident'>SelectionContext</span>::<span class='ident'>new</span>(<span class='ident'>infcx</span>);
 
-                    <span class='kw'>return</span> <span class='ident'>selcx</span>.<span class='ident'>evaluate_obligation</span>(<span class='kw-2'>&amp;</span><span class='ident'>obligation</span>)
-                })
+                        <span class='kw'>if</span> <span class='ident'>selcx</span>.<span class='ident'>evaluate_obligation</span>(<span class='kw-2'>&amp;</span><span class='ident'>obligation</span>) {
+                            <span class='prelude-val'>Some</span>(())
+                        } <span class='kw'>else</span> {
+                            <span class='prelude-val'>None</span>
+                        }
+                    })
+                });
+
+                <span class='ident'>opt_is_fn</span>.<span class='ident'>is_some</span>()
             } <span class='kw'>else</span> {
                 <span class='boolval'>false</span>
             }
@@ -975,7 +1006,7 @@
 <span class='doccomment'>/// Retrieve all traits in this crate and any dependent crates.</span>
 <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>all_traits</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>CrateCtxt</span>) <span class='op'>-&gt;</span> <span class='ident'>AllTraits</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
     <span class='kw'>if</span> <span class='ident'>ccx</span>.<span class='ident'>all_traits</span>.<span class='ident'>borrow</span>().<span class='ident'>is_none</span>() {
-        <span class='kw'>use</span> <span class='ident'>rustc_front</span>::<span class='ident'>intravisit</span>;
+        <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>::<span class='ident'>intravisit</span>;
 
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>traits</span> <span class='op'>=</span> <span class='macro'>vec</span><span class='macro'>!</span>[];
 
