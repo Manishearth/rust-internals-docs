@@ -3057,49 +3057,6 @@
 <span id="3013">3013</span>
 <span id="3014">3014</span>
 <span id="3015">3015</span>
-<span id="3016">3016</span>
-<span id="3017">3017</span>
-<span id="3018">3018</span>
-<span id="3019">3019</span>
-<span id="3020">3020</span>
-<span id="3021">3021</span>
-<span id="3022">3022</span>
-<span id="3023">3023</span>
-<span id="3024">3024</span>
-<span id="3025">3025</span>
-<span id="3026">3026</span>
-<span id="3027">3027</span>
-<span id="3028">3028</span>
-<span id="3029">3029</span>
-<span id="3030">3030</span>
-<span id="3031">3031</span>
-<span id="3032">3032</span>
-<span id="3033">3033</span>
-<span id="3034">3034</span>
-<span id="3035">3035</span>
-<span id="3036">3036</span>
-<span id="3037">3037</span>
-<span id="3038">3038</span>
-<span id="3039">3039</span>
-<span id="3040">3040</span>
-<span id="3041">3041</span>
-<span id="3042">3042</span>
-<span id="3043">3043</span>
-<span id="3044">3044</span>
-<span id="3045">3045</span>
-<span id="3046">3046</span>
-<span id="3047">3047</span>
-<span id="3048">3048</span>
-<span id="3049">3049</span>
-<span id="3050">3050</span>
-<span id="3051">3051</span>
-<span id="3052">3052</span>
-<span id="3053">3053</span>
-<span id="3054">3054</span>
-<span id="3055">3055</span>
-<span id="3056">3056</span>
-<span id="3057">3057</span>
-<span id="3058">3058</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -3301,9 +3258,10 @@
     <span class='doccomment'>/// we found an applicable bound in the trait definition.</span>
     <span class='ident'>ProjectionCandidate</span>,
 
-    <span class='doccomment'>/// Implementation of a `Fn`-family trait by one of the</span>
-    <span class='doccomment'>/// anonymous types generated for a `||` expression.</span>
-    <span class='ident'>ClosureCandidate</span>(<span class='comment'>/* closure */</span> <span class='ident'>DefId</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>ClosureSubsts</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>),
+    <span class='doccomment'>/// Implementation of a `Fn`-family trait by one of the anonymous types</span>
+    <span class='doccomment'>/// generated for a `||` expression. The ty::ClosureKind informs the</span>
+    <span class='doccomment'>/// confirmation step what ClosureKind obligation to emit.</span>
+    <span class='ident'>ClosureCandidate</span>(<span class='comment'>/* closure */</span> <span class='ident'>DefId</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>ClosureSubsts</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>),
 
     <span class='doccomment'>/// Implementation of a `Fn`-family trait by one of the anonymous</span>
     <span class='doccomment'>/// types generated for a fn pointer type (e.g., `fn(int)-&gt;int`)</span>
@@ -3424,72 +3382,8 @@
 
         <span class='kw'>let</span> <span class='ident'>stack</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>push_stack</span>(<span class='ident'>TraitObligationStackList</span>::<span class='ident'>empty</span>(), <span class='ident'>obligation</span>);
         <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>candidate_from_obligation</span>(<span class='kw-2'>&amp;</span><span class='ident'>stack</span>)? {
-            <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>consider_unification_despite_ambiguity</span>(<span class='ident'>obligation</span>);
-                <span class='prelude-val'>Ok</span>(<span class='prelude-val'>None</span>)
-            }
+            <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='prelude-val'>Ok</span>(<span class='prelude-val'>None</span>),
             <span class='prelude-val'>Some</span>(<span class='ident'>candidate</span>) <span class='op'>=&gt;</span> <span class='prelude-val'>Ok</span>(<span class='prelude-val'>Some</span>(<span class='self'>self</span>.<span class='ident'>confirm_candidate</span>(<span class='ident'>obligation</span>, <span class='ident'>candidate</span>)?)),
-        }
-    }
-
-    <span class='doccomment'>/// In the particular case of unboxed closure obligations, we can</span>
-    <span class='doccomment'>/// sometimes do some amount of unification for the</span>
-    <span class='doccomment'>/// argument/return types even though we can&#39;t yet fully match obligation.</span>
-    <span class='doccomment'>/// The particular case we are interesting in is an obligation of the form:</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>///    C : FnFoo&lt;A&gt;</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// where `C` is an unboxed closure type and `FnFoo` is one of the</span>
-    <span class='doccomment'>/// `Fn` traits. Because we know that users cannot write impls for closure types</span>
-    <span class='doccomment'>/// themselves, the only way that `C : FnFoo` can fail to match is under two</span>
-    <span class='doccomment'>/// conditions:</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// 1. The closure kind for `C` is not yet known, because inference isn&#39;t complete.</span>
-    <span class='doccomment'>/// 2. The closure kind for `C` *is* known, but doesn&#39;t match what is needed.</span>
-    <span class='doccomment'>///    For example, `C` may be a `FnOnce` closure, but a `Fn` closure is needed.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// In either case, we always know what argument types are</span>
-    <span class='doccomment'>/// expected by `C`, no matter what kind of `Fn` trait it</span>
-    <span class='doccomment'>/// eventually matches. So we can go ahead and unify the argument</span>
-    <span class='doccomment'>/// types, even though the end result is ambiguous.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// Note that this is safe *even if* the trait would never be</span>
-    <span class='doccomment'>/// matched (case 2 above). After all, in that case, an error will</span>
-    <span class='doccomment'>/// result, so it kind of doesn&#39;t matter what we do --- unifying</span>
-    <span class='doccomment'>/// the argument types can only be helpful to the user, because</span>
-    <span class='doccomment'>/// once they patch up the kind of closure that is expected, the</span>
-    <span class='doccomment'>/// argment types won&#39;t really change.</span>
-    <span class='kw'>fn</span> <span class='ident'>consider_unification_despite_ambiguity</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>obligation</span>: <span class='kw-2'>&amp;</span><span class='ident'>TraitObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) {
-        <span class='comment'>// Is this a `C : FnFoo(...)` trait reference for some trait binding `FnFoo`?</span>
-        <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>tcx</span>().<span class='ident'>lang_items</span>.<span class='ident'>fn_trait_kind</span>(<span class='ident'>obligation</span>.<span class='ident'>predicate</span>.<span class='number'>0</span>.<span class='ident'>def_id</span>()) {
-            <span class='prelude-val'>Some</span>(_) <span class='op'>=&gt;</span> { }
-            <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> { <span class='kw'>return</span>; }
-        }
-
-        <span class='comment'>// Is the self-type a closure type? We ignore bindings here</span>
-        <span class='comment'>// because if it is a closure type, it must be a closure type from</span>
-        <span class='comment'>// within this current fn, and hence none of the higher-ranked</span>
-        <span class='comment'>// lifetimes can appear inside the self-type.</span>
-        <span class='kw'>let</span> <span class='ident'>self_ty</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>shallow_resolve</span>(<span class='op'>*</span><span class='ident'>obligation</span>.<span class='ident'>self_ty</span>().<span class='ident'>skip_binder</span>());
-        <span class='kw'>let</span> (<span class='ident'>closure_def_id</span>, <span class='ident'>substs</span>) <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>self_ty</span>.<span class='ident'>sty</span> {
-            <span class='ident'>ty</span>::<span class='ident'>TyClosure</span>(<span class='ident'>id</span>, <span class='kw-2'>ref</span> <span class='ident'>substs</span>) <span class='op'>=&gt;</span> (<span class='ident'>id</span>, <span class='ident'>substs</span>),
-            _ <span class='op'>=&gt;</span> { <span class='kw'>return</span>; }
-        };
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>substs</span>.<span class='ident'>has_escaping_regions</span>());
-
-        <span class='comment'>// It is OK to call the unnormalized variant here - this is only</span>
-        <span class='comment'>// reached for TyClosure: Fn inputs where the closure kind is</span>
-        <span class='comment'>// still unknown, which should only occur in typeck where the</span>
-        <span class='comment'>// closure type is already normalized.</span>
-        <span class='kw'>let</span> <span class='ident'>closure_trait_ref</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>closure_trait_ref_unnormalized</span>(<span class='ident'>obligation</span>,
-                                                                    <span class='ident'>closure_def_id</span>,
-                                                                    <span class='ident'>substs</span>);
-
-        <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>confirm_poly_trait_refs</span>(<span class='ident'>obligation</span>.<span class='ident'>cause</span>.<span class='ident'>clone</span>(),
-                                           <span class='ident'>obligation</span>.<span class='ident'>predicate</span>.<span class='ident'>to_poly_trait_ref</span>(),
-                                           <span class='ident'>closure_trait_ref</span>) {
-            <span class='prelude-val'>Ok</span>(()) <span class='op'>=&gt;</span> { }
-            <span class='prelude-val'>Err</span>(_) <span class='op'>=&gt;</span> { <span class='comment'>/* Silently ignore errors. */</span> }
         }
     }
 
@@ -3632,6 +3526,21 @@
                     }
                     <span class='prelude-val'>Err</span>(_) <span class='op'>=&gt;</span> {
                         <span class='ident'>EvaluatedToErr</span>
+                    }
+                }
+            }
+
+            <span class='ident'>ty</span>::<span class='ident'>Predicate</span>::<span class='ident'>ClosureKind</span>(<span class='ident'>closure_def_id</span>, <span class='ident'>kind</span>) <span class='op'>=&gt;</span> {
+                <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>closure_kind</span>(<span class='ident'>closure_def_id</span>) {
+                    <span class='prelude-val'>Some</span>(<span class='ident'>closure_kind</span>) <span class='op'>=&gt;</span> {
+                        <span class='kw'>if</span> <span class='ident'>closure_kind</span>.<span class='ident'>extends</span>(<span class='ident'>kind</span>) {
+                            <span class='ident'>EvaluatedToOk</span>
+                        } <span class='kw'>else</span> {
+                            <span class='ident'>EvaluatedToErr</span>
+                        }
+                    }
+                    <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> {
+                        <span class='ident'>EvaluatedToAmbig</span>
                     }
                 }
             }
@@ -4385,12 +4294,12 @@
             <span class='prelude-val'>Some</span>(<span class='ident'>closure_kind</span>) <span class='op'>=&gt;</span> {
                 <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;assemble_unboxed_candidates: closure_kind = {:?}&quot;</span>, <span class='ident'>closure_kind</span>);
                 <span class='kw'>if</span> <span class='ident'>closure_kind</span>.<span class='ident'>extends</span>(<span class='ident'>kind</span>) {
-                    <span class='ident'>candidates</span>.<span class='ident'>vec</span>.<span class='ident'>push</span>(<span class='ident'>ClosureCandidate</span>(<span class='ident'>closure_def_id</span>, <span class='ident'>substs</span>));
+                    <span class='ident'>candidates</span>.<span class='ident'>vec</span>.<span class='ident'>push</span>(<span class='ident'>ClosureCandidate</span>(<span class='ident'>closure_def_id</span>, <span class='ident'>substs</span>, <span class='ident'>kind</span>));
                 }
             }
             <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> {
                 <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;assemble_unboxed_candidates: closure_kind not yet known&quot;</span>);
-                <span class='ident'>candidates</span>.<span class='ident'>ambiguous</span> <span class='op'>=</span> <span class='boolval'>true</span>;
+                <span class='ident'>candidates</span>.<span class='ident'>vec</span>.<span class='ident'>push</span>(<span class='ident'>ClosureCandidate</span>(<span class='ident'>closure_def_id</span>, <span class='ident'>substs</span>, <span class='ident'>kind</span>));
             }
         }
 
@@ -5174,9 +5083,9 @@
                 <span class='prelude-val'>Ok</span>(<span class='ident'>VtableImpl</span>(<span class='ident'>vtable_impl</span>))
             }
 
-            <span class='ident'>ClosureCandidate</span>(<span class='ident'>closure_def_id</span>, <span class='ident'>substs</span>) <span class='op'>=&gt;</span> {
+            <span class='ident'>ClosureCandidate</span>(<span class='ident'>closure_def_id</span>, <span class='ident'>substs</span>, <span class='ident'>kind</span>) <span class='op'>=&gt;</span> {
                 <span class='kw'>let</span> <span class='ident'>vtable_closure</span> <span class='op'>=</span>
-                    <span class='self'>self</span>.<span class='ident'>confirm_closure_candidate</span>(<span class='ident'>obligation</span>, <span class='ident'>closure_def_id</span>, <span class='ident'>substs</span>)?;
+                    <span class='self'>self</span>.<span class='ident'>confirm_closure_candidate</span>(<span class='ident'>obligation</span>, <span class='ident'>closure_def_id</span>, <span class='ident'>substs</span>, <span class='ident'>kind</span>)?;
                 <span class='prelude-val'>Ok</span>(<span class='ident'>VtableClosure</span>(<span class='ident'>vtable_closure</span>))
             }
 
@@ -5533,7 +5442,8 @@
     <span class='kw'>fn</span> <span class='ident'>confirm_closure_candidate</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
                                  <span class='ident'>obligation</span>: <span class='kw-2'>&amp;</span><span class='ident'>TraitObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
                                  <span class='ident'>closure_def_id</span>: <span class='ident'>DefId</span>,
-                                 <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>ClosureSubsts</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
+                                 <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>ClosureSubsts</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+                                 <span class='ident'>kind</span>: <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>)
                                  <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>VtableClosureData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>PredicateObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
                                            <span class='ident'>SelectionError</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>
     {
@@ -5544,7 +5454,7 @@
 
         <span class='kw'>let</span> <span class='ident'>Normalized</span> {
             <span class='ident'>value</span>: <span class='ident'>trait_ref</span>,
-            <span class='ident'>obligations</span>
+            <span class='kw-2'>mut</span> <span class='ident'>obligations</span>
         } <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>closure_trait_ref</span>(<span class='ident'>obligation</span>, <span class='ident'>closure_def_id</span>, <span class='ident'>substs</span>);
 
         <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;confirm_closure_candidate(closure_def_id={:?}, trait_ref={:?}, obligations={:?})&quot;</span>,
@@ -5555,6 +5465,10 @@
         <span class='self'>self</span>.<span class='ident'>confirm_poly_trait_refs</span>(<span class='ident'>obligation</span>.<span class='ident'>cause</span>.<span class='ident'>clone</span>(),
                                      <span class='ident'>obligation</span>.<span class='ident'>predicate</span>.<span class='ident'>to_poly_trait_ref</span>(),
                                      <span class='ident'>trait_ref</span>)?;
+
+        <span class='ident'>obligations</span>.<span class='ident'>push</span>(<span class='ident'>Obligation</span>::<span class='ident'>new</span>(
+                <span class='ident'>obligation</span>.<span class='ident'>cause</span>.<span class='ident'>clone</span>(),
+                <span class='ident'>ty</span>::<span class='ident'>Predicate</span>::<span class='ident'>ClosureKind</span>(<span class='ident'>closure_def_id</span>, <span class='ident'>kind</span>)));
 
         <span class='prelude-val'>Ok</span>(<span class='ident'>VtableClosureData</span> {
             <span class='ident'>closure_def_id</span>: <span class='ident'>closure_def_id</span>,

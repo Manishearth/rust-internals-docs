@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["highlight","Highlights some source code, returning the HTML output."]]});
+initSidebarItems({"fn":[["render_inner_with_highlighting","Highlights `src`, returning the HTML output. Returns only the inner html to be inserted into an element. C.f., `render_with_highlighting` which includes an enclosing `<pre>` block."],["render_with_highlighting","Highlights `src`, returning the HTML output."]]});

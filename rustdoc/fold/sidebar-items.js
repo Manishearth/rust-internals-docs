@@ -1,1 +1,1 @@
-initSidebarItems({"trait":[["DocFolder",""]]});
+initSidebarItems({"enum":[["FoldItem",""]],"trait":[["DocFolder",""]]});
