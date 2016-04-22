@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["add_configuration","Add `target_feature = \"...\"` cfgs for a variety of platform specific features (SSE, NEON etc.)."],["has_avx",""],["has_avx2",""],["has_neon",""],["has_sse",""],["has_sse2",""],["has_sse3",""],["has_sse41",""],["has_sse42",""],["has_ssse3",""],["has_vfp",""]]});
+initSidebarItems({"fn":[["add_configuration","Add `target_feature = \"...\"` cfgs for a variety of platform specific features (SSE, NEON etc.)."]]});
