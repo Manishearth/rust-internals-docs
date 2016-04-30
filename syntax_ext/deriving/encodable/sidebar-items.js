@@ -1,1 +1,0 @@
-initSidebarItems({"fn":[["expand_deriving_encodable",""],["expand_deriving_rustc_encodable",""]]});

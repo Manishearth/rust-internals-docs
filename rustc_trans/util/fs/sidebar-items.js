@@ -1,1 +1,0 @@
-initSidebarItems({"fn":[["fix_windows_verbatim_for_gcc",""]]});

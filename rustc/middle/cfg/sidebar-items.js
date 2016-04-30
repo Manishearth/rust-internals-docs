@@ -1,1 +1,0 @@
-initSidebarItems({"enum":[["CFGNodeData",""]],"mod":[["graphviz",""]],"struct":[["CFG",""],["CFGEdgeData",""]],"type":[["CFGEdge",""],["CFGGraph",""],["CFGIndex",""],["CFGNode",""]]});

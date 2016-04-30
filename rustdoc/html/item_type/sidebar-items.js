@@ -1,1 +1,0 @@
-initSidebarItems({"enum":[["ItemType","Item type. Corresponds to `clean::ItemEnum` variants."]]});

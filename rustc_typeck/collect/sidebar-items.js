@@ -1,1 +1,0 @@
-initSidebarItems({"fn":[["collect_item_types",""]]});

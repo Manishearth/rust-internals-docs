@@ -1,1 +1,0 @@
-initSidebarItems({"struct":[["TypedArena","A faster arena that can hold objects of only one type."]]});

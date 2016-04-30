@@ -1,1 +1,0 @@
-initSidebarItems({"constant":[["F32_SHORT_POWERS",""],["F64_SHORT_POWERS",""],["MAX_E",""],["MIN_E",""],["POWERS",""]]});

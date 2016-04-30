@@ -1,1 +1,0 @@
-initSidebarItems({"constant":[["UNICODE_VERSION","The version of Unicode that the unicode parts of `CharExt` and `UnicodeStrPrelude` traits are based on."]],"mod":[["conversions",""],["derived_property",""],["general_category",""],["property",""]]});

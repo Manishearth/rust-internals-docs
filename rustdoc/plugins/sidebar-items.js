@@ -1,1 +1,0 @@
-initSidebarItems({"struct":[["PluginManager","Manages loading and running of plugins"]],"type":[["PluginCallback",""],["PluginResult",""]]});

@@ -1,1 +1,0 @@
-initSidebarItems({"enum":[["Variant",""]],"struct":[["DataflowLabeller",""]],"type":[["Edge",""],["Node",""]]});

@@ -1,1 +1,0 @@
-initSidebarItems({"fn":[["super_lattice_tys",""]],"trait":[["LatticeDir",""]]});

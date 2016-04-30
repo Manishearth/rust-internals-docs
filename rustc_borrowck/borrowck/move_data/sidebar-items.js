@@ -1,1 +1,0 @@
-initSidebarItems({"mod":[["fragments","Helper routines used for fragmenting structural paths due to moves for tracking drop obligations. Please see the extensive comments in the section \"Structural fragments\" in `README.md`."]]});

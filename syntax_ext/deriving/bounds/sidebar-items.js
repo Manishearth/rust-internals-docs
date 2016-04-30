@@ -1,1 +1,0 @@
-initSidebarItems({"fn":[["expand_deriving_copy",""],["expand_deriving_unsafe_bound",""]]});
