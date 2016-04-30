@@ -1,0 +1,1 @@
+initSidebarItems({"mod":[["arc","Threadsafe reference-counted boxes (the `Arc<T>` type)."],["boxed","A pointer type for heap allocation."],["heap",""],["oom",""],["raw_vec",""],["rc","Thread-local reference-counted boxes (the `Rc<T>` type)."]]});

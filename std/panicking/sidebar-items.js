@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["set_hook","Registers a custom panic hook, replacing any that was previously registered."],["take_hook","Unregisters the current panic hook, returning it."]],"struct":[["Location","A struct containing information about the location of a panic."],["PanicInfo","A struct providing information about a panic."]]});

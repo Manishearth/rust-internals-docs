@@ -1,0 +1,1 @@
+initSidebarItems({"trait":[["Iterator","An interface for dealing with iterators."]]});
