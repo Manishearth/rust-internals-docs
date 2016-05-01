@@ -1,0 +1,1 @@
+initSidebarItems({"constant":[["MAX_HIGHLIGHT_LINES","maximum number of lines we will print for each error; arbitrary."]],"enum":[["ColorConfig",""]],"struct":[["BasicEmitter","A basic emitter for when we don't have access to a codemap or registry. Used for reporting very early errors, etc."],["EmitterWriter",""]],"trait":[["Emitter",""]]});

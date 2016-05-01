@@ -1,0 +1,1 @@
+initSidebarItems({"constant":[["DIAGNOSTICS",""]],"enum":[["MakeGlobMap",""],["Namespace",""],["ResolveResult",""]],"fn":[["resolve_crate","Entry point to crate resolution."]],"struct":[["CrateMap",""],["ModuleS","One node in the tree of modules."],["NameBinding",""],["Resolver","The main resolver class."]],"type":[["ErrorMessage",""],["Module",""]]});

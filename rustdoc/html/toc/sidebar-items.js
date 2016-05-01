@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Toc","A (recursive) table of contents"],["TocBuilder","Progressive construction of a table of contents."],["TocEntry",""]]});

@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["DepTrackingMap","A DepTrackingMap offers a subset of the `Map` API and ensures that we make calls to `read` and `write` as appropriate. We key the maps with a unique type for brevity."]],"trait":[["DepTrackingMapConfig",""]]});

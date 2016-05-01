@@ -1,0 +1,1 @@
+initSidebarItems({"mod":[["base",""],["build",""],["expand",""],["mtwt","Machinery for hygienic macros, as described in the MTWT[1] paper."],["quote",""],["source_util",""],["tt",""]]});

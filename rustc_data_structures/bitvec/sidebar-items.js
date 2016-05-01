@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["BitMatrix","A \"bit matrix\" is basically a square matrix of booleans represented as one gigantic bitvector. In other words, it is as if you have N bitvectors, each of length N. Note that `elements` here is `N`/"],["BitVector","A very simple BitVector type."],["BitVectorIter",""]]});

@@ -1,0 +1,1 @@
+initSidebarItems({"constant":[["FAT_PTR_ADDR","The first half of a fat pointer. - For a trait object, this is the address of the box. - For a slice, this is the base address."],["FAT_PTR_EXTRA","The second half of a fat pointer. - For a trait object, this is the address of the vtable. - For a slice, this is the length."]],"enum":[["Abi",""]]});

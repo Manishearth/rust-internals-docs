@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["LangItem",""]],"fn":[["collect_language_items",""],["extract",""]],"struct":[["LanguageItems",""]]});

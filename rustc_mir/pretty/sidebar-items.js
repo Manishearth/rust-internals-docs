@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["dump_mir","If the session is properly configured, dumps a human-readable representation of the mir into:"],["write_mir_fn",""],["write_mir_pretty","Write out a human-readable textual representation for the given MIR."]]});

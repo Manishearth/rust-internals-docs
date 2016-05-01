@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="rustdoc">
+    <meta name="description" content="Source to the Rust file `src/librustc_trans/partitioning.rs`.">
+    <meta name="keywords" content="rust, rustlang, rust-lang">
+
+    <title>partitioning.rs.html -- source</title>
+
+    <link rel="stylesheet" type="text/css" href="../../../../rustdoc.css">
+    <link rel="stylesheet" type="text/css" href="../../../../main.css">
+    
+
+    <link rel="shortcut icon" href="https://doc.rust-lang.org/favicon.ico">
+    
+</head>
+<body class="rustdoc">
+    <!--[if lte IE 8]>
+    <div class="warning">
+        This old browser is unsupported and will most likely display funky
+        things.
+    </div>
+    <![endif]-->
+
+    
+
+    <nav class="sidebar">
+        <a href='../../../../rustc_trans/index.html'><img src='https://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png' alt='logo' width='100'></a>
+        
+    </nav>
+
+    <nav class="sub">
+        <form class="search-form js-only">
+            <div class="search-container">
+                <input class="search-input" name="search"
+                       autocomplete="off"
+                       placeholder="Click or press ‘S’ to search, ‘?’ for more options…"
+                       type="search">
+            </div>
+        </form>
+    </nav>
+
+    <section id='main' class="content source"><pre class="line-numbers"><span id="1">  1</span>
+<span id="2">  2</span>
+<span id="3">  3</span>
+<span id="4">  4</span>
+<span id="5">  5</span>
+<span id="6">  6</span>
+<span id="7">  7</span>
+<span id="8">  8</span>
+<span id="9">  9</span>
+<span id="10"> 10</span>
+<span id="11"> 11</span>
+<span id="12"> 12</span>
+<span id="13"> 13</span>
+<span id="14"> 14</span>
+<span id="15"> 15</span>
+<span id="16"> 16</span>
+<span id="17"> 17</span>
+<span id="18"> 18</span>
+<span id="19"> 19</span>
+<span id="20"> 20</span>
+<span id="21"> 21</span>
+<span id="22"> 22</span>
+<span id="23"> 23</span>
+<span id="24"> 24</span>
+<span id="25"> 25</span>
+<span id="26"> 26</span>
+<span id="27"> 27</span>
+<span id="28"> 28</span>
+<span id="29"> 29</span>
+<span id="30"> 30</span>
+<span id="31"> 31</span>
+<span id="32"> 32</span>
+<span id="33"> 33</span>
+<span id="34"> 34</span>
+<span id="35"> 35</span>
+<span id="36"> 36</span>
+<span id="37"> 37</span>
+<span id="38"> 38</span>
+<span id="39"> 39</span>
+<span id="40"> 40</span>
+<span id="41"> 41</span>
+<span id="42"> 42</span>
+<span id="43"> 43</span>
+<span id="44"> 44</span>
+<span id="45"> 45</span>
+<span id="46"> 46</span>
+<span id="47"> 47</span>
+<span id="48"> 48</span>
+<span id="49"> 49</span>
+<span id="50"> 50</span>
+<span id="51"> 51</span>
+<span id="52"> 52</span>
+<span id="53"> 53</span>
+<span id="54"> 54</span>
+<span id="55"> 55</span>
+<span id="56"> 56</span>
+<span id="57"> 57</span>
+<span id="58"> 58</span>
+<span id="59"> 59</span>
+<span id="60"> 60</span>
+<span id="61"> 61</span>
+<span id="62"> 62</span>
+<span id="63"> 63</span>
+<span id="64"> 64</span>
+<span id="65"> 65</span>
+<span id="66"> 66</span>
+<span id="67"> 67</span>
+<span id="68"> 68</span>
+<span id="69"> 69</span>
+<span id="70"> 70</span>
+<span id="71"> 71</span>
+<span id="72"> 72</span>
+<span id="73"> 73</span>
+<span id="74"> 74</span>
+<span id="75"> 75</span>
+<span id="76"> 76</span>
+<span id="77"> 77</span>
+<span id="78"> 78</span>
+<span id="79"> 79</span>
+<span id="80"> 80</span>
+<span id="81"> 81</span>
+<span id="82"> 82</span>
+<span id="83"> 83</span>
+<span id="84"> 84</span>
+<span id="85"> 85</span>
+<span id="86"> 86</span>
+<span id="87"> 87</span>
+<span id="88"> 88</span>
+<span id="89"> 89</span>
+<span id="90"> 90</span>
+<span id="91"> 91</span>
+<span id="92"> 92</span>
+<span id="93"> 93</span>
+<span id="94"> 94</span>
+<span id="95"> 95</span>
+<span id="96"> 96</span>
+<span id="97"> 97</span>
+<span id="98"> 98</span>
+<span id="99"> 99</span>
+<span id="100">100</span>
+<span id="101">101</span>
+<span id="102">102</span>
+<span id="103">103</span>
+<span id="104">104</span>
+<span id="105">105</span>
+<span id="106">106</span>
+<span id="107">107</span>
+<span id="108">108</span>
+<span id="109">109</span>
+<span id="110">110</span>
+<span id="111">111</span>
+<span id="112">112</span>
+<span id="113">113</span>
+<span id="114">114</span>
+<span id="115">115</span>
+<span id="116">116</span>
+<span id="117">117</span>
+<span id="118">118</span>
+<span id="119">119</span>
+<span id="120">120</span>
+<span id="121">121</span>
+<span id="122">122</span>
+<span id="123">123</span>
+<span id="124">124</span>
+<span id="125">125</span>
+<span id="126">126</span>
+<span id="127">127</span>
+<span id="128">128</span>
+<span id="129">129</span>
+<span id="130">130</span>
+<span id="131">131</span>
+<span id="132">132</span>
+<span id="133">133</span>
+<span id="134">134</span>
+<span id="135">135</span>
+<span id="136">136</span>
+<span id="137">137</span>
+<span id="138">138</span>
+<span id="139">139</span>
+<span id="140">140</span>
+<span id="141">141</span>
+<span id="142">142</span>
+<span id="143">143</span>
+<span id="144">144</span>
+<span id="145">145</span>
+<span id="146">146</span>
+<span id="147">147</span>
+<span id="148">148</span>
+<span id="149">149</span>
+<span id="150">150</span>
+<span id="151">151</span>
+<span id="152">152</span>
+<span id="153">153</span>
+<span id="154">154</span>
+<span id="155">155</span>
+<span id="156">156</span>
+<span id="157">157</span>
+<span id="158">158</span>
+<span id="159">159</span>
+<span id="160">160</span>
+<span id="161">161</span>
+<span id="162">162</span>
+<span id="163">163</span>
+<span id="164">164</span>
+<span id="165">165</span>
+<span id="166">166</span>
+<span id="167">167</span>
+<span id="168">168</span>
+<span id="169">169</span>
+<span id="170">170</span>
+<span id="171">171</span>
+<span id="172">172</span>
+<span id="173">173</span>
+<span id="174">174</span>
+<span id="175">175</span>
+<span id="176">176</span>
+<span id="177">177</span>
+<span id="178">178</span>
+<span id="179">179</span>
+<span id="180">180</span>
+<span id="181">181</span>
+<span id="182">182</span>
+<span id="183">183</span>
+<span id="184">184</span>
+<span id="185">185</span>
+<span id="186">186</span>
+<span id="187">187</span>
+<span id="188">188</span>
+<span id="189">189</span>
+<span id="190">190</span>
+<span id="191">191</span>
+<span id="192">192</span>
+<span id="193">193</span>
+<span id="194">194</span>
+<span id="195">195</span>
+<span id="196">196</span>
+<span id="197">197</span>
+<span id="198">198</span>
+<span id="199">199</span>
+<span id="200">200</span>
+<span id="201">201</span>
+<span id="202">202</span>
+<span id="203">203</span>
+<span id="204">204</span>
+<span id="205">205</span>
+<span id="206">206</span>
+<span id="207">207</span>
+<span id="208">208</span>
+<span id="209">209</span>
+<span id="210">210</span>
+<span id="211">211</span>
+<span id="212">212</span>
+<span id="213">213</span>
+<span id="214">214</span>
+<span id="215">215</span>
+<span id="216">216</span>
+<span id="217">217</span>
+<span id="218">218</span>
+<span id="219">219</span>
+<span id="220">220</span>
+<span id="221">221</span>
+<span id="222">222</span>
+<span id="223">223</span>
+<span id="224">224</span>
+<span id="225">225</span>
+<span id="226">226</span>
+<span id="227">227</span>
+<span id="228">228</span>
+<span id="229">229</span>
+<span id="230">230</span>
+<span id="231">231</span>
+<span id="232">232</span>
+<span id="233">233</span>
+<span id="234">234</span>
+<span id="235">235</span>
+<span id="236">236</span>
+<span id="237">237</span>
+<span id="238">238</span>
+<span id="239">239</span>
+<span id="240">240</span>
+<span id="241">241</span>
+<span id="242">242</span>
+<span id="243">243</span>
+<span id="244">244</span>
+<span id="245">245</span>
+<span id="246">246</span>
+<span id="247">247</span>
+<span id="248">248</span>
+<span id="249">249</span>
+<span id="250">250</span>
+<span id="251">251</span>
+<span id="252">252</span>
+<span id="253">253</span>
+<span id="254">254</span>
+<span id="255">255</span>
+<span id="256">256</span>
+<span id="257">257</span>
+<span id="258">258</span>
+<span id="259">259</span>
+<span id="260">260</span>
+<span id="261">261</span>
+<span id="262">262</span>
+<span id="263">263</span>
+<span id="264">264</span>
+<span id="265">265</span>
+<span id="266">266</span>
+<span id="267">267</span>
+<span id="268">268</span>
+<span id="269">269</span>
+<span id="270">270</span>
+<span id="271">271</span>
+<span id="272">272</span>
+<span id="273">273</span>
+<span id="274">274</span>
+<span id="275">275</span>
+<span id="276">276</span>
+<span id="277">277</span>
+<span id="278">278</span>
+<span id="279">279</span>
+<span id="280">280</span>
+<span id="281">281</span>
+<span id="282">282</span>
+<span id="283">283</span>
+<span id="284">284</span>
+<span id="285">285</span>
+<span id="286">286</span>
+<span id="287">287</span>
+<span id="288">288</span>
+<span id="289">289</span>
+<span id="290">290</span>
+<span id="291">291</span>
+<span id="292">292</span>
+<span id="293">293</span>
+<span id="294">294</span>
+<span id="295">295</span>
+<span id="296">296</span>
+<span id="297">297</span>
+<span id="298">298</span>
+<span id="299">299</span>
+<span id="300">300</span>
+<span id="301">301</span>
+<span id="302">302</span>
+<span id="303">303</span>
+<span id="304">304</span>
+<span id="305">305</span>
+<span id="306">306</span>
+<span id="307">307</span>
+<span id="308">308</span>
+<span id="309">309</span>
+<span id="310">310</span>
+<span id="311">311</span>
+<span id="312">312</span>
+<span id="313">313</span>
+<span id="314">314</span>
+<span id="315">315</span>
+<span id="316">316</span>
+<span id="317">317</span>
+<span id="318">318</span>
+<span id="319">319</span>
+<span id="320">320</span>
+<span id="321">321</span>
+<span id="322">322</span>
+<span id="323">323</span>
+<span id="324">324</span>
+<span id="325">325</span>
+<span id="326">326</span>
+<span id="327">327</span>
+<span id="328">328</span>
+<span id="329">329</span>
+<span id="330">330</span>
+<span id="331">331</span>
+<span id="332">332</span>
+<span id="333">333</span>
+<span id="334">334</span>
+<span id="335">335</span>
+<span id="336">336</span>
+<span id="337">337</span>
+<span id="338">338</span>
+<span id="339">339</span>
+<span id="340">340</span>
+<span id="341">341</span>
+<span id="342">342</span>
+<span id="343">343</span>
+<span id="344">344</span>
+<span id="345">345</span>
+<span id="346">346</span>
+<span id="347">347</span>
+<span id="348">348</span>
+<span id="349">349</span>
+<span id="350">350</span>
+<span id="351">351</span>
+<span id="352">352</span>
+<span id="353">353</span>
+<span id="354">354</span>
+<span id="355">355</span>
+<span id="356">356</span>
+<span id="357">357</span>
+<span id="358">358</span>
+<span id="359">359</span>
+<span id="360">360</span>
+<span id="361">361</span>
+<span id="362">362</span>
+<span id="363">363</span>
+<span id="364">364</span>
+<span id="365">365</span>
+<span id="366">366</span>
+<span id="367">367</span>
+<span id="368">368</span>
+<span id="369">369</span>
+<span id="370">370</span>
+<span id="371">371</span>
+<span id="372">372</span>
+<span id="373">373</span>
+<span id="374">374</span>
+<span id="375">375</span>
+<span id="376">376</span>
+<span id="377">377</span>
+<span id="378">378</span>
+<span id="379">379</span>
+<span id="380">380</span>
+<span id="381">381</span>
+<span id="382">382</span>
+<span id="383">383</span>
+<span id="384">384</span>
+<span id="385">385</span>
+<span id="386">386</span>
+<span id="387">387</span>
+<span id="388">388</span>
+<span id="389">389</span>
+<span id="390">390</span>
+<span id="391">391</span>
+<span id="392">392</span>
+<span id="393">393</span>
+<span id="394">394</span>
+<span id="395">395</span>
+<span id="396">396</span>
+<span id="397">397</span>
+<span id="398">398</span>
+<span id="399">399</span>
+<span id="400">400</span>
+<span id="401">401</span>
+<span id="402">402</span>
+<span id="403">403</span>
+<span id="404">404</span>
+<span id="405">405</span>
+<span id="406">406</span>
+<span id="407">407</span>
+<span id="408">408</span>
+<span id="409">409</span>
+<span id="410">410</span>
+<span id="411">411</span>
+<span id="412">412</span>
+<span id="413">413</span>
+<span id="414">414</span>
+<span id="415">415</span>
+<span id="416">416</span>
+<span id="417">417</span>
+<span id="418">418</span>
+<span id="419">419</span>
+<span id="420">420</span>
+<span id="421">421</span>
+<span id="422">422</span>
+<span id="423">423</span>
+<span id="424">424</span>
+<span id="425">425</span>
+<span id="426">426</span>
+<span id="427">427</span>
+<span id="428">428</span>
+<span id="429">429</span>
+<span id="430">430</span>
+<span id="431">431</span>
+<span id="432">432</span>
+</pre><pre class='rust '>
+<span class='comment'>// Copyright 2016 The Rust Project Developers. See the COPYRIGHT</span>
+<span class='comment'>// file at the top-level directory of this distribution and at</span>
+<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
+<span class='comment'>//</span>
+<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
+<span class='comment'>// except according to those terms.</span>
+
+<span class='doccomment'>//! Partitioning Codegen Units for Incremental Compilation</span>
+<span class='doccomment'>//! ======================================================</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! The task of this module is to take the complete set of translation items of</span>
+<span class='doccomment'>//! a crate and produce a set of codegen units from it, where a codegen unit</span>
+<span class='doccomment'>//! is a named set of (translation-item, linkage) pairs. That is, this module</span>
+<span class='doccomment'>//! decides which translation item appears in which codegen units with which</span>
+<span class='doccomment'>//! linkage. The following paragraphs describe some of the background on the</span>
+<span class='doccomment'>//! partitioning scheme.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! The most important opportunity for saving on compilation time with</span>
+<span class='doccomment'>//! incremental compilation is to avoid re-translating and re-optimizing code.</span>
+<span class='doccomment'>//! Since the unit of translation and optimization for LLVM is &quot;modules&quot; or, how</span>
+<span class='doccomment'>//! we call them &quot;codegen units&quot;, the particulars of how much time can be saved</span>
+<span class='doccomment'>//! by incremental compilation are tightly linked to how the output program is</span>
+<span class='doccomment'>//! partitioned into these codegen units prior to passing it to LLVM --</span>
+<span class='doccomment'>//! especially because we have to treat codegen units as opaque entities once</span>
+<span class='doccomment'>//! they are created: There is no way for us to incrementally update an existing</span>
+<span class='doccomment'>//! LLVM module and so we have to build any such module from scratch if it was</span>
+<span class='doccomment'>//! affected by some change in the source code.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! From that point of view it would make sense to maximize the number of</span>
+<span class='doccomment'>//! codegen units by, for example, putting each function into its own module.</span>
+<span class='doccomment'>//! That way only those modules would have to be re-compiled that were actually</span>
+<span class='doccomment'>//! affected by some change, minimizing the number of functions that could have</span>
+<span class='doccomment'>//! been re-used but just happened to be located in a module that is</span>
+<span class='doccomment'>//! re-compiled.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! However, since LLVM optimization does not work across module boundaries,</span>
+<span class='doccomment'>//! using such a highly granular partitioning would lead to very slow runtime</span>
+<span class='doccomment'>//! code since it would effectively prohibit inlining and other inter-procedure</span>
+<span class='doccomment'>//! optimizations. We want to avoid that as much as possible.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! Thus we end up with a trade-off: The bigger the codegen units, the better</span>
+<span class='doccomment'>//! LLVM&#39;s optimizer can do its work, but also the smaller the compilation time</span>
+<span class='doccomment'>//! reduction we get from incremental compilation.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! Ideally, we would create a partitioning such that there are few big codegen</span>
+<span class='doccomment'>//! units with few interdependencies between them. For now though, we use the</span>
+<span class='doccomment'>//! following heuristic to determine the partitioning:</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! - There are two codegen units for every source-level module:</span>
+<span class='doccomment'>//! - One for &quot;stable&quot;, that is non-generic, code</span>
+<span class='doccomment'>//! - One for more &quot;volatile&quot; code, i.e. monomorphized instances of functions</span>
+<span class='doccomment'>//!   defined in that module</span>
+<span class='doccomment'>//! - Code for monomorphized instances of functions from external crates gets</span>
+<span class='doccomment'>//!   placed into every codegen unit that uses that instance.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! In order to see why this heuristic makes sense, let&#39;s take a look at when a</span>
+<span class='doccomment'>//! codegen unit can get invalidated:</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! 1. The most straightforward case is when the BODY of a function or global</span>
+<span class='doccomment'>//! changes. Then any codegen unit containing the code for that item has to be</span>
+<span class='doccomment'>//! re-compiled. Note that this includes all codegen units where the function</span>
+<span class='doccomment'>//! has been inlined.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! 2. The next case is when the SIGNATURE of a function or global changes. In</span>
+<span class='doccomment'>//! this case, all codegen units containing a REFERENCE to that item have to be</span>
+<span class='doccomment'>//! re-compiled. This is a superset of case 1.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! 3. The final and most subtle case is when a REFERENCE to a generic function</span>
+<span class='doccomment'>//! is added or removed somewhere. Even though the definition of the function</span>
+<span class='doccomment'>//! might be unchanged, a new REFERENCE might introduce a new monomorphized</span>
+<span class='doccomment'>//! instance of this function which has to be placed and compiled somewhere.</span>
+<span class='doccomment'>//! Conversely, when removing a REFERENCE, it might have been the last one with</span>
+<span class='doccomment'>//! that particular set of generic arguments and thus we have to remove it.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! From the above we see that just using one codegen unit per source-level</span>
+<span class='doccomment'>//! module is not such a good idea, since just adding a REFERENCE to some</span>
+<span class='doccomment'>//! generic item somewhere else would invalidate everything within the module</span>
+<span class='doccomment'>//! containing the generic item. The heuristic above reduces this detrimental</span>
+<span class='doccomment'>//! side-effect of references a little by at least not touching the non-generic</span>
+<span class='doccomment'>//! code of the module.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! As another optimization, monomorphized functions from external crates get</span>
+<span class='doccomment'>//! some special handling. Since we assume that the definition of such a</span>
+<span class='doccomment'>//! function changes rather infrequently compared to local items, we can just</span>
+<span class='doccomment'>//! instantiate external functions in every codegen unit where it is referenced</span>
+<span class='doccomment'>//! -- without having to fear that doing this will cause a lot of unnecessary</span>
+<span class='doccomment'>//! re-compilations. If such a reference is added or removed, the codegen unit</span>
+<span class='doccomment'>//! has to be re-translated anyway.</span>
+<span class='doccomment'>//! (Note that this only makes sense if external crates actually don&#39;t change</span>
+<span class='doccomment'>//! frequently. For certain multi-crate projects this might not be a valid</span>
+<span class='doccomment'>//! assumption).</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! A Note on Inlining</span>
+<span class='doccomment'>//! ------------------</span>
+<span class='doccomment'>//! As briefly mentioned above, in order for LLVM to be able to inline a</span>
+<span class='doccomment'>//! function call, the body of the function has to be available in the LLVM</span>
+<span class='doccomment'>//! module where the call is made. This has a few consequences for partitioning:</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! - The partitioning algorithm has to take care of placing functions into all</span>
+<span class='doccomment'>//!   codegen units where they should be available for inlining. It also has to</span>
+<span class='doccomment'>//!   decide on the correct linkage for these functions.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! - The partitioning algorithm has to know which functions are likely to get</span>
+<span class='doccomment'>//!   inlined, so it can distribute function instantiations accordingly. Since</span>
+<span class='doccomment'>//!   there is no way of knowing for sure which functions LLVM will decide to</span>
+<span class='doccomment'>//!   inline in the end, we apply a heuristic here: Only functions marked with</span>
+<span class='doccomment'>//!   #[inline] and (as stated above) functions from external crates are</span>
+<span class='doccomment'>//!   considered for inlining by the partitioner. The current implementation</span>
+<span class='doccomment'>//!   will not try to determine if a function is likely to be inlined by looking</span>
+<span class='doccomment'>//!   at the functions definition.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! Note though that as a side-effect of creating a codegen units per</span>
+<span class='doccomment'>//! source-level module, functions from the same module will be available for</span>
+<span class='doccomment'>//! inlining, even when they are not marked #[inline].</span>
+
+<span class='kw'>use</span> <span class='ident'>collector</span>::{<span class='ident'>TransItem</span>, <span class='ident'>ReferenceMap</span>};
+<span class='kw'>use</span> <span class='ident'>monomorphize</span>;
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>::<span class='ident'>def_id</span>::<span class='ident'>DefId</span>;
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>::<span class='ident'>map</span>::<span class='ident'>DefPathData</span>;
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::<span class='ident'>TyCtxt</span>;
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::<span class='ident'>item_path</span>::<span class='ident'>characteristic_def_id_of_type</span>;
+<span class='kw'>use</span> <span class='ident'>llvm</span>;
+<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>parse</span>::<span class='ident'>token</span>::{<span class='self'>self</span>, <span class='ident'>InternedString</span>};
+<span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>nodemap</span>::{<span class='ident'>FnvHashMap</span>, <span class='ident'>FnvHashSet</span>};
+
+<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Copy</span>, <span class='ident'>Eq</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Debug</span>)]</span>
+<span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>InstantiationMode</span> {
+    <span class='doccomment'>/// This variant indicates that a translation item should be placed in some</span>
+    <span class='doccomment'>/// codegen unit as a definition and with the given linkage.</span>
+    <span class='ident'>Def</span>(<span class='ident'>llvm</span>::<span class='ident'>Linkage</span>),
+
+    <span class='doccomment'>/// This variant indicates that only a declaration of some translation item</span>
+    <span class='doccomment'>/// should be placed in a given codegen unit.</span>
+    <span class='ident'>Decl</span>
+}
+
+<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>CodegenUnit</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
+    <span class='kw'>pub</span> <span class='ident'>name</span>: <span class='ident'>InternedString</span>,
+    <span class='kw'>pub</span> <span class='ident'>items</span>: <span class='ident'>FnvHashMap</span><span class='op'>&lt;</span><span class='ident'>TransItem</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>InstantiationMode</span><span class='op'>&gt;</span>,
+}
+
+<span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>PartitioningStrategy</span> {
+    <span class='doccomment'>/// Generate one codegen unit per source-level module.</span>
+    <span class='ident'>PerModule</span>,
+
+    <span class='doccomment'>/// Partition the whole crate into a fixed number of codegen units.</span>
+    <span class='ident'>FixedUnitCount</span>(<span class='ident'>usize</span>)
+}
+
+<span class='comment'>// Anything we can&#39;t find a proper codegen unit for goes into this.</span>
+<span class='kw'>const</span> <span class='ident'>FALLBACK_CODEGEN_UNIT</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;static</span> <span class='ident'>str</span> <span class='op'>=</span> <span class='string'>&quot;__rustc_fallback_codegen_unit&quot;</span>;
+
+<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>partition</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>I</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+                          <span class='ident'>trans_items</span>: <span class='ident'>I</span>,
+                          <span class='ident'>strategy</span>: <span class='ident'>PartitioningStrategy</span>,
+                          <span class='ident'>reference_map</span>: <span class='kw-2'>&amp;</span><span class='ident'>ReferenceMap</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
+                          <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>CodegenUnit</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>
+    <span class='kw'>where</span> <span class='ident'>I</span>: <span class='ident'>Iterator</span><span class='op'>&lt;</span><span class='ident'>Item</span> <span class='op'>=</span> <span class='ident'>TransItem</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>
+{
+    <span class='comment'>// In the first step, we place all regular translation items into their</span>
+    <span class='comment'>// respective &#39;home&#39; codegen unit. Regular translation items are all</span>
+    <span class='comment'>// functions and statics defined in the local crate.</span>
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>initial_partitioning</span> <span class='op'>=</span> <span class='ident'>place_root_translation_items</span>(<span class='ident'>tcx</span>, <span class='ident'>trans_items</span>);
+
+    <span class='comment'>// If the partitioning should produce a fixed count of codegen units, merge</span>
+    <span class='comment'>// until that count is reached.</span>
+    <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>PartitioningStrategy</span>::<span class='ident'>FixedUnitCount</span>(<span class='ident'>count</span>) <span class='op'>=</span> <span class='ident'>strategy</span> {
+        <span class='ident'>merge_codegen_units</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>initial_partitioning</span>, <span class='ident'>count</span>, <span class='kw-2'>&amp;</span><span class='ident'>tcx</span>.<span class='ident'>crate_name</span>[..]);
+    }
+
+    <span class='comment'>// In the next step, we use the inlining map to determine which addtional</span>
+    <span class='comment'>// translation items have to go into each codegen unit. These additional</span>
+    <span class='comment'>// translation items can be drop-glue, functions from external crates, and</span>
+    <span class='comment'>// local functions the definition of which is marked with #[inline].</span>
+    <span class='kw'>let</span> <span class='ident'>post_inlining</span> <span class='op'>=</span> <span class='ident'>place_inlined_translation_items</span>(<span class='ident'>initial_partitioning</span>,
+                                                        <span class='ident'>reference_map</span>);
+
+    <span class='comment'>// Now we know all *definitions* within all codegen units, thus we can</span>
+    <span class='comment'>// easily determine which declarations need to be placed within each one.</span>
+    <span class='kw'>let</span> <span class='ident'>post_declarations</span> <span class='op'>=</span> <span class='ident'>place_declarations</span>(<span class='ident'>post_inlining</span>, <span class='ident'>reference_map</span>);
+
+    <span class='ident'>post_declarations</span>.<span class='number'>0</span>
+}
+
+<span class='kw'>struct</span> <span class='ident'>PreInliningPartitioning</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
+    <span class='ident'>codegen_units</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>CodegenUnit</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
+    <span class='ident'>roots</span>: <span class='ident'>FnvHashSet</span><span class='op'>&lt;</span><span class='ident'>TransItem</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
+}
+
+<span class='kw'>struct</span> <span class='ident'>PostInliningPartitioning</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>CodegenUnit</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>);
+<span class='kw'>struct</span> <span class='ident'>PostDeclarationsPartitioning</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>CodegenUnit</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>);
+
+<span class='kw'>fn</span> <span class='ident'>place_root_translation_items</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>I</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+                                         <span class='ident'>trans_items</span>: <span class='ident'>I</span>)
+                                         <span class='op'>-&gt;</span> <span class='ident'>PreInliningPartitioning</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
+    <span class='kw'>where</span> <span class='ident'>I</span>: <span class='ident'>Iterator</span><span class='op'>&lt;</span><span class='ident'>Item</span> <span class='op'>=</span> <span class='ident'>TransItem</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>
+{
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>roots</span> <span class='op'>=</span> <span class='ident'>FnvHashSet</span>();
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>codegen_units</span> <span class='op'>=</span> <span class='ident'>FnvHashMap</span>();
+
+    <span class='kw'>for</span> <span class='ident'>trans_item</span> <span class='kw'>in</span> <span class='ident'>trans_items</span> {
+        <span class='kw'>let</span> <span class='ident'>is_root</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>trans_item</span> {
+            <span class='ident'>TransItem</span>::<span class='ident'>Static</span>(..) <span class='op'>=&gt;</span> <span class='boolval'>true</span>,
+            <span class='ident'>TransItem</span>::<span class='ident'>DropGlue</span>(..) <span class='op'>=&gt;</span> <span class='boolval'>false</span>,
+            <span class='ident'>TransItem</span>::<span class='ident'>Fn</span>(_) <span class='op'>=&gt;</span> <span class='op'>!</span><span class='ident'>trans_item</span>.<span class='ident'>is_from_extern_crate</span>(),
+        };
+
+        <span class='kw'>if</span> <span class='ident'>is_root</span> {
+            <span class='kw'>let</span> <span class='ident'>characteristic_def_id</span> <span class='op'>=</span> <span class='ident'>characteristic_def_id_of_trans_item</span>(<span class='ident'>tcx</span>, <span class='ident'>trans_item</span>);
+            <span class='kw'>let</span> <span class='ident'>is_volatile</span> <span class='op'>=</span> <span class='ident'>trans_item</span>.<span class='ident'>is_lazily_instantiated</span>();
+
+            <span class='kw'>let</span> <span class='ident'>codegen_unit_name</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>characteristic_def_id</span> {
+                <span class='prelude-val'>Some</span>(<span class='ident'>def_id</span>) <span class='op'>=&gt;</span> <span class='ident'>compute_codegen_unit_name</span>(<span class='ident'>tcx</span>, <span class='ident'>def_id</span>, <span class='ident'>is_volatile</span>),
+                <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='ident'>InternedString</span>::<span class='ident'>new</span>(<span class='ident'>FALLBACK_CODEGEN_UNIT</span>),
+            };
+
+            <span class='kw'>let</span> <span class='ident'>make_codegen_unit</span> <span class='op'>=</span> <span class='op'>||</span> {
+                <span class='ident'>CodegenUnit</span> {
+                    <span class='ident'>name</span>: <span class='ident'>codegen_unit_name</span>.<span class='ident'>clone</span>(),
+                    <span class='ident'>items</span>: <span class='ident'>FnvHashMap</span>(),
+                }
+            };
+
+            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>codegen_unit</span> <span class='op'>=</span> <span class='ident'>codegen_units</span>.<span class='ident'>entry</span>(<span class='ident'>codegen_unit_name</span>.<span class='ident'>clone</span>())
+                                                .<span class='ident'>or_insert_with</span>(<span class='ident'>make_codegen_unit</span>);
+
+            <span class='kw'>let</span> <span class='ident'>linkage</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>trans_item</span>.<span class='ident'>explicit_linkage</span>(<span class='ident'>tcx</span>) {
+                <span class='prelude-val'>Some</span>(<span class='ident'>explicit_linkage</span>) <span class='op'>=&gt;</span> <span class='ident'>explicit_linkage</span>,
+                <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> {
+                    <span class='kw'>match</span> <span class='ident'>trans_item</span> {
+                        <span class='ident'>TransItem</span>::<span class='ident'>Static</span>(..) <span class='op'>=&gt;</span> <span class='ident'>llvm</span>::<span class='ident'>ExternalLinkage</span>,
+                        <span class='ident'>TransItem</span>::<span class='ident'>DropGlue</span>(..) <span class='op'>=&gt;</span> <span class='macro'>unreachable</span><span class='macro'>!</span>(),
+                        <span class='comment'>// Is there any benefit to using ExternalLinkage?:</span>
+                        <span class='ident'>TransItem</span>::<span class='ident'>Fn</span>(..) <span class='op'>=&gt;</span> <span class='ident'>llvm</span>::<span class='ident'>WeakODRLinkage</span>,
+                    }
+                }
+            };
+
+            <span class='ident'>codegen_unit</span>.<span class='ident'>items</span>.<span class='ident'>insert</span>(<span class='ident'>trans_item</span>,
+                                      <span class='ident'>InstantiationMode</span>::<span class='ident'>Def</span>(<span class='ident'>linkage</span>));
+            <span class='ident'>roots</span>.<span class='ident'>insert</span>(<span class='ident'>trans_item</span>);
+        }
+    }
+
+    <span class='ident'>PreInliningPartitioning</span> {
+        <span class='ident'>codegen_units</span>: <span class='ident'>codegen_units</span>.<span class='ident'>into_iter</span>()
+                                    .<span class='ident'>map</span>(<span class='op'>|</span>(_, <span class='ident'>codegen_unit</span>)<span class='op'>|</span> <span class='ident'>codegen_unit</span>)
+                                    .<span class='ident'>collect</span>(),
+        <span class='ident'>roots</span>: <span class='ident'>roots</span>,
+    }
+}
+
+<span class='kw'>fn</span> <span class='ident'>merge_codegen_units</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>initial_partitioning</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>PreInliningPartitioning</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+                             <span class='ident'>target_cgu_count</span>: <span class='ident'>usize</span>,
+                             <span class='ident'>crate_name</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) {
+    <span class='kw'>if</span> <span class='ident'>target_cgu_count</span> <span class='op'>&gt;=</span> <span class='ident'>initial_partitioning</span>.<span class='ident'>codegen_units</span>.<span class='ident'>len</span>() {
+        <span class='kw'>return</span>;
+    }
+
+    <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>target_cgu_count</span> <span class='op'>&gt;=</span> <span class='number'>1</span>);
+    <span class='kw'>let</span> <span class='ident'>codegen_units</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>initial_partitioning</span>.<span class='ident'>codegen_units</span>;
+
+    <span class='comment'>// Merge the two smallest codegen units until the target size is reached.</span>
+    <span class='comment'>// Note that &quot;size&quot; is estimated here rather inaccurately as the number of</span>
+    <span class='comment'>// translation items in a given unit. This could be improved on.</span>
+    <span class='kw'>while</span> <span class='ident'>codegen_units</span>.<span class='ident'>len</span>() <span class='op'>&gt;</span> <span class='ident'>target_cgu_count</span> {
+        <span class='comment'>// Sort small cgus to the back</span>
+        <span class='ident'>codegen_units</span>.<span class='ident'>as_mut_slice</span>().<span class='ident'>sort_by_key</span>(<span class='op'>|</span><span class='ident'>cgu</span><span class='op'>|</span> <span class='op'>-</span>(<span class='ident'>cgu</span>.<span class='ident'>items</span>.<span class='ident'>len</span>() <span class='kw'>as</span> <span class='ident'>i64</span>));
+        <span class='kw'>let</span> <span class='ident'>smallest</span> <span class='op'>=</span> <span class='ident'>codegen_units</span>.<span class='ident'>pop</span>().<span class='ident'>unwrap</span>();
+        <span class='kw'>let</span> <span class='ident'>second_smallest</span> <span class='op'>=</span> <span class='ident'>codegen_units</span>.<span class='ident'>last_mut</span>().<span class='ident'>unwrap</span>();
+
+        <span class='kw'>for</span> (<span class='ident'>k</span>, <span class='ident'>v</span>) <span class='kw'>in</span> <span class='ident'>smallest</span>.<span class='ident'>items</span>.<span class='ident'>into_iter</span>() {
+            <span class='ident'>second_smallest</span>.<span class='ident'>items</span>.<span class='ident'>insert</span>(<span class='ident'>k</span>, <span class='ident'>v</span>);
+        }
+    }
+
+    <span class='kw'>for</span> (<span class='ident'>index</span>, <span class='ident'>cgu</span>) <span class='kw'>in</span> <span class='ident'>codegen_units</span>.<span class='ident'>iter_mut</span>().<span class='ident'>enumerate</span>() {
+        <span class='ident'>cgu</span>.<span class='ident'>name</span> <span class='op'>=</span> <span class='ident'>token</span>::<span class='ident'>intern_and_get_ident</span>(<span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;{}.{}&quot;</span>, <span class='ident'>crate_name</span>, <span class='ident'>index</span>)[..]);
+    }
+}
+
+<span class='kw'>fn</span> <span class='ident'>place_inlined_translation_items</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>initial_partitioning</span>: <span class='ident'>PreInliningPartitioning</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+                                         <span class='ident'>reference_map</span>: <span class='kw-2'>&amp;</span><span class='ident'>ReferenceMap</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
+                                         <span class='op'>-&gt;</span> <span class='ident'>PostInliningPartitioning</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>new_partitioning</span> <span class='op'>=</span> <span class='ident'>Vec</span>::<span class='ident'>new</span>();
+
+    <span class='kw'>for</span> <span class='ident'>codegen_unit</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>initial_partitioning</span>.<span class='ident'>codegen_units</span>[..] {
+        <span class='comment'>// Collect all items that need to be available in this codegen unit</span>
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>reachable</span> <span class='op'>=</span> <span class='ident'>FnvHashSet</span>();
+        <span class='kw'>for</span> <span class='ident'>root</span> <span class='kw'>in</span> <span class='ident'>codegen_unit</span>.<span class='ident'>items</span>.<span class='ident'>keys</span>() {
+            <span class='ident'>follow_inlining</span>(<span class='op'>*</span><span class='ident'>root</span>, <span class='ident'>reference_map</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>reachable</span>);
+        }
+
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>new_codegen_unit</span> <span class='op'>=</span> <span class='ident'>CodegenUnit</span> {
+            <span class='ident'>name</span>: <span class='ident'>codegen_unit</span>.<span class='ident'>name</span>.<span class='ident'>clone</span>(),
+            <span class='ident'>items</span>: <span class='ident'>FnvHashMap</span>(),
+        };
+
+        <span class='comment'>// Add all translation items that are not already there</span>
+        <span class='kw'>for</span> <span class='ident'>trans_item</span> <span class='kw'>in</span> <span class='ident'>reachable</span> {
+            <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>instantiation_mode</span>) <span class='op'>=</span> <span class='ident'>codegen_unit</span>.<span class='ident'>items</span>.<span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='ident'>trans_item</span>) {
+                <span class='comment'>// This is a root, just copy it over</span>
+                <span class='ident'>new_codegen_unit</span>.<span class='ident'>items</span>.<span class='ident'>insert</span>(<span class='ident'>trans_item</span>, <span class='op'>*</span><span class='ident'>instantiation_mode</span>);
+            } <span class='kw'>else</span> {
+                <span class='kw'>if</span> <span class='ident'>initial_partitioning</span>.<span class='ident'>roots</span>.<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>trans_item</span>) {
+                    <span class='comment'>// This item will be instantiated in some other codegen unit,</span>
+                    <span class='comment'>// so we just add it here with AvailableExternallyLinkage</span>
+                    <span class='ident'>new_codegen_unit</span>.<span class='ident'>items</span>.<span class='ident'>insert</span>(<span class='ident'>trans_item</span>,
+                        <span class='ident'>InstantiationMode</span>::<span class='ident'>Def</span>(<span class='ident'>llvm</span>::<span class='ident'>AvailableExternallyLinkage</span>));
+                } <span class='kw'>else</span> {
+                    <span class='comment'>// We can&#39;t be sure if this will also be instantiated</span>
+                    <span class='comment'>// somewhere else, so we add an instance here with</span>
+                    <span class='comment'>// LinkOnceODRLinkage. That way the item can be discarded if</span>
+                    <span class='comment'>// it&#39;s not needed (inlined) after all.</span>
+                    <span class='ident'>new_codegen_unit</span>.<span class='ident'>items</span>.<span class='ident'>insert</span>(<span class='ident'>trans_item</span>,
+                        <span class='ident'>InstantiationMode</span>::<span class='ident'>Def</span>(<span class='ident'>llvm</span>::<span class='ident'>LinkOnceODRLinkage</span>));
+                }
+            }
+        }
+
+        <span class='ident'>new_partitioning</span>.<span class='ident'>push</span>(<span class='ident'>new_codegen_unit</span>);
+    }
+
+    <span class='kw'>return</span> <span class='ident'>PostInliningPartitioning</span>(<span class='ident'>new_partitioning</span>);
+
+    <span class='kw'>fn</span> <span class='ident'>follow_inlining</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>trans_item</span>: <span class='ident'>TransItem</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+                             <span class='ident'>reference_map</span>: <span class='kw-2'>&amp;</span><span class='ident'>ReferenceMap</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+                             <span class='ident'>visited</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>FnvHashSet</span><span class='op'>&lt;</span><span class='ident'>TransItem</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>) {
+        <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>visited</span>.<span class='ident'>insert</span>(<span class='ident'>trans_item</span>) {
+            <span class='kw'>return</span>;
+        }
+
+        <span class='ident'>reference_map</span>.<span class='ident'>with_inlining_candidates</span>(<span class='ident'>trans_item</span>, <span class='op'>|</span><span class='ident'>target</span><span class='op'>|</span> {
+            <span class='ident'>follow_inlining</span>(<span class='ident'>target</span>, <span class='ident'>reference_map</span>, <span class='ident'>visited</span>);
+        });
+    }
+}
+
+<span class='kw'>fn</span> <span class='ident'>place_declarations</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>codegen_units</span>: <span class='ident'>PostInliningPartitioning</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+                            <span class='ident'>reference_map</span>: <span class='kw-2'>&amp;</span><span class='ident'>ReferenceMap</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
+                            <span class='op'>-&gt;</span> <span class='ident'>PostDeclarationsPartitioning</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
+    <span class='kw'>let</span> <span class='ident'>PostInliningPartitioning</span>(<span class='kw-2'>mut</span> <span class='ident'>codegen_units</span>) <span class='op'>=</span> <span class='ident'>codegen_units</span>;
+
+    <span class='kw'>for</span> <span class='ident'>codegen_unit</span> <span class='kw'>in</span> <span class='ident'>codegen_units</span>.<span class='ident'>iter_mut</span>() {
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>declarations</span> <span class='op'>=</span> <span class='ident'>FnvHashSet</span>();
+
+        <span class='kw'>for</span> (<span class='ident'>trans_item</span>, _) <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>codegen_unit</span>.<span class='ident'>items</span> {
+            <span class='kw'>for</span> <span class='ident'>referenced_item</span> <span class='kw'>in</span> <span class='ident'>reference_map</span>.<span class='ident'>get_direct_references_from</span>(<span class='op'>*</span><span class='ident'>trans_item</span>) {
+                <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>codegen_unit</span>.<span class='ident'>items</span>.<span class='ident'>contains_key</span>(<span class='ident'>referenced_item</span>) {
+                    <span class='ident'>declarations</span>.<span class='ident'>insert</span>(<span class='op'>*</span><span class='ident'>referenced_item</span>);
+                }
+            }
+        }
+
+        <span class='ident'>codegen_unit</span>.<span class='ident'>items</span>
+                    .<span class='ident'>extend</span>(<span class='ident'>declarations</span>.<span class='ident'>iter</span>()
+                                        .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>trans_item</span><span class='op'>|</span> (<span class='op'>*</span><span class='ident'>trans_item</span>,
+                                                           <span class='ident'>InstantiationMode</span>::<span class='ident'>Decl</span>)));
+    }
+
+    <span class='ident'>PostDeclarationsPartitioning</span>(<span class='ident'>codegen_units</span>)
+}
+
+<span class='kw'>fn</span> <span class='ident'>characteristic_def_id_of_trans_item</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+                                             <span class='ident'>trans_item</span>: <span class='ident'>TransItem</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
+                                             <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>DefId</span><span class='op'>&gt;</span> {
+    <span class='kw'>match</span> <span class='ident'>trans_item</span> {
+        <span class='ident'>TransItem</span>::<span class='ident'>Fn</span>(<span class='ident'>instance</span>) <span class='op'>=&gt;</span> {
+            <span class='comment'>// If this is a method, we want to put it into the same module as</span>
+            <span class='comment'>// its self-type. If the self-type does not provide a characteristic</span>
+            <span class='comment'>// DefId, we use the location of the impl after all.</span>
+
+            <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>self_ty</span>) <span class='op'>=</span> <span class='ident'>instance</span>.<span class='ident'>substs</span>.<span class='ident'>self_ty</span>() {
+                <span class='comment'>// This is an implementation of a trait method.</span>
+                <span class='kw'>return</span> <span class='ident'>characteristic_def_id_of_type</span>(<span class='ident'>self_ty</span>).<span class='ident'>or</span>(<span class='prelude-val'>Some</span>(<span class='ident'>instance</span>.<span class='ident'>def</span>));
+            }
+
+            <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>impl_def_id</span>) <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>impl_of_method</span>(<span class='ident'>instance</span>.<span class='ident'>def</span>) {
+                <span class='comment'>// This is a method within an inherent impl, find out what the</span>
+                <span class='comment'>// self-type is:</span>
+                <span class='kw'>let</span> <span class='ident'>impl_self_ty</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>lookup_item_type</span>(<span class='ident'>impl_def_id</span>).<span class='ident'>ty</span>;
+                <span class='kw'>let</span> <span class='ident'>impl_self_ty</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>erase_regions</span>(<span class='kw-2'>&amp;</span><span class='ident'>impl_self_ty</span>);
+                <span class='kw'>let</span> <span class='ident'>impl_self_ty</span> <span class='op'>=</span> <span class='ident'>monomorphize</span>::<span class='ident'>apply_param_substs</span>(<span class='ident'>tcx</span>,
+                                                                    <span class='ident'>instance</span>.<span class='ident'>substs</span>,
+                                                                    <span class='kw-2'>&amp;</span><span class='ident'>impl_self_ty</span>);
+
+                <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>def_id</span>) <span class='op'>=</span> <span class='ident'>characteristic_def_id_of_type</span>(<span class='ident'>impl_self_ty</span>) {
+                    <span class='kw'>return</span> <span class='prelude-val'>Some</span>(<span class='ident'>def_id</span>);
+                }
+            }
+
+            <span class='prelude-val'>Some</span>(<span class='ident'>instance</span>.<span class='ident'>def</span>)
+        }
+        <span class='ident'>TransItem</span>::<span class='ident'>DropGlue</span>(<span class='ident'>dg</span>) <span class='op'>=&gt;</span> <span class='ident'>characteristic_def_id_of_type</span>(<span class='ident'>dg</span>.<span class='ident'>ty</span>()),
+        <span class='ident'>TransItem</span>::<span class='ident'>Static</span>(<span class='ident'>node_id</span>) <span class='op'>=&gt;</span> <span class='prelude-val'>Some</span>(<span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>local_def_id</span>(<span class='ident'>node_id</span>)),
+    }
+}
+
+<span class='kw'>fn</span> <span class='ident'>compute_codegen_unit_name</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+                                   <span class='ident'>def_id</span>: <span class='ident'>DefId</span>,
+                                   <span class='ident'>volatile</span>: <span class='ident'>bool</span>)
+                                   <span class='op'>-&gt;</span> <span class='ident'>InternedString</span> {
+    <span class='comment'>// Unfortunately we cannot just use the `ty::item_path` infrastructure here</span>
+    <span class='comment'>// because we need paths to modules and the DefIds of those are not</span>
+    <span class='comment'>// available anymore for external items.</span>
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>mod_path</span> <span class='op'>=</span> <span class='ident'>String</span>::<span class='ident'>with_capacity</span>(<span class='number'>64</span>);
+
+    <span class='kw'>let</span> <span class='ident'>def_path</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>def_path</span>(<span class='ident'>def_id</span>);
+    <span class='ident'>mod_path</span>.<span class='ident'>push_str</span>(<span class='kw-2'>&amp;</span><span class='ident'>tcx</span>.<span class='ident'>crate_name</span>(<span class='ident'>def_path</span>.<span class='ident'>krate</span>));
+
+    <span class='kw'>for</span> <span class='ident'>part</span> <span class='kw'>in</span> <span class='ident'>tcx</span>.<span class='ident'>def_path</span>(<span class='ident'>def_id</span>)
+                   .<span class='ident'>data</span>
+                   .<span class='ident'>iter</span>()
+                   .<span class='ident'>take_while</span>(<span class='op'>|</span><span class='ident'>part</span><span class='op'>|</span> {
+                        <span class='kw'>match</span> <span class='ident'>part</span>.<span class='ident'>data</span> {
+                            <span class='ident'>DefPathData</span>::<span class='ident'>Module</span>(..) <span class='op'>=&gt;</span> <span class='boolval'>true</span>,
+                            _ <span class='op'>=&gt;</span> <span class='boolval'>false</span>,
+                        }
+                    }) {
+        <span class='ident'>mod_path</span>.<span class='ident'>push_str</span>(<span class='string'>&quot;-&quot;</span>);
+        <span class='ident'>mod_path</span>.<span class='ident'>push_str</span>(<span class='kw-2'>&amp;</span><span class='ident'>part</span>.<span class='ident'>data</span>.<span class='ident'>as_interned_str</span>());
+    }
+
+    <span class='kw'>if</span> <span class='ident'>volatile</span> {
+        <span class='ident'>mod_path</span>.<span class='ident'>push_str</span>(<span class='string'>&quot;.volatile&quot;</span>);
+    }
+
+    <span class='kw'>return</span> <span class='ident'>token</span>::<span class='ident'>intern_and_get_ident</span>(<span class='kw-2'>&amp;</span><span class='ident'>mod_path</span>[..]);
+}
+</pre>
+</section>
+    <section id='search' class="content hidden"></section>
+
+    <section class="footer"></section>
+
+    <aside id="help" class="hidden">
+        <div>
+            <h1 class="hidden">Help</h1>
+
+            <div class="shortcuts">
+                <h2>Keyboard Shortcuts</h2>
+
+                <dl>
+                    <dt>?</dt>
+                    <dd>Show this help dialog</dd>
+                    <dt>S</dt>
+                    <dd>Focus the search field</dd>
+                    <dt>&larrb;</dt>
+                    <dd>Move up in search results</dd>
+                    <dt>&rarrb;</dt>
+                    <dd>Move down in search results</dd>
+                    <dt>&#9166;</dt>
+                    <dd>Go to active search result</dd>
+                </dl>
+            </div>
+
+            <div class="infos">
+                <h2>Search Tricks</h2>
+
+                <p>
+                    Prefix searches with a type followed by a colon (e.g.
+                    <code>fn:</code>) to restrict the search to a given type.
+                </p>
+
+                <p>
+                    Accepted types are: <code>fn</code>, <code>mod</code>,
+                    <code>struct</code>, <code>enum</code>,
+                    <code>trait</code>, <code>type</code>, <code>macro</code>,
+                    and <code>const</code>.
+                </p>
+
+                <p>
+                    Search functions by type signature (e.g.
+                    <code>vec -> usize</code> or <code>* -> vec</code>)
+                </p>
+            </div>
+        </div>
+    </aside>
+
+    
+
+    <script>
+        window.rootPath = "../../../../";
+        window.currentCrate = "rustc_trans";
+        window.playgroundUrl = "";
+    </script>
+    <script src="../../../../jquery.js"></script>
+    <script src="../../../../main.js"></script>
+    
+    <script defer src="../../../../search-index.js"></script>
+</body>
+</html>

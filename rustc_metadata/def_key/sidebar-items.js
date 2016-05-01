@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["DefPathData",""]],"fn":[["recover_def_key",""],["simplify_def_key",""]],"struct":[["DefKey",""],["DisambiguatedDefPathData",""]]});
