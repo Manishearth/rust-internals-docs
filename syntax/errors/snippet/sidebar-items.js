@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["RenderedLineKind",""],["Style",""]],"struct":[["FileInfo",""],["RenderedLine",""],["SnippetData",""],["StyledBuffer",""],["StyledString",""]],"trait":[["StringSource",""]]});

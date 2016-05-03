@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["PpFlowGraphMode",""],["PpMode",""],["PpSourceMode",""],["UserIdentifiedItem",""]],"fn":[["parse_pretty",""],["pretty_print_input",""]]});
+initSidebarItems({"enum":[["PpFlowGraphMode",""],["PpMode",""],["PpSourceMode",""],["UserIdentifiedItem",""]],"fn":[["fold_crate",""],["parse_pretty",""],["print_after_parsing",""],["print_after_write_deps",""]]});

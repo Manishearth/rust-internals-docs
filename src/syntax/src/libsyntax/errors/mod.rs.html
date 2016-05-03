@@ -733,6 +733,18 @@
 <span id="689">689</span>
 <span id="690">690</span>
 <span id="691">691</span>
+<span id="692">692</span>
+<span id="693">693</span>
+<span id="694">694</span>
+<span id="695">695</span>
+<span id="696">696</span>
+<span id="697">697</span>
+<span id="698">698</span>
+<span id="699">699</span>
+<span id="700">700</span>
+<span id="701">701</span>
+<span id="702">702</span>
+<span id="703">703</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -749,17 +761,19 @@
 <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>Level</span>::<span class='op'>*</span>;
 <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>RenderSpan</span>::<span class='op'>*</span>;
 
-<span class='kw'>use</span> <span class='ident'>codemap</span>::{<span class='self'>self</span>, <span class='ident'>CodeMap</span>, <span class='ident'>MultiSpan</span>};
+<span class='kw'>use</span> <span class='ident'>codemap</span>::{<span class='self'>self</span>, <span class='ident'>CodeMap</span>, <span class='ident'>MultiSpan</span>, <span class='ident'>NO_EXPANSION</span>, <span class='ident'>Span</span>};
 <span class='kw'>use</span> <span class='ident'>diagnostics</span>;
 <span class='kw'>use</span> <span class='ident'>errors</span>::<span class='ident'>emitter</span>::{<span class='ident'>Emitter</span>, <span class='ident'>EmitterWriter</span>};
 
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cell</span>::{<span class='ident'>RefCell</span>, <span class='ident'>Cell</span>};
 <span class='kw'>use</span> <span class='ident'>std</span>::{<span class='ident'>error</span>, <span class='ident'>fmt</span>};
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>rc</span>::<span class='ident'>Rc</span>;
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>thread</span>::<span class='ident'>panicking</span>;
 <span class='kw'>use</span> <span class='ident'>term</span>;
 
 <span class='kw'>pub</span> <span class='kw'>mod</span> <span class='ident'>emitter</span>;
 <span class='kw'>pub</span> <span class='kw'>mod</span> <span class='ident'>json</span>;
+<span class='kw'>pub</span> <span class='kw'>mod</span> <span class='ident'>snippet</span>;
 
 <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>)]</span>
 <span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>RenderSpan</span> {
@@ -768,22 +782,11 @@
     <span class='doccomment'>/// the source code covered by the span.</span>
     <span class='ident'>FullSpan</span>(<span class='ident'>MultiSpan</span>),
 
-    <span class='doccomment'>/// Similar to a FullSpan, but the cited position is the end of</span>
-    <span class='doccomment'>/// the span, instead of the start. Used, at least, for telling</span>
-    <span class='doccomment'>/// compiletest/runtest to look at the last line of the span</span>
-    <span class='doccomment'>/// (since `end_highlight_lines` displays an arrow to the end</span>
-    <span class='doccomment'>/// of the span).</span>
-    <span class='ident'>EndSpan</span>(<span class='ident'>MultiSpan</span>),
-
     <span class='doccomment'>/// A suggestion renders with both with an initial line for the</span>
     <span class='doccomment'>/// message, prefixed by file:linenum, followed by a summary</span>
     <span class='doccomment'>/// of hypothetical source code, where each `String` is spliced</span>
     <span class='doccomment'>/// into the lines in place of the code covered by each span.</span>
     <span class='ident'>Suggestion</span>(<span class='ident'>CodeSuggestion</span>),
-
-    <span class='doccomment'>/// A FileLine renders with just a line for the message prefixed</span>
-    <span class='doccomment'>/// by file:linenum.</span>
-    <span class='ident'>FileLine</span>(<span class='ident'>MultiSpan</span>),
 }
 
 <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>)]</span>
@@ -796,9 +799,7 @@
     <span class='kw'>fn</span> <span class='ident'>span</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='ident'>MultiSpan</span> {
         <span class='kw'>match</span> <span class='op'>*</span><span class='self'>self</span> {
             <span class='ident'>FullSpan</span>(<span class='kw-2'>ref</span> <span class='ident'>msp</span>) <span class='op'>|</span>
-            <span class='ident'>Suggestion</span>(<span class='ident'>CodeSuggestion</span> { <span class='kw-2'>ref</span> <span class='ident'>msp</span>, .. }) <span class='op'>|</span>
-            <span class='ident'>EndSpan</span>(<span class='kw-2'>ref</span> <span class='ident'>msp</span>) <span class='op'>|</span>
-            <span class='ident'>FileLine</span>(<span class='kw-2'>ref</span> <span class='ident'>msp</span>) <span class='op'>=&gt;</span>
+            <span class='ident'>Suggestion</span>(<span class='ident'>CodeSuggestion</span> { <span class='kw-2'>ref</span> <span class='ident'>msp</span>, .. }) <span class='op'>=&gt;</span>
                 <span class='ident'>msp</span>
         }
     }
@@ -824,12 +825,24 @@
                 }
             }
         }
-        <span class='kw'>let</span> <span class='ident'>bounds</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>msp</span>.<span class='ident'>to_span_bounds</span>();
-        <span class='kw'>let</span> <span class='ident'>lines</span> <span class='op'>=</span> <span class='ident'>cm</span>.<span class='ident'>span_to_lines</span>(<span class='ident'>bounds</span>).<span class='ident'>unwrap</span>();
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>lines</span>.<span class='ident'>lines</span>.<span class='ident'>is_empty</span>());
 
-        <span class='comment'>// This isn&#39;t strictly necessary, but would in all likelyhood be an error</span>
-        <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>msp</span>.<span class='ident'>spans</span>.<span class='ident'>len</span>(), <span class='self'>self</span>.<span class='ident'>substitutes</span>.<span class='ident'>len</span>());
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>primary_spans</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>msp</span>.<span class='ident'>primary_spans</span>().<span class='ident'>to_owned</span>();
+
+        <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>primary_spans</span>.<span class='ident'>len</span>(), <span class='self'>self</span>.<span class='ident'>substitutes</span>.<span class='ident'>len</span>());
+        <span class='kw'>if</span> <span class='ident'>primary_spans</span>.<span class='ident'>is_empty</span>() {
+            <span class='kw'>return</span> <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;&quot;</span>);
+        }
+
+        <span class='comment'>// Assumption: all spans are in the same file, and all spans</span>
+        <span class='comment'>// are disjoint. Sort in ascending order.</span>
+        <span class='ident'>primary_spans</span>.<span class='ident'>sort_by_key</span>(<span class='op'>|</span><span class='ident'>sp</span><span class='op'>|</span> <span class='ident'>sp</span>.<span class='ident'>lo</span>);
+
+        <span class='comment'>// Find the bounding span.</span>
+        <span class='kw'>let</span> <span class='ident'>lo</span> <span class='op'>=</span> <span class='ident'>primary_spans</span>.<span class='ident'>iter</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>sp</span><span class='op'>|</span> <span class='ident'>sp</span>.<span class='ident'>lo</span>).<span class='ident'>min</span>().<span class='ident'>unwrap</span>();
+        <span class='kw'>let</span> <span class='ident'>hi</span> <span class='op'>=</span> <span class='ident'>primary_spans</span>.<span class='ident'>iter</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>sp</span><span class='op'>|</span> <span class='ident'>sp</span>.<span class='ident'>hi</span>).<span class='ident'>min</span>().<span class='ident'>unwrap</span>();
+        <span class='kw'>let</span> <span class='ident'>bounding_span</span> <span class='op'>=</span> <span class='ident'>Span</span> { <span class='ident'>lo</span>: <span class='ident'>lo</span>, <span class='ident'>hi</span>: <span class='ident'>hi</span>, <span class='ident'>expn_id</span>: <span class='ident'>NO_EXPANSION</span> };
+        <span class='kw'>let</span> <span class='ident'>lines</span> <span class='op'>=</span> <span class='ident'>cm</span>.<span class='ident'>span_to_lines</span>(<span class='ident'>bounding_span</span>).<span class='ident'>unwrap</span>();
+        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>lines</span>.<span class='ident'>lines</span>.<span class='ident'>is_empty</span>());
 
         <span class='comment'>// To build up the result, we do this for each span:</span>
         <span class='comment'>// - push the line segment trailing the previous span</span>
@@ -841,13 +854,13 @@
         <span class='comment'>//</span>
         <span class='comment'>// Finally push the trailing line segment of the last span</span>
         <span class='kw'>let</span> <span class='ident'>fm</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='ident'>lines</span>.<span class='ident'>file</span>;
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>prev_hi</span> <span class='op'>=</span> <span class='ident'>cm</span>.<span class='ident'>lookup_char_pos</span>(<span class='ident'>bounds</span>.<span class='ident'>lo</span>);
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>prev_hi</span> <span class='op'>=</span> <span class='ident'>cm</span>.<span class='ident'>lookup_char_pos</span>(<span class='ident'>bounding_span</span>.<span class='ident'>lo</span>);
         <span class='ident'>prev_hi</span>.<span class='ident'>col</span> <span class='op'>=</span> <span class='ident'>CharPos</span>::<span class='ident'>from_usize</span>(<span class='number'>0</span>);
 
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>prev_line</span> <span class='op'>=</span> <span class='ident'>fm</span>.<span class='ident'>get_line</span>(<span class='ident'>lines</span>.<span class='ident'>lines</span>[<span class='number'>0</span>].<span class='ident'>line_index</span>);
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>buf</span> <span class='op'>=</span> <span class='ident'>String</span>::<span class='ident'>new</span>();
 
-        <span class='kw'>for</span> (<span class='ident'>sp</span>, <span class='ident'>substitute</span>) <span class='kw'>in</span> <span class='self'>self</span>.<span class='ident'>msp</span>.<span class='ident'>spans</span>.<span class='ident'>iter</span>().<span class='ident'>zip</span>(<span class='self'>self</span>.<span class='ident'>substitutes</span>.<span class='ident'>iter</span>()) {
+        <span class='kw'>for</span> (<span class='ident'>sp</span>, <span class='ident'>substitute</span>) <span class='kw'>in</span> <span class='ident'>primary_spans</span>.<span class='ident'>iter</span>().<span class='ident'>zip</span>(<span class='self'>self</span>.<span class='ident'>substitutes</span>.<span class='ident'>iter</span>()) {
             <span class='kw'>let</span> <span class='ident'>cur_lo</span> <span class='op'>=</span> <span class='ident'>cm</span>.<span class='ident'>lookup_char_pos</span>(<span class='ident'>sp</span>.<span class='ident'>lo</span>);
             <span class='kw'>if</span> <span class='ident'>prev_hi</span>.<span class='ident'>line</span> <span class='op'>==</span> <span class='ident'>cur_lo</span>.<span class='ident'>line</span> {
                 <span class='ident'>push_trailing</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>buf</span>, <span class='ident'>prev_line</span>, <span class='kw-2'>&amp;</span><span class='ident'>prev_hi</span>, <span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>cur_lo</span>));
@@ -919,7 +932,7 @@
     <span class='ident'>level</span>: <span class='ident'>Level</span>,
     <span class='ident'>message</span>: <span class='ident'>String</span>,
     <span class='ident'>code</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>String</span><span class='op'>&gt;</span>,
-    <span class='ident'>span</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;</span>,
+    <span class='ident'>span</span>: <span class='ident'>MultiSpan</span>,
     <span class='ident'>children</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>SubDiagnostic</span><span class='op'>&gt;</span>,
 }
 
@@ -928,7 +941,7 @@
 <span class='kw'>struct</span> <span class='ident'>SubDiagnostic</span> {
     <span class='ident'>level</span>: <span class='ident'>Level</span>,
     <span class='ident'>message</span>: <span class='ident'>String</span>,
-    <span class='ident'>span</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;</span>,
+    <span class='ident'>span</span>: <span class='ident'>MultiSpan</span>,
     <span class='ident'>render_span</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>RenderSpan</span><span class='op'>&gt;</span>,
 }
 
@@ -964,37 +977,61 @@
         <span class='self'>self</span>.<span class='ident'>level</span> <span class='op'>==</span> <span class='ident'>Level</span>::<span class='ident'>Fatal</span>
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>note</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span> , <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>DiagnosticBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>sub</span>(<span class='ident'>Level</span>::<span class='ident'>Note</span>, <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='prelude-val'>None</span>);
+    <span class='doccomment'>/// Add a span/label to be included in the resulting snippet.</span>
+    <span class='doccomment'>/// This is pushed onto the `MultiSpan` that was created when the</span>
+    <span class='doccomment'>/// diagnostic was first built. If you don&#39;t call this function at</span>
+    <span class='doccomment'>/// all, and you just supplied a `Span` to create the diagnostic,</span>
+    <span class='doccomment'>/// then the snippet will just include that `Span`, which is</span>
+    <span class='doccomment'>/// called the primary span.</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>span_label</span>(<span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>span</span>: <span class='ident'>Span</span>, <span class='ident'>label</span>: <span class='kw-2'>&amp;</span><span class='ident'>fmt</span>::<span class='ident'>Display</span>)
+                      <span class='op'>-&gt;</span> <span class='ident'>DiagnosticBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
+        <span class='self'>self</span>.<span class='ident'>span</span>.<span class='ident'>push_span_label</span>(<span class='ident'>span</span>, <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;{}&quot;</span>, <span class='ident'>label</span>));
+        <span class='self'>self</span>
+    }
+
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>note_expected_found</span>(<span class='kw-2'>mut</span> <span class='self'>self</span>,
+                               <span class='ident'>label</span>: <span class='kw-2'>&amp;</span><span class='ident'>fmt</span>::<span class='ident'>Display</span>,
+                               <span class='ident'>expected</span>: <span class='kw-2'>&amp;</span><span class='ident'>fmt</span>::<span class='ident'>Display</span>,
+                               <span class='ident'>found</span>: <span class='kw-2'>&amp;</span><span class='ident'>fmt</span>::<span class='ident'>Display</span>)
+                               <span class='op'>-&gt;</span> <span class='ident'>DiagnosticBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>
+    {
+        <span class='comment'>// For now, just attach these as notes</span>
+        <span class='self'>self</span>.<span class='ident'>note</span>(<span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;expected {} `{}`&quot;</span>, <span class='ident'>label</span>, <span class='ident'>expected</span>));
+        <span class='self'>self</span>.<span class='ident'>note</span>(<span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;   found {} `{}`&quot;</span>, <span class='ident'>label</span>, <span class='ident'>found</span>));
+        <span class='self'>self</span>
+    }
+
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>note</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>DiagnosticBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
+        <span class='self'>self</span>.<span class='ident'>sub</span>(<span class='ident'>Level</span>::<span class='ident'>Note</span>, <span class='ident'>msg</span>, <span class='ident'>MultiSpan</span>::<span class='ident'>new</span>(), <span class='prelude-val'>None</span>);
         <span class='self'>self</span>
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>span_note</span><span class='op'>&lt;</span><span class='ident'>S</span>: <span class='ident'>Into</span><span class='op'>&lt;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
                                          <span class='ident'>sp</span>: <span class='ident'>S</span>,
                                          <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>)
                                          <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>DiagnosticBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>sub</span>(<span class='ident'>Level</span>::<span class='ident'>Note</span>, <span class='ident'>msg</span>, <span class='prelude-val'>Some</span>(<span class='ident'>sp</span>.<span class='ident'>into</span>()), <span class='prelude-val'>None</span>);
+        <span class='self'>self</span>.<span class='ident'>sub</span>(<span class='ident'>Level</span>::<span class='ident'>Note</span>, <span class='ident'>msg</span>, <span class='ident'>sp</span>.<span class='ident'>into</span>(), <span class='prelude-val'>None</span>);
         <span class='self'>self</span>
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>warn</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>DiagnosticBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>sub</span>(<span class='ident'>Level</span>::<span class='ident'>Warning</span>, <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='prelude-val'>None</span>);
+        <span class='self'>self</span>.<span class='ident'>sub</span>(<span class='ident'>Level</span>::<span class='ident'>Warning</span>, <span class='ident'>msg</span>, <span class='ident'>MultiSpan</span>::<span class='ident'>new</span>(), <span class='prelude-val'>None</span>);
         <span class='self'>self</span>
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>span_warn</span><span class='op'>&lt;</span><span class='ident'>S</span>: <span class='ident'>Into</span><span class='op'>&lt;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
                                          <span class='ident'>sp</span>: <span class='ident'>S</span>,
                                          <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>)
                                          <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>DiagnosticBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>sub</span>(<span class='ident'>Level</span>::<span class='ident'>Warning</span>, <span class='ident'>msg</span>, <span class='prelude-val'>Some</span>(<span class='ident'>sp</span>.<span class='ident'>into</span>()), <span class='prelude-val'>None</span>);
+        <span class='self'>self</span>.<span class='ident'>sub</span>(<span class='ident'>Level</span>::<span class='ident'>Warning</span>, <span class='ident'>msg</span>, <span class='ident'>sp</span>.<span class='ident'>into</span>(), <span class='prelude-val'>None</span>);
         <span class='self'>self</span>
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>help</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span> , <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>DiagnosticBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>sub</span>(<span class='ident'>Level</span>::<span class='ident'>Help</span>, <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='prelude-val'>None</span>);
+        <span class='self'>self</span>.<span class='ident'>sub</span>(<span class='ident'>Level</span>::<span class='ident'>Help</span>, <span class='ident'>msg</span>, <span class='ident'>MultiSpan</span>::<span class='ident'>new</span>(), <span class='prelude-val'>None</span>);
         <span class='self'>self</span>
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>span_help</span><span class='op'>&lt;</span><span class='ident'>S</span>: <span class='ident'>Into</span><span class='op'>&lt;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
                                          <span class='ident'>sp</span>: <span class='ident'>S</span>,
                                          <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>)
                                          <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>DiagnosticBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>sub</span>(<span class='ident'>Level</span>::<span class='ident'>Help</span>, <span class='ident'>msg</span>, <span class='prelude-val'>Some</span>(<span class='ident'>sp</span>.<span class='ident'>into</span>()), <span class='prelude-val'>None</span>);
+        <span class='self'>self</span>.<span class='ident'>sub</span>(<span class='ident'>Level</span>::<span class='ident'>Help</span>, <span class='ident'>msg</span>, <span class='ident'>sp</span>.<span class='ident'>into</span>(), <span class='prelude-val'>None</span>);
         <span class='self'>self</span>
     }
     <span class='doccomment'>/// Prints out a message with a suggested edit of the code.</span>
@@ -1005,43 +1042,15 @@
                                                <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>,
                                                <span class='ident'>suggestion</span>: <span class='ident'>String</span>)
                                                <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>DiagnosticBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>sub</span>(<span class='ident'>Level</span>::<span class='ident'>Help</span>, <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='prelude-val'>Some</span>(<span class='ident'>Suggestion</span>(<span class='ident'>CodeSuggestion</span> {
+        <span class='self'>self</span>.<span class='ident'>sub</span>(<span class='ident'>Level</span>::<span class='ident'>Help</span>, <span class='ident'>msg</span>, <span class='ident'>MultiSpan</span>::<span class='ident'>new</span>(), <span class='prelude-val'>Some</span>(<span class='ident'>Suggestion</span>(<span class='ident'>CodeSuggestion</span> {
             <span class='ident'>msp</span>: <span class='ident'>sp</span>.<span class='ident'>into</span>(),
             <span class='ident'>substitutes</span>: <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>suggestion</span>],
         })));
         <span class='self'>self</span>
     }
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>span_end_note</span><span class='op'>&lt;</span><span class='ident'>S</span>: <span class='ident'>Into</span><span class='op'>&lt;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                                             <span class='ident'>sp</span>: <span class='ident'>S</span>,
-                                             <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>)
-                                             <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>DiagnosticBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>sub</span>(<span class='ident'>Level</span>::<span class='ident'>Note</span>, <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='prelude-val'>Some</span>(<span class='ident'>EndSpan</span>(<span class='ident'>sp</span>.<span class='ident'>into</span>())));
-        <span class='self'>self</span>
-    }
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>fileline_warn</span><span class='op'>&lt;</span><span class='ident'>S</span>: <span class='ident'>Into</span><span class='op'>&lt;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                                             <span class='ident'>sp</span>: <span class='ident'>S</span>,
-                                             <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>)
-                                             <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>DiagnosticBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>sub</span>(<span class='ident'>Level</span>::<span class='ident'>Warning</span>, <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='prelude-val'>Some</span>(<span class='ident'>FileLine</span>(<span class='ident'>sp</span>.<span class='ident'>into</span>())));
-        <span class='self'>self</span>
-    }
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>fileline_note</span><span class='op'>&lt;</span><span class='ident'>S</span>: <span class='ident'>Into</span><span class='op'>&lt;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                                             <span class='ident'>sp</span>: <span class='ident'>S</span>,
-                                             <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>)
-                                             <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>DiagnosticBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>sub</span>(<span class='ident'>Level</span>::<span class='ident'>Note</span>, <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='prelude-val'>Some</span>(<span class='ident'>FileLine</span>(<span class='ident'>sp</span>.<span class='ident'>into</span>())));
-        <span class='self'>self</span>
-    }
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>fileline_help</span><span class='op'>&lt;</span><span class='ident'>S</span>: <span class='ident'>Into</span><span class='op'>&lt;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                                             <span class='ident'>sp</span>: <span class='ident'>S</span>,
-                                             <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>)
-                                             <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>DiagnosticBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>sub</span>(<span class='ident'>Level</span>::<span class='ident'>Help</span>, <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='prelude-val'>Some</span>(<span class='ident'>FileLine</span>(<span class='ident'>sp</span>.<span class='ident'>into</span>())));
-        <span class='self'>self</span>
-    }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>span</span><span class='op'>&lt;</span><span class='ident'>S</span>: <span class='ident'>Into</span><span class='op'>&lt;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>sp</span>: <span class='ident'>S</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='kw'>Self</span> {
-        <span class='self'>self</span>.<span class='ident'>span</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='ident'>sp</span>.<span class='ident'>into</span>());
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>set_span</span><span class='op'>&lt;</span><span class='ident'>S</span>: <span class='ident'>Into</span><span class='op'>&lt;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>sp</span>: <span class='ident'>S</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='kw'>Self</span> {
+        <span class='self'>self</span>.<span class='ident'>span</span> <span class='op'>=</span> <span class='ident'>sp</span>.<span class='ident'>into</span>();
         <span class='self'>self</span>
     }
 
@@ -1060,7 +1069,7 @@
             <span class='ident'>level</span>: <span class='ident'>level</span>,
             <span class='ident'>message</span>: <span class='ident'>message</span>.<span class='ident'>to_owned</span>(),
             <span class='ident'>code</span>: <span class='prelude-val'>None</span>,
-            <span class='ident'>span</span>: <span class='prelude-val'>None</span>,
+            <span class='ident'>span</span>: <span class='ident'>MultiSpan</span>::<span class='ident'>new</span>(),
             <span class='ident'>children</span>: <span class='macro'>vec</span><span class='macro'>!</span>[],
         }
     }
@@ -1070,7 +1079,7 @@
     <span class='kw'>fn</span> <span class='ident'>sub</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
            <span class='ident'>level</span>: <span class='ident'>Level</span>,
            <span class='ident'>message</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>,
-           <span class='ident'>span</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;</span>,
+           <span class='ident'>span</span>: <span class='ident'>MultiSpan</span>,
            <span class='ident'>render_span</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>RenderSpan</span><span class='op'>&gt;</span>) {
         <span class='kw'>let</span> <span class='ident'>sub</span> <span class='op'>=</span> <span class='ident'>SubDiagnostic</span> {
             <span class='ident'>level</span>: <span class='ident'>level</span>,
@@ -1092,8 +1101,11 @@
 <span class='doccomment'>/// we emit a bug.</span>
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> <span class='ident'>Drop</span> <span class='kw'>for</span> <span class='ident'>DiagnosticBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
     <span class='kw'>fn</span> <span class='ident'>drop</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) {
-        <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>cancelled</span>() {
-            <span class='self'>self</span>.<span class='ident'>emitter</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>emit</span>(<span class='prelude-val'>None</span>, <span class='string'>&quot;Error constructed but not emitted&quot;</span>, <span class='prelude-val'>None</span>, <span class='ident'>Bug</span>);
+        <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>panicking</span>() <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>cancelled</span>() {
+            <span class='self'>self</span>.<span class='ident'>emitter</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>emit</span>(<span class='kw-2'>&amp;</span><span class='ident'>MultiSpan</span>::<span class='ident'>new</span>(),
+                                           <span class='string'>&quot;Error constructed but not emitted&quot;</span>,
+                                           <span class='prelude-val'>None</span>,
+                                           <span class='ident'>Bug</span>);
             <span class='macro'>panic</span><span class='macro'>!</span>();
         }
     }
@@ -1148,7 +1160,7 @@
                                                     <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>)
                                                     <span class='op'>-&gt;</span> <span class='ident'>DiagnosticBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>result</span> <span class='op'>=</span> <span class='ident'>DiagnosticBuilder</span>::<span class='ident'>new</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>emit</span>, <span class='ident'>Level</span>::<span class='ident'>Warning</span>, <span class='ident'>msg</span>);
-        <span class='ident'>result</span>.<span class='ident'>span</span>(<span class='ident'>sp</span>);
+        <span class='ident'>result</span>.<span class='ident'>set_span</span>(<span class='ident'>sp</span>);
         <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>can_emit_warnings</span> {
             <span class='ident'>result</span>.<span class='ident'>cancel</span>();
         }
@@ -1160,7 +1172,7 @@
                                                               <span class='ident'>code</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>)
                                                               <span class='op'>-&gt;</span> <span class='ident'>DiagnosticBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>result</span> <span class='op'>=</span> <span class='ident'>DiagnosticBuilder</span>::<span class='ident'>new</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>emit</span>, <span class='ident'>Level</span>::<span class='ident'>Warning</span>, <span class='ident'>msg</span>);
-        <span class='ident'>result</span>.<span class='ident'>span</span>(<span class='ident'>sp</span>);
+        <span class='ident'>result</span>.<span class='ident'>set_span</span>(<span class='ident'>sp</span>);
         <span class='ident'>result</span>.<span class='ident'>code</span>(<span class='ident'>code</span>.<span class='ident'>to_owned</span>());
         <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>can_emit_warnings</span> {
             <span class='ident'>result</span>.<span class='ident'>cancel</span>();
@@ -1180,7 +1192,7 @@
                                                    <span class='op'>-&gt;</span> <span class='ident'>DiagnosticBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
         <span class='self'>self</span>.<span class='ident'>bump_err_count</span>();
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>result</span> <span class='op'>=</span> <span class='ident'>DiagnosticBuilder</span>::<span class='ident'>new</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>emit</span>, <span class='ident'>Level</span>::<span class='ident'>Error</span>, <span class='ident'>msg</span>);
-        <span class='ident'>result</span>.<span class='ident'>span</span>(<span class='ident'>sp</span>);
+        <span class='ident'>result</span>.<span class='ident'>set_span</span>(<span class='ident'>sp</span>);
         <span class='ident'>result</span>
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>struct_span_err_with_code</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>S</span>: <span class='ident'>Into</span><span class='op'>&lt;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='self'>self</span>,
@@ -1190,7 +1202,7 @@
                                                              <span class='op'>-&gt;</span> <span class='ident'>DiagnosticBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
         <span class='self'>self</span>.<span class='ident'>bump_err_count</span>();
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>result</span> <span class='op'>=</span> <span class='ident'>DiagnosticBuilder</span>::<span class='ident'>new</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>emit</span>, <span class='ident'>Level</span>::<span class='ident'>Error</span>, <span class='ident'>msg</span>);
-        <span class='ident'>result</span>.<span class='ident'>span</span>(<span class='ident'>sp</span>);
+        <span class='ident'>result</span>.<span class='ident'>set_span</span>(<span class='ident'>sp</span>);
         <span class='ident'>result</span>.<span class='ident'>code</span>(<span class='ident'>code</span>.<span class='ident'>to_owned</span>());
         <span class='ident'>result</span>
     }
@@ -1204,7 +1216,7 @@
                                                      <span class='op'>-&gt;</span> <span class='ident'>DiagnosticBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
         <span class='self'>self</span>.<span class='ident'>bump_err_count</span>();
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>result</span> <span class='op'>=</span> <span class='ident'>DiagnosticBuilder</span>::<span class='ident'>new</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>emit</span>, <span class='ident'>Level</span>::<span class='ident'>Fatal</span>, <span class='ident'>msg</span>);
-        <span class='ident'>result</span>.<span class='ident'>span</span>(<span class='ident'>sp</span>);
+        <span class='ident'>result</span>.<span class='ident'>set_span</span>(<span class='ident'>sp</span>);
         <span class='ident'>result</span>
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>struct_span_fatal_with_code</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>S</span>: <span class='ident'>Into</span><span class='op'>&lt;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='self'>self</span>,
@@ -1214,7 +1226,7 @@
                                                                <span class='op'>-&gt;</span> <span class='ident'>DiagnosticBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
         <span class='self'>self</span>.<span class='ident'>bump_err_count</span>();
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>result</span> <span class='op'>=</span> <span class='ident'>DiagnosticBuilder</span>::<span class='ident'>new</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>emit</span>, <span class='ident'>Level</span>::<span class='ident'>Fatal</span>, <span class='ident'>msg</span>);
-        <span class='ident'>result</span>.<span class='ident'>span</span>(<span class='ident'>sp</span>);
+        <span class='ident'>result</span>.<span class='ident'>set_span</span>(<span class='ident'>sp</span>);
         <span class='ident'>result</span>.<span class='ident'>code</span>(<span class='ident'>code</span>.<span class='ident'>to_owned</span>());
         <span class='ident'>result</span>
     }
@@ -1235,7 +1247,7 @@
         <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>treat_err_as_bug</span> {
             <span class='self'>self</span>.<span class='ident'>span_bug</span>(<span class='ident'>sp</span>, <span class='ident'>msg</span>);
         }
-        <span class='self'>self</span>.<span class='ident'>emit</span>(<span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>sp</span>.<span class='ident'>into</span>()), <span class='ident'>msg</span>, <span class='ident'>Fatal</span>);
+        <span class='self'>self</span>.<span class='ident'>emit</span>(<span class='kw-2'>&amp;</span><span class='ident'>sp</span>.<span class='ident'>into</span>(), <span class='ident'>msg</span>, <span class='ident'>Fatal</span>);
         <span class='self'>self</span>.<span class='ident'>bump_err_count</span>();
         <span class='kw'>return</span> <span class='ident'>FatalError</span>;
     }
@@ -1244,7 +1256,7 @@
         <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>treat_err_as_bug</span> {
             <span class='self'>self</span>.<span class='ident'>span_bug</span>(<span class='ident'>sp</span>, <span class='ident'>msg</span>);
         }
-        <span class='self'>self</span>.<span class='ident'>emit_with_code</span>(<span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>sp</span>.<span class='ident'>into</span>()), <span class='ident'>msg</span>, <span class='ident'>code</span>, <span class='ident'>Fatal</span>);
+        <span class='self'>self</span>.<span class='ident'>emit_with_code</span>(<span class='kw-2'>&amp;</span><span class='ident'>sp</span>.<span class='ident'>into</span>(), <span class='ident'>msg</span>, <span class='ident'>code</span>, <span class='ident'>Fatal</span>);
         <span class='self'>self</span>.<span class='ident'>bump_err_count</span>();
         <span class='kw'>return</span> <span class='ident'>FatalError</span>;
     }
@@ -1252,24 +1264,24 @@
         <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>treat_err_as_bug</span> {
             <span class='self'>self</span>.<span class='ident'>span_bug</span>(<span class='ident'>sp</span>, <span class='ident'>msg</span>);
         }
-        <span class='self'>self</span>.<span class='ident'>emit</span>(<span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>sp</span>.<span class='ident'>into</span>()), <span class='ident'>msg</span>, <span class='ident'>Error</span>);
+        <span class='self'>self</span>.<span class='ident'>emit</span>(<span class='kw-2'>&amp;</span><span class='ident'>sp</span>.<span class='ident'>into</span>(), <span class='ident'>msg</span>, <span class='ident'>Error</span>);
         <span class='self'>self</span>.<span class='ident'>bump_err_count</span>();
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>span_err_with_code</span><span class='op'>&lt;</span><span class='ident'>S</span>: <span class='ident'>Into</span><span class='op'>&lt;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>sp</span>: <span class='ident'>S</span>, <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>, <span class='ident'>code</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) {
         <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>treat_err_as_bug</span> {
             <span class='self'>self</span>.<span class='ident'>span_bug</span>(<span class='ident'>sp</span>, <span class='ident'>msg</span>);
         }
-        <span class='self'>self</span>.<span class='ident'>emit_with_code</span>(<span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>sp</span>.<span class='ident'>into</span>()), <span class='ident'>msg</span>, <span class='ident'>code</span>, <span class='ident'>Error</span>);
+        <span class='self'>self</span>.<span class='ident'>emit_with_code</span>(<span class='kw-2'>&amp;</span><span class='ident'>sp</span>.<span class='ident'>into</span>(), <span class='ident'>msg</span>, <span class='ident'>code</span>, <span class='ident'>Error</span>);
         <span class='self'>self</span>.<span class='ident'>bump_err_count</span>();
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>span_warn</span><span class='op'>&lt;</span><span class='ident'>S</span>: <span class='ident'>Into</span><span class='op'>&lt;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>sp</span>: <span class='ident'>S</span>, <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) {
-        <span class='self'>self</span>.<span class='ident'>emit</span>(<span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>sp</span>.<span class='ident'>into</span>()), <span class='ident'>msg</span>, <span class='ident'>Warning</span>);
+        <span class='self'>self</span>.<span class='ident'>emit</span>(<span class='kw-2'>&amp;</span><span class='ident'>sp</span>.<span class='ident'>into</span>(), <span class='ident'>msg</span>, <span class='ident'>Warning</span>);
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>span_warn_with_code</span><span class='op'>&lt;</span><span class='ident'>S</span>: <span class='ident'>Into</span><span class='op'>&lt;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>sp</span>: <span class='ident'>S</span>, <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>, <span class='ident'>code</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) {
-        <span class='self'>self</span>.<span class='ident'>emit_with_code</span>(<span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>sp</span>.<span class='ident'>into</span>()), <span class='ident'>msg</span>, <span class='ident'>code</span>, <span class='ident'>Warning</span>);
+        <span class='self'>self</span>.<span class='ident'>emit_with_code</span>(<span class='kw-2'>&amp;</span><span class='ident'>sp</span>.<span class='ident'>into</span>(), <span class='ident'>msg</span>, <span class='ident'>code</span>, <span class='ident'>Warning</span>);
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>span_bug</span><span class='op'>&lt;</span><span class='ident'>S</span>: <span class='ident'>Into</span><span class='op'>&lt;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>sp</span>: <span class='ident'>S</span>, <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) <span class='op'>-&gt;</span> <span class='op'>!</span> {
-        <span class='self'>self</span>.<span class='ident'>emit</span>(<span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>sp</span>.<span class='ident'>into</span>()), <span class='ident'>msg</span>, <span class='ident'>Bug</span>);
+        <span class='self'>self</span>.<span class='ident'>emit</span>(<span class='kw-2'>&amp;</span><span class='ident'>sp</span>.<span class='ident'>into</span>(), <span class='ident'>msg</span>, <span class='ident'>Bug</span>);
         <span class='macro'>panic</span><span class='macro'>!</span>(<span class='ident'>ExplicitBug</span>);
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>delay_span_bug</span><span class='op'>&lt;</span><span class='ident'>S</span>: <span class='ident'>Into</span><span class='op'>&lt;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>sp</span>: <span class='ident'>S</span>, <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) {
@@ -1277,11 +1289,11 @@
         <span class='op'>*</span><span class='ident'>delayed</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>((<span class='ident'>sp</span>.<span class='ident'>into</span>(), <span class='ident'>msg</span>.<span class='ident'>to_string</span>()));
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>span_bug_no_panic</span><span class='op'>&lt;</span><span class='ident'>S</span>: <span class='ident'>Into</span><span class='op'>&lt;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>sp</span>: <span class='ident'>S</span>, <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) {
-        <span class='self'>self</span>.<span class='ident'>emit</span>(<span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>sp</span>.<span class='ident'>into</span>()), <span class='ident'>msg</span>, <span class='ident'>Bug</span>);
+        <span class='self'>self</span>.<span class='ident'>emit</span>(<span class='kw-2'>&amp;</span><span class='ident'>sp</span>.<span class='ident'>into</span>(), <span class='ident'>msg</span>, <span class='ident'>Bug</span>);
         <span class='self'>self</span>.<span class='ident'>bump_err_count</span>();
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>span_note_without_error</span><span class='op'>&lt;</span><span class='ident'>S</span>: <span class='ident'>Into</span><span class='op'>&lt;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>sp</span>: <span class='ident'>S</span>, <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) {
-        <span class='self'>self</span>.<span class='ident'>emit</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>emit</span>(<span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>sp</span>.<span class='ident'>into</span>()), <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='ident'>Note</span>);
+        <span class='self'>self</span>.<span class='ident'>emit</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>emit</span>(<span class='kw-2'>&amp;</span><span class='ident'>sp</span>.<span class='ident'>into</span>(), <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='ident'>Note</span>);
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>span_unimpl</span><span class='op'>&lt;</span><span class='ident'>S</span>: <span class='ident'>Into</span><span class='op'>&lt;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>sp</span>: <span class='ident'>S</span>, <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) <span class='op'>-&gt;</span> <span class='op'>!</span> {
         <span class='self'>self</span>.<span class='ident'>span_bug</span>(<span class='ident'>sp</span>, <span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;unimplemented {}&quot;</span>, <span class='ident'>msg</span>));
@@ -1290,7 +1302,7 @@
         <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>treat_err_as_bug</span> {
             <span class='self'>self</span>.<span class='ident'>bug</span>(<span class='ident'>msg</span>);
         }
-        <span class='self'>self</span>.<span class='ident'>emit</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>emit</span>(<span class='prelude-val'>None</span>, <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='ident'>Fatal</span>);
+        <span class='self'>self</span>.<span class='ident'>emit</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>emit</span>(<span class='kw-2'>&amp;</span><span class='ident'>MultiSpan</span>::<span class='ident'>new</span>(), <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='ident'>Fatal</span>);
         <span class='self'>self</span>.<span class='ident'>bump_err_count</span>();
         <span class='ident'>FatalError</span>
     }
@@ -1298,17 +1310,17 @@
         <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>treat_err_as_bug</span> {
             <span class='self'>self</span>.<span class='ident'>bug</span>(<span class='ident'>msg</span>);
         }
-        <span class='self'>self</span>.<span class='ident'>emit</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>emit</span>(<span class='prelude-val'>None</span>, <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='ident'>Error</span>);
+        <span class='self'>self</span>.<span class='ident'>emit</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>emit</span>(<span class='kw-2'>&amp;</span><span class='ident'>MultiSpan</span>::<span class='ident'>new</span>(), <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='ident'>Error</span>);
         <span class='self'>self</span>.<span class='ident'>bump_err_count</span>();
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>warn</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) {
-        <span class='self'>self</span>.<span class='ident'>emit</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>emit</span>(<span class='prelude-val'>None</span>, <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='ident'>Warning</span>);
+        <span class='self'>self</span>.<span class='ident'>emit</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>emit</span>(<span class='kw-2'>&amp;</span><span class='ident'>MultiSpan</span>::<span class='ident'>new</span>(), <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='ident'>Warning</span>);
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>note_without_error</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) {
-        <span class='self'>self</span>.<span class='ident'>emit</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>emit</span>(<span class='prelude-val'>None</span>, <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='ident'>Note</span>);
+        <span class='self'>self</span>.<span class='ident'>emit</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>emit</span>(<span class='kw-2'>&amp;</span><span class='ident'>MultiSpan</span>::<span class='ident'>new</span>(), <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='ident'>Note</span>);
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>bug</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) <span class='op'>-&gt;</span> <span class='op'>!</span> {
-        <span class='self'>self</span>.<span class='ident'>emit</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>emit</span>(<span class='prelude-val'>None</span>, <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='ident'>Bug</span>);
+        <span class='self'>self</span>.<span class='ident'>emit</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>emit</span>(<span class='kw-2'>&amp;</span><span class='ident'>MultiSpan</span>::<span class='ident'>new</span>(), <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='ident'>Bug</span>);
         <span class='macro'>panic</span><span class='macro'>!</span>(<span class='ident'>ExplicitBug</span>);
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>unimpl</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) <span class='op'>-&gt;</span> <span class='op'>!</span> {
@@ -1350,25 +1362,20 @@
         <span class='macro'>panic</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>fatal</span>(<span class='kw-2'>&amp;</span><span class='ident'>s</span>));
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>emit</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
-                <span class='ident'>msp</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;</span>,
+                <span class='ident'>msp</span>: <span class='kw-2'>&amp;</span><span class='ident'>MultiSpan</span>,
                 <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>,
                 <span class='ident'>lvl</span>: <span class='ident'>Level</span>) {
         <span class='kw'>if</span> <span class='ident'>lvl</span> <span class='op'>==</span> <span class='ident'>Warning</span> <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>can_emit_warnings</span> { <span class='kw'>return</span> }
-        <span class='self'>self</span>.<span class='ident'>emit</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>emit</span>(<span class='ident'>msp</span>, <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='ident'>lvl</span>);
+        <span class='self'>self</span>.<span class='ident'>emit</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>emit</span>(<span class='kw-2'>&amp;</span><span class='ident'>msp</span>, <span class='ident'>msg</span>, <span class='prelude-val'>None</span>, <span class='ident'>lvl</span>);
         <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>continue_after_error</span>.<span class='ident'>get</span>() { <span class='self'>self</span>.<span class='ident'>abort_if_errors</span>(); }
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>emit_with_code</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
-                          <span class='ident'>msp</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='ident'>MultiSpan</span><span class='op'>&gt;</span>,
+                          <span class='ident'>msp</span>: <span class='kw-2'>&amp;</span><span class='ident'>MultiSpan</span>,
                           <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>,
                           <span class='ident'>code</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>,
                           <span class='ident'>lvl</span>: <span class='ident'>Level</span>) {
         <span class='kw'>if</span> <span class='ident'>lvl</span> <span class='op'>==</span> <span class='ident'>Warning</span> <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>can_emit_warnings</span> { <span class='kw'>return</span> }
-        <span class='self'>self</span>.<span class='ident'>emit</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>emit</span>(<span class='ident'>msp</span>, <span class='ident'>msg</span>, <span class='prelude-val'>Some</span>(<span class='ident'>code</span>), <span class='ident'>lvl</span>);
-        <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>continue_after_error</span>.<span class='ident'>get</span>() { <span class='self'>self</span>.<span class='ident'>abort_if_errors</span>(); }
-    }
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>custom_emit</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>rsp</span>: <span class='ident'>RenderSpan</span>, <span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>, <span class='ident'>lvl</span>: <span class='ident'>Level</span>) {
-        <span class='kw'>if</span> <span class='ident'>lvl</span> <span class='op'>==</span> <span class='ident'>Warning</span> <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>can_emit_warnings</span> { <span class='kw'>return</span> }
-        <span class='self'>self</span>.<span class='ident'>emit</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>custom_emit</span>(<span class='kw-2'>&amp;</span><span class='ident'>rsp</span>, <span class='ident'>msg</span>, <span class='ident'>lvl</span>);
+        <span class='self'>self</span>.<span class='ident'>emit</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>emit</span>(<span class='kw-2'>&amp;</span><span class='ident'>msp</span>, <span class='ident'>msg</span>, <span class='prelude-val'>Some</span>(<span class='ident'>code</span>), <span class='ident'>lvl</span>);
         <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>continue_after_error</span>.<span class='ident'>get</span>() { <span class='self'>self</span>.<span class='ident'>abort_if_errors</span>(); }
     }
 }
@@ -1398,7 +1405,7 @@
     <span class='kw'>fn</span> <span class='ident'>color</span>(<span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>term</span>::<span class='ident'>color</span>::<span class='ident'>Color</span> {
         <span class='kw'>match</span> <span class='self'>self</span> {
             <span class='ident'>Bug</span> <span class='op'>|</span> <span class='ident'>Fatal</span> <span class='op'>|</span> <span class='ident'>PhaseFatal</span> <span class='op'>|</span> <span class='ident'>Error</span> <span class='op'>=&gt;</span> <span class='ident'>term</span>::<span class='ident'>color</span>::<span class='ident'>BRIGHT_RED</span>,
-            <span class='ident'>Warning</span> <span class='op'>=&gt;</span> <span class='ident'>term</span>::<span class='ident'>color</span>::<span class='ident'>BRIGHT_YELLOW</span>,
+            <span class='ident'>Warning</span> <span class='op'>=&gt;</span> <span class='ident'>term</span>::<span class='ident'>color</span>::<span class='ident'>YELLOW</span>,
             <span class='ident'>Note</span> <span class='op'>=&gt;</span> <span class='ident'>term</span>::<span class='ident'>color</span>::<span class='ident'>BRIGHT_GREEN</span>,
             <span class='ident'>Help</span> <span class='op'>=&gt;</span> <span class='ident'>term</span>::<span class='ident'>color</span>::<span class='ident'>BRIGHT_CYAN</span>,
             <span class='ident'>Cancelled</span> <span class='op'>=&gt;</span> <span class='macro'>unreachable</span><span class='macro'>!</span>(),
@@ -1424,6 +1431,23 @@
         <span class='prelude-val'>Some</span>(<span class='ident'>t</span>) <span class='op'>=&gt;</span> <span class='ident'>t</span>,
         <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='ident'>diag</span>.<span class='ident'>bug</span>(<span class='kw-2'>&amp;</span><span class='ident'>msg</span>()),
     }
+}
+
+<span class='doccomment'>/// True if we should use the old-skool error format style. This is</span>
+<span class='doccomment'>/// the default setting until the new errors are deemed stable enough</span>
+<span class='doccomment'>/// for general use.</span>
+<span class='doccomment'>///</span>
+<span class='doccomment'>/// FIXME(#33240)</span>
+<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>not</span>(<span class='ident'>test</span>))]</span>
+<span class='kw'>fn</span> <span class='ident'>check_old_skool</span>() <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
+    <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>env</span>;
+    <span class='ident'>env</span>::<span class='ident'>var</span>(<span class='string'>&quot;RUST_NEW_ERROR_FORMAT&quot;</span>).<span class='ident'>is_err</span>()
+}
+
+<span class='doccomment'>/// For unit tests, use the new format.</span>
+<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>test</span>)]</span>
+<span class='kw'>fn</span> <span class='ident'>check_old_skool</span>() <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
+    <span class='boolval'>false</span>
 }
 </pre>
 </section>
