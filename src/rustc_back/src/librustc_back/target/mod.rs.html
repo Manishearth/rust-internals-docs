@@ -559,6 +559,23 @@
 <span id="515">515</span>
 <span id="516">516</span>
 <span id="517">517</span>
+<span id="518">518</span>
+<span id="519">519</span>
+<span id="520">520</span>
+<span id="521">521</span>
+<span id="522">522</span>
+<span id="523">523</span>
+<span id="524">524</span>
+<span id="525">525</span>
+<span id="526">526</span>
+<span id="527">527</span>
+<span id="528">528</span>
+<span id="529">529</span>
+<span id="530">530</span>
+<span id="531">531</span>
+<span id="532">532</span>
+<span id="533">533</span>
+<span id="534">534</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -618,6 +635,7 @@
 <span class='kw'>mod</span> <span class='ident'>dragonfly_base</span>;
 <span class='kw'>mod</span> <span class='ident'>freebsd_base</span>;
 <span class='kw'>mod</span> <span class='ident'>linux_base</span>;
+<span class='kw'>mod</span> <span class='ident'>linux_musl_base</span>;
 <span class='kw'>mod</span> <span class='ident'>openbsd_base</span>;
 <span class='kw'>mod</span> <span class='ident'>netbsd_base</span>;
 <span class='kw'>mod</span> <span class='ident'>solaris_base</span>;
@@ -634,11 +652,11 @@
         <span class='comment'>// this would use a match if stringify! were allowed in pattern position</span>
         <span class='kw'>fn</span> <span class='ident'>load_specific</span>(<span class='ident'>target</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Target</span><span class='op'>&gt;</span> {
             <span class='kw'>let</span> <span class='ident'>target</span> <span class='op'>=</span> <span class='ident'>target</span>.<span class='ident'>replace</span>(<span class='string'>&quot;-&quot;</span>, <span class='string'>&quot;_&quot;</span>);
-            <span class='kw'>if</span> <span class='boolval'>false</span> { }
+            <span class='kw'>if</span> <span class='boolvalue'>false</span> { }
             $(
                 <span class='kw'>else</span> <span class='kw'>if</span> <span class='ident'>target</span> <span class='op'>==</span> <span class='macro'>stringify</span><span class='macro'>!</span>(<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>module</span>) {
                     <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>t</span> <span class='op'>=</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>module</span>::<span class='ident'>target</span>();
-                    <span class='ident'>t</span>.<span class='ident'>options</span>.<span class='ident'>is_builtin</span> <span class='op'>=</span> <span class='boolval'>true</span>;
+                    <span class='ident'>t</span>.<span class='ident'>options</span>.<span class='ident'>is_builtin</span> <span class='op'>=</span> <span class='boolvalue'>true</span>;
                     <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;Got builtin target: {:?}&quot;</span>, <span class='ident'>t</span>);
                     <span class='kw'>return</span> <span class='prelude-val'>Some</span>(<span class='ident'>t</span>);
                 }
@@ -669,6 +687,7 @@
 
     (<span class='string'>&quot;i686-linux-android&quot;</span>, <span class='ident'>i686_linux_android</span>),
     (<span class='string'>&quot;arm-linux-androideabi&quot;</span>, <span class='ident'>arm_linux_androideabi</span>),
+    (<span class='string'>&quot;armv7-linux-androideabi&quot;</span>, <span class='ident'>armv7_linux_androideabi</span>),
     (<span class='string'>&quot;aarch64-linux-android&quot;</span>, <span class='ident'>aarch64_linux_android</span>),
 
     (<span class='string'>&quot;i686-unknown-freebsd&quot;</span>, <span class='ident'>i686_unknown_freebsd</span>),
@@ -763,7 +782,7 @@
     <span class='kw'>pub</span> <span class='ident'>post_link_args</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>String</span><span class='op'>&gt;</span>,
 
     <span class='doccomment'>/// Default CPU to pass to LLVM. Corresponds to `llc -mcpu=$cpu`. Defaults</span>
-    <span class='doccomment'>/// to &quot;default&quot;.</span>
+    <span class='doccomment'>/// to &quot;generic&quot;.</span>
     <span class='kw'>pub</span> <span class='ident'>cpu</span>: <span class='ident'>String</span>,
     <span class='doccomment'>/// Default target features to pass to LLVM. These features will *always* be</span>
     <span class='doccomment'>/// passed, and cannot be disabled even via `-C`. Corresponds to `llc</span>
@@ -852,6 +871,10 @@
     <span class='comment'>// If we give emcc .o files that are actually .bc files it</span>
     <span class='comment'>// will &#39;just work&#39;.</span>
     <span class='kw'>pub</span> <span class='ident'>obj_is_bitcode</span>: <span class='ident'>bool</span>,
+
+    <span class='doccomment'>/// Maximum integer size in bits that this target can perform atomic</span>
+    <span class='doccomment'>/// operations on.</span>
+    <span class='kw'>pub</span> <span class='ident'>max_atomic_width</span>: <span class='ident'>u64</span>,
 }
 
 <span class='kw'>impl</span> <span class='ident'>Default</span> <span class='kw'>for</span> <span class='ident'>TargetOptions</span> {
@@ -859,47 +882,48 @@
     <span class='doccomment'>/// incomplete, and if used for compilation, will certainly not work.</span>
     <span class='kw'>fn</span> <span class='ident'>default</span>() <span class='op'>-&gt;</span> <span class='ident'>TargetOptions</span> {
         <span class='ident'>TargetOptions</span> {
-            <span class='ident'>is_builtin</span>: <span class='boolval'>false</span>,
+            <span class='ident'>is_builtin</span>: <span class='boolvalue'>false</span>,
             <span class='ident'>linker</span>: <span class='macro'>option_env</span><span class='macro'>!</span>(<span class='string'>&quot;CFG_DEFAULT_LINKER&quot;</span>).<span class='ident'>unwrap_or</span>(<span class='string'>&quot;cc&quot;</span>).<span class='ident'>to_string</span>(),
             <span class='ident'>ar</span>: <span class='macro'>option_env</span><span class='macro'>!</span>(<span class='string'>&quot;CFG_DEFAULT_AR&quot;</span>).<span class='ident'>unwrap_or</span>(<span class='string'>&quot;ar&quot;</span>).<span class='ident'>to_string</span>(),
             <span class='ident'>pre_link_args</span>: <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
             <span class='ident'>post_link_args</span>: <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
             <span class='ident'>cpu</span>: <span class='string'>&quot;generic&quot;</span>.<span class='ident'>to_string</span>(),
             <span class='ident'>features</span>: <span class='string'>&quot;&quot;</span>.<span class='ident'>to_string</span>(),
-            <span class='ident'>dynamic_linking</span>: <span class='boolval'>false</span>,
-            <span class='ident'>executables</span>: <span class='boolval'>false</span>,
+            <span class='ident'>dynamic_linking</span>: <span class='boolvalue'>false</span>,
+            <span class='ident'>executables</span>: <span class='boolvalue'>false</span>,
             <span class='ident'>relocation_model</span>: <span class='string'>&quot;pic&quot;</span>.<span class='ident'>to_string</span>(),
             <span class='ident'>code_model</span>: <span class='string'>&quot;default&quot;</span>.<span class='ident'>to_string</span>(),
-            <span class='ident'>disable_redzone</span>: <span class='boolval'>false</span>,
-            <span class='ident'>eliminate_frame_pointer</span>: <span class='boolval'>true</span>,
-            <span class='ident'>function_sections</span>: <span class='boolval'>true</span>,
+            <span class='ident'>disable_redzone</span>: <span class='boolvalue'>false</span>,
+            <span class='ident'>eliminate_frame_pointer</span>: <span class='boolvalue'>true</span>,
+            <span class='ident'>function_sections</span>: <span class='boolvalue'>true</span>,
             <span class='ident'>dll_prefix</span>: <span class='string'>&quot;lib&quot;</span>.<span class='ident'>to_string</span>(),
             <span class='ident'>dll_suffix</span>: <span class='string'>&quot;.so&quot;</span>.<span class='ident'>to_string</span>(),
             <span class='ident'>exe_suffix</span>: <span class='string'>&quot;&quot;</span>.<span class='ident'>to_string</span>(),
             <span class='ident'>staticlib_prefix</span>: <span class='string'>&quot;lib&quot;</span>.<span class='ident'>to_string</span>(),
             <span class='ident'>staticlib_suffix</span>: <span class='string'>&quot;.a&quot;</span>.<span class='ident'>to_string</span>(),
             <span class='ident'>target_family</span>: <span class='prelude-val'>None</span>,
-            <span class='ident'>is_like_osx</span>: <span class='boolval'>false</span>,
-            <span class='ident'>is_like_solaris</span>: <span class='boolval'>false</span>,
-            <span class='ident'>is_like_windows</span>: <span class='boolval'>false</span>,
-            <span class='ident'>is_like_android</span>: <span class='boolval'>false</span>,
-            <span class='ident'>is_like_msvc</span>: <span class='boolval'>false</span>,
-            <span class='ident'>linker_is_gnu</span>: <span class='boolval'>false</span>,
-            <span class='ident'>has_rpath</span>: <span class='boolval'>false</span>,
-            <span class='ident'>no_compiler_rt</span>: <span class='boolval'>false</span>,
-            <span class='ident'>no_default_libraries</span>: <span class='boolval'>true</span>,
-            <span class='ident'>position_independent_executables</span>: <span class='boolval'>false</span>,
+            <span class='ident'>is_like_osx</span>: <span class='boolvalue'>false</span>,
+            <span class='ident'>is_like_solaris</span>: <span class='boolvalue'>false</span>,
+            <span class='ident'>is_like_windows</span>: <span class='boolvalue'>false</span>,
+            <span class='ident'>is_like_android</span>: <span class='boolvalue'>false</span>,
+            <span class='ident'>is_like_msvc</span>: <span class='boolvalue'>false</span>,
+            <span class='ident'>linker_is_gnu</span>: <span class='boolvalue'>false</span>,
+            <span class='ident'>has_rpath</span>: <span class='boolvalue'>false</span>,
+            <span class='ident'>no_compiler_rt</span>: <span class='boolvalue'>false</span>,
+            <span class='ident'>no_default_libraries</span>: <span class='boolvalue'>true</span>,
+            <span class='ident'>position_independent_executables</span>: <span class='boolvalue'>false</span>,
             <span class='ident'>pre_link_objects_exe</span>: <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
             <span class='ident'>pre_link_objects_dll</span>: <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
             <span class='ident'>post_link_objects</span>: <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
             <span class='ident'>late_link_args</span>: <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
             <span class='ident'>archive_format</span>: <span class='string'>&quot;gnu&quot;</span>.<span class='ident'>to_string</span>(),
-            <span class='ident'>custom_unwind_resume</span>: <span class='boolval'>false</span>,
+            <span class='ident'>custom_unwind_resume</span>: <span class='boolvalue'>false</span>,
             <span class='ident'>lib_allocation_crate</span>: <span class='string'>&quot;alloc_system&quot;</span>.<span class='ident'>to_string</span>(),
             <span class='ident'>exe_allocation_crate</span>: <span class='string'>&quot;alloc_system&quot;</span>.<span class='ident'>to_string</span>(),
-            <span class='ident'>allow_asm</span>: <span class='boolval'>true</span>,
-            <span class='ident'>has_elf_tls</span>: <span class='boolval'>false</span>,
-            <span class='ident'>obj_is_bitcode</span>: <span class='boolval'>false</span>,
+            <span class='ident'>allow_asm</span>: <span class='boolvalue'>true</span>,
+            <span class='ident'>has_elf_tls</span>: <span class='boolvalue'>false</span>,
+            <span class='ident'>obj_is_bitcode</span>: <span class='boolvalue'>false</span>,
+            <span class='ident'>max_atomic_width</span>: <span class='number'>0</span>,
         }
     }
 }
@@ -952,6 +976,9 @@
             <span class='ident'>options</span>: <span class='ident'>Default</span>::<span class='ident'>default</span>(),
         };
 
+        <span class='comment'>// Default max-atomic-width to target-pointer-width</span>
+        <span class='ident'>base</span>.<span class='ident'>options</span>.<span class='ident'>max_atomic_width</span> <span class='op'>=</span> <span class='ident'>base</span>.<span class='ident'>target_pointer_width</span>.<span class='ident'>parse</span>().<span class='ident'>unwrap</span>();
+
         <span class='macro'>macro_rules</span><span class='macro'>!</span> <span class='ident'>key</span> {
             (<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>key_name</span>:<span class='ident'>ident</span>) <span class='op'>=&gt;</span> ( {
                 <span class='kw'>let</span> <span class='ident'>name</span> <span class='op'>=</span> (<span class='macro'>stringify</span><span class='macro'>!</span>(<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>key_name</span>)).<span class='ident'>replace</span>(<span class='string'>&quot;_&quot;</span>, <span class='string'>&quot;-&quot;</span>);
@@ -962,6 +989,12 @@
                 <span class='kw'>let</span> <span class='ident'>name</span> <span class='op'>=</span> (<span class='macro'>stringify</span><span class='macro'>!</span>(<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>key_name</span>)).<span class='ident'>replace</span>(<span class='string'>&quot;_&quot;</span>, <span class='string'>&quot;-&quot;</span>);
                 <span class='ident'>obj</span>.<span class='ident'>find</span>(<span class='kw-2'>&amp;</span><span class='ident'>name</span>[..])
                     .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>o</span><span class='op'>|</span> <span class='ident'>o</span>.<span class='ident'>as_boolean</span>()
+                         .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>s</span><span class='op'>|</span> <span class='ident'>base</span>.<span class='ident'>options</span>.<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>key_name</span> <span class='op'>=</span> <span class='ident'>s</span>));
+            } );
+            (<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>key_name</span>:<span class='ident'>ident</span>, <span class='ident'>u64</span>) <span class='op'>=&gt;</span> ( {
+                <span class='kw'>let</span> <span class='ident'>name</span> <span class='op'>=</span> (<span class='macro'>stringify</span><span class='macro'>!</span>(<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>key_name</span>)).<span class='ident'>replace</span>(<span class='string'>&quot;_&quot;</span>, <span class='string'>&quot;-&quot;</span>);
+                <span class='ident'>obj</span>.<span class='ident'>find</span>(<span class='kw-2'>&amp;</span><span class='ident'>name</span>[..])
+                    .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>o</span><span class='op'>|</span> <span class='ident'>o</span>.<span class='ident'>as_u64</span>()
                          .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>s</span><span class='op'>|</span> <span class='ident'>base</span>.<span class='ident'>options</span>.<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>key_name</span> <span class='op'>=</span> <span class='ident'>s</span>));
             } );
             (<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>key_name</span>:<span class='ident'>ident</span>, <span class='ident'>list</span>) <span class='op'>=&gt;</span> ( {
@@ -1011,6 +1044,7 @@
         <span class='macro'>key</span><span class='macro'>!</span>(<span class='ident'>archive_format</span>);
         <span class='macro'>key</span><span class='macro'>!</span>(<span class='ident'>allow_asm</span>, <span class='ident'>bool</span>);
         <span class='macro'>key</span><span class='macro'>!</span>(<span class='ident'>custom_unwind_resume</span>, <span class='ident'>bool</span>);
+        <span class='macro'>key</span><span class='macro'>!</span>(<span class='ident'>max_atomic_width</span>, <span class='ident'>u64</span>);
 
         <span class='ident'>base</span>
     }

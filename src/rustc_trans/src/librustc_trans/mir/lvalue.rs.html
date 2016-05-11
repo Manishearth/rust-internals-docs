@@ -306,6 +306,13 @@
 <span id="262">262</span>
 <span id="263">263</span>
 <span id="264">264</span>
+<span id="265">265</span>
+<span id="266">266</span>
+<span id="267">267</span>
+<span id="268">268</span>
+<span id="269">269</span>
+<span id="270">270</span>
+<span id="271">271</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -325,11 +332,11 @@
 <span class='kw'>use</span> <span class='ident'>adt</span>;
 <span class='kw'>use</span> <span class='ident'>base</span>;
 <span class='kw'>use</span> <span class='ident'>builder</span>::<span class='ident'>Builder</span>;
-<span class='kw'>use</span> <span class='ident'>common</span>::{<span class='self'>self</span>, <span class='ident'>BlockAndBuilder</span>, <span class='ident'>C_uint</span>};
+<span class='kw'>use</span> <span class='ident'>common</span>::{<span class='self'>self</span>, <span class='ident'>BlockAndBuilder</span>, <span class='ident'>CrateContext</span>, <span class='ident'>C_uint</span>, <span class='ident'>C_undef</span>};
 <span class='kw'>use</span> <span class='ident'>consts</span>;
 <span class='kw'>use</span> <span class='ident'>machine</span>;
+<span class='kw'>use</span> <span class='ident'>type_of</span>::<span class='ident'>type_of</span>;
 <span class='kw'>use</span> <span class='ident'>mir</span>::<span class='ident'>drop</span>;
-<span class='kw'>use</span> <span class='ident'>llvm</span>;
 <span class='kw'>use</span> <span class='ident'>Disr</span>;
 
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>ptr</span>;
@@ -365,6 +372,18 @@
         }
         <span class='ident'>LvalueRef</span>::<span class='ident'>new_sized</span>(<span class='ident'>lltemp</span>, <span class='ident'>LvalueTy</span>::<span class='ident'>from_ty</span>(<span class='ident'>ty</span>))
     }
+
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>len</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>ValueRef</span> {
+        <span class='kw'>let</span> <span class='ident'>ty</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>ty</span>.<span class='ident'>to_ty</span>(<span class='ident'>ccx</span>.<span class='ident'>tcx</span>());
+        <span class='kw'>match</span> <span class='ident'>ty</span>.<span class='ident'>sty</span> {
+            <span class='ident'>ty</span>::<span class='ident'>TyArray</span>(_, <span class='ident'>n</span>) <span class='op'>=&gt;</span> <span class='ident'>common</span>::<span class='ident'>C_uint</span>(<span class='ident'>ccx</span>, <span class='ident'>n</span>),
+            <span class='ident'>ty</span>::<span class='ident'>TySlice</span>(_) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyStr</span> <span class='op'>=&gt;</span> {
+                <span class='macro'>assert</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>llextra</span> <span class='op'>!=</span> <span class='ident'>ptr</span>::<span class='ident'>null_mut</span>());
+                <span class='self'>self</span>.<span class='ident'>llextra</span>
+            }
+            _ <span class='op'>=&gt;</span> <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;unexpected type `{}` in LvalueRef::len&quot;</span>, <span class='ident'>ty</span>)
+        }
+    }
 }
 
 <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>get_meta</span>(<span class='ident'>b</span>: <span class='kw-2'>&amp;</span><span class='ident'>Builder</span>, <span class='ident'>fat_ptr</span>: <span class='ident'>ValueRef</span>) <span class='op'>-&gt;</span> <span class='ident'>ValueRef</span> {
@@ -380,20 +399,6 @@
 }
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;bcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>MirContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;bcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>lvalue_len</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                      <span class='ident'>bcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>BlockAndBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;bcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                      <span class='ident'>lvalue</span>: <span class='ident'>LvalueRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-                      <span class='op'>-&gt;</span> <span class='ident'>ValueRef</span> {
-        <span class='kw'>match</span> <span class='ident'>lvalue</span>.<span class='ident'>ty</span>.<span class='ident'>to_ty</span>(<span class='ident'>bcx</span>.<span class='ident'>tcx</span>()).<span class='ident'>sty</span> {
-            <span class='ident'>ty</span>::<span class='ident'>TyArray</span>(_, <span class='ident'>n</span>) <span class='op'>=&gt;</span> <span class='ident'>common</span>::<span class='ident'>C_uint</span>(<span class='ident'>bcx</span>.<span class='ident'>ccx</span>(), <span class='ident'>n</span>),
-            <span class='ident'>ty</span>::<span class='ident'>TySlice</span>(_) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyStr</span> <span class='op'>=&gt;</span> {
-                <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>lvalue</span>.<span class='ident'>llextra</span> <span class='op'>!=</span> <span class='ident'>ptr</span>::<span class='ident'>null_mut</span>());
-                <span class='ident'>lvalue</span>.<span class='ident'>llextra</span>
-            }
-            _ <span class='op'>=&gt;</span> <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;unexpected type in lvalue_len&quot;</span>),
-        }
-    }
-
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>trans_lvalue</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
                         <span class='ident'>bcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>BlockAndBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;bcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
                         <span class='ident'>lvalue</span>: <span class='kw-2'>&amp;</span><span class='ident'>mir</span>::<span class='ident'>Lvalue</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
@@ -427,10 +432,7 @@
                     <span class='comment'>// Ergo, we return an undef ValueRef, so we do not have to special-case every</span>
                     <span class='comment'>// place using lvalues, and could use it the same way you use a regular</span>
                     <span class='comment'>// ReturnPointer LValue (i.e. store into it, load from it etc).</span>
-                    <span class='kw'>let</span> <span class='ident'>llty</span> <span class='op'>=</span> <span class='ident'>fcx</span>.<span class='ident'>fn_ty</span>.<span class='ident'>ret</span>.<span class='ident'>original_ty</span>.<span class='ident'>ptr_to</span>();
-                    <span class='kw'>unsafe</span> {
-                        <span class='ident'>llvm</span>::<span class='ident'>LLVMGetUndef</span>(<span class='ident'>llty</span>.<span class='ident'>to_ref</span>())
-                    }
+                    <span class='ident'>C_undef</span>(<span class='ident'>fcx</span>.<span class='ident'>fn_ty</span>.<span class='ident'>ret</span>.<span class='ident'>original_ty</span>.<span class='ident'>ptr_to</span>())
                 };
                 <span class='kw'>let</span> <span class='ident'>fn_return_ty</span> <span class='op'>=</span> <span class='ident'>bcx</span>.<span class='ident'>monomorphize</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>mir</span>.<span class='ident'>return_ty</span>);
                 <span class='kw'>let</span> <span class='ident'>return_ty</span> <span class='op'>=</span> <span class='ident'>fn_return_ty</span>.<span class='ident'>unwrap</span>();
@@ -490,16 +492,16 @@
                         <span class='ident'>project_index</span>(<span class='self'>self</span>.<span class='ident'>prepare_index</span>(<span class='ident'>bcx</span>, <span class='ident'>index</span>.<span class='ident'>immediate</span>()))
                     }
                     <span class='ident'>mir</span>::<span class='ident'>ProjectionElem</span>::<span class='ident'>ConstantIndex</span> { <span class='ident'>offset</span>,
-                                                         <span class='ident'>from_end</span>: <span class='boolval'>false</span>,
+                                                         <span class='ident'>from_end</span>: <span class='boolvalue'>false</span>,
                                                          <span class='ident'>min_length</span>: _ } <span class='op'>=&gt;</span> {
                         <span class='kw'>let</span> <span class='ident'>lloffset</span> <span class='op'>=</span> <span class='ident'>C_uint</span>(<span class='ident'>bcx</span>.<span class='ident'>ccx</span>(), <span class='ident'>offset</span>);
                         <span class='ident'>project_index</span>(<span class='self'>self</span>.<span class='ident'>prepare_index</span>(<span class='ident'>bcx</span>, <span class='ident'>lloffset</span>))
                     }
                     <span class='ident'>mir</span>::<span class='ident'>ProjectionElem</span>::<span class='ident'>ConstantIndex</span> { <span class='ident'>offset</span>,
-                                                         <span class='ident'>from_end</span>: <span class='boolval'>true</span>,
+                                                         <span class='ident'>from_end</span>: <span class='boolvalue'>true</span>,
                                                          <span class='ident'>min_length</span>: _ } <span class='op'>=&gt;</span> {
                         <span class='kw'>let</span> <span class='ident'>lloffset</span> <span class='op'>=</span> <span class='ident'>C_uint</span>(<span class='ident'>bcx</span>.<span class='ident'>ccx</span>(), <span class='ident'>offset</span>);
-                        <span class='kw'>let</span> <span class='ident'>lllen</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>lvalue_len</span>(<span class='ident'>bcx</span>, <span class='ident'>tr_base</span>);
+                        <span class='kw'>let</span> <span class='ident'>lllen</span> <span class='op'>=</span> <span class='ident'>tr_base</span>.<span class='ident'>len</span>(<span class='ident'>bcx</span>.<span class='ident'>ccx</span>());
                         <span class='kw'>let</span> <span class='ident'>llindex</span> <span class='op'>=</span> <span class='ident'>bcx</span>.<span class='ident'>sub</span>(<span class='ident'>lllen</span>, <span class='ident'>lloffset</span>);
                         <span class='ident'>project_index</span>(<span class='self'>self</span>.<span class='ident'>prepare_index</span>(<span class='ident'>bcx</span>, <span class='ident'>llindex</span>))
                     }
@@ -521,7 +523,7 @@
     <span class='comment'>// is created first, then used as an operand to update the Lvalue.</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>with_lvalue_ref</span><span class='op'>&lt;</span><span class='ident'>F</span>, <span class='ident'>U</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>bcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>BlockAndBuilder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;bcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
                                  <span class='ident'>lvalue</span>: <span class='kw-2'>&amp;</span><span class='ident'>mir</span>::<span class='ident'>Lvalue</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>f</span>: <span class='ident'>F</span>) <span class='op'>-&gt;</span> <span class='ident'>U</span>
-    <span class='kw'>where</span> <span class='ident'>F</span>: <span class='ident'>FnOnce</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='kw'>Self</span>, <span class='ident'>LvalueRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>U</span>
+    <span class='kw'>where</span> <span class='ident'>F</span>: <span class='ident'>FnOnce</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>Self</span>, <span class='ident'>LvalueRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>U</span>
     {
         <span class='kw'>match</span> <span class='op'>*</span><span class='ident'>lvalue</span> {
             <span class='ident'>mir</span>::<span class='ident'>Lvalue</span>::<span class='ident'>Temp</span>(<span class='ident'>idx</span>) <span class='op'>=&gt;</span> {
@@ -539,7 +541,19 @@
                         <span class='ident'>ret</span>
                     }
                     <span class='ident'>TempRef</span>::<span class='ident'>Operand</span>(<span class='prelude-val'>Some</span>(_)) <span class='op'>=&gt;</span> {
-                        <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;Lvalue temp already set&quot;</span>);
+                        <span class='kw'>let</span> <span class='ident'>lvalue_ty</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>mir</span>.<span class='ident'>lvalue_ty</span>(<span class='ident'>bcx</span>.<span class='ident'>tcx</span>(), <span class='ident'>lvalue</span>);
+                        <span class='kw'>let</span> <span class='ident'>lvalue_ty</span> <span class='op'>=</span> <span class='ident'>bcx</span>.<span class='ident'>monomorphize</span>(<span class='kw-2'>&amp;</span><span class='ident'>lvalue_ty</span>);
+
+                        <span class='comment'>// See comments in TempRef::new_operand as to why</span>
+                        <span class='comment'>// we always have Some in a ZST TempRef::Operand.</span>
+                        <span class='kw'>let</span> <span class='ident'>ty</span> <span class='op'>=</span> <span class='ident'>lvalue_ty</span>.<span class='ident'>to_ty</span>(<span class='ident'>bcx</span>.<span class='ident'>tcx</span>());
+                        <span class='kw'>if</span> <span class='ident'>common</span>::<span class='ident'>type_is_zero_size</span>(<span class='ident'>bcx</span>.<span class='ident'>ccx</span>(), <span class='ident'>ty</span>) {
+                            <span class='comment'>// Pass an undef pointer as no stores can actually occur.</span>
+                            <span class='kw'>let</span> <span class='ident'>llptr</span> <span class='op'>=</span> <span class='ident'>C_undef</span>(<span class='ident'>type_of</span>(<span class='ident'>bcx</span>.<span class='ident'>ccx</span>(), <span class='ident'>ty</span>).<span class='ident'>ptr_to</span>());
+                            <span class='ident'>f</span>(<span class='self'>self</span>, <span class='ident'>LvalueRef</span>::<span class='ident'>new_sized</span>(<span class='ident'>llptr</span>, <span class='ident'>lvalue_ty</span>))
+                        } <span class='kw'>else</span> {
+                            <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;Lvalue temp already set&quot;</span>);
+                        }
                     }
                 }
             }

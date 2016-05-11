@@ -1085,6 +1085,18 @@
 <span id="1041">1041</span>
 <span id="1042">1042</span>
 <span id="1043">1043</span>
+<span id="1044">1044</span>
+<span id="1045">1045</span>
+<span id="1046">1046</span>
+<span id="1047">1047</span>
+<span id="1048">1048</span>
+<span id="1049">1049</span>
+<span id="1050">1050</span>
+<span id="1051">1051</span>
+<span id="1052">1052</span>
+<span id="1053">1053</span>
+<span id="1054">1054</span>
+<span id="1055">1055</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -1123,6 +1135,11 @@
     <span class='doccomment'>/// List of lexical scopes; these are referenced by statements and</span>
     <span class='doccomment'>/// used (eventually) for debuginfo. Indexed by a `ScopeId`.</span>
     <span class='kw'>pub</span> <span class='ident'>scopes</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ScopeData</span><span class='op'>&gt;</span>,
+
+    <span class='doccomment'>/// Rvalues promoted from this function, such as borrows of constants.</span>
+    <span class='doccomment'>/// Each of them is the Mir of a constant with the fn&#39;s type parameters</span>
+    <span class='doccomment'>/// in scope, but no vars or args and a separate set of temps.</span>
+    <span class='kw'>pub</span> <span class='ident'>promoted</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Mir</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
 
     <span class='doccomment'>/// Return type of the function.</span>
     <span class='kw'>pub</span> <span class='ident'>return_ty</span>: <span class='ident'>FnOutput</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
@@ -1486,7 +1503,7 @@
         <span class='ident'>BasicBlockData</span> {
             <span class='ident'>statements</span>: <span class='macro'>vec</span><span class='macro'>!</span>[],
             <span class='ident'>terminator</span>: <span class='ident'>terminator</span>,
-            <span class='ident'>is_cleanup</span>: <span class='boolval'>false</span>,
+            <span class='ident'>is_cleanup</span>: <span class='boolvalue'>false</span>,
         }
     }
 
@@ -1755,9 +1772,9 @@
                         <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;({:?}.{:?}: {:?})&quot;</span>, <span class='ident'>data</span>.<span class='ident'>base</span>, <span class='ident'>field</span>.<span class='ident'>index</span>(), <span class='ident'>ty</span>),
                     <span class='ident'>ProjectionElem</span>::<span class='ident'>Index</span>(<span class='kw-2'>ref</span> <span class='ident'>index</span>) <span class='op'>=&gt;</span>
                         <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;{:?}[{:?}]&quot;</span>, <span class='ident'>data</span>.<span class='ident'>base</span>, <span class='ident'>index</span>),
-                    <span class='ident'>ProjectionElem</span>::<span class='ident'>ConstantIndex</span> { <span class='ident'>offset</span>, <span class='ident'>min_length</span>, <span class='ident'>from_end</span>: <span class='boolval'>false</span> } <span class='op'>=&gt;</span>
+                    <span class='ident'>ProjectionElem</span>::<span class='ident'>ConstantIndex</span> { <span class='ident'>offset</span>, <span class='ident'>min_length</span>, <span class='ident'>from_end</span>: <span class='boolvalue'>false</span> } <span class='op'>=&gt;</span>
                         <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;{:?}[{:?} of {:?}]&quot;</span>, <span class='ident'>data</span>.<span class='ident'>base</span>, <span class='ident'>offset</span>, <span class='ident'>min_length</span>),
-                    <span class='ident'>ProjectionElem</span>::<span class='ident'>ConstantIndex</span> { <span class='ident'>offset</span>, <span class='ident'>min_length</span>, <span class='ident'>from_end</span>: <span class='boolval'>true</span> } <span class='op'>=&gt;</span>
+                    <span class='ident'>ProjectionElem</span>::<span class='ident'>ConstantIndex</span> { <span class='ident'>offset</span>, <span class='ident'>min_length</span>, <span class='ident'>from_end</span>: <span class='boolvalue'>true</span> } <span class='op'>=&gt;</span>
                         <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;{:?}[-{:?} of {:?}]&quot;</span>, <span class='ident'>data</span>.<span class='ident'>base</span>, <span class='ident'>offset</span>, <span class='ident'>min_length</span>),
                 },
         }
@@ -2075,6 +2092,10 @@
     <span class='ident'>Value</span> {
         <span class='ident'>value</span>: <span class='ident'>ConstVal</span>,
     },
+    <span class='ident'>Promoted</span> {
+        <span class='comment'>// Index into the `promoted` vector of `Mir`.</span>
+        <span class='ident'>index</span>: <span class='ident'>usize</span>
+    },
 }
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>Debug</span> <span class='kw'>for</span> <span class='ident'>Constant</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
@@ -2094,6 +2115,9 @@
             <span class='ident'>Value</span> { <span class='kw-2'>ref</span> <span class='ident'>value</span> } <span class='op'>=&gt;</span> {
                 <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;const &quot;</span>)?;
                 <span class='ident'>fmt_const_val</span>(<span class='ident'>fmt</span>, <span class='ident'>value</span>)
+            }
+            <span class='ident'>Promoted</span> { <span class='ident'>index</span> } <span class='op'>=&gt;</span> {
+                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;promoted{}&quot;</span>, <span class='ident'>index</span>)
             }
         }
     }

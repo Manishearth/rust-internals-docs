@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["Candidate","A \"root candidate\" for promotion, which will become the returned value in a promoted MIR, unless it's a subset of a larger candidate."],["TempState","State of a temporary during collection and promotion."]],"fn":[["collect_temps",""],["promote_candidates",""]]});
