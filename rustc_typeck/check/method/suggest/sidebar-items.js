@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["report_error",""]],"type":[["AllTraitsVec",""]]});
+initSidebarItems({"type":[["AllTraitsVec",""]]});

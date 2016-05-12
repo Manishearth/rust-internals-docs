@@ -527,6 +527,25 @@
 <span id="483">483</span>
 <span id="484">484</span>
 <span id="485">485</span>
+<span id="486">486</span>
+<span id="487">487</span>
+<span id="488">488</span>
+<span id="489">489</span>
+<span id="490">490</span>
+<span id="491">491</span>
+<span id="492">492</span>
+<span id="493">493</span>
+<span id="494">494</span>
+<span id="495">495</span>
+<span id="496">496</span>
+<span id="497">497</span>
+<span id="498">498</span>
+<span id="499">499</span>
+<span id="500">500</span>
+<span id="501">501</span>
+<span id="502">502</span>
+<span id="503">503</span>
+<span id="504">504</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2016 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -541,10 +560,9 @@
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cell</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>rc</span>::<span class='ident'>Rc</span>;
 
-<span class='kw'>use</span> <span class='kw'>super</span>::{<span class='ident'>Overlap</span>, <span class='ident'>specializes</span>};
+<span class='kw'>use</span> <span class='kw'>super</span>::{<span class='ident'>OverlapError</span>, <span class='ident'>specializes</span>};
 
 <span class='kw'>use</span> <span class='ident'>hir</span>::<span class='ident'>def_id</span>::<span class='ident'>DefId</span>;
-<span class='kw'>use</span> <span class='ident'>infer</span>;
 <span class='kw'>use</span> <span class='ident'>traits</span>::{<span class='self'>self</span>, <span class='ident'>ProjectionMode</span>};
 <span class='kw'>use</span> <span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>TyCtxt</span>, <span class='ident'>ImplOrTraitItem</span>, <span class='ident'>TraitDef</span>, <span class='ident'>TypeFoldable</span>};
 <span class='kw'>use</span> <span class='ident'>ty</span>::<span class='ident'>fast_reject</span>::{<span class='self'>self</span>, <span class='ident'>SimplifiedType</span>};
@@ -596,7 +614,7 @@
 }
 
 <span class='doccomment'>/// The result of attempting to insert an impl into a group of children.</span>
-<span class='kw'>enum</span> <span class='ident'>InsertResult</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>: <span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
+<span class='kw'>enum</span> <span class='ident'>Inserted</span> {
     <span class='doccomment'>/// The impl was inserted as a new child in this group of children.</span>
     <span class='ident'>BecameNewSibling</span>,
 
@@ -605,13 +623,9 @@
 
     <span class='doccomment'>/// The impl is a specialization of an existing child.</span>
     <span class='ident'>ShouldRecurseOn</span>(<span class='ident'>DefId</span>),
-
-    <span class='doccomment'>/// The impl has an unresolvable overlap with an existing child (neither</span>
-    <span class='doccomment'>/// specializes the other).</span>
-    <span class='ident'>Overlapped</span>(<span class='ident'>Overlap</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>),
 }
 
-<span class='kw'>impl</span> <span class='ident'>Children</span> {
+<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>Children</span> {
     <span class='kw'>fn</span> <span class='ident'>new</span>() <span class='op'>-&gt;</span> <span class='ident'>Children</span> {
         <span class='ident'>Children</span> {
             <span class='ident'>nonblanket_impls</span>: <span class='ident'>FnvHashMap</span>(),
@@ -620,7 +634,9 @@
     }
 
     <span class='doccomment'>/// Insert an impl into this set of children without comparing to any existing impls</span>
-    <span class='kw'>fn</span> <span class='ident'>insert_blindly</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>TyCtxt</span>, <span class='ident'>impl_def_id</span>: <span class='ident'>DefId</span>) {
+    <span class='kw'>fn</span> <span class='ident'>insert_blindly</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
+                      <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+                      <span class='ident'>impl_def_id</span>: <span class='ident'>DefId</span>) {
         <span class='kw'>let</span> <span class='ident'>trait_ref</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>impl_trait_ref</span>(<span class='ident'>impl_def_id</span>).<span class='ident'>unwrap</span>();
         <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>sty</span>) <span class='op'>=</span> <span class='ident'>fast_reject</span>::<span class='ident'>simplify_type</span>(<span class='ident'>tcx</span>, <span class='ident'>trait_ref</span>.<span class='ident'>self_ty</span>(), <span class='boolvalue'>false</span>) {
             <span class='self'>self</span>.<span class='ident'>nonblanket_impls</span>.<span class='ident'>entry</span>(<span class='ident'>sty</span>).<span class='ident'>or_insert</span>(<span class='macro'>vec</span><span class='macro'>!</span>[]).<span class='ident'>push</span>(<span class='ident'>impl_def_id</span>)
@@ -631,11 +647,11 @@
 
     <span class='doccomment'>/// Attempt to insert an impl into this set of children, while comparing for</span>
     <span class='doccomment'>/// specialiation relationships.</span>
-    <span class='kw'>fn</span> <span class='ident'>insert</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                        <span class='ident'>tcx</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                        <span class='ident'>impl_def_id</span>: <span class='ident'>DefId</span>,
-                        <span class='ident'>simplified_self</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>SimplifiedType</span><span class='op'>&gt;</span>)
-                        <span class='op'>-&gt;</span> <span class='ident'>InsertResult</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
+    <span class='kw'>fn</span> <span class='ident'>insert</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
+              <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+              <span class='ident'>impl_def_id</span>: <span class='ident'>DefId</span>,
+              <span class='ident'>simplified_self</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>SimplifiedType</span><span class='op'>&gt;</span>)
+              <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>Inserted</span>, <span class='ident'>OverlapError</span><span class='op'>&gt;</span>
     {
         <span class='kw'>for</span> <span class='ident'>slot</span> <span class='kw'>in</span> <span class='kw'>match</span> <span class='ident'>simplified_self</span> {
             <span class='prelude-val'>Some</span>(<span class='ident'>sty</span>) <span class='op'>=&gt;</span> <span class='self'>self</span>.<span class='ident'>filtered_mut</span>(<span class='ident'>sty</span>),
@@ -643,56 +659,78 @@
         } {
             <span class='kw'>let</span> <span class='ident'>possible_sibling</span> <span class='op'>=</span> <span class='op'>*</span><span class='ident'>slot</span>;
 
-            <span class='kw'>let</span> <span class='ident'>infcx</span> <span class='op'>=</span> <span class='ident'>infer</span>::<span class='ident'>new_infer_ctxt</span>(<span class='ident'>tcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>tcx</span>.<span class='ident'>tables</span>, <span class='prelude-val'>None</span>, <span class='ident'>ProjectionMode</span>::<span class='ident'>Topmost</span>);
-            <span class='kw'>let</span> <span class='ident'>overlap</span> <span class='op'>=</span> <span class='ident'>traits</span>::<span class='ident'>overlapping_impls</span>(<span class='kw-2'>&amp;</span><span class='ident'>infcx</span>, <span class='ident'>possible_sibling</span>, <span class='ident'>impl_def_id</span>);
+            <span class='kw'>let</span> <span class='ident'>tcx</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>global_tcx</span>();
+            <span class='kw'>let</span> (<span class='ident'>le</span>, <span class='ident'>ge</span>) <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>infer_ctxt</span>(<span class='prelude-val'>None</span>, <span class='prelude-val'>None</span>,
+                                          <span class='ident'>ProjectionMode</span>::<span class='ident'>Topmost</span>).<span class='ident'>enter</span>(<span class='op'>|</span><span class='ident'>infcx</span><span class='op'>|</span> {
+                <span class='kw'>let</span> <span class='ident'>overlap</span> <span class='op'>=</span> <span class='ident'>traits</span>::<span class='ident'>overlapping_impls</span>(<span class='kw-2'>&amp;</span><span class='ident'>infcx</span>,
+                                                        <span class='ident'>possible_sibling</span>,
+                                                        <span class='ident'>impl_def_id</span>);
+                <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>impl_header</span>) <span class='op'>=</span> <span class='ident'>overlap</span> {
+                    <span class='kw'>let</span> <span class='ident'>le</span> <span class='op'>=</span> <span class='ident'>specializes</span>(<span class='ident'>tcx</span>, <span class='ident'>impl_def_id</span>, <span class='ident'>possible_sibling</span>);
+                    <span class='kw'>let</span> <span class='ident'>ge</span> <span class='op'>=</span> <span class='ident'>specializes</span>(<span class='ident'>tcx</span>, <span class='ident'>possible_sibling</span>, <span class='ident'>impl_def_id</span>);
 
-            <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>impl_header</span>) <span class='op'>=</span> <span class='ident'>overlap</span> {
-                <span class='kw'>let</span> <span class='ident'>le</span> <span class='op'>=</span> <span class='ident'>specializes</span>(<span class='ident'>tcx</span>, <span class='ident'>impl_def_id</span>, <span class='ident'>possible_sibling</span>);
-                <span class='kw'>let</span> <span class='ident'>ge</span> <span class='op'>=</span> <span class='ident'>specializes</span>(<span class='ident'>tcx</span>, <span class='ident'>possible_sibling</span>, <span class='ident'>impl_def_id</span>);
+                    <span class='kw'>if</span> <span class='ident'>le</span> <span class='op'>==</span> <span class='ident'>ge</span> {
+                        <span class='comment'>// overlap, but no specialization; error out</span>
+                        <span class='kw'>let</span> <span class='ident'>trait_ref</span> <span class='op'>=</span> <span class='ident'>impl_header</span>.<span class='ident'>trait_ref</span>.<span class='ident'>unwrap</span>();
+                        <span class='prelude-val'>Err</span>(<span class='ident'>OverlapError</span> {
+                            <span class='ident'>with_impl</span>: <span class='ident'>possible_sibling</span>,
+                            <span class='ident'>trait_desc</span>: <span class='ident'>trait_ref</span>.<span class='ident'>to_string</span>(),
+                            <span class='ident'>self_desc</span>: <span class='ident'>trait_ref</span>.<span class='ident'>substs</span>.<span class='ident'>self_ty</span>().<span class='ident'>and_then</span>(<span class='op'>|</span><span class='ident'>ty</span><span class='op'>|</span> {
+                                <span class='comment'>// only report the Self type if it has at least</span>
+                                <span class='comment'>// some outer concrete shell; otherwise, it&#39;s</span>
+                                <span class='comment'>// not adding much information.</span>
+                                <span class='kw'>if</span> <span class='ident'>ty</span>.<span class='ident'>has_concrete_skeleton</span>() {
+                                    <span class='prelude-val'>Some</span>(<span class='ident'>ty</span>.<span class='ident'>to_string</span>())
+                                } <span class='kw'>else</span> {
+                                    <span class='prelude-val'>None</span>
+                                }
+                            })
+                        })
+                    } <span class='kw'>else</span> {
+                        <span class='prelude-val'>Ok</span>((<span class='ident'>le</span>, <span class='ident'>ge</span>))
+                    }
+                } <span class='kw'>else</span> {
+                    <span class='prelude-val'>Ok</span>((<span class='boolvalue'>false</span>, <span class='boolvalue'>false</span>))
+                }
+            })?;
 
-                <span class='kw'>if</span> <span class='ident'>le</span> <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='ident'>ge</span> {
-                    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;descending as child of TraitRef {:?}&quot;</span>,
-                           <span class='ident'>tcx</span>.<span class='ident'>impl_trait_ref</span>(<span class='ident'>possible_sibling</span>).<span class='ident'>unwrap</span>());
+            <span class='kw'>if</span> <span class='ident'>le</span> <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='ident'>ge</span> {
+                <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;descending as child of TraitRef {:?}&quot;</span>,
+                       <span class='ident'>tcx</span>.<span class='ident'>impl_trait_ref</span>(<span class='ident'>possible_sibling</span>).<span class='ident'>unwrap</span>());
 
-                    <span class='comment'>// the impl specializes possible_sibling</span>
-                    <span class='kw'>return</span> <span class='ident'>InsertResult</span>::<span class='ident'>ShouldRecurseOn</span>(<span class='ident'>possible_sibling</span>);
-                } <span class='kw'>else</span> <span class='kw'>if</span> <span class='ident'>ge</span> <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='ident'>le</span> {
-                    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;placing as parent of TraitRef {:?}&quot;</span>,
-                           <span class='ident'>tcx</span>.<span class='ident'>impl_trait_ref</span>(<span class='ident'>possible_sibling</span>).<span class='ident'>unwrap</span>());
+                <span class='comment'>// the impl specializes possible_sibling</span>
+                <span class='kw'>return</span> <span class='prelude-val'>Ok</span>(<span class='ident'>Inserted</span>::<span class='ident'>ShouldRecurseOn</span>(<span class='ident'>possible_sibling</span>));
+            } <span class='kw'>else</span> <span class='kw'>if</span> <span class='ident'>ge</span> <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='ident'>le</span> {
+                <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;placing as parent of TraitRef {:?}&quot;</span>,
+                       <span class='ident'>tcx</span>.<span class='ident'>impl_trait_ref</span>(<span class='ident'>possible_sibling</span>).<span class='ident'>unwrap</span>());
 
                     <span class='comment'>// possible_sibling specializes the impl</span>
                     <span class='op'>*</span><span class='ident'>slot</span> <span class='op'>=</span> <span class='ident'>impl_def_id</span>;
-                    <span class='kw'>return</span> <span class='ident'>InsertResult</span>::<span class='ident'>Replaced</span>(<span class='ident'>possible_sibling</span>);
-                } <span class='kw'>else</span> {
-                    <span class='comment'>// overlap, but no specialization; error out</span>
-                    <span class='kw'>return</span> <span class='ident'>InsertResult</span>::<span class='ident'>Overlapped</span>(<span class='ident'>Overlap</span> {
-                        <span class='ident'>with_impl</span>: <span class='ident'>possible_sibling</span>,
-                        <span class='ident'>on_trait_ref</span>: <span class='ident'>impl_header</span>.<span class='ident'>trait_ref</span>.<span class='ident'>unwrap</span>(),
-                        <span class='ident'>in_context</span>: <span class='ident'>infcx</span>,
-                    });
-                }
+                <span class='kw'>return</span> <span class='prelude-val'>Ok</span>(<span class='ident'>Inserted</span>::<span class='ident'>Replaced</span>(<span class='ident'>possible_sibling</span>));
+            } <span class='kw'>else</span> {
+                <span class='comment'>// no overlap (error bailed already via ?)</span>
             }
         }
 
         <span class='comment'>// no overlap with any potential siblings, so add as a new sibling</span>
         <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;placing as new sibling&quot;</span>);
         <span class='self'>self</span>.<span class='ident'>insert_blindly</span>(<span class='ident'>tcx</span>, <span class='ident'>impl_def_id</span>);
-        <span class='ident'>InsertResult</span>::<span class='ident'>BecameNewSibling</span>
+        <span class='prelude-val'>Ok</span>(<span class='ident'>Inserted</span>::<span class='ident'>BecameNewSibling</span>)
     }
 
-    <span class='kw'>fn</span> <span class='ident'>iter_mut</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>Iterator</span><span class='op'>&lt;</span><span class='ident'>Item</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='ident'>DefId</span><span class='op'>&gt;</span> <span class='op'>+</span> <span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
+    <span class='kw'>fn</span> <span class='ident'>iter_mut</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>Iterator</span><span class='op'>&lt;</span><span class='ident'>Item</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='ident'>DefId</span><span class='op'>&gt;</span> <span class='op'>+</span> <span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
         <span class='kw'>let</span> <span class='ident'>nonblanket</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>nonblanket_impls</span>.<span class='ident'>iter_mut</span>().<span class='ident'>flat_map</span>(<span class='op'>|</span>(_, <span class='ident'>v</span>)<span class='op'>|</span> <span class='ident'>v</span>.<span class='ident'>iter_mut</span>());
         <span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='self'>self</span>.<span class='ident'>blanket_impls</span>.<span class='ident'>iter_mut</span>().<span class='ident'>chain</span>(<span class='ident'>nonblanket</span>))
     }
 
-    <span class='kw'>fn</span> <span class='ident'>filtered_mut</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>sty</span>: <span class='ident'>SimplifiedType</span>)
-                        <span class='op'>-&gt;</span> <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>Iterator</span><span class='op'>&lt;</span><span class='ident'>Item</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='ident'>DefId</span><span class='op'>&gt;</span> <span class='op'>+</span> <span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
+    <span class='kw'>fn</span> <span class='ident'>filtered_mut</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>sty</span>: <span class='ident'>SimplifiedType</span>)
+                    <span class='op'>-&gt;</span> <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>Iterator</span><span class='op'>&lt;</span><span class='ident'>Item</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='ident'>DefId</span><span class='op'>&gt;</span> <span class='op'>+</span> <span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
         <span class='kw'>let</span> <span class='ident'>nonblanket</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>nonblanket_impls</span>.<span class='ident'>entry</span>(<span class='ident'>sty</span>).<span class='ident'>or_insert</span>(<span class='macro'>vec</span><span class='macro'>!</span>[]).<span class='ident'>iter_mut</span>();
         <span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='self'>self</span>.<span class='ident'>blanket_impls</span>.<span class='ident'>iter_mut</span>().<span class='ident'>chain</span>(<span class='ident'>nonblanket</span>))
     }
 }
 
-<span class='kw'>impl</span> <span class='ident'>Graph</span> {
+<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>Graph</span> {
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>() <span class='op'>-&gt;</span> <span class='ident'>Graph</span> {
         <span class='ident'>Graph</span> {
             <span class='ident'>parent</span>: <span class='ident'>Default</span>::<span class='ident'>default</span>(),
@@ -703,10 +741,10 @@
     <span class='doccomment'>/// Insert a local impl into the specialization graph. If an existing impl</span>
     <span class='doccomment'>/// conflicts with it (has overlap, but neither specializes the other),</span>
     <span class='doccomment'>/// information about the area of overlap is returned in the `Err`.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>insert</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                            <span class='ident'>tcx</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                            <span class='ident'>impl_def_id</span>: <span class='ident'>DefId</span>)
-                            <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(), <span class='ident'>Overlap</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>insert</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
+                  <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+                  <span class='ident'>impl_def_id</span>: <span class='ident'>DefId</span>)
+                  <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(), <span class='ident'>OverlapError</span><span class='op'>&gt;</span> {
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>impl_def_id</span>.<span class='ident'>is_local</span>());
 
         <span class='kw'>let</span> <span class='ident'>trait_ref</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>impl_trait_ref</span>(<span class='ident'>impl_def_id</span>).<span class='ident'>unwrap</span>();
@@ -735,10 +773,10 @@
 
         <span class='comment'>// Descend the specialization tree, where `parent` is the current parent node</span>
         <span class='kw'>loop</span> {
-            <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>InsertResult</span>::<span class='op'>*</span>;
+            <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>Inserted</span>::<span class='op'>*</span>;
 
             <span class='kw'>let</span> <span class='ident'>insert_result</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>children</span>.<span class='ident'>entry</span>(<span class='ident'>parent</span>).<span class='ident'>or_insert</span>(<span class='ident'>Children</span>::<span class='ident'>new</span>())
-                .<span class='ident'>insert</span>(<span class='ident'>tcx</span>, <span class='ident'>impl_def_id</span>, <span class='ident'>simplified</span>);
+                .<span class='ident'>insert</span>(<span class='ident'>tcx</span>, <span class='ident'>impl_def_id</span>, <span class='ident'>simplified</span>)?;
 
             <span class='kw'>match</span> <span class='ident'>insert_result</span> {
                 <span class='ident'>BecameNewSibling</span> <span class='op'>=&gt;</span> {
@@ -754,9 +792,6 @@
                 <span class='ident'>ShouldRecurseOn</span>(<span class='ident'>new_parent</span>) <span class='op'>=&gt;</span> {
                     <span class='ident'>parent</span> <span class='op'>=</span> <span class='ident'>new_parent</span>;
                 }
-                <span class='ident'>Overlapped</span>(<span class='ident'>error</span>) <span class='op'>=&gt;</span> {
-                    <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>error</span>);
-                }
             }
         }
 
@@ -765,7 +800,10 @@
     }
 
     <span class='doccomment'>/// Insert cached metadata mapping from a child impl back to its parent.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>record_impl_from_cstore</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>TyCtxt</span>, <span class='ident'>parent</span>: <span class='ident'>DefId</span>, <span class='ident'>child</span>: <span class='ident'>DefId</span>) {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>record_impl_from_cstore</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
+                                   <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+                                   <span class='ident'>parent</span>: <span class='ident'>DefId</span>,
+                                   <span class='ident'>child</span>: <span class='ident'>DefId</span>) {
         <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>parent</span>.<span class='ident'>insert</span>(<span class='ident'>child</span>, <span class='ident'>parent</span>).<span class='ident'>is_some</span>() {
             <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;When recording an impl from the crate store, information about its parent \
                   was already present.&quot;</span>);
@@ -790,7 +828,7 @@
     <span class='ident'>Trait</span>(<span class='ident'>DefId</span>),
 }
 
-<span class='kw'>impl</span> <span class='ident'>Node</span> {
+<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>Node</span> {
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_from_trait</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
         <span class='kw'>match</span> <span class='op'>*</span><span class='self'>self</span> {
             <span class='ident'>Node</span>::<span class='ident'>Trait</span>(..) <span class='op'>=&gt;</span> <span class='boolvalue'>true</span>,
@@ -799,11 +837,11 @@
     }
 
     <span class='doccomment'>/// Iterate over the items defined directly by the given (impl or trait) node.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>items</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>NodeItems</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>items</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>NodeItems</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span><span class='op'>&gt;</span> {
         <span class='kw'>match</span> <span class='op'>*</span><span class='self'>self</span> {
             <span class='ident'>Node</span>::<span class='ident'>Impl</span>(<span class='ident'>impl_def_id</span>) <span class='op'>=&gt;</span> {
                 <span class='ident'>NodeItems</span>::<span class='ident'>Impl</span> {
-                    <span class='ident'>tcx</span>: <span class='ident'>tcx</span>,
+                    <span class='ident'>tcx</span>: <span class='ident'>tcx</span>.<span class='ident'>global_tcx</span>(),
                     <span class='ident'>items</span>: <span class='ident'>cell</span>::<span class='ident'>Ref</span>::<span class='ident'>map</span>(<span class='ident'>tcx</span>.<span class='ident'>impl_items</span>.<span class='ident'>borrow</span>(),
                                           <span class='op'>|</span><span class='ident'>impl_items</span><span class='op'>|</span> <span class='kw-2'>&amp;</span><span class='ident'>impl_items</span>[<span class='kw-2'>&amp;</span><span class='ident'>impl_def_id</span>]),
                     <span class='ident'>idx</span>: <span class='number'>0</span>,
@@ -829,7 +867,7 @@
 <span class='doccomment'>/// An iterator over the items defined within a trait or impl.</span>
 <span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>NodeItems</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>: <span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
     <span class='ident'>Impl</span> {
-        <span class='ident'>tcx</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+        <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
         <span class='ident'>items</span>: <span class='ident'>cell</span>::<span class='ident'>Ref</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>ImplOrTraitItemId</span><span class='op'>&gt;&gt;</span>,
         <span class='ident'>idx</span>: <span class='ident'>usize</span>,
     },
@@ -938,10 +976,10 @@
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>Ancestors</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
+<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>Ancestors</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
     <span class='doccomment'>/// Search the items from the given ancestors, returning each type definition</span>
     <span class='doccomment'>/// with the given name.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>type_defs</span>(<span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>name</span>: <span class='ident'>Name</span>) <span class='op'>-&gt;</span> <span class='ident'>TypeDefs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>type_defs</span>(<span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>name</span>: <span class='ident'>Name</span>) <span class='op'>-&gt;</span> <span class='ident'>TypeDefs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span><span class='op'>&gt;</span> {
         <span class='kw'>let</span> <span class='ident'>iter</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>flat_map</span>(<span class='kw'>move</span> <span class='op'>|</span><span class='ident'>node</span><span class='op'>|</span> {
             <span class='ident'>node</span>.<span class='ident'>items</span>(<span class='ident'>tcx</span>)
                 .<span class='ident'>filter_map</span>(<span class='kw'>move</span> <span class='op'>|</span><span class='ident'>item</span><span class='op'>|</span> {
@@ -962,7 +1000,7 @@
 
     <span class='doccomment'>/// Search the items from the given ancestors, returning each fn definition</span>
     <span class='doccomment'>/// with the given name.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>fn_defs</span>(<span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>name</span>: <span class='ident'>Name</span>) <span class='op'>-&gt;</span> <span class='ident'>FnDefs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>fn_defs</span>(<span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>name</span>: <span class='ident'>Name</span>) <span class='op'>-&gt;</span> <span class='ident'>FnDefs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span><span class='op'>&gt;</span> {
         <span class='kw'>let</span> <span class='ident'>iter</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>flat_map</span>(<span class='kw'>move</span> <span class='op'>|</span><span class='ident'>node</span><span class='op'>|</span> {
             <span class='ident'>node</span>.<span class='ident'>items</span>(<span class='ident'>tcx</span>)
                 .<span class='ident'>filter_map</span>(<span class='kw'>move</span> <span class='op'>|</span><span class='ident'>item</span><span class='op'>|</span> {
@@ -983,7 +1021,7 @@
 
     <span class='doccomment'>/// Search the items from the given ancestors, returning each const</span>
     <span class='doccomment'>/// definition with the given name.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>const_defs</span>(<span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>name</span>: <span class='ident'>Name</span>) <span class='op'>-&gt;</span> <span class='ident'>ConstDefs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>const_defs</span>(<span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>name</span>: <span class='ident'>Name</span>) <span class='op'>-&gt;</span> <span class='ident'>ConstDefs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span><span class='op'>&gt;</span> {
         <span class='kw'>let</span> <span class='ident'>iter</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>flat_map</span>(<span class='kw'>move</span> <span class='op'>|</span><span class='ident'>node</span><span class='op'>|</span> {
             <span class='ident'>node</span>.<span class='ident'>items</span>(<span class='ident'>tcx</span>)
                 .<span class='ident'>filter_map</span>(<span class='kw'>move</span> <span class='op'>|</span><span class='ident'>item</span><span class='op'>|</span> {

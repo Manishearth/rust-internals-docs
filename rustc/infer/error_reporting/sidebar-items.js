@@ -1,1 +1,1 @@
-initSidebarItems({"trait":[["ErrorReporting",""],["Resolvable",""]]});
+initSidebarItems({"trait":[["Resolvable",""]]});
