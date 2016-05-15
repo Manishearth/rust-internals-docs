@@ -1078,6 +1078,18 @@
 <span id="1034">1034</span>
 <span id="1035">1035</span>
 <span id="1036">1036</span>
+<span id="1037">1037</span>
+<span id="1038">1038</span>
+<span id="1039">1039</span>
+<span id="1040">1040</span>
+<span id="1041">1041</span>
+<span id="1042">1042</span>
+<span id="1043">1043</span>
+<span id="1044">1044</span>
+<span id="1045">1045</span>
+<span id="1046">1046</span>
+<span id="1047">1047</span>
+<span id="1048">1048</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2016 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -1145,13 +1157,18 @@
         <span class='comment'>// pointer comparisons, ptr-to-int casts, etc.</span>
         <span class='kw'>const</span> <span class='ident'>NOT_CONST</span>         <span class='op'>=</span> <span class='number'>1</span> <span class='op'>&lt;&lt;</span> <span class='number'>6</span>,
 
+        <span class='comment'>// Refers to temporaries which cannot be promoted as</span>
+        <span class='comment'>// promote_consts decided they weren&#39;t simple enough.</span>
+        <span class='kw'>const</span> <span class='ident'>NOT_PROMOTABLE</span>    <span class='op'>=</span> <span class='number'>1</span> <span class='op'>&lt;&lt;</span> <span class='number'>7</span>,
+
         <span class='comment'>// Borrows of temporaries can be promoted only</span>
         <span class='comment'>// if they have none of the above qualifications.</span>
-        <span class='kw'>const</span> <span class='ident'>UNPROMOTABLE</span>      <span class='op'>=</span> <span class='op'>!</span><span class='number'>0</span>,
+        <span class='kw'>const</span> <span class='ident'>NEVER_PROMOTE</span>     <span class='op'>=</span> <span class='op'>!</span><span class='number'>0</span>,
 
         <span class='comment'>// Const items can only have MUTABLE_INTERIOR</span>
-        <span class='comment'>// without producing an error.</span>
-        <span class='kw'>const</span> <span class='ident'>CONST_ERROR</span>       <span class='op'>=</span> <span class='op'>!</span><span class='ident'>Qualif</span>::<span class='ident'>MUTABLE_INTERIOR</span>.<span class='ident'>bits</span>
+        <span class='comment'>// and NOT_PROMOTABLE without producing an error.</span>
+        <span class='kw'>const</span> <span class='ident'>CONST_ERROR</span>       <span class='op'>=</span> <span class='op'>!</span><span class='ident'>Qualif</span>::<span class='ident'>MUTABLE_INTERIOR</span>.<span class='ident'>bits</span> <span class='kw-2'>&amp;</span>
+                                  <span class='op'>!</span><span class='ident'>Qualif</span>::<span class='ident'>NOT_PROMOTABLE</span>.<span class='ident'>bits</span>
     }
 }
 
@@ -1584,6 +1601,10 @@
                 <span class='self'>self</span>.<span class='ident'>add</span>(<span class='ident'>Qualif</span>::<span class='ident'>NOT_CONST</span>);
             }
             <span class='ident'>Lvalue</span>::<span class='ident'>Temp</span>(<span class='ident'>index</span>) <span class='op'>=&gt;</span> {
+                <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>temp_promotion_state</span>[<span class='ident'>index</span> <span class='kw'>as</span> <span class='ident'>usize</span>].<span class='ident'>is_promotable</span>() {
+                    <span class='self'>self</span>.<span class='ident'>add</span>(<span class='ident'>Qualif</span>::<span class='ident'>NOT_PROMOTABLE</span>);
+                }
+
                 <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>qualif</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>temp_qualif</span>[<span class='ident'>index</span> <span class='kw'>as</span> <span class='ident'>usize</span>] {
                     <span class='self'>self</span>.<span class='ident'>add</span>(<span class='ident'>qualif</span>);
                 } <span class='kw'>else</span> {
@@ -1769,8 +1790,11 @@
                 <span class='comment'>// We might have a candidate for promotion.</span>
                 <span class='kw'>let</span> <span class='ident'>candidate</span> <span class='op'>=</span> <span class='ident'>Candidate</span>::<span class='ident'>Ref</span>(<span class='self'>self</span>.<span class='ident'>location</span>);
                 <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>mode</span> <span class='op'>==</span> <span class='ident'>Mode</span>::<span class='ident'>Fn</span> <span class='op'>||</span> <span class='self'>self</span>.<span class='ident'>mode</span> <span class='op'>==</span> <span class='ident'>Mode</span>::<span class='ident'>ConstFn</span> {
-                    <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>qualif</span>.<span class='ident'>intersects</span>(<span class='ident'>Qualif</span>::<span class='ident'>UNPROMOTABLE</span>) {
-                        <span class='self'>self</span>.<span class='ident'>promotion_candidates</span>.<span class='ident'>push</span>(<span class='ident'>candidate</span>);
+                    <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>qualif</span>.<span class='ident'>intersects</span>(<span class='ident'>Qualif</span>::<span class='ident'>NEVER_PROMOTE</span>) {
+                        <span class='comment'>// We can only promote direct borrows of temps.</span>
+                        <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>Lvalue</span>::<span class='ident'>Temp</span>(_) <span class='op'>=</span> <span class='op'>*</span><span class='ident'>lvalue</span> {
+                            <span class='self'>self</span>.<span class='ident'>promotion_candidates</span>.<span class='ident'>push</span>(<span class='ident'>candidate</span>);
+                        }
                     }
                 }
             }
@@ -1862,7 +1886,7 @@
                     <span class='ident'>this</span>.<span class='ident'>visit_operand</span>(<span class='ident'>arg</span>);
                     <span class='kw'>if</span> <span class='ident'>is_shuffle</span> <span class='op'>&amp;&amp;</span> <span class='ident'>i</span> <span class='op'>==</span> <span class='number'>2</span> <span class='op'>&amp;&amp;</span> <span class='ident'>this</span>.<span class='ident'>mode</span> <span class='op'>==</span> <span class='ident'>Mode</span>::<span class='ident'>Fn</span> {
                         <span class='kw'>let</span> <span class='ident'>candidate</span> <span class='op'>=</span> <span class='ident'>Candidate</span>::<span class='ident'>ShuffleIndices</span>(<span class='ident'>bb</span>);
-                        <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>this</span>.<span class='ident'>qualif</span>.<span class='ident'>intersects</span>(<span class='ident'>Qualif</span>::<span class='ident'>UNPROMOTABLE</span>) {
+                        <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>this</span>.<span class='ident'>qualif</span>.<span class='ident'>intersects</span>(<span class='ident'>Qualif</span>::<span class='ident'>NEVER_PROMOTE</span>) {
                             <span class='ident'>this</span>.<span class='ident'>promotion_candidates</span>.<span class='ident'>push</span>(<span class='ident'>candidate</span>);
                         } <span class='kw'>else</span> {
                             <span class='macro'>span_err</span><span class='macro'>!</span>(<span class='ident'>this</span>.<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>this</span>.<span class='ident'>span</span>, <span class='ident'>E0526</span>,
