@@ -95,40 +95,6 @@
 <span id="51">51</span>
 <span id="52">52</span>
 <span id="53">53</span>
-<span id="54">54</span>
-<span id="55">55</span>
-<span id="56">56</span>
-<span id="57">57</span>
-<span id="58">58</span>
-<span id="59">59</span>
-<span id="60">60</span>
-<span id="61">61</span>
-<span id="62">62</span>
-<span id="63">63</span>
-<span id="64">64</span>
-<span id="65">65</span>
-<span id="66">66</span>
-<span id="67">67</span>
-<span id="68">68</span>
-<span id="69">69</span>
-<span id="70">70</span>
-<span id="71">71</span>
-<span id="72">72</span>
-<span id="73">73</span>
-<span id="74">74</span>
-<span id="75">75</span>
-<span id="76">76</span>
-<span id="77">77</span>
-<span id="78">78</span>
-<span id="79">79</span>
-<span id="80">80</span>
-<span id="81">81</span>
-<span id="82">82</span>
-<span id="83">83</span>
-<span id="84">84</span>
-<span id="85">85</span>
-<span id="86">86</span>
-<span id="87">87</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -142,79 +108,45 @@
 
 <span class='doccomment'>//! Calculation and management of a Strict Version Hash for crates</span>
 <span class='doccomment'>//!</span>
-<span class='doccomment'>//! # Today&#39;s ABI problem</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! In today&#39;s implementation of rustc, it is incredibly difficult to achieve</span>
-<span class='doccomment'>//! forward binary compatibility without resorting to C-like interfaces. Within</span>
-<span class='doccomment'>//! rust code itself, abi details such as symbol names suffer from a variety of</span>
-<span class='doccomment'>//! unrelated factors to code changing such as the &quot;def id drift&quot; problem. This</span>
-<span class='doccomment'>//! ends up yielding confusing error messages about metadata mismatches and</span>
-<span class='doccomment'>//! such.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! The core of this problem is when an upstream dependency changes and</span>
-<span class='doccomment'>//! downstream dependents are not recompiled. This causes compile errors because</span>
-<span class='doccomment'>//! the upstream crate&#39;s metadata has changed but the downstream crates are</span>
-<span class='doccomment'>//! still referencing the older crate&#39;s metadata.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! This problem exists for many reasons, the primary of which is that rust does</span>
-<span class='doccomment'>//! not currently support forwards ABI compatibility (in place upgrades of a</span>
-<span class='doccomment'>//! crate).</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! # SVH and how it alleviates the problem</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! With all of this knowledge on hand, this module contains the implementation</span>
-<span class='doccomment'>//! of a notion of a &quot;Strict Version Hash&quot; for a crate. This is essentially a</span>
-<span class='doccomment'>//! hash of all contents of a crate which can somehow be exposed to downstream</span>
-<span class='doccomment'>//! crates.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! This hash is currently calculated by just hashing the AST, but this is</span>
-<span class='doccomment'>//! obviously wrong (doc changes should not result in an incompatible ABI).</span>
-<span class='doccomment'>//! Implementation-wise, this is required at this moment in time.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! By encoding this strict version hash into all crate&#39;s metadata, stale crates</span>
-<span class='doccomment'>//! can be detected immediately and error&#39;d about by rustc itself.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! # Relevant links</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! Original issue: https://github.com/rust-lang/rust/issues/10207</span>
+<span class='doccomment'>//! The SVH is used for incremental compilation to track when HIR</span>
+<span class='doccomment'>//! nodes have changed between compilations, and also to detect</span>
+<span class='doccomment'>//! mismatches where we have two versions of the same crate that were</span>
+<span class='doccomment'>//! compiled from distinct sources.</span>
 
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>fmt</span>;
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>hash</span>::{<span class='ident'>Hash</span>, <span class='ident'>Hasher</span>};
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Eq</span>, <span class='ident'>Hash</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Debug</span>)]</span>
+<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Copy</span>, <span class='ident'>Clone</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>, <span class='ident'>Debug</span>)]</span>
 <span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>Svh</span> {
-    <span class='ident'>hash</span>: <span class='ident'>String</span>,
+    <span class='ident'>hash</span>: <span class='ident'>u64</span>,
 }
 
 <span class='kw'>impl</span> <span class='ident'>Svh</span> {
     <span class='doccomment'>/// Create a new `Svh` given the hash. If you actually want to</span>
     <span class='doccomment'>/// compute the SVH from some HIR, you want the `calculate_svh`</span>
-    <span class='doccomment'>/// function found in `librustc_trans`.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>hash</span>: <span class='ident'>String</span>) <span class='op'>-&gt;</span> <span class='ident'>Svh</span> {
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>hash</span>.<span class='ident'>len</span>() <span class='op'>==</span> <span class='number'>16</span>);
+    <span class='doccomment'>/// function found in `librustc_incremental`.</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>hash</span>: <span class='ident'>u64</span>) <span class='op'>-&gt;</span> <span class='ident'>Svh</span> {
         <span class='ident'>Svh</span> { <span class='ident'>hash</span>: <span class='ident'>hash</span> }
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>from_hash</span>(<span class='ident'>hash</span>: <span class='ident'>u64</span>) <span class='op'>-&gt;</span> <span class='ident'>Svh</span> {
-        <span class='kw'>return</span> <span class='ident'>Svh</span>::<span class='ident'>new</span>((<span class='number'>0</span>..<span class='number'>64</span>).<span class='ident'>step_by</span>(<span class='number'>4</span>).<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>i</span><span class='op'>|</span> <span class='ident'>hex</span>(<span class='ident'>hash</span> <span class='op'>&gt;&gt;</span> <span class='ident'>i</span>)).<span class='ident'>collect</span>());
-
-        <span class='kw'>fn</span> <span class='ident'>hex</span>(<span class='ident'>b</span>: <span class='ident'>u64</span>) <span class='op'>-&gt;</span> <span class='ident'>char</span> {
-            <span class='kw'>let</span> <span class='ident'>b</span> <span class='op'>=</span> (<span class='ident'>b</span> <span class='kw-2'>&amp;</span> <span class='number'>0xf</span>) <span class='kw'>as</span> <span class='ident'>u8</span>;
-            <span class='kw'>let</span> <span class='ident'>b</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>b</span> {
-                <span class='number'>0</span> ... <span class='number'>9</span> <span class='op'>=&gt;</span> <span class='string'>&#39;0&#39;</span> <span class='kw'>as</span> <span class='ident'>u8</span> <span class='op'>+</span> <span class='ident'>b</span>,
-                _ <span class='op'>=&gt;</span> <span class='string'>&#39;a&#39;</span> <span class='kw'>as</span> <span class='ident'>u8</span> <span class='op'>+</span> <span class='ident'>b</span> <span class='op'>-</span> <span class='number'>10</span>,
-            };
-            <span class='ident'>b</span> <span class='kw'>as</span> <span class='ident'>char</span>
-        }
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>as_u64</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>u64</span> {
+        <span class='self'>self</span>.<span class='ident'>hash</span>
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>as_str</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>str</span> {
-        <span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>hash</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>to_string</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>String</span> {
+        <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;{:016x}&quot;</span>, <span class='self'>self</span>.<span class='ident'>hash</span>)
+    }
+}
+
+<span class='kw'>impl</span> <span class='ident'>Hash</span> <span class='kw'>for</span> <span class='ident'>Svh</span> {
+    <span class='kw'>fn</span> <span class='ident'>hash</span><span class='op'>&lt;</span><span class='ident'>H</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>state</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>H</span>) <span class='kw'>where</span> <span class='ident'>H</span>: <span class='ident'>Hasher</span> {
+        <span class='self'>self</span>.<span class='ident'>hash</span>.<span class='ident'>to_le</span>().<span class='ident'>hash</span>(<span class='ident'>state</span>);
     }
 }
 
 <span class='kw'>impl</span> <span class='ident'>fmt</span>::<span class='ident'>Display</span> <span class='kw'>for</span> <span class='ident'>Svh</span> {
     <span class='kw'>fn</span> <span class='ident'>fmt</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>f</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>fmt</span>::<span class='ident'>Formatter</span>) <span class='op'>-&gt;</span> <span class='ident'>fmt</span>::<span class='prelude-ty'>Result</span> {
-        <span class='ident'>f</span>.<span class='ident'>pad</span>(<span class='self'>self</span>.<span class='ident'>as_str</span>())
+        <span class='ident'>f</span>.<span class='ident'>pad</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>to_string</span>())
     }
 }
 </pre>
