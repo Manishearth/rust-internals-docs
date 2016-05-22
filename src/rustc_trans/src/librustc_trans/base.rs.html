@@ -3065,6 +3065,17 @@
 <span id="3021">3021</span>
 <span id="3022">3022</span>
 <span id="3023">3023</span>
+<span id="3024">3024</span>
+<span id="3025">3025</span>
+<span id="3026">3026</span>
+<span id="3027">3027</span>
+<span id="3028">3028</span>
+<span id="3029">3029</span>
+<span id="3030">3030</span>
+<span id="3031">3031</span>
+<span id="3032">3032</span>
+<span id="3033">3033</span>
+<span id="3034">3034</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -3685,7 +3696,13 @@
         (<span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>TyRawPtr</span>(..), <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>TyRawPtr</span>(..)) <span class='op'>=&gt;</span> {
             <span class='kw'>let</span> (<span class='ident'>base</span>, <span class='ident'>info</span>) <span class='op'>=</span> <span class='kw'>if</span> <span class='ident'>common</span>::<span class='ident'>type_is_fat_ptr</span>(<span class='ident'>bcx</span>.<span class='ident'>tcx</span>(), <span class='ident'>src_ty</span>) {
                 <span class='comment'>// fat-ptr to fat-ptr unsize preserves the vtable</span>
-                <span class='ident'>load_fat_ptr</span>(<span class='ident'>bcx</span>, <span class='ident'>src</span>, <span class='ident'>src_ty</span>)
+                <span class='comment'>// i.e. &amp;&#39;a fmt::Debug+Send =&gt; &amp;&#39;a fmt::Debug</span>
+                <span class='comment'>// So we need to pointercast the base to ensure</span>
+                <span class='comment'>// the types match up.</span>
+                <span class='kw'>let</span> (<span class='ident'>base</span>, <span class='ident'>info</span>) <span class='op'>=</span> <span class='ident'>load_fat_ptr</span>(<span class='ident'>bcx</span>, <span class='ident'>src</span>, <span class='ident'>src_ty</span>);
+                <span class='kw'>let</span> <span class='ident'>llcast_ty</span> <span class='op'>=</span> <span class='ident'>type_of</span>::<span class='ident'>fat_ptr_base_ty</span>(<span class='ident'>bcx</span>.<span class='ident'>ccx</span>(), <span class='ident'>dst_ty</span>);
+                <span class='kw'>let</span> <span class='ident'>base</span> <span class='op'>=</span> <span class='ident'>PointerCast</span>(<span class='ident'>bcx</span>, <span class='ident'>base</span>, <span class='ident'>llcast_ty</span>);
+                (<span class='ident'>base</span>, <span class='ident'>info</span>)
             } <span class='kw'>else</span> {
                 <span class='kw'>let</span> <span class='ident'>base</span> <span class='op'>=</span> <span class='ident'>load_ty</span>(<span class='ident'>bcx</span>, <span class='ident'>src</span>, <span class='ident'>src_ty</span>);
                 <span class='ident'>unsize_thin_ptr</span>(<span class='ident'>bcx</span>, <span class='ident'>base</span>, <span class='ident'>src_ty</span>, <span class='ident'>dst_ty</span>)
@@ -5577,9 +5594,7 @@
 
     <span class='kw'>let</span> <span class='ident'>llmeta</span> <span class='op'>=</span> <span class='ident'>C_bytes_in_context</span>(<span class='ident'>cx</span>.<span class='ident'>metadata_llcx</span>(), <span class='kw-2'>&amp;</span><span class='ident'>compressed</span>[..]);
     <span class='kw'>let</span> <span class='ident'>llconst</span> <span class='op'>=</span> <span class='ident'>C_struct_in_context</span>(<span class='ident'>cx</span>.<span class='ident'>metadata_llcx</span>(), <span class='kw-2'>&amp;</span>[<span class='ident'>llmeta</span>], <span class='boolvalue'>false</span>);
-    <span class='kw'>let</span> <span class='ident'>name</span> <span class='op'>=</span> <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;rust_metadata_{}_{}&quot;</span>,
-                       <span class='ident'>cx</span>.<span class='ident'>link_meta</span>().<span class='ident'>crate_name</span>,
-                       <span class='ident'>cx</span>.<span class='ident'>link_meta</span>().<span class='ident'>crate_hash</span>);
+    <span class='kw'>let</span> <span class='ident'>name</span> <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>metadata_symbol_name</span>();
     <span class='kw'>let</span> <span class='ident'>buf</span> <span class='op'>=</span> <span class='ident'>CString</span>::<span class='ident'>new</span>(<span class='ident'>name</span>).<span class='ident'>unwrap</span>();
     <span class='kw'>let</span> <span class='ident'>llglobal</span> <span class='op'>=</span> <span class='kw'>unsafe</span> {
         <span class='ident'>llvm</span>::<span class='ident'>LLVMAddGlobal</span>(<span class='ident'>cx</span>.<span class='ident'>metadata_llmod</span>(), <span class='ident'>val_ty</span>(<span class='ident'>llconst</span>).<span class='ident'>to_ref</span>(), <span class='ident'>buf</span>.<span class='ident'>as_ptr</span>())
@@ -5881,18 +5896,25 @@
         <span class='ident'>reachable_symbols</span>.<span class='ident'>push</span>(<span class='string'>&quot;main&quot;</span>.<span class='ident'>to_string</span>());
     }
 
-    <span class='comment'>// For the purposes of LTO, we add to the reachable set all of the upstream</span>
-    <span class='comment'>// reachable extern fns. These functions are all part of the public ABI of</span>
-    <span class='comment'>// the final product, so LTO needs to preserve them.</span>
-    <span class='kw'>if</span> <span class='ident'>sess</span>.<span class='ident'>lto</span>() {
-        <span class='kw'>for</span> <span class='ident'>cnum</span> <span class='kw'>in</span> <span class='ident'>sess</span>.<span class='ident'>cstore</span>.<span class='ident'>crates</span>() {
-            <span class='kw'>let</span> <span class='ident'>syms</span> <span class='op'>=</span> <span class='ident'>sess</span>.<span class='ident'>cstore</span>.<span class='ident'>reachable_ids</span>(<span class='ident'>cnum</span>);
-            <span class='ident'>reachable_symbols</span>.<span class='ident'>extend</span>(<span class='ident'>syms</span>.<span class='ident'>into_iter</span>().<span class='ident'>filter</span>(<span class='op'>|</span><span class='ident'>did</span><span class='op'>|</span> {
-                <span class='ident'>sess</span>.<span class='ident'>cstore</span>.<span class='ident'>is_extern_item</span>(<span class='ident'>shared_ccx</span>.<span class='ident'>tcx</span>(), <span class='op'>*</span><span class='ident'>did</span>)
-            }).<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>did</span><span class='op'>|</span> {
-                <span class='ident'>sess</span>.<span class='ident'>cstore</span>.<span class='ident'>item_symbol</span>(<span class='ident'>did</span>)
-            }));
-        }
+    <span class='kw'>if</span> <span class='ident'>sess</span>.<span class='ident'>crate_types</span>.<span class='ident'>borrow</span>().<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>config</span>::<span class='ident'>CrateTypeDylib</span>) {
+        <span class='ident'>reachable_symbols</span>.<span class='ident'>push</span>(<span class='ident'>shared_ccx</span>.<span class='ident'>metadata_symbol_name</span>());
+    }
+
+    <span class='comment'>// For the purposes of LTO or when creating a cdylib, we add to the</span>
+    <span class='comment'>// reachable set all of the upstream reachable extern fns. These functions</span>
+    <span class='comment'>// are all part of the public ABI of the final product, so we need to</span>
+    <span class='comment'>// preserve them.</span>
+    <span class='comment'>//</span>
+    <span class='comment'>// Note that this happens even if LTO isn&#39;t requested or we&#39;re not creating</span>
+    <span class='comment'>// a cdylib. In those cases, though, we&#39;re not even reading the</span>
+    <span class='comment'>// `reachable_symbols` list later on so it should be ok.</span>
+    <span class='kw'>for</span> <span class='ident'>cnum</span> <span class='kw'>in</span> <span class='ident'>sess</span>.<span class='ident'>cstore</span>.<span class='ident'>crates</span>() {
+        <span class='kw'>let</span> <span class='ident'>syms</span> <span class='op'>=</span> <span class='ident'>sess</span>.<span class='ident'>cstore</span>.<span class='ident'>reachable_ids</span>(<span class='ident'>cnum</span>);
+        <span class='ident'>reachable_symbols</span>.<span class='ident'>extend</span>(<span class='ident'>syms</span>.<span class='ident'>into_iter</span>().<span class='ident'>filter</span>(<span class='op'>|</span><span class='ident'>did</span><span class='op'>|</span> {
+            <span class='ident'>sess</span>.<span class='ident'>cstore</span>.<span class='ident'>is_extern_item</span>(<span class='ident'>shared_ccx</span>.<span class='ident'>tcx</span>(), <span class='op'>*</span><span class='ident'>did</span>)
+        }).<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>did</span><span class='op'>|</span> {
+            <span class='ident'>sess</span>.<span class='ident'>cstore</span>.<span class='ident'>item_symbol</span>(<span class='ident'>did</span>)
+        }));
     }
 
     <span class='kw'>if</span> <span class='ident'>codegen_unit_count</span> <span class='op'>&gt;</span> <span class='number'>1</span> {
