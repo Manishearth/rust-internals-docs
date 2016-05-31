@@ -143,6 +143,10 @@
 <span id="99"> 99</span>
 <span id="100">100</span>
 <span id="101">101</span>
+<span id="102">102</span>
+<span id="103">103</span>
+<span id="104">104</span>
+<span id="105">105</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -194,32 +198,36 @@
     <span class='kw'>use</span> <span class='ident'>mem</span>;
     <span class='kw'>use</span> <span class='ident'>ffi</span>::<span class='ident'>CStr</span>;
 
-    <span class='kw'>use</span> <span class='ident'>sync</span>::<span class='ident'>StaticMutex</span>;
+    <span class='kw'>use</span> <span class='ident'>sys_common</span>::<span class='ident'>mutex</span>::<span class='ident'>Mutex</span>;
 
     <span class='kw'>static</span> <span class='kw-2'>mut</span> <span class='ident'>GLOBAL_ARGS_PTR</span>: <span class='ident'>usize</span> <span class='op'>=</span> <span class='number'>0</span>;
-    <span class='kw'>static</span> <span class='ident'>LOCK</span>: <span class='ident'>StaticMutex</span> <span class='op'>=</span> <span class='ident'>StaticMutex</span>::<span class='ident'>new</span>();
+    <span class='kw'>static</span> <span class='ident'>LOCK</span>: <span class='ident'>Mutex</span> <span class='op'>=</span> <span class='ident'>Mutex</span>::<span class='ident'>new</span>();
 
     <span class='kw'>pub</span> <span class='kw'>unsafe</span> <span class='kw'>fn</span> <span class='ident'>init</span>(<span class='ident'>argc</span>: <span class='ident'>isize</span>, <span class='ident'>argv</span>: <span class='op'>*</span><span class='kw'>const</span> <span class='op'>*</span><span class='kw'>const</span> <span class='ident'>u8</span>) {
         <span class='kw'>let</span> <span class='ident'>args</span> <span class='op'>=</span> (<span class='number'>0</span>..<span class='ident'>argc</span>).<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>i</span><span class='op'>|</span> {
             <span class='ident'>CStr</span>::<span class='ident'>from_ptr</span>(<span class='op'>*</span><span class='ident'>argv</span>.<span class='ident'>offset</span>(<span class='ident'>i</span>) <span class='kw'>as</span> <span class='op'>*</span><span class='kw'>const</span> <span class='ident'>c_char</span>).<span class='ident'>to_bytes</span>().<span class='ident'>to_vec</span>()
         }).<span class='ident'>collect</span>();
 
-        <span class='kw'>let</span> <span class='ident'>_guard</span> <span class='op'>=</span> <span class='ident'>LOCK</span>.<span class='ident'>lock</span>();
+        <span class='ident'>LOCK</span>.<span class='ident'>lock</span>();
         <span class='kw'>let</span> <span class='ident'>ptr</span> <span class='op'>=</span> <span class='ident'>get_global_ptr</span>();
         <span class='macro'>assert</span><span class='macro'>!</span>((<span class='op'>*</span><span class='ident'>ptr</span>).<span class='ident'>is_none</span>());
         (<span class='op'>*</span><span class='ident'>ptr</span>) <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='kw'>box</span> <span class='ident'>args</span>);
+        <span class='ident'>LOCK</span>.<span class='ident'>unlock</span>();
     }
 
     <span class='kw'>pub</span> <span class='kw'>unsafe</span> <span class='kw'>fn</span> <span class='ident'>cleanup</span>() {
-        <span class='kw'>let</span> <span class='ident'>_guard</span> <span class='op'>=</span> <span class='ident'>LOCK</span>.<span class='ident'>lock</span>();
+        <span class='ident'>LOCK</span>.<span class='ident'>lock</span>();
         <span class='op'>*</span><span class='ident'>get_global_ptr</span>() <span class='op'>=</span> <span class='prelude-val'>None</span>;
+        <span class='ident'>LOCK</span>.<span class='ident'>unlock</span>();
     }
 
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>clone</span>() <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>u8</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span> {
-        <span class='kw'>let</span> <span class='ident'>_guard</span> <span class='op'>=</span> <span class='ident'>LOCK</span>.<span class='ident'>lock</span>();
         <span class='kw'>unsafe</span> {
+            <span class='ident'>LOCK</span>.<span class='ident'>lock</span>();
             <span class='kw'>let</span> <span class='ident'>ptr</span> <span class='op'>=</span> <span class='ident'>get_global_ptr</span>();
-            (<span class='op'>*</span><span class='ident'>ptr</span>).<span class='ident'>as_ref</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>s</span><span class='op'>|</span> (<span class='op'>*</span><span class='op'>*</span><span class='ident'>s</span>).<span class='ident'>clone</span>())
+            <span class='kw'>let</span> <span class='ident'>ret</span> <span class='op'>=</span> (<span class='op'>*</span><span class='ident'>ptr</span>).<span class='ident'>as_ref</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>s</span><span class='op'>|</span> (<span class='op'>*</span><span class='op'>*</span><span class='ident'>s</span>).<span class='ident'>clone</span>());
+            <span class='ident'>LOCK</span>.<span class='ident'>unlock</span>();
+            <span class='kw'>return</span> <span class='ident'>ret</span>
         }
     }
 
