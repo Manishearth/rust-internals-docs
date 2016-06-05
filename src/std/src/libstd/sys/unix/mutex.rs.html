@@ -149,6 +149,39 @@
 <span id="105">105</span>
 <span id="106">106</span>
 <span id="107">107</span>
+<span id="108">108</span>
+<span id="109">109</span>
+<span id="110">110</span>
+<span id="111">111</span>
+<span id="112">112</span>
+<span id="113">113</span>
+<span id="114">114</span>
+<span id="115">115</span>
+<span id="116">116</span>
+<span id="117">117</span>
+<span id="118">118</span>
+<span id="119">119</span>
+<span id="120">120</span>
+<span id="121">121</span>
+<span id="122">122</span>
+<span id="123">123</span>
+<span id="124">124</span>
+<span id="125">125</span>
+<span id="126">126</span>
+<span id="127">127</span>
+<span id="128">128</span>
+<span id="129">129</span>
+<span id="130">130</span>
+<span id="131">131</span>
+<span id="132">132</span>
+<span id="133">133</span>
+<span id="134">134</span>
+<span id="135">135</span>
+<span id="136">136</span>
+<span id="137">137</span>
+<span id="138">138</span>
+<span id="139">139</span>
+<span id="140">140</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -180,6 +213,39 @@
         <span class='comment'>// Might be moved and address is changing it is better to avoid</span>
         <span class='comment'>// initialization of potentially opaque OS data before it landed</span>
         <span class='ident'>Mutex</span> { <span class='ident'>inner</span>: <span class='ident'>UnsafeCell</span>::<span class='ident'>new</span>(<span class='ident'>libc</span>::<span class='ident'>PTHREAD_MUTEX_INITIALIZER</span>) }
+    }
+    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
+    <span class='kw'>pub</span> <span class='kw'>unsafe</span> <span class='kw'>fn</span> <span class='ident'>init</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) {
+        <span class='comment'>// Issue #33770</span>
+        <span class='comment'>//</span>
+        <span class='comment'>// A pthread mutex initialized with PTHREAD_MUTEX_INITIALIZER will have</span>
+        <span class='comment'>// a type of PTHREAD_MUTEX_DEFAULT, which has undefined behavior if you</span>
+        <span class='comment'>// try to re-lock it from the same thread when you already hold a lock.</span>
+        <span class='comment'>//</span>
+        <span class='comment'>// In practice, glibc takes advantage of this undefined behavior to</span>
+        <span class='comment'>// implement hardware lock elision, which uses hardware transactional</span>
+        <span class='comment'>// memory to avoid acquiring the lock. While a transaction is in</span>
+        <span class='comment'>// progress, the lock appears to be unlocked. This isn&#39;t a problem for</span>
+        <span class='comment'>// other threads since the transactional memory will abort if a conflict</span>
+        <span class='comment'>// is detected, however no abort is generated if re-locking from the</span>
+        <span class='comment'>// same thread.</span>
+        <span class='comment'>//</span>
+        <span class='comment'>// Since locking the same mutex twice will result in two aliasing &amp;mut</span>
+        <span class='comment'>// references, we instead create the mutex with type</span>
+        <span class='comment'>// PTHREAD_MUTEX_NORMAL which is guaranteed to deadlock if we try to</span>
+        <span class='comment'>// re-lock it from the same thread, thus avoiding undefined behavior.</span>
+        <span class='comment'>//</span>
+        <span class='comment'>// We can&#39;t do anything for StaticMutex, but that type is deprecated</span>
+        <span class='comment'>// anyways.</span>
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>attr</span>: <span class='ident'>libc</span>::<span class='ident'>pthread_mutexattr_t</span> <span class='op'>=</span> <span class='ident'>mem</span>::<span class='ident'>uninitialized</span>();
+        <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='ident'>libc</span>::<span class='ident'>pthread_mutexattr_init</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>attr</span>);
+        <span class='macro'>debug_assert_eq</span><span class='macro'>!</span>(<span class='ident'>r</span>, <span class='number'>0</span>);
+        <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='ident'>libc</span>::<span class='ident'>pthread_mutexattr_settype</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>attr</span>, <span class='ident'>libc</span>::<span class='ident'>PTHREAD_MUTEX_NORMAL</span>);
+        <span class='macro'>debug_assert_eq</span><span class='macro'>!</span>(<span class='ident'>r</span>, <span class='number'>0</span>);
+        <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='ident'>libc</span>::<span class='ident'>pthread_mutex_init</span>(<span class='self'>self</span>.<span class='ident'>inner</span>.<span class='ident'>get</span>(), <span class='kw-2'>&amp;</span><span class='ident'>attr</span>);
+        <span class='macro'>debug_assert_eq</span><span class='macro'>!</span>(<span class='ident'>r</span>, <span class='number'>0</span>);
+        <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='ident'>libc</span>::<span class='ident'>pthread_mutexattr_destroy</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>attr</span>);
+        <span class='macro'>debug_assert_eq</span><span class='macro'>!</span>(<span class='ident'>r</span>, <span class='number'>0</span>);
     }
     <span class='attribute'>#[<span class='ident'>inline</span>]</span>
     <span class='kw'>pub</span> <span class='kw'>unsafe</span> <span class='kw'>fn</span> <span class='ident'>lock</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) {

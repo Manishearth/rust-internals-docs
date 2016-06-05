@@ -2380,6 +2380,7 @@
 <span id="2336">2336</span>
 <span id="2337">2337</span>
 <span id="2338">2338</span>
+<span id="2339">2339</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -2447,7 +2448,6 @@ There are some shortcomings in this design:
 <span class='kw'>use</span> <span class='ident'>hir</span>::<span class='ident'>def_id</span>::<span class='ident'>DefId</span>;
 <span class='kw'>use</span> <span class='ident'>constrained_type_params</span> <span class='kw'>as</span> <span class='ident'>ctp</span>;
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>lang_items</span>::<span class='ident'>SizedTraitLangItem</span>;
-<span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>resolve_lifetime</span>;
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>const_val</span>::<span class='ident'>ConstVal</span>;
 <span class='kw'>use</span> <span class='ident'>rustc_const_eval</span>::<span class='ident'>EvalHint</span>::<span class='ident'>UncheckedExprHint</span>;
 <span class='kw'>use</span> <span class='ident'>rustc_const_eval</span>::{<span class='ident'>eval_const_expr_partial</span>, <span class='ident'>ConstEvalErr</span>};
@@ -4128,14 +4128,16 @@ There are some shortcomings in this design:
 <span class='doccomment'>/// the lifetimes that are declared. For fns or methods, we have to</span>
 <span class='doccomment'>/// screen out those that do not appear in any where-clauses etc using</span>
 <span class='doccomment'>/// `resolve_lifetime::early_bound_lifetimes`.</span>
-<span class='kw'>fn</span> <span class='ident'>early_bound_lifetimes_from_generics</span>(<span class='ident'>space</span>: <span class='ident'>ParamSpace</span>,
-                                       <span class='ident'>ast_generics</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Generics</span>)
-                                       <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>hir</span>::<span class='ident'>LifetimeDef</span><span class='op'>&gt;</span>
+<span class='kw'>fn</span> <span class='ident'>early_bound_lifetimes_from_generics</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;hir</span><span class='op'>&gt;</span>(
+    <span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+    <span class='ident'>ast_generics</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;hir</span> <span class='ident'>hir</span>::<span class='ident'>Generics</span>)
+    <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='lifetime'>&#39;hir</span> <span class='ident'>hir</span>::<span class='ident'>LifetimeDef</span><span class='op'>&gt;</span>
 {
-    <span class='kw'>match</span> <span class='ident'>space</span> {
-        <span class='ident'>SelfSpace</span> <span class='op'>|</span> <span class='ident'>TypeSpace</span> <span class='op'>=&gt;</span> <span class='ident'>ast_generics</span>.<span class='ident'>lifetimes</span>.<span class='ident'>to_vec</span>(),
-        <span class='ident'>FnSpace</span> <span class='op'>=&gt;</span> <span class='ident'>resolve_lifetime</span>::<span class='ident'>early_bound_lifetimes</span>(<span class='ident'>ast_generics</span>),
-    }
+    <span class='ident'>ast_generics</span>
+        .<span class='ident'>lifetimes</span>
+        .<span class='ident'>iter</span>()
+        .<span class='ident'>filter</span>(<span class='op'>|</span><span class='ident'>l</span><span class='op'>|</span> <span class='op'>!</span><span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>named_region_map</span>.<span class='ident'>late_bound</span>.<span class='ident'>contains_key</span>(<span class='kw-2'>&amp;</span><span class='ident'>l</span>.<span class='ident'>lifetime</span>.<span class='ident'>id</span>))
+        .<span class='ident'>collect</span>()
 }
 
 <span class='kw'>fn</span> <span class='ident'>ty_generic_predicates</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>,<span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>,<span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
@@ -4164,7 +4166,7 @@ There are some shortcomings in this design:
     <span class='comment'>// Collect the region predicates that were declared inline as</span>
     <span class='comment'>// well. In the case of parameters declared on a fn or method, we</span>
     <span class='comment'>// have to be careful to only iterate over early-bound regions.</span>
-    <span class='kw'>let</span> <span class='ident'>early_lifetimes</span> <span class='op'>=</span> <span class='ident'>early_bound_lifetimes_from_generics</span>(<span class='ident'>space</span>, <span class='ident'>ast_generics</span>);
+    <span class='kw'>let</span> <span class='ident'>early_lifetimes</span> <span class='op'>=</span> <span class='ident'>early_bound_lifetimes_from_generics</span>(<span class='ident'>ccx</span>, <span class='ident'>ast_generics</span>);
     <span class='kw'>for</span> (<span class='ident'>index</span>, <span class='ident'>param</span>) <span class='kw'>in</span> <span class='ident'>early_lifetimes</span>.<span class='ident'>iter</span>().<span class='ident'>enumerate</span>() {
         <span class='kw'>let</span> <span class='ident'>index</span> <span class='op'>=</span> <span class='ident'>index</span> <span class='kw'>as</span> <span class='ident'>u32</span>;
         <span class='kw'>let</span> <span class='ident'>region</span> <span class='op'>=</span>
@@ -4247,7 +4249,7 @@ There are some shortcomings in this design:
     <span class='kw'>let</span> <span class='ident'>tcx</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>;
     <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>result</span> <span class='op'>=</span> <span class='ident'>base_generics</span>.<span class='ident'>clone</span>();
 
-    <span class='kw'>let</span> <span class='ident'>early_lifetimes</span> <span class='op'>=</span> <span class='ident'>early_bound_lifetimes_from_generics</span>(<span class='ident'>space</span>, <span class='ident'>ast_generics</span>);
+    <span class='kw'>let</span> <span class='ident'>early_lifetimes</span> <span class='op'>=</span> <span class='ident'>early_bound_lifetimes_from_generics</span>(<span class='ident'>ccx</span>, <span class='ident'>ast_generics</span>);
     <span class='kw'>for</span> (<span class='ident'>i</span>, <span class='ident'>l</span>) <span class='kw'>in</span> <span class='ident'>early_lifetimes</span>.<span class='ident'>iter</span>().<span class='ident'>enumerate</span>() {
         <span class='kw'>let</span> <span class='ident'>bounds</span> <span class='op'>=</span> <span class='ident'>l</span>.<span class='ident'>bounds</span>.<span class='ident'>iter</span>()
                              .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>l</span><span class='op'>|</span> <span class='ident'>ast_region_to_region</span>(<span class='ident'>tcx</span>, <span class='ident'>l</span>))

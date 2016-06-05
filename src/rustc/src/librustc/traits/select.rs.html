@@ -3049,6 +3049,22 @@
 <span id="3005">3005</span>
 <span id="3006">3006</span>
 <span id="3007">3007</span>
+<span id="3008">3008</span>
+<span id="3009">3009</span>
+<span id="3010">3010</span>
+<span id="3011">3011</span>
+<span id="3012">3012</span>
+<span id="3013">3013</span>
+<span id="3014">3014</span>
+<span id="3015">3015</span>
+<span id="3016">3016</span>
+<span id="3017">3017</span>
+<span id="3018">3018</span>
+<span id="3019">3019</span>
+<span id="3020">3020</span>
+<span id="3021">3021</span>
+<span id="3022">3022</span>
+<span id="3023">3023</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -3098,6 +3114,7 @@
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cell</span>::<span class='ident'>RefCell</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>fmt</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>marker</span>::<span class='ident'>PhantomData</span>;
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>mem</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>rc</span>::<span class='ident'>Rc</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>abi</span>::<span class='ident'>Abi</span>;
 <span class='kw'>use</span> <span class='ident'>hir</span>;
@@ -4289,6 +4306,9 @@
                                                    <span class='ident'>skol_trait_predicate</span>.<span class='ident'>trait_ref</span>.<span class='ident'>clone</span>(),
                                                    <span class='kw-2'>&amp;</span><span class='ident'>skol_map</span>,
                                                    <span class='ident'>snapshot</span>);
+
+                <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>pop_skolemized</span>(<span class='ident'>skol_map</span>, <span class='ident'>snapshot</span>);
+
                 <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>result</span>);
                 <span class='boolvalue'>true</span>
             }
@@ -4315,7 +4335,7 @@
             <span class='prelude-val'>Err</span>(_) <span class='op'>=&gt;</span> { <span class='kw'>return</span> <span class='boolvalue'>false</span>; }
         }
 
-        <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>leak_check</span>(<span class='boolvalue'>false</span>, <span class='ident'>skol_map</span>, <span class='ident'>snapshot</span>).<span class='ident'>is_ok</span>()
+        <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>leak_check</span>(<span class='boolvalue'>false</span>, <span class='ident'>obligation</span>.<span class='ident'>cause</span>.<span class='ident'>span</span>, <span class='ident'>skol_map</span>, <span class='ident'>snapshot</span>).<span class='ident'>is_ok</span>()
     }
 
     <span class='doccomment'>/// Given an obligation like `&lt;SomeTrait for T&gt;`, search the obligations that the caller</span>
@@ -4474,9 +4494,16 @@
             <span class='self'>self</span>.<span class='ident'>tcx</span>(),
             <span class='ident'>obligation</span>.<span class='ident'>predicate</span>.<span class='number'>0</span>.<span class='ident'>trait_ref</span>.<span class='ident'>self_ty</span>(),
             <span class='op'>|</span><span class='ident'>impl_def_id</span><span class='op'>|</span> {
-                <span class='self'>self</span>.<span class='ident'>probe</span>(<span class='op'>|</span><span class='ident'>this</span>, <span class='ident'>snapshot</span><span class='op'>|</span> {
-                    <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Ok</span>(_) <span class='op'>=</span> <span class='ident'>this</span>.<span class='ident'>match_impl</span>(<span class='ident'>impl_def_id</span>, <span class='ident'>obligation</span>, <span class='ident'>snapshot</span>) {
-                        <span class='ident'>candidates</span>.<span class='ident'>vec</span>.<span class='ident'>push</span>(<span class='ident'>ImplCandidate</span>(<span class='ident'>impl_def_id</span>));
+                <span class='self'>self</span>.<span class='ident'>probe</span>(<span class='op'>|</span><span class='ident'>this</span>, <span class='ident'>snapshot</span><span class='op'>|</span> { <span class='comment'>/* [1] */</span>
+                    <span class='kw'>match</span> <span class='ident'>this</span>.<span class='ident'>match_impl</span>(<span class='ident'>impl_def_id</span>, <span class='ident'>obligation</span>, <span class='ident'>snapshot</span>) {
+                        <span class='prelude-val'>Ok</span>(<span class='ident'>skol_map</span>) <span class='op'>=&gt;</span> {
+                            <span class='ident'>candidates</span>.<span class='ident'>vec</span>.<span class='ident'>push</span>(<span class='ident'>ImplCandidate</span>(<span class='ident'>impl_def_id</span>));
+
+                            <span class='comment'>// NB: we can safely drop the skol map</span>
+                            <span class='comment'>// since we are in a probe [1]</span>
+                            <span class='ident'>mem</span>::<span class='ident'>drop</span>(<span class='ident'>skol_map</span>);
+                        }
+                        <span class='prelude-val'>Err</span>(_) <span class='op'>=&gt;</span> { }
                     }
                 });
             }
@@ -4561,9 +4588,11 @@
             <span class='kw'>return</span>;
         }
 
-        <span class='self'>self</span>.<span class='ident'>probe</span>(<span class='op'>|</span><span class='ident'>this</span>, <span class='ident'>snapshot</span><span class='op'>|</span> {
-            <span class='kw'>let</span> (<span class='ident'>self_ty</span>, _) <span class='op'>=</span>
-                <span class='ident'>this</span>.<span class='ident'>infcx</span>().<span class='ident'>skolemize_late_bound_regions</span>(<span class='kw-2'>&amp;</span><span class='ident'>obligation</span>.<span class='ident'>self_ty</span>(), <span class='ident'>snapshot</span>);
+        <span class='self'>self</span>.<span class='ident'>probe</span>(<span class='op'>|</span><span class='ident'>this</span>, <span class='ident'>_snapshot</span><span class='op'>|</span> {
+            <span class='comment'>// the code below doesn&#39;t care about regions, and the</span>
+            <span class='comment'>// self-ty here doesn&#39;t escape this probe, so just erase</span>
+            <span class='comment'>// any LBR.</span>
+            <span class='kw'>let</span> <span class='ident'>self_ty</span> <span class='op'>=</span> <span class='ident'>this</span>.<span class='ident'>tcx</span>().<span class='ident'>erase_late_bound_regions</span>(<span class='kw-2'>&amp;</span><span class='ident'>obligation</span>.<span class='ident'>self_ty</span>());
             <span class='kw'>let</span> <span class='ident'>poly_trait_ref</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>self_ty</span>.<span class='ident'>sty</span> {
                 <span class='ident'>ty</span>::<span class='ident'>TyTrait</span>(<span class='kw-2'>ref</span> <span class='ident'>data</span>) <span class='op'>=&gt;</span> {
                     <span class='kw'>match</span> <span class='ident'>this</span>.<span class='ident'>tcx</span>().<span class='ident'>lang_items</span>.<span class='ident'>to_builtin_kind</span>(<span class='ident'>obligation</span>.<span class='ident'>predicate</span>.<span class='ident'>def_id</span>()) {
@@ -5762,7 +5791,10 @@
             })?;
         <span class='self'>self</span>.<span class='ident'>inferred_obligations</span>.<span class='ident'>extend</span>(<span class='ident'>obligations</span>);
 
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Err</span>(<span class='ident'>e</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>leak_check</span>(<span class='boolvalue'>false</span>, <span class='kw-2'>&amp;</span><span class='ident'>skol_map</span>, <span class='ident'>snapshot</span>) {
+        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Err</span>(<span class='ident'>e</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>leak_check</span>(<span class='boolvalue'>false</span>,
+                                              <span class='ident'>obligation</span>.<span class='ident'>cause</span>.<span class='ident'>span</span>,
+                                              <span class='kw-2'>&amp;</span><span class='ident'>skol_map</span>,
+                                              <span class='ident'>snapshot</span>) {
             <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;match_impl: failed leak check due to `{}`&quot;</span>, <span class='ident'>e</span>);
             <span class='kw'>return</span> <span class='prelude-val'>Err</span>(());
         }
