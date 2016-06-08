@@ -588,6 +588,44 @@
 <span id="544">544</span>
 <span id="545">545</span>
 <span id="546">546</span>
+<span id="547">547</span>
+<span id="548">548</span>
+<span id="549">549</span>
+<span id="550">550</span>
+<span id="551">551</span>
+<span id="552">552</span>
+<span id="553">553</span>
+<span id="554">554</span>
+<span id="555">555</span>
+<span id="556">556</span>
+<span id="557">557</span>
+<span id="558">558</span>
+<span id="559">559</span>
+<span id="560">560</span>
+<span id="561">561</span>
+<span id="562">562</span>
+<span id="563">563</span>
+<span id="564">564</span>
+<span id="565">565</span>
+<span id="566">566</span>
+<span id="567">567</span>
+<span id="568">568</span>
+<span id="569">569</span>
+<span id="570">570</span>
+<span id="571">571</span>
+<span id="572">572</span>
+<span id="573">573</span>
+<span id="574">574</span>
+<span id="575">575</span>
+<span id="576">576</span>
+<span id="577">577</span>
+<span id="578">578</span>
+<span id="579">579</span>
+<span id="580">580</span>
+<span id="581">581</span>
+<span id="582">582</span>
+<span id="583">583</span>
+<span id="584">584</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2016 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -601,8 +639,8 @@
 
 <span class='kw'>use</span> <span class='ident'>llvm</span>::{<span class='self'>self</span>, <span class='ident'>ValueRef</span>};
 <span class='kw'>use</span> <span class='ident'>base</span>;
-<span class='kw'>use</span> <span class='ident'>builder</span>::<span class='ident'>Builder</span>;
-<span class='kw'>use</span> <span class='ident'>common</span>::{<span class='ident'>type_is_fat_ptr</span>, <span class='ident'>BlockAndBuilder</span>};
+<span class='kw'>use</span> <span class='ident'>build</span>::<span class='ident'>AllocaFcx</span>;
+<span class='kw'>use</span> <span class='ident'>common</span>::{<span class='ident'>type_is_fat_ptr</span>, <span class='ident'>BlockAndBuilder</span>, <span class='ident'>C_uint</span>};
 <span class='kw'>use</span> <span class='ident'>context</span>::<span class='ident'>CrateContext</span>;
 <span class='kw'>use</span> <span class='ident'>cabi_x86</span>;
 <span class='kw'>use</span> <span class='ident'>cabi_x86_64</span>;
@@ -613,7 +651,7 @@
 <span class='kw'>use</span> <span class='ident'>cabi_powerpc64</span>;
 <span class='kw'>use</span> <span class='ident'>cabi_mips</span>;
 <span class='kw'>use</span> <span class='ident'>cabi_asmjs</span>;
-<span class='kw'>use</span> <span class='ident'>machine</span>::{<span class='ident'>llalign_of_min</span>, <span class='ident'>llsize_of</span>, <span class='ident'>llsize_of_real</span>};
+<span class='kw'>use</span> <span class='ident'>machine</span>::{<span class='ident'>llalign_of_min</span>, <span class='ident'>llsize_of</span>, <span class='ident'>llsize_of_real</span>, <span class='ident'>llsize_of_store</span>};
 <span class='kw'>use</span> <span class='ident'>type_</span>::<span class='ident'>Type</span>;
 <span class='kw'>use</span> <span class='ident'>type_of</span>;
 
@@ -621,6 +659,7 @@
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>Ty</span>};
 
 <span class='kw'>use</span> <span class='ident'>libc</span>::<span class='ident'>c_uint</span>;
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cmp</span>;
 
 <span class='kw'>pub</span> <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>abi</span>::<span class='ident'>Abi</span>;
 <span class='kw'>pub</span> <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::<span class='ident'>layout</span>::{<span class='ident'>FAT_PTR_ADDR</span>, <span class='ident'>FAT_PTR_EXTRA</span>};
@@ -741,26 +780,63 @@
     <span class='doccomment'>/// lvalue for the original Rust type of this argument/return.</span>
     <span class='doccomment'>/// Can be used for both storing formal arguments into Rust variables</span>
     <span class='doccomment'>/// or results of call/invoke instructions into their destinations.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>store</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>b</span>: <span class='kw-2'>&amp;</span><span class='ident'>Builder</span>, <span class='kw-2'>mut</span> <span class='ident'>val</span>: <span class='ident'>ValueRef</span>, <span class='ident'>dst</span>: <span class='ident'>ValueRef</span>) {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>store</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>bcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>BlockAndBuilder</span>, <span class='kw-2'>mut</span> <span class='ident'>val</span>: <span class='ident'>ValueRef</span>, <span class='ident'>dst</span>: <span class='ident'>ValueRef</span>) {
         <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>is_ignore</span>() {
             <span class='kw'>return</span>;
         }
+        <span class='kw'>let</span> <span class='ident'>ccx</span> <span class='op'>=</span> <span class='ident'>bcx</span>.<span class='ident'>ccx</span>();
         <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>is_indirect</span>() {
-            <span class='kw'>let</span> <span class='ident'>llsz</span> <span class='op'>=</span> <span class='ident'>llsize_of</span>(<span class='ident'>b</span>.<span class='ident'>ccx</span>, <span class='self'>self</span>.<span class='ident'>ty</span>);
-            <span class='kw'>let</span> <span class='ident'>llalign</span> <span class='op'>=</span> <span class='ident'>llalign_of_min</span>(<span class='ident'>b</span>.<span class='ident'>ccx</span>, <span class='self'>self</span>.<span class='ident'>ty</span>);
-            <span class='ident'>base</span>::<span class='ident'>call_memcpy</span>(<span class='ident'>b</span>, <span class='ident'>dst</span>, <span class='ident'>val</span>, <span class='ident'>llsz</span>, <span class='ident'>llalign</span> <span class='kw'>as</span> <span class='ident'>u32</span>);
+            <span class='kw'>let</span> <span class='ident'>llsz</span> <span class='op'>=</span> <span class='ident'>llsize_of</span>(<span class='ident'>ccx</span>, <span class='self'>self</span>.<span class='ident'>ty</span>);
+            <span class='kw'>let</span> <span class='ident'>llalign</span> <span class='op'>=</span> <span class='ident'>llalign_of_min</span>(<span class='ident'>ccx</span>, <span class='self'>self</span>.<span class='ident'>ty</span>);
+            <span class='ident'>base</span>::<span class='ident'>call_memcpy</span>(<span class='ident'>bcx</span>, <span class='ident'>dst</span>, <span class='ident'>val</span>, <span class='ident'>llsz</span>, <span class='ident'>llalign</span> <span class='kw'>as</span> <span class='ident'>u32</span>);
         } <span class='kw'>else</span> <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>ty</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>cast</span> {
-            <span class='kw'>let</span> <span class='ident'>cast_dst</span> <span class='op'>=</span> <span class='ident'>b</span>.<span class='ident'>pointercast</span>(<span class='ident'>dst</span>, <span class='ident'>ty</span>.<span class='ident'>ptr_to</span>());
-            <span class='kw'>let</span> <span class='ident'>store</span> <span class='op'>=</span> <span class='ident'>b</span>.<span class='ident'>store</span>(<span class='ident'>val</span>, <span class='ident'>cast_dst</span>);
-            <span class='kw'>let</span> <span class='ident'>llalign</span> <span class='op'>=</span> <span class='ident'>llalign_of_min</span>(<span class='ident'>b</span>.<span class='ident'>ccx</span>, <span class='self'>self</span>.<span class='ident'>ty</span>);
-            <span class='kw'>unsafe</span> {
-                <span class='ident'>llvm</span>::<span class='ident'>LLVMSetAlignment</span>(<span class='ident'>store</span>, <span class='ident'>llalign</span>);
+            <span class='comment'>// FIXME(eddyb): Figure out when the simpler Store is safe, clang</span>
+            <span class='comment'>// uses it for i16 -&gt; {i8, i8}, but not for i24 -&gt; {i8, i8, i8}.</span>
+            <span class='kw'>let</span> <span class='ident'>can_store_through_cast_ptr</span> <span class='op'>=</span> <span class='bool-val'>false</span>;
+            <span class='kw'>if</span> <span class='ident'>can_store_through_cast_ptr</span> {
+                <span class='kw'>let</span> <span class='ident'>cast_dst</span> <span class='op'>=</span> <span class='ident'>bcx</span>.<span class='ident'>pointercast</span>(<span class='ident'>dst</span>, <span class='ident'>ty</span>.<span class='ident'>ptr_to</span>());
+                <span class='kw'>let</span> <span class='ident'>store</span> <span class='op'>=</span> <span class='ident'>bcx</span>.<span class='ident'>store</span>(<span class='ident'>val</span>, <span class='ident'>cast_dst</span>);
+                <span class='kw'>let</span> <span class='ident'>llalign</span> <span class='op'>=</span> <span class='ident'>llalign_of_min</span>(<span class='ident'>ccx</span>, <span class='self'>self</span>.<span class='ident'>ty</span>);
+                <span class='kw'>unsafe</span> {
+                    <span class='ident'>llvm</span>::<span class='ident'>LLVMSetAlignment</span>(<span class='ident'>store</span>, <span class='ident'>llalign</span>);
+                }
+            } <span class='kw'>else</span> {
+                <span class='comment'>// The actual return type is a struct, but the ABI</span>
+                <span class='comment'>// adaptation code has cast it into some scalar type.  The</span>
+                <span class='comment'>// code that follows is the only reliable way I have</span>
+                <span class='comment'>// found to do a transform like i64 -&gt; {i32,i32}.</span>
+                <span class='comment'>// Basically we dump the data onto the stack then memcpy it.</span>
+                <span class='comment'>//</span>
+                <span class='comment'>// Other approaches I tried:</span>
+                <span class='comment'>// - Casting rust ret pointer to the foreign type and using Store</span>
+                <span class='comment'>//   is (a) unsafe if size of foreign type &gt; size of rust type and</span>
+                <span class='comment'>//   (b) runs afoul of strict aliasing rules, yielding invalid</span>
+                <span class='comment'>//   assembly under -O (specifically, the store gets removed).</span>
+                <span class='comment'>// - Truncating foreign type to correct integral type and then</span>
+                <span class='comment'>//   bitcasting to the struct type yields invalid cast errors.</span>
+
+                <span class='comment'>// We instead thus allocate some scratch space...</span>
+                <span class='kw'>let</span> <span class='ident'>llscratch</span> <span class='op'>=</span> <span class='ident'>AllocaFcx</span>(<span class='ident'>bcx</span>.<span class='ident'>fcx</span>(), <span class='ident'>ty</span>, <span class='string'>&quot;abi_cast&quot;</span>);
+                <span class='ident'>base</span>::<span class='ident'>Lifetime</span>::<span class='ident'>Start</span>.<span class='ident'>call</span>(<span class='ident'>bcx</span>, <span class='ident'>llscratch</span>);
+
+                <span class='comment'>// ...where we first store the value...</span>
+                <span class='ident'>bcx</span>.<span class='ident'>store</span>(<span class='ident'>val</span>, <span class='ident'>llscratch</span>);
+
+                <span class='comment'>// ...and then memcpy it to the intended destination.</span>
+                <span class='ident'>base</span>::<span class='ident'>call_memcpy</span>(<span class='ident'>bcx</span>,
+                                  <span class='ident'>bcx</span>.<span class='ident'>pointercast</span>(<span class='ident'>dst</span>, <span class='ident'>Type</span>::<span class='ident'>i8p</span>(<span class='ident'>ccx</span>)),
+                                  <span class='ident'>bcx</span>.<span class='ident'>pointercast</span>(<span class='ident'>llscratch</span>, <span class='ident'>Type</span>::<span class='ident'>i8p</span>(<span class='ident'>ccx</span>)),
+                                  <span class='ident'>C_uint</span>(<span class='ident'>ccx</span>, <span class='ident'>llsize_of_store</span>(<span class='ident'>ccx</span>, <span class='self'>self</span>.<span class='ident'>ty</span>)),
+                                  <span class='ident'>cmp</span>::<span class='ident'>min</span>(<span class='ident'>llalign_of_min</span>(<span class='ident'>ccx</span>, <span class='self'>self</span>.<span class='ident'>ty</span>),
+                                           <span class='ident'>llalign_of_min</span>(<span class='ident'>ccx</span>, <span class='ident'>ty</span>)) <span class='kw'>as</span> <span class='ident'>u32</span>);
+
+                <span class='ident'>base</span>::<span class='ident'>Lifetime</span>::<span class='ident'>End</span>.<span class='ident'>call</span>(<span class='ident'>bcx</span>, <span class='ident'>llscratch</span>);
             }
         } <span class='kw'>else</span> {
-            <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>original_ty</span> <span class='op'>==</span> <span class='ident'>Type</span>::<span class='ident'>i1</span>(<span class='ident'>b</span>.<span class='ident'>ccx</span>) {
-                <span class='ident'>val</span> <span class='op'>=</span> <span class='ident'>b</span>.<span class='ident'>zext</span>(<span class='ident'>val</span>, <span class='ident'>Type</span>::<span class='ident'>i8</span>(<span class='ident'>b</span>.<span class='ident'>ccx</span>));
+            <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>original_ty</span> <span class='op'>==</span> <span class='ident'>Type</span>::<span class='ident'>i1</span>(<span class='ident'>ccx</span>) {
+                <span class='ident'>val</span> <span class='op'>=</span> <span class='ident'>bcx</span>.<span class='ident'>zext</span>(<span class='ident'>val</span>, <span class='ident'>Type</span>::<span class='ident'>i8</span>(<span class='ident'>ccx</span>));
             }
-            <span class='ident'>b</span>.<span class='ident'>store</span>(<span class='ident'>val</span>, <span class='ident'>dst</span>);
+            <span class='ident'>bcx</span>.<span class='ident'>store</span>(<span class='ident'>val</span>, <span class='ident'>dst</span>);
         }
     }
 
@@ -851,8 +927,8 @@
                        <span class='op'>&amp;&amp;</span> <span class='ident'>target</span>.<span class='ident'>arch</span> <span class='op'>==</span> <span class='string'>&quot;x86_64&quot;</span>
                        <span class='op'>&amp;&amp;</span> <span class='ident'>target</span>.<span class='ident'>target_env</span> <span class='op'>==</span> <span class='string'>&quot;gnu&quot;</span>;
         <span class='kw'>let</span> <span class='ident'>rust_abi</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>abi</span> {
-            <span class='ident'>RustIntrinsic</span> <span class='op'>|</span> <span class='ident'>PlatformIntrinsic</span> <span class='op'>|</span> <span class='ident'>Rust</span> <span class='op'>|</span> <span class='ident'>RustCall</span> <span class='op'>=&gt;</span> <span class='boolvalue'>true</span>,
-            _ <span class='op'>=&gt;</span> <span class='boolvalue'>false</span>
+            <span class='ident'>RustIntrinsic</span> <span class='op'>|</span> <span class='ident'>PlatformIntrinsic</span> <span class='op'>|</span> <span class='ident'>Rust</span> <span class='op'>|</span> <span class='ident'>RustCall</span> <span class='op'>=&gt;</span> <span class='bool-val'>true</span>,
+            _ <span class='op'>=&gt;</span> <span class='bool-val'>false</span>
         };
 
         <span class='kw'>let</span> <span class='ident'>arg_of</span> <span class='op'>=</span> <span class='op'>|</span><span class='ident'>ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>is_return</span>: <span class='ident'>bool</span><span class='op'>|</span> {
@@ -882,7 +958,7 @@
             <span class='ident'>ty</span>::<span class='ident'>FnConverging</span>(<span class='ident'>ret_ty</span>) <span class='op'>=&gt;</span> <span class='ident'>ret_ty</span>,
             <span class='ident'>ty</span>::<span class='ident'>FnDiverging</span> <span class='op'>=&gt;</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>().<span class='ident'>mk_nil</span>()
         };
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>ret</span> <span class='op'>=</span> <span class='ident'>arg_of</span>(<span class='ident'>ret_ty</span>, <span class='boolvalue'>true</span>);
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>ret</span> <span class='op'>=</span> <span class='ident'>arg_of</span>(<span class='ident'>ret_ty</span>, <span class='bool-val'>true</span>);
 
         <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>type_is_fat_ptr</span>(<span class='ident'>ccx</span>.<span class='ident'>tcx</span>(), <span class='ident'>ret_ty</span>) {
             <span class='comment'>// The `noalias` attribute on the return value is useful to a</span>
@@ -947,7 +1023,7 @@
         };
 
         <span class='kw'>for</span> <span class='ident'>ty</span> <span class='kw'>in</span> <span class='ident'>inputs</span>.<span class='ident'>iter</span>().<span class='ident'>chain</span>(<span class='ident'>extra_args</span>.<span class='ident'>iter</span>()) {
-            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>arg</span> <span class='op'>=</span> <span class='ident'>arg_of</span>(<span class='ident'>ty</span>, <span class='boolvalue'>false</span>);
+            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>arg</span> <span class='op'>=</span> <span class='ident'>arg_of</span>(<span class='ident'>ty</span>, <span class='bool-val'>false</span>);
 
             <span class='kw'>if</span> <span class='ident'>type_is_fat_ptr</span>(<span class='ident'>ccx</span>.<span class='ident'>tcx</span>(), <span class='ident'>ty</span>) {
                 <span class='kw'>let</span> <span class='ident'>original_tys</span> <span class='op'>=</span> <span class='ident'>arg</span>.<span class='ident'>original_ty</span>.<span class='ident'>field_types</span>();
