@@ -1,1 +1,1 @@
-initSidebarItems({"constant":[["FN_OUTPUT_NAME",""]],"fn":[["block_query",""],["indent",""],["indenter",""],["loop_query",""],["path2cstr",""],["time",""]],"struct":[["ErrorReported",""],["Indenter",""]],"trait":[["MemoizationMap",""]]});
+initSidebarItems({"constant":[["FN_OUTPUT_NAME",""]],"fn":[["block_query",""],["indent",""],["indenter",""],["loop_query",""],["path2cstr",""],["slice_pat",""],["time",""]],"struct":[["ErrorReported",""],["Indenter",""]],"trait":[["MemoizationMap",""]]});

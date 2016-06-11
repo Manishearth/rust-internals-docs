@@ -1182,6 +1182,23 @@
 <span id="1138">1138</span>
 <span id="1139">1139</span>
 <span id="1140">1140</span>
+<span id="1141">1141</span>
+<span id="1142">1142</span>
+<span id="1143">1143</span>
+<span id="1144">1144</span>
+<span id="1145">1145</span>
+<span id="1146">1146</span>
+<span id="1147">1147</span>
+<span id="1148">1148</span>
+<span id="1149">1149</span>
+<span id="1150">1150</span>
+<span id="1151">1151</span>
+<span id="1152">1152</span>
+<span id="1153">1153</span>
+<span id="1154">1154</span>
+<span id="1155">1155</span>
+<span id="1156">1156</span>
+<span id="1157">1157</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -1196,6 +1213,7 @@
 <span class='kw'>use</span> <span class='ident'>graphviz</span>::<span class='ident'>IntoCow</span>;
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>const_val</span>::<span class='ident'>ConstVal</span>;
 <span class='kw'>use</span> <span class='ident'>rustc_const_math</span>::{<span class='ident'>ConstUsize</span>, <span class='ident'>ConstInt</span>, <span class='ident'>ConstMathErr</span>};
+<span class='kw'>use</span> <span class='ident'>rustc_data_structures</span>::<span class='ident'>indexed_vec</span>::{<span class='ident'>IndexVec</span>, <span class='ident'>Idx</span>};
 <span class='kw'>use</span> <span class='ident'>hir</span>::<span class='ident'>def_id</span>::<span class='ident'>DefId</span>;
 <span class='kw'>use</span> <span class='ident'>ty</span>::<span class='ident'>subst</span>::<span class='ident'>Substs</span>;
 <span class='kw'>use</span> <span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>AdtDef</span>, <span class='ident'>ClosureSubsts</span>, <span class='ident'>FnOutput</span>, <span class='ident'>Region</span>, <span class='ident'>Ty</span>};
@@ -1204,43 +1222,70 @@
 <span class='kw'>use</span> <span class='ident'>hir</span>::<span class='ident'>InlineAsm</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>ascii</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>borrow</span>::{<span class='ident'>Cow</span>};
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cell</span>::<span class='ident'>Ref</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>fmt</span>::{<span class='self'>self</span>, <span class='ident'>Debug</span>, <span class='ident'>Formatter</span>, <span class='ident'>Write</span>};
 <span class='kw'>use</span> <span class='ident'>std</span>::{<span class='ident'>iter</span>, <span class='ident'>u32</span>};
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>ops</span>::{<span class='ident'>Index</span>, <span class='ident'>IndexMut</span>};
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>::{<span class='self'>self</span>, <span class='ident'>Name</span>};
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>codemap</span>::<span class='ident'>Span</span>;
 
+<span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>cache</span>::<span class='ident'>Cache</span>;
+
+<span class='macro'>macro_rules</span><span class='macro'>!</span> <span class='ident'>newtype_index</span> {
+    (<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span>:<span class='ident'>ident</span>, <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>debug_name</span>:<span class='ident'>expr</span>) <span class='op'>=&gt;</span> (
+        <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Copy</span>, <span class='ident'>Clone</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>, <span class='ident'>Hash</span>, <span class='ident'>PartialOrd</span>, <span class='ident'>Ord</span>,
+         <span class='ident'>RustcEncodable</span>, <span class='ident'>RustcDecodable</span>)]</span>
+        <span class='kw'>pub</span> <span class='kw'>struct</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span>(<span class='ident'>u32</span>);
+
+        <span class='kw'>impl</span> <span class='ident'>Idx</span> <span class='kw'>for</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> {
+            <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>value</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
+                <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>value</span> <span class='op'>&lt;</span> (<span class='ident'>u32</span>::<span class='ident'>MAX</span>) <span class='kw'>as</span> <span class='ident'>usize</span>);
+                <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span>(<span class='ident'>value</span> <span class='kw'>as</span> <span class='ident'>u32</span>)
+            }
+            <span class='kw'>fn</span> <span class='ident'>index</span>(<span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
+                <span class='self'>self</span>.<span class='number'>0</span> <span class='kw'>as</span> <span class='ident'>usize</span>
+            }
+        }
+
+        <span class='kw'>impl</span> <span class='ident'>Debug</span> <span class='kw'>for</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> {
+            <span class='kw'>fn</span> <span class='ident'>fmt</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>fmt</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Formatter</span>) <span class='op'>-&gt;</span> <span class='ident'>fmt</span>::<span class='prelude-ty'>Result</span> {
+                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;{}{}&quot;</span>, <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>debug_name</span>, <span class='self'>self</span>.<span class='number'>0</span>)
+            }
+        }
+    )
+}
+
 <span class='doccomment'>/// Lowered representation of a single function.</span>
 <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>RustcEncodable</span>, <span class='ident'>RustcDecodable</span>)]</span>
 <span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>Mir</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
     <span class='doccomment'>/// List of basic blocks. References to basic block use a newtyped index type `BasicBlock`</span>
     <span class='doccomment'>/// that indexes into this vector.</span>
-    <span class='kw'>pub</span> <span class='ident'>basic_blocks</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>BasicBlockData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
+    <span class='ident'>basic_blocks</span>: <span class='ident'>IndexVec</span><span class='op'>&lt;</span><span class='ident'>BasicBlock</span>, <span class='ident'>BasicBlockData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
 
-    <span class='doccomment'>/// List of lexical scopes; these are referenced by statements and</span>
-    <span class='doccomment'>/// used (eventually) for debuginfo. Indexed by a `ScopeId`.</span>
-    <span class='kw'>pub</span> <span class='ident'>scopes</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ScopeData</span><span class='op'>&gt;</span>,
+    <span class='doccomment'>/// List of visibility (lexical) scopes; these are referenced by statements</span>
+    <span class='doccomment'>/// and used (eventually) for debuginfo. Indexed by a `VisibilityScope`.</span>
+    <span class='kw'>pub</span> <span class='ident'>visibility_scopes</span>: <span class='ident'>IndexVec</span><span class='op'>&lt;</span><span class='ident'>VisibilityScope</span>, <span class='ident'>VisibilityScopeData</span><span class='op'>&gt;</span>,
 
     <span class='doccomment'>/// Rvalues promoted from this function, such as borrows of constants.</span>
     <span class='doccomment'>/// Each of them is the Mir of a constant with the fn&#39;s type parameters</span>
     <span class='doccomment'>/// in scope, but no vars or args and a separate set of temps.</span>
-    <span class='kw'>pub</span> <span class='ident'>promoted</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Mir</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
+    <span class='kw'>pub</span> <span class='ident'>promoted</span>: <span class='ident'>IndexVec</span><span class='op'>&lt;</span><span class='ident'>Promoted</span>, <span class='ident'>Mir</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
 
     <span class='doccomment'>/// Return type of the function.</span>
     <span class='kw'>pub</span> <span class='ident'>return_ty</span>: <span class='ident'>FnOutput</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
 
     <span class='doccomment'>/// Variables: these are stack slots corresponding to user variables. They may be</span>
     <span class='doccomment'>/// assigned many times.</span>
-    <span class='kw'>pub</span> <span class='ident'>var_decls</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>VarDecl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
+    <span class='kw'>pub</span> <span class='ident'>var_decls</span>: <span class='ident'>IndexVec</span><span class='op'>&lt;</span><span class='ident'>Var</span>, <span class='ident'>VarDecl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
 
     <span class='doccomment'>/// Args: these are stack slots corresponding to the input arguments.</span>
-    <span class='kw'>pub</span> <span class='ident'>arg_decls</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ArgDecl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
+    <span class='kw'>pub</span> <span class='ident'>arg_decls</span>: <span class='ident'>IndexVec</span><span class='op'>&lt;</span><span class='ident'>Arg</span>, <span class='ident'>ArgDecl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
 
     <span class='doccomment'>/// Temp declarations: stack slots that for temporaries created by</span>
     <span class='doccomment'>/// the compiler. These are assigned once, but they are not SSA</span>
     <span class='doccomment'>/// values in that it is possible to borrow them and mutate them</span>
     <span class='doccomment'>/// through the resulting reference.</span>
-    <span class='kw'>pub</span> <span class='ident'>temp_decls</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>TempDecl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
+    <span class='kw'>pub</span> <span class='ident'>temp_decls</span>: <span class='ident'>IndexVec</span><span class='op'>&lt;</span><span class='ident'>Temp</span>, <span class='ident'>TempDecl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
 
     <span class='doccomment'>/// Names and capture modes of all the closure upvars, assuming</span>
     <span class='doccomment'>/// the first argument is either the closure or a reference to it.</span>
@@ -1248,24 +1293,58 @@
 
     <span class='doccomment'>/// A span representing this MIR, for error reporting</span>
     <span class='kw'>pub</span> <span class='ident'>span</span>: <span class='ident'>Span</span>,
+
+    <span class='doccomment'>/// A cache for various calculations</span>
+    <span class='ident'>cache</span>: <span class='ident'>Cache</span>
 }
 
 <span class='doccomment'>/// where execution begins</span>
 <span class='kw'>pub</span> <span class='kw'>const</span> <span class='ident'>START_BLOCK</span>: <span class='ident'>BasicBlock</span> <span class='op'>=</span> <span class='ident'>BasicBlock</span>(<span class='number'>0</span>);
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>Mir</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>all_basic_blocks</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>BasicBlock</span><span class='op'>&gt;</span> {
-        (<span class='number'>0</span>..<span class='self'>self</span>.<span class='ident'>basic_blocks</span>.<span class='ident'>len</span>())
-            .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>i</span><span class='op'>|</span> <span class='ident'>BasicBlock</span>::<span class='ident'>new</span>(<span class='ident'>i</span>))
-            .<span class='ident'>collect</span>()
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>basic_blocks</span>: <span class='ident'>IndexVec</span><span class='op'>&lt;</span><span class='ident'>BasicBlock</span>, <span class='ident'>BasicBlockData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
+               <span class='ident'>visibility_scopes</span>: <span class='ident'>IndexVec</span><span class='op'>&lt;</span><span class='ident'>VisibilityScope</span>, <span class='ident'>VisibilityScopeData</span><span class='op'>&gt;</span>,
+               <span class='ident'>promoted</span>: <span class='ident'>IndexVec</span><span class='op'>&lt;</span><span class='ident'>Promoted</span>, <span class='ident'>Mir</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
+               <span class='ident'>return_ty</span>: <span class='ident'>FnOutput</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+               <span class='ident'>var_decls</span>: <span class='ident'>IndexVec</span><span class='op'>&lt;</span><span class='ident'>Var</span>, <span class='ident'>VarDecl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
+               <span class='ident'>arg_decls</span>: <span class='ident'>IndexVec</span><span class='op'>&lt;</span><span class='ident'>Arg</span>, <span class='ident'>ArgDecl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
+               <span class='ident'>temp_decls</span>: <span class='ident'>IndexVec</span><span class='op'>&lt;</span><span class='ident'>Temp</span>, <span class='ident'>TempDecl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
+               <span class='ident'>upvar_decls</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>UpvarDecl</span><span class='op'>&gt;</span>,
+               <span class='ident'>span</span>: <span class='ident'>Span</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span>
+    {
+        <span class='ident'>Mir</span> {
+            <span class='ident'>basic_blocks</span>: <span class='ident'>basic_blocks</span>,
+            <span class='ident'>visibility_scopes</span>: <span class='ident'>visibility_scopes</span>,
+            <span class='ident'>promoted</span>: <span class='ident'>promoted</span>,
+            <span class='ident'>return_ty</span>: <span class='ident'>return_ty</span>,
+            <span class='ident'>var_decls</span>: <span class='ident'>var_decls</span>,
+            <span class='ident'>arg_decls</span>: <span class='ident'>arg_decls</span>,
+            <span class='ident'>temp_decls</span>: <span class='ident'>temp_decls</span>,
+            <span class='ident'>upvar_decls</span>: <span class='ident'>upvar_decls</span>,
+            <span class='ident'>span</span>: <span class='ident'>span</span>,
+            <span class='ident'>cache</span>: <span class='ident'>Cache</span>::<span class='ident'>new</span>()
+        }
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>basic_block_data</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>bb</span>: <span class='ident'>BasicBlock</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='ident'>BasicBlockData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>basic_blocks</span>[<span class='ident'>bb</span>.<span class='ident'>index</span>()]
+    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>basic_blocks</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='ident'>IndexVec</span><span class='op'>&lt;</span><span class='ident'>BasicBlock</span>, <span class='ident'>BasicBlockData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span> {
+        <span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>basic_blocks</span>
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>basic_block_data_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>bb</span>: <span class='ident'>BasicBlock</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>BasicBlockData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>.<span class='ident'>basic_blocks</span>[<span class='ident'>bb</span>.<span class='ident'>index</span>()]
+    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>basic_blocks_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>IndexVec</span><span class='op'>&lt;</span><span class='ident'>BasicBlock</span>, <span class='ident'>BasicBlockData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span> {
+        <span class='self'>self</span>.<span class='ident'>cache</span>.<span class='ident'>invalidate</span>();
+        <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>.<span class='ident'>basic_blocks</span>
+    }
+
+    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>predecessors</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Ref</span><span class='op'>&lt;</span><span class='ident'>IndexVec</span><span class='op'>&lt;</span><span class='ident'>BasicBlock</span>, <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>BasicBlock</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span> {
+        <span class='self'>self</span>.<span class='ident'>cache</span>.<span class='ident'>predecessors</span>(<span class='self'>self</span>)
+    }
+
+    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>predecessors_for</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>bb</span>: <span class='ident'>BasicBlock</span>) <span class='op'>-&gt;</span> <span class='ident'>Ref</span><span class='op'>&lt;</span><span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>BasicBlock</span><span class='op'>&gt;&gt;</span> {
+        <span class='ident'>Ref</span>::<span class='ident'>map</span>(<span class='self'>self</span>.<span class='ident'>predecessors</span>(), <span class='op'>|</span><span class='ident'>p</span><span class='op'>|</span> <span class='kw-2'>&amp;</span><span class='ident'>p</span>[<span class='ident'>bb</span>])
     }
 }
 
@@ -1274,15 +1353,27 @@
 
     <span class='attribute'>#[<span class='ident'>inline</span>]</span>
     <span class='kw'>fn</span> <span class='ident'>index</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>index</span>: <span class='ident'>BasicBlock</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='ident'>BasicBlockData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>basic_block_data</span>(<span class='ident'>index</span>)
+        <span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>basic_blocks</span>()[<span class='ident'>index</span>]
     }
 }
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>IndexMut</span><span class='op'>&lt;</span><span class='ident'>BasicBlock</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>Mir</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
     <span class='attribute'>#[<span class='ident'>inline</span>]</span>
     <span class='kw'>fn</span> <span class='ident'>index_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>index</span>: <span class='ident'>BasicBlock</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>BasicBlockData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>basic_block_data_mut</span>(<span class='ident'>index</span>)
+        <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>.<span class='ident'>basic_blocks_mut</span>()[<span class='ident'>index</span>]
     }
+}
+
+<span class='doccomment'>/// Grouped information about the source code origin of a MIR entity.</span>
+<span class='doccomment'>/// Intended to be inspected by diagnostics and debuginfo.</span>
+<span class='doccomment'>/// Most passes can work with it as a whole, within a single function.</span>
+<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Copy</span>, <span class='ident'>Clone</span>, <span class='ident'>Debug</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>, <span class='ident'>RustcEncodable</span>, <span class='ident'>RustcDecodable</span>)]</span>
+<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>SourceInfo</span> {
+    <span class='doccomment'>/// Source span for the AST pertaining to this MIR entity.</span>
+    <span class='kw'>pub</span> <span class='ident'>span</span>: <span class='ident'>Span</span>,
+
+    <span class='doccomment'>/// The lexical visibility scope, i.e. which bindings can be seen.</span>
+    <span class='kw'>pub</span> <span class='ident'>scope</span>: <span class='ident'>VisibilityScope</span>
 }
 
 <span class='comment'>///////////////////////////////////////////////////////////////////////////</span>
@@ -1357,11 +1448,8 @@
     <span class='doccomment'>/// type inferred for this variable (`let x: ty = ...`)</span>
     <span class='kw'>pub</span> <span class='ident'>ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
 
-    <span class='doccomment'>/// scope in which variable was declared</span>
-    <span class='kw'>pub</span> <span class='ident'>scope</span>: <span class='ident'>ScopeId</span>,
-
-    <span class='doccomment'>/// span where variable was declared</span>
-    <span class='kw'>pub</span> <span class='ident'>span</span>: <span class='ident'>Span</span>,
+    <span class='doccomment'>/// source information (span, scope, etc.) for the declaration</span>
+    <span class='kw'>pub</span> <span class='ident'>source_info</span>: <span class='ident'>SourceInfo</span>,
 }
 
 <span class='doccomment'>/// A &quot;temp&quot; is a temporary that we place on the stack. They are</span>
@@ -1407,31 +1495,7 @@
 <span class='comment'>///////////////////////////////////////////////////////////////////////////</span>
 <span class='comment'>// BasicBlock</span>
 
-<span class='doccomment'>/// The index of a particular basic block. The index is into the `basic_blocks`</span>
-<span class='doccomment'>/// list of the `Mir`.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// (We use a `u32` internally just to save memory.)</span>
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Copy</span>, <span class='ident'>Clone</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>, <span class='ident'>Hash</span>, <span class='ident'>PartialOrd</span>, <span class='ident'>Ord</span>,
-         <span class='ident'>RustcEncodable</span>, <span class='ident'>RustcDecodable</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>BasicBlock</span>(<span class='ident'>u32</span>);
-
-<span class='kw'>impl</span> <span class='ident'>BasicBlock</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>index</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='ident'>BasicBlock</span> {
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>index</span> <span class='op'>&lt;</span> (<span class='ident'>u32</span>::<span class='ident'>MAX</span> <span class='kw'>as</span> <span class='ident'>usize</span>));
-        <span class='ident'>BasicBlock</span>(<span class='ident'>index</span> <span class='kw'>as</span> <span class='ident'>u32</span>)
-    }
-
-    <span class='doccomment'>/// Extract the index.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>index</span>(<span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
-        <span class='self'>self</span>.<span class='number'>0</span> <span class='kw'>as</span> <span class='ident'>usize</span>
-    }
-}
-
-<span class='kw'>impl</span> <span class='ident'>Debug</span> <span class='kw'>for</span> <span class='ident'>BasicBlock</span> {
-    <span class='kw'>fn</span> <span class='ident'>fmt</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>fmt</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Formatter</span>) <span class='op'>-&gt;</span> <span class='ident'>fmt</span>::<span class='prelude-ty'>Result</span> {
-        <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;bb{}&quot;</span>, <span class='self'>self</span>.<span class='number'>0</span>)
-    }
-}
+<span class='macro'>newtype_index</span><span class='macro'>!</span>(<span class='ident'>BasicBlock</span>, <span class='string'>&quot;bb&quot;</span>);
 
 <span class='comment'>///////////////////////////////////////////////////////////////////////////</span>
 <span class='comment'>// BasicBlockData and Terminator</span>
@@ -1460,8 +1524,7 @@
 
 <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Debug</span>, <span class='ident'>RustcEncodable</span>, <span class='ident'>RustcDecodable</span>)]</span>
 <span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>Terminator</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='ident'>span</span>: <span class='ident'>Span</span>,
-    <span class='kw'>pub</span> <span class='ident'>scope</span>: <span class='ident'>ScopeId</span>,
+    <span class='kw'>pub</span> <span class='ident'>source_info</span>: <span class='ident'>SourceInfo</span>,
     <span class='kw'>pub</span> <span class='ident'>kind</span>: <span class='ident'>TerminatorKind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
 }
 
@@ -1512,6 +1575,9 @@
     <span class='doccomment'>/// Indicates a normal return. The ReturnPointer lvalue should</span>
     <span class='doccomment'>/// have been filled in by now. This should occur at most once.</span>
     <span class='ident'>Return</span>,
+
+    <span class='doccomment'>/// Indicates a terminator that can never be reached.</span>
+    <span class='ident'>Unreachable</span>,
 
     <span class='doccomment'>/// Drop the Lvalue</span>
     <span class='ident'>Drop</span> {
@@ -1571,6 +1637,7 @@
             <span class='ident'>SwitchInt</span> { <span class='ident'>targets</span>: <span class='kw-2'>ref</span> <span class='ident'>b</span>, .. } <span class='op'>=&gt;</span> <span class='ident'>b</span>[..].<span class='ident'>into_cow</span>(),
             <span class='ident'>Resume</span> <span class='op'>=&gt;</span> (<span class='kw-2'>&amp;</span>[]).<span class='ident'>into_cow</span>(),
             <span class='ident'>Return</span> <span class='op'>=&gt;</span> (<span class='kw-2'>&amp;</span>[]).<span class='ident'>into_cow</span>(),
+            <span class='ident'>Unreachable</span> <span class='op'>=&gt;</span> (<span class='kw-2'>&amp;</span>[]).<span class='ident'>into_cow</span>(),
             <span class='ident'>Call</span> { <span class='ident'>destination</span>: <span class='prelude-val'>Some</span>((_, <span class='ident'>t</span>)), <span class='ident'>cleanup</span>: <span class='prelude-val'>Some</span>(<span class='ident'>c</span>), .. } <span class='op'>=&gt;</span> <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>t</span>, <span class='ident'>c</span>].<span class='ident'>into_cow</span>(),
             <span class='ident'>Call</span> { <span class='ident'>destination</span>: <span class='prelude-val'>Some</span>((_, <span class='kw-2'>ref</span> <span class='ident'>t</span>)), <span class='ident'>cleanup</span>: <span class='prelude-val'>None</span>, .. } <span class='op'>=&gt;</span>
                 <span class='ident'>slice</span>::<span class='ident'>ref_slice</span>(<span class='ident'>t</span>).<span class='ident'>into_cow</span>(),
@@ -1600,6 +1667,7 @@
             <span class='ident'>SwitchInt</span> { <span class='ident'>targets</span>: <span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>b</span>, .. } <span class='op'>=&gt;</span> <span class='ident'>b</span>.<span class='ident'>iter_mut</span>().<span class='ident'>collect</span>(),
             <span class='ident'>Resume</span> <span class='op'>=&gt;</span> <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
             <span class='ident'>Return</span> <span class='op'>=&gt;</span> <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
+            <span class='ident'>Unreachable</span> <span class='op'>=&gt;</span> <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
             <span class='ident'>Call</span> { <span class='ident'>destination</span>: <span class='prelude-val'>Some</span>((_, <span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>t</span>)), <span class='ident'>cleanup</span>: <span class='prelude-val'>Some</span>(<span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>c</span>), .. } <span class='op'>=&gt;</span> <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>t</span>, <span class='ident'>c</span>],
             <span class='ident'>Call</span> { <span class='ident'>destination</span>: <span class='prelude-val'>Some</span>((_, <span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>t</span>)), <span class='ident'>cleanup</span>: <span class='prelude-val'>None</span>, .. } <span class='op'>=&gt;</span> <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>t</span>],
             <span class='ident'>Call</span> { <span class='ident'>destination</span>: <span class='prelude-val'>None</span>, <span class='ident'>cleanup</span>: <span class='prelude-val'>Some</span>(<span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>c</span>), .. } <span class='op'>=&gt;</span> <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>c</span>],
@@ -1678,6 +1746,7 @@
             <span class='ident'>SwitchInt</span> { <span class='ident'>discr</span>: <span class='kw-2'>ref</span> <span class='ident'>lv</span>, .. } <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;switchInt({:?})&quot;</span>, <span class='ident'>lv</span>),
             <span class='ident'>Return</span> <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;return&quot;</span>),
             <span class='ident'>Resume</span> <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;resume&quot;</span>),
+            <span class='ident'>Unreachable</span> <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;unreachable&quot;</span>),
             <span class='ident'>Drop</span> { <span class='kw-2'>ref</span> <span class='ident'>location</span>, .. } <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;drop({:?})&quot;</span>, <span class='ident'>location</span>),
             <span class='ident'>DropAndReplace</span> { <span class='kw-2'>ref</span> <span class='ident'>location</span>, <span class='kw-2'>ref</span> <span class='ident'>value</span>, .. } <span class='op'>=&gt;</span>
                 <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;replace({:?} &lt;- {:?})&quot;</span>, <span class='ident'>location</span>, <span class='ident'>value</span>),
@@ -1721,7 +1790,7 @@
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>fmt_successor_labels</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Cow</span><span class='op'>&lt;</span><span class='lifetime'>&#39;static</span>, <span class='ident'>str</span><span class='op'>&gt;&gt;</span> {
         <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>TerminatorKind</span>::<span class='op'>*</span>;
         <span class='kw'>match</span> <span class='op'>*</span><span class='self'>self</span> {
-            <span class='ident'>Return</span> <span class='op'>|</span> <span class='ident'>Resume</span> <span class='op'>=&gt;</span> <span class='macro'>vec</span><span class='macro'>!</span>[],
+            <span class='ident'>Return</span> <span class='op'>|</span> <span class='ident'>Resume</span> <span class='op'>|</span> <span class='ident'>Unreachable</span> <span class='op'>=&gt;</span> <span class='macro'>vec</span><span class='macro'>!</span>[],
             <span class='ident'>Goto</span> { .. } <span class='op'>=&gt;</span> <span class='macro'>vec</span><span class='macro'>!</span>[<span class='string'>&quot;&quot;</span>.<span class='ident'>into</span>()],
             <span class='ident'>If</span> { .. } <span class='op'>=&gt;</span> <span class='macro'>vec</span><span class='macro'>!</span>[<span class='string'>&quot;true&quot;</span>.<span class='ident'>into</span>(), <span class='string'>&quot;false&quot;</span>.<span class='ident'>into</span>()],
             <span class='ident'>Switch</span> { <span class='kw-2'>ref</span> <span class='ident'>adt_def</span>, .. } <span class='op'>=&gt;</span> {
@@ -1772,8 +1841,7 @@
 
 <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>RustcEncodable</span>, <span class='ident'>RustcDecodable</span>)]</span>
 <span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>Statement</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='ident'>span</span>: <span class='ident'>Span</span>,
-    <span class='kw'>pub</span> <span class='ident'>scope</span>: <span class='ident'>ScopeId</span>,
+    <span class='kw'>pub</span> <span class='ident'>source_info</span>: <span class='ident'>SourceInfo</span>,
     <span class='kw'>pub</span> <span class='ident'>kind</span>: <span class='ident'>StatementKind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
 }
 
@@ -1794,19 +1862,23 @@
 <span class='comment'>///////////////////////////////////////////////////////////////////////////</span>
 <span class='comment'>// Lvalues</span>
 
+<span class='macro'>newtype_index</span><span class='macro'>!</span>(<span class='ident'>Var</span>, <span class='string'>&quot;var&quot;</span>);
+<span class='macro'>newtype_index</span><span class='macro'>!</span>(<span class='ident'>Temp</span>, <span class='string'>&quot;tmp&quot;</span>);
+<span class='macro'>newtype_index</span><span class='macro'>!</span>(<span class='ident'>Arg</span>, <span class='string'>&quot;arg&quot;</span>);
+
 <span class='doccomment'>/// A path to a value; something that can be evaluated without</span>
 <span class='doccomment'>/// changing or disturbing program state.</span>
 <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>PartialEq</span>, <span class='ident'>RustcEncodable</span>, <span class='ident'>RustcDecodable</span>)]</span>
 <span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>Lvalue</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
     <span class='doccomment'>/// local variable declared by the user</span>
-    <span class='ident'>Var</span>(<span class='ident'>u32</span>),
+    <span class='ident'>Var</span>(<span class='ident'>Var</span>),
 
     <span class='doccomment'>/// temporary introduced during lowering into MIR</span>
-    <span class='ident'>Temp</span>(<span class='ident'>u32</span>),
+    <span class='ident'>Temp</span>(<span class='ident'>Temp</span>),
 
     <span class='doccomment'>/// formal parameter of the function; note that these are NOT the</span>
     <span class='doccomment'>/// bindings that the user declares, which are vars</span>
-    <span class='ident'>Arg</span>(<span class='ident'>u32</span>),
+    <span class='ident'>Arg</span>(<span class='ident'>Arg</span>),
 
     <span class='doccomment'>/// static or static mut variable</span>
     <span class='ident'>Static</span>(<span class='ident'>DefId</span>),
@@ -1852,6 +1924,14 @@
         <span class='ident'>from_end</span>: <span class='ident'>bool</span>,
     },
 
+    <span class='doccomment'>/// These indices are generated by slice patterns.</span>
+    <span class='doccomment'>///</span>
+    <span class='doccomment'>/// slice[from:-to] in Python terms.</span>
+    <span class='ident'>Subslice</span> {
+        <span class='ident'>from</span>: <span class='ident'>u32</span>,
+        <span class='ident'>to</span>: <span class='ident'>u32</span>,
+    },
+
     <span class='doccomment'>/// &quot;Downcast&quot; to a variant of an ADT. Currently, we only introduce</span>
     <span class='doccomment'>/// this for ADTs with more than one variant. It may be better to</span>
     <span class='doccomment'>/// just introduce it always, or always for enums.</span>
@@ -1866,20 +1946,7 @@
 <span class='doccomment'>/// and the index is an operand.</span>
 <span class='kw'>pub</span> <span class='kw'>type</span> <span class='ident'>LvalueElem</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>ProjectionElem</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>Operand</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>;
 
-<span class='doccomment'>/// Index into the list of fields found in a `VariantDef`</span>
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Copy</span>, <span class='ident'>Clone</span>, <span class='ident'>Debug</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>, <span class='ident'>Hash</span>, <span class='ident'>RustcEncodable</span>, <span class='ident'>RustcDecodable</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>Field</span>(<span class='ident'>u32</span>);
-
-<span class='kw'>impl</span> <span class='ident'>Field</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>value</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='ident'>Field</span> {
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>value</span> <span class='op'>&lt;</span> (<span class='ident'>u32</span>::<span class='ident'>MAX</span>) <span class='kw'>as</span> <span class='ident'>usize</span>);
-        <span class='ident'>Field</span>(<span class='ident'>value</span> <span class='kw'>as</span> <span class='ident'>u32</span>)
-    }
-
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>index</span>(<span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
-        <span class='self'>self</span>.<span class='number'>0</span> <span class='kw'>as</span> <span class='ident'>usize</span>
-    }
-}
+<span class='macro'>newtype_index</span><span class='macro'>!</span>(<span class='ident'>Field</span>, <span class='string'>&quot;field&quot;</span>);
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>Lvalue</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>field</span>(<span class='self'>self</span>, <span class='ident'>f</span>: <span class='ident'>Field</span>, <span class='ident'>ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>Lvalue</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
@@ -1907,12 +1974,9 @@
         <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>Lvalue</span>::<span class='op'>*</span>;
 
         <span class='kw'>match</span> <span class='op'>*</span><span class='self'>self</span> {
-            <span class='ident'>Var</span>(<span class='ident'>id</span>) <span class='op'>=&gt;</span>
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;var{:?}&quot;</span>, <span class='ident'>id</span>),
-            <span class='ident'>Arg</span>(<span class='ident'>id</span>) <span class='op'>=&gt;</span>
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;arg{:?}&quot;</span>, <span class='ident'>id</span>),
-            <span class='ident'>Temp</span>(<span class='ident'>id</span>) <span class='op'>=&gt;</span>
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;tmp{:?}&quot;</span>, <span class='ident'>id</span>),
+            <span class='ident'>Var</span>(<span class='ident'>id</span>) <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;{:?}&quot;</span>, <span class='ident'>id</span>),
+            <span class='ident'>Arg</span>(<span class='ident'>id</span>) <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;{:?}&quot;</span>, <span class='ident'>id</span>),
+            <span class='ident'>Temp</span>(<span class='ident'>id</span>) <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;{:?}&quot;</span>, <span class='ident'>id</span>),
             <span class='ident'>Static</span>(<span class='ident'>def_id</span>) <span class='op'>=&gt;</span>
                 <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;{}&quot;</span>, <span class='ident'>ty</span>::<span class='ident'>tls</span>::<span class='ident'>with</span>(<span class='op'>|</span><span class='ident'>tcx</span><span class='op'>|</span> <span class='ident'>tcx</span>.<span class='ident'>item_path_str</span>(<span class='ident'>def_id</span>))),
             <span class='ident'>ReturnPointer</span> <span class='op'>=&gt;</span>
@@ -1931,6 +1995,14 @@
                         <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;{:?}[{:?} of {:?}]&quot;</span>, <span class='ident'>data</span>.<span class='ident'>base</span>, <span class='ident'>offset</span>, <span class='ident'>min_length</span>),
                     <span class='ident'>ProjectionElem</span>::<span class='ident'>ConstantIndex</span> { <span class='ident'>offset</span>, <span class='ident'>min_length</span>, <span class='ident'>from_end</span>: <span class='bool-val'>true</span> } <span class='op'>=&gt;</span>
                         <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;{:?}[-{:?} of {:?}]&quot;</span>, <span class='ident'>data</span>.<span class='ident'>base</span>, <span class='ident'>offset</span>, <span class='ident'>min_length</span>),
+                    <span class='ident'>ProjectionElem</span>::<span class='ident'>Subslice</span> { <span class='ident'>from</span>, <span class='ident'>to</span> } <span class='kw'>if</span> <span class='ident'>to</span> <span class='op'>==</span> <span class='number'>0</span> <span class='op'>=&gt;</span>
+                        <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;{:?}[{:?}:&quot;</span>, <span class='ident'>data</span>.<span class='ident'>base</span>, <span class='ident'>from</span>),
+                    <span class='ident'>ProjectionElem</span>::<span class='ident'>Subslice</span> { <span class='ident'>from</span>, <span class='ident'>to</span> } <span class='kw'>if</span> <span class='ident'>from</span> <span class='op'>==</span> <span class='number'>0</span> <span class='op'>=&gt;</span>
+                        <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;{:?}[:-{:?}]&quot;</span>, <span class='ident'>data</span>.<span class='ident'>base</span>, <span class='ident'>to</span>),
+                    <span class='ident'>ProjectionElem</span>::<span class='ident'>Subslice</span> { <span class='ident'>from</span>, <span class='ident'>to</span> } <span class='op'>=&gt;</span>
+                        <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;{:?}[{:?}:-{:?}]&quot;</span>, <span class='ident'>data</span>.<span class='ident'>base</span>,
+                               <span class='ident'>from</span>, <span class='ident'>to</span>),
+
                 },
         }
     }
@@ -1939,40 +2011,13 @@
 <span class='comment'>///////////////////////////////////////////////////////////////////////////</span>
 <span class='comment'>// Scopes</span>
 
-<span class='kw'>impl</span> <span class='ident'>Index</span><span class='op'>&lt;</span><span class='ident'>ScopeId</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ScopeData</span><span class='op'>&gt;</span> {
-    <span class='kw'>type</span> <span class='ident'>Output</span> <span class='op'>=</span> <span class='ident'>ScopeData</span>;
-
-    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>index</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>index</span>: <span class='ident'>ScopeId</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='ident'>ScopeData</span> {
-        <span class='kw-2'>&amp;</span><span class='self'>self</span>[<span class='ident'>index</span>.<span class='ident'>index</span>()]
-    }
-}
-
-<span class='kw'>impl</span> <span class='ident'>IndexMut</span><span class='op'>&lt;</span><span class='ident'>ScopeId</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ScopeData</span><span class='op'>&gt;</span> {
-    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>index_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>index</span>: <span class='ident'>ScopeId</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>ScopeData</span> {
-        <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>[<span class='ident'>index</span>.<span class='ident'>index</span>()]
-    }
-}
-
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Copy</span>, <span class='ident'>Clone</span>, <span class='ident'>Debug</span>, <span class='ident'>Hash</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>, <span class='ident'>RustcEncodable</span>, <span class='ident'>RustcDecodable</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>ScopeId</span>(<span class='ident'>u32</span>);
-
-<span class='kw'>impl</span> <span class='ident'>ScopeId</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>index</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='ident'>ScopeId</span> {
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>index</span> <span class='op'>&lt;</span> (<span class='ident'>u32</span>::<span class='ident'>MAX</span> <span class='kw'>as</span> <span class='ident'>usize</span>));
-        <span class='ident'>ScopeId</span>(<span class='ident'>index</span> <span class='kw'>as</span> <span class='ident'>u32</span>)
-    }
-
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>index</span>(<span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
-        <span class='self'>self</span>.<span class='number'>0</span> <span class='kw'>as</span> <span class='ident'>usize</span>
-    }
-}
+<span class='macro'>newtype_index</span><span class='macro'>!</span>(<span class='ident'>VisibilityScope</span>, <span class='string'>&quot;scope&quot;</span>);
+<span class='kw'>pub</span> <span class='kw'>const</span> <span class='ident'>ARGUMENT_VISIBILITY_SCOPE</span> : <span class='ident'>VisibilityScope</span> <span class='op'>=</span> <span class='ident'>VisibilityScope</span>(<span class='number'>0</span>);
 
 <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Debug</span>, <span class='ident'>RustcEncodable</span>, <span class='ident'>RustcDecodable</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>ScopeData</span> {
+<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>VisibilityScopeData</span> {
     <span class='kw'>pub</span> <span class='ident'>span</span>: <span class='ident'>Span</span>,
-    <span class='kw'>pub</span> <span class='ident'>parent_scope</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>ScopeId</span><span class='op'>&gt;</span>,
+    <span class='kw'>pub</span> <span class='ident'>parent_scope</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>VisibilityScope</span><span class='op'>&gt;</span>,
 }
 
 <span class='comment'>///////////////////////////////////////////////////////////////////////////</span>
@@ -2030,17 +2075,6 @@
     <span class='doccomment'>/// that `Foo` has a destructor. These rvalues can be optimized</span>
     <span class='doccomment'>/// away after type-checking and before lowering.</span>
     <span class='ident'>Aggregate</span>(<span class='ident'>AggregateKind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Operand</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>),
-
-    <span class='doccomment'>/// Generates a slice of the form `&amp;input[from_start..L-from_end]`</span>
-    <span class='doccomment'>/// where `L` is the length of the slice. This is only created by</span>
-    <span class='doccomment'>/// slice pattern matching, so e.g. a pattern of the form `[x, y,</span>
-    <span class='doccomment'>/// .., z]` might create a slice with `from_start=2` and</span>
-    <span class='doccomment'>/// `from_end=1`.</span>
-    <span class='ident'>Slice</span> {
-        <span class='ident'>input</span>: <span class='ident'>Lvalue</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-        <span class='ident'>from_start</span>: <span class='ident'>usize</span>,
-        <span class='ident'>from_end</span>: <span class='ident'>usize</span>,
-    },
 
     <span class='ident'>InlineAsm</span> {
         <span class='ident'>asm</span>: <span class='ident'>InlineAsm</span>,
@@ -2147,8 +2181,6 @@
             <span class='ident'>InlineAsm</span> { <span class='kw-2'>ref</span> <span class='ident'>asm</span>, <span class='kw-2'>ref</span> <span class='ident'>outputs</span>, <span class='kw-2'>ref</span> <span class='ident'>inputs</span> } <span class='op'>=&gt;</span> {
                 <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;asm!({:?} : {:?} : {:?})&quot;</span>, <span class='ident'>asm</span>, <span class='ident'>outputs</span>, <span class='ident'>inputs</span>)
             }
-            <span class='ident'>Slice</span> { <span class='kw-2'>ref</span> <span class='ident'>input</span>, <span class='ident'>from_start</span>, <span class='ident'>from_end</span> } <span class='op'>=&gt;</span>
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;{:?}[{:?}..-{:?}]&quot;</span>, <span class='ident'>input</span>, <span class='ident'>from_start</span>, <span class='ident'>from_end</span>),
 
             <span class='ident'>Ref</span>(_, <span class='ident'>borrow_kind</span>, <span class='kw-2'>ref</span> <span class='ident'>lv</span>) <span class='op'>=&gt;</span> {
                 <span class='kw'>let</span> <span class='ident'>kind_str</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>borrow_kind</span> {
@@ -2252,6 +2284,8 @@
     }
 }
 
+<span class='macro'>newtype_index</span><span class='macro'>!</span>(<span class='ident'>Promoted</span>, <span class='string'>&quot;promoted&quot;</span>);
+
 <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>, <span class='ident'>Hash</span>, <span class='ident'>RustcEncodable</span>, <span class='ident'>RustcDecodable</span>)]</span>
 <span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>Literal</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
     <span class='ident'>Item</span> {
@@ -2263,7 +2297,7 @@
     },
     <span class='ident'>Promoted</span> {
         <span class='comment'>// Index into the `promoted` vector of `Mir`.</span>
-        <span class='ident'>index</span>: <span class='ident'>usize</span>
+        <span class='ident'>index</span>: <span class='ident'>Promoted</span>
     },
 }
 
@@ -2287,7 +2321,7 @@
                 <span class='ident'>fmt_const_val</span>(<span class='ident'>fmt</span>, <span class='ident'>value</span>)
             }
             <span class='ident'>Promoted</span> { <span class='ident'>index</span> } <span class='op'>=&gt;</span> {
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;promoted{}&quot;</span>, <span class='ident'>index</span>)
+                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;{:?}&quot;</span>, <span class='ident'>index</span>)
             }
         }
     }

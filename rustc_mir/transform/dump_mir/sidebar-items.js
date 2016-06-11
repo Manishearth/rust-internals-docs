@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["DumpMir",""]]});
+initSidebarItems({"struct":[["Disambiguator",""],["DumpMir",""],["Marker",""]]});

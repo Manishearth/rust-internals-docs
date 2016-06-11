@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["SimplifyCfg",""]]});
+initSidebarItems({"struct":[["CfgSimplifier",""],["SimplifyCfg",""]]});
