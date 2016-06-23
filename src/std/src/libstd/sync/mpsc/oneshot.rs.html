@@ -414,6 +414,15 @@
 <span id="370">370</span>
 <span id="371">371</span>
 <span id="372">372</span>
+<span id="373">373</span>
+<span id="374">374</span>
+<span id="375">375</span>
+<span id="376">376</span>
+<span id="377">377</span>
+<span id="378">378</span>
+<span id="379">379</span>
+<span id="380">380</span>
+<span id="381">381</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -458,6 +467,7 @@
 <span class='kw'>use</span> <span class='ident'>sync</span>::<span class='ident'>mpsc</span>::<span class='ident'>blocking</span>::{<span class='self'>self</span>, <span class='ident'>SignalToken</span>};
 <span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>mem</span>;
 <span class='kw'>use</span> <span class='ident'>sync</span>::<span class='ident'>atomic</span>::{<span class='ident'>AtomicUsize</span>, <span class='ident'>Ordering</span>};
+<span class='kw'>use</span> <span class='ident'>time</span>::<span class='ident'>Instant</span>;
 
 <span class='comment'>// Various states you can find a port in.</span>
 <span class='kw'>const</span> <span class='ident'>EMPTY</span>: <span class='ident'>usize</span> <span class='op'>=</span> <span class='number'>0</span>;          <span class='comment'>// initial state: no data, no blocked receiver</span>
@@ -553,7 +563,7 @@
         }
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>recv</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>T</span>, <span class='ident'>Failure</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>recv</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>deadline</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Instant</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>T</span>, <span class='ident'>Failure</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span> {
         <span class='comment'>// Attempt to not block the thread (it&#39;s a little expensive). If it looks</span>
         <span class='comment'>// like we&#39;re not empty, then immediately go through to `try_recv`.</span>
         <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>state</span>.<span class='ident'>load</span>(<span class='ident'>Ordering</span>::<span class='ident'>SeqCst</span>) <span class='op'>==</span> <span class='ident'>EMPTY</span> {
@@ -562,8 +572,16 @@
 
             <span class='comment'>// race with senders to enter the blocking state</span>
             <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>state</span>.<span class='ident'>compare_and_swap</span>(<span class='ident'>EMPTY</span>, <span class='ident'>ptr</span>, <span class='ident'>Ordering</span>::<span class='ident'>SeqCst</span>) <span class='op'>==</span> <span class='ident'>EMPTY</span> {
-                <span class='ident'>wait_token</span>.<span class='ident'>wait</span>();
-                <span class='macro'>debug_assert</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>state</span>.<span class='ident'>load</span>(<span class='ident'>Ordering</span>::<span class='ident'>SeqCst</span>) <span class='op'>!=</span> <span class='ident'>EMPTY</span>);
+                <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>deadline</span>) <span class='op'>=</span> <span class='ident'>deadline</span> {
+                    <span class='kw'>let</span> <span class='ident'>timed_out</span> <span class='op'>=</span> <span class='op'>!</span><span class='ident'>wait_token</span>.<span class='ident'>wait_max_until</span>(<span class='ident'>deadline</span>);
+                    <span class='comment'>// Try to reset the state</span>
+                    <span class='kw'>if</span> <span class='ident'>timed_out</span> {
+                        <span class='macro'>try</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>abort_selection</span>().<span class='ident'>map_err</span>(<span class='ident'>Upgraded</span>));
+                    }
+                } <span class='kw'>else</span> {
+                    <span class='ident'>wait_token</span>.<span class='ident'>wait</span>();
+                    <span class='macro'>debug_assert</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>state</span>.<span class='ident'>load</span>(<span class='ident'>Ordering</span>::<span class='ident'>SeqCst</span>) <span class='op'>!=</span> <span class='ident'>EMPTY</span>);
+                }
             } <span class='kw'>else</span> {
                 <span class='comment'>// drop the signal token, since we never blocked</span>
                 <span class='ident'>drop</span>(<span class='kw'>unsafe</span> { <span class='ident'>SignalToken</span>::<span class='ident'>cast_from_usize</span>(<span class='ident'>ptr</span>) });
