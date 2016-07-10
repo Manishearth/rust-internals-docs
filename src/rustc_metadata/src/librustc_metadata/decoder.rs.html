@@ -1827,6 +1827,12 @@
 <span id="1783">1783</span>
 <span id="1784">1784</span>
 <span id="1785">1785</span>
+<span id="1786">1786</span>
+<span id="1787">1787</span>
+<span id="1788">1788</span>
+<span id="1789">1789</span>
+<span id="1790">1790</span>
+<span id="1791">1791</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -2301,28 +2307,34 @@
 
     <span class='kw'>let</span> <span class='ident'>doc</span> <span class='op'>=</span> <span class='ident'>cdata</span>.<span class='ident'>lookup_item</span>(<span class='ident'>item_id</span>);
     <span class='kw'>let</span> <span class='ident'>did</span> <span class='op'>=</span> <span class='ident'>DefId</span> { <span class='ident'>krate</span>: <span class='ident'>cdata</span>.<span class='ident'>cnum</span>, <span class='ident'>index</span>: <span class='ident'>item_id</span> };
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>ctor_did</span> <span class='op'>=</span> <span class='prelude-val'>None</span>;
     <span class='kw'>let</span> (<span class='ident'>kind</span>, <span class='ident'>variants</span>) <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>item_family</span>(<span class='ident'>doc</span>) {
         <span class='ident'>Enum</span> <span class='op'>=&gt;</span> {
             (<span class='ident'>ty</span>::<span class='ident'>AdtKind</span>::<span class='ident'>Enum</span>,
              <span class='ident'>get_enum_variants</span>(<span class='ident'>intr</span>, <span class='ident'>cdata</span>, <span class='ident'>doc</span>))
         }
         <span class='ident'>Struct</span>(..) <span class='op'>=&gt;</span> {
-            <span class='kw'>let</span> <span class='ident'>ctor_did</span> <span class='op'>=</span>
-                <span class='ident'>reader</span>::<span class='ident'>maybe_get_doc</span>(<span class='ident'>doc</span>, <span class='ident'>tag_items_data_item_struct_ctor</span>).
-                <span class='ident'>map_or</span>(<span class='ident'>did</span>, <span class='op'>|</span><span class='ident'>ctor_doc</span><span class='op'>|</span> <span class='ident'>translated_def_id</span>(<span class='ident'>cdata</span>, <span class='ident'>ctor_doc</span>));
+            <span class='comment'>// Use separate constructor id for unit/tuple structs and reuse did for braced structs.</span>
+            <span class='ident'>ctor_did</span> <span class='op'>=</span> <span class='ident'>reader</span>::<span class='ident'>maybe_get_doc</span>(<span class='ident'>doc</span>, <span class='ident'>tag_items_data_item_struct_ctor</span>).<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>ctor_doc</span><span class='op'>|</span> {
+                <span class='ident'>translated_def_id</span>(<span class='ident'>cdata</span>, <span class='ident'>ctor_doc</span>)
+            });
             (<span class='ident'>ty</span>::<span class='ident'>AdtKind</span>::<span class='ident'>Struct</span>,
-             <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>get_struct_variant</span>(<span class='ident'>intr</span>, <span class='ident'>cdata</span>, <span class='ident'>doc</span>, <span class='ident'>ctor_did</span>)])
+             <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>get_struct_variant</span>(<span class='ident'>intr</span>, <span class='ident'>cdata</span>, <span class='ident'>doc</span>, <span class='ident'>ctor_did</span>.<span class='ident'>unwrap_or</span>(<span class='ident'>did</span>))])
         }
         _ <span class='op'>=&gt;</span> <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;get_adt_def called on a non-ADT {:?} - {:?}&quot;</span>,
                   <span class='ident'>item_family</span>(<span class='ident'>doc</span>), <span class='ident'>did</span>)
     };
 
     <span class='kw'>let</span> <span class='ident'>adt</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>intern_adt_def</span>(<span class='ident'>did</span>, <span class='ident'>kind</span>, <span class='ident'>variants</span>);
+    <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>ctor_did</span>) <span class='op'>=</span> <span class='ident'>ctor_did</span> {
+        <span class='comment'>// Make adt definition available through constructor id as well.</span>
+        <span class='ident'>tcx</span>.<span class='ident'>insert_adt_def</span>(<span class='ident'>ctor_did</span>, <span class='ident'>adt</span>);
+    }
 
     <span class='comment'>// this needs to be done *after* the variant is interned,</span>
     <span class='comment'>// to support recursive structures</span>
     <span class='kw'>for</span> <span class='ident'>variant</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>adt</span>.<span class='ident'>variants</span> {
-        <span class='kw'>if</span> <span class='ident'>variant</span>.<span class='ident'>kind</span>() <span class='op'>==</span> <span class='ident'>ty</span>::<span class='ident'>VariantKind</span>::<span class='ident'>Tuple</span> <span class='op'>&amp;&amp;</span>
+        <span class='kw'>if</span> <span class='ident'>variant</span>.<span class='ident'>kind</span> <span class='op'>==</span> <span class='ident'>ty</span>::<span class='ident'>VariantKind</span>::<span class='ident'>Tuple</span> <span class='op'>&amp;&amp;</span>
             <span class='ident'>adt</span>.<span class='ident'>adt_kind</span>() <span class='op'>==</span> <span class='ident'>ty</span>::<span class='ident'>AdtKind</span>::<span class='ident'>Enum</span> {
             <span class='comment'>// tuple-like enum variant fields aren&#39;t real items - get the types</span>
             <span class='comment'>// from the ctor.</span>
