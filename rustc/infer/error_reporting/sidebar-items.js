@@ -1,1 +1,1 @@
-initSidebarItems({"trait":[["Resolvable",""]]});
+initSidebarItems({});

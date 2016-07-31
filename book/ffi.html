@@ -915,16 +915,90 @@ definitions for the C standard library in the <code>libc</code> module, and Rust
 against <code>libc</code> and <code>libm</code> by default.</p>
 
 <h1 id='the-nullable-pointer-optimization' class='section-header'><a href='#the-nullable-pointer-optimization'>The &quot;nullable pointer optimization&quot;</a></h1>
-<p>Certain types are defined to not be NULL. This includes references (<code>&amp;T</code>,
-<code>&amp;mut T</code>), boxes (<code>Box&lt;T&gt;</code>), and function pointers (<code>extern &quot;abi&quot; fn()</code>).
-When interfacing with C, pointers that might be NULL are often used.
-As a special case, a generic <code>enum</code> that contains exactly two variants, one of
-which contains no data and the other containing a single field, is eligible
-for the &quot;nullable pointer optimization&quot;. When such an enum is instantiated
-with one of the non-nullable types, it is represented as a single pointer,
-and the non-data variant is represented as the NULL pointer. So
-<code>Option&lt;extern &quot;C&quot; fn(c_int) -&gt; c_int&gt;</code> is how one represents a nullable
-function pointer using the C ABI.</p>
+<p>Certain Rust types are defined to never be <code>null</code>. This includes references (<code>&amp;T</code>,
+<code>&amp;mut T</code>), boxes (<code>Box&lt;T&gt;</code>), and function pointers (<code>extern &quot;abi&quot; fn()</code>). When
+interfacing with C, pointers that might be <code>null</code> are often used, which would seem to
+require some messy <code>transmute</code>s and/or unsafe code to handle conversions to/from Rust types.
+However, the language provides a workaround.</p>
+
+<p>As a special case, an <code>enum</code> is eligible for the &quot;nullable pointer optimization&quot; if it contains
+exactly two variants, one of which contains no data and the other contains a field of one of the
+non-nullable types listed above.  This means no extra space is required for a discriminant; rather,
+the empty variant is represented by putting a <code>null</code> value into the non-nullable field. This is
+called an &quot;optimization&quot;, but unlike other optimizations it is guaranteed to apply to eligible
+types.</p>
+
+<p>The most common type that takes advantage of the nullable pointer optimization is <code>Option&lt;T&gt;</code>,
+where <code>None</code> corresponds to <code>null</code>. So <code>Option&lt;extern &quot;C&quot; fn(c_int) -&gt; c_int&gt;</code> is a correct way
+to represent a nullable function pointer using the C ABI (corresponding to the C type
+<code>int (*)(int)</code>).</p>
+
+<p>Here is a contrived example. Let&#39;s say some C library has a facility for registering a
+callback, which gets called in certain situations. The callback is passed a function pointer
+and an integer and it is supposed to run the function with the integer as a parameter. So
+we have function pointers flying across the FFI boundary in both directions.</p>
+
+<span class='rusttest'>#![feature(libc)]
+extern crate libc;
+use libc::c_int;
+
+#[cfg(hidden)]
+extern &quot;C&quot; {
+    /// Register the callback.
+    fn register(cb: Option&lt;extern &quot;C&quot; fn(Option&lt;extern &quot;C&quot; fn(c_int) -&gt; c_int&gt;, c_int) -&gt; c_int&gt;);
+}
+unsafe fn register(_: Option&lt;extern &quot;C&quot; fn(Option&lt;extern &quot;C&quot; fn(c_int) -&gt; c_int&gt;,
+                                           c_int) -&gt; c_int&gt;)
+{}
+
+/// This fairly useless function receives a function pointer and an integer
+/// from C, and returns the result of calling the function with the integer.
+/// In case no function is provided, it squares the integer by default.
+extern &quot;C&quot; fn apply(process: Option&lt;extern &quot;C&quot; fn(c_int) -&gt; c_int&gt;, int: c_int) -&gt; c_int {
+    match process {
+        Some(f) =&gt; f(int),
+        None    =&gt; int * int
+    }
+}
+
+fn main() {
+    unsafe {
+        register(Some(apply));
+    }
+}
+</span><pre class='rust rust-example-rendered'>
+<span class='kw'>extern</span> <span class='kw'>crate</span> <span class='ident'>libc</span>;
+<span class='kw'>use</span> <span class='ident'>libc</span>::<span class='ident'>c_int</span>;
+
+<span class='kw'>extern</span> <span class='string'>&quot;C&quot;</span> {
+    <span class='doccomment'>/// Register the callback.</span>
+    <span class='kw'>fn</span> <span class='ident'>register</span>(<span class='ident'>cb</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='kw'>extern</span> <span class='string'>&quot;C&quot;</span> <span class='kw'>fn</span>(<span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='kw'>extern</span> <span class='string'>&quot;C&quot;</span> <span class='kw'>fn</span>(<span class='ident'>c_int</span>) <span class='op'>-&gt;</span> <span class='ident'>c_int</span><span class='op'>&gt;</span>, <span class='ident'>c_int</span>) <span class='op'>-&gt;</span> <span class='ident'>c_int</span><span class='op'>&gt;</span>);
+}
+
+<span class='doccomment'>/// This fairly useless function receives a function pointer and an integer</span>
+<span class='doccomment'>/// from C, and returns the result of calling the function with the integer.</span>
+<span class='doccomment'>/// In case no function is provided, it squares the integer by default.</span>
+<span class='kw'>extern</span> <span class='string'>&quot;C&quot;</span> <span class='kw'>fn</span> <span class='ident'>apply</span>(<span class='ident'>process</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='kw'>extern</span> <span class='string'>&quot;C&quot;</span> <span class='kw'>fn</span>(<span class='ident'>c_int</span>) <span class='op'>-&gt;</span> <span class='ident'>c_int</span><span class='op'>&gt;</span>, <span class='ident'>int</span>: <span class='ident'>c_int</span>) <span class='op'>-&gt;</span> <span class='ident'>c_int</span> {
+    <span class='kw'>match</span> <span class='ident'>process</span> {
+        <span class='prelude-val'>Some</span>(<span class='ident'>f</span>) <span class='op'>=&gt;</span> <span class='ident'>f</span>(<span class='ident'>int</span>),
+        <span class='prelude-val'>None</span>    <span class='op'>=&gt;</span> <span class='ident'>int</span> <span class='op'>*</span> <span class='ident'>int</span>
+    }
+}
+
+<span class='kw'>fn</span> <span class='ident'>main</span>() {
+    <span class='kw'>unsafe</span> {
+        <span class='ident'>register</span>(<span class='prelude-val'>Some</span>(<span class='ident'>apply</span>));
+    }
+}</pre>
+
+<p>And the code on the C side looks like this:</p>
+
+<pre><code class="language-c">void register(void (*f)(void (*)(int), int)) {
+    ...
+}
+</code></pre>
+
+<p>No <code>transmute</code> required!</p>
 
 <h1 id='calling-rust-code-from-c' class='section-header'><a href='#calling-rust-code-from-c'>Calling Rust code from C</a></h1>
 <p>You may wish to compile Rust code in a way so that it can be called from C. This is

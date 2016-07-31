@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["fix_windows_verbatim_for_gcc",""]]});
+initSidebarItems({"fn":[["fix_windows_verbatim_for_gcc",""],["link_or_copy","Copy `p` into `q`, preferring to use hard-linking if possible. If `q` already exists, it is removed first."]]});
