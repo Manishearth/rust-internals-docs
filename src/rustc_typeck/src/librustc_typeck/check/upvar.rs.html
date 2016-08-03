@@ -615,8 +615,6 @@
 <span id="571">571</span>
 <span id="572">572</span>
 <span id="573">573</span>
-<span id="574">574</span>
-<span id="575">575</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -667,11 +665,11 @@
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>mem_categorization</span>::<span class='ident'>Categorization</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>Ty</span>};
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>infer</span>::<span class='ident'>UpvarRegion</span>;
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>collections</span>::<span class='ident'>HashSet</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>;
 <span class='kw'>use</span> <span class='ident'>syntax_pos</span>::<span class='ident'>Span</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>::<span class='ident'>intravisit</span>::{<span class='self'>self</span>, <span class='ident'>Visitor</span>};
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>util</span>::<span class='ident'>nodemap</span>::<span class='ident'>NodeMap</span>;
 
 <span class='comment'>///////////////////////////////////////////////////////////////////////////</span>
 <span class='comment'>// PUBLIC ENTRY POINTS</span>
@@ -680,9 +678,8 @@
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>closure_analyze_fn</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>body</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Block</span>) {
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>seed</span> <span class='op'>=</span> <span class='ident'>SeedBorrowKind</span>::<span class='ident'>new</span>(<span class='self'>self</span>);
         <span class='ident'>seed</span>.<span class='ident'>visit_block</span>(<span class='ident'>body</span>);
-        <span class='kw'>let</span> <span class='ident'>closures_with_inferred_kinds</span> <span class='op'>=</span> <span class='ident'>seed</span>.<span class='ident'>closures_with_inferred_kinds</span>;
 
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>adjust</span> <span class='op'>=</span> <span class='ident'>AdjustBorrowKind</span>::<span class='ident'>new</span>(<span class='self'>self</span>, <span class='kw-2'>&amp;</span><span class='ident'>closures_with_inferred_kinds</span>);
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>adjust</span> <span class='op'>=</span> <span class='ident'>AdjustBorrowKind</span>::<span class='ident'>new</span>(<span class='self'>self</span>, <span class='ident'>seed</span>.<span class='ident'>temp_closure_kinds</span>);
         <span class='ident'>adjust</span>.<span class='ident'>visit_block</span>(<span class='ident'>body</span>);
 
         <span class='comment'>// it&#39;s our job to process these.</span>
@@ -692,9 +689,8 @@
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>closure_analyze_const</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>body</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Expr</span>) {
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>seed</span> <span class='op'>=</span> <span class='ident'>SeedBorrowKind</span>::<span class='ident'>new</span>(<span class='self'>self</span>);
         <span class='ident'>seed</span>.<span class='ident'>visit_expr</span>(<span class='ident'>body</span>);
-        <span class='kw'>let</span> <span class='ident'>closures_with_inferred_kinds</span> <span class='op'>=</span> <span class='ident'>seed</span>.<span class='ident'>closures_with_inferred_kinds</span>;
 
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>adjust</span> <span class='op'>=</span> <span class='ident'>AdjustBorrowKind</span>::<span class='ident'>new</span>(<span class='self'>self</span>, <span class='kw-2'>&amp;</span><span class='ident'>closures_with_inferred_kinds</span>);
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>adjust</span> <span class='op'>=</span> <span class='ident'>AdjustBorrowKind</span>::<span class='ident'>new</span>(<span class='self'>self</span>, <span class='ident'>seed</span>.<span class='ident'>temp_closure_kinds</span>);
         <span class='ident'>adjust</span>.<span class='ident'>visit_expr</span>(<span class='ident'>body</span>);
 
         <span class='comment'>// it&#39;s our job to process these.</span>
@@ -707,7 +703,7 @@
 
 <span class='kw'>struct</span> <span class='ident'>SeedBorrowKind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>: <span class='lifetime'>&#39;a</span><span class='op'>+</span><span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span>: <span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
     <span class='ident'>fcx</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>FnCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>closures_with_inferred_kinds</span>: <span class='ident'>HashSet</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>NodeId</span><span class='op'>&gt;</span>,
+    <span class='ident'>temp_closure_kinds</span>: <span class='ident'>NodeMap</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>ClosureKind</span><span class='op'>&gt;</span>,
 }
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;v</span><span class='op'>&gt;</span> <span class='ident'>Visitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;v</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>SeedBorrowKind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
@@ -726,7 +722,7 @@
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>SeedBorrowKind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
     <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>fcx</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>FnCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>SeedBorrowKind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='ident'>SeedBorrowKind</span> { <span class='ident'>fcx</span>: <span class='ident'>fcx</span>, <span class='ident'>closures_with_inferred_kinds</span>: <span class='ident'>HashSet</span>::<span class='ident'>new</span>() }
+        <span class='ident'>SeedBorrowKind</span> { <span class='ident'>fcx</span>: <span class='ident'>fcx</span>, <span class='ident'>temp_closure_kinds</span>: <span class='ident'>NodeMap</span>() }
     }
 
     <span class='kw'>fn</span> <span class='ident'>check_closure</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
@@ -736,11 +732,8 @@
     {
         <span class='kw'>let</span> <span class='ident'>closure_def_id</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>fcx</span>.<span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>local_def_id</span>(<span class='ident'>expr</span>.<span class='ident'>id</span>);
         <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>fcx</span>.<span class='ident'>tables</span>.<span class='ident'>borrow</span>().<span class='ident'>closure_kinds</span>.<span class='ident'>contains_key</span>(<span class='kw-2'>&amp;</span><span class='ident'>closure_def_id</span>) {
-            <span class='self'>self</span>.<span class='ident'>closures_with_inferred_kinds</span>.<span class='ident'>insert</span>(<span class='ident'>expr</span>.<span class='ident'>id</span>);
-            <span class='self'>self</span>.<span class='ident'>fcx</span>.<span class='ident'>tables</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>closure_kinds</span>
-                                        .<span class='ident'>insert</span>(<span class='ident'>closure_def_id</span>, <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>Fn</span>);
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;check_closure: adding closure_id={:?} to closures_with_inferred_kinds&quot;</span>,
-                   <span class='ident'>closure_def_id</span>);
+            <span class='self'>self</span>.<span class='ident'>temp_closure_kinds</span>.<span class='ident'>insert</span>(<span class='ident'>expr</span>.<span class='ident'>id</span>, <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>Fn</span>);
+            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;check_closure: adding closure {:?} as Fn&quot;</span>, <span class='ident'>expr</span>.<span class='ident'>id</span>);
         }
 
         <span class='self'>self</span>.<span class='ident'>fcx</span>.<span class='ident'>tcx</span>.<span class='ident'>with_freevars</span>(<span class='ident'>expr</span>.<span class='ident'>id</span>, <span class='op'>|</span><span class='ident'>freevars</span><span class='op'>|</span> {
@@ -774,14 +767,14 @@
 
 <span class='kw'>struct</span> <span class='ident'>AdjustBorrowKind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>: <span class='lifetime'>&#39;a</span><span class='op'>+</span><span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span>: <span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
     <span class='ident'>fcx</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>FnCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>closures_with_inferred_kinds</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>HashSet</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>NodeId</span><span class='op'>&gt;</span>,
+    <span class='ident'>temp_closure_kinds</span>: <span class='ident'>NodeMap</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>ClosureKind</span><span class='op'>&gt;</span>,
 }
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>AdjustBorrowKind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
     <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>fcx</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>FnCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-           <span class='ident'>closures_with_inferred_kinds</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>HashSet</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>NodeId</span><span class='op'>&gt;</span>)
+           <span class='ident'>temp_closure_kinds</span>: <span class='ident'>NodeMap</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>ClosureKind</span><span class='op'>&gt;</span>)
            <span class='op'>-&gt;</span> <span class='ident'>AdjustBorrowKind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='ident'>AdjustBorrowKind</span> { <span class='ident'>fcx</span>: <span class='ident'>fcx</span>, <span class='ident'>closures_with_inferred_kinds</span>: <span class='ident'>closures_with_inferred_kinds</span> }
+        <span class='ident'>AdjustBorrowKind</span> { <span class='ident'>fcx</span>: <span class='ident'>fcx</span>, <span class='ident'>temp_closure_kinds</span>: <span class='ident'>temp_closure_kinds</span> }
     }
 
     <span class='kw'>fn</span> <span class='ident'>analyze_closure</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
@@ -796,7 +789,12 @@
         <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;analyze_closure(id={:?}, body.id={:?})&quot;</span>, <span class='ident'>id</span>, <span class='ident'>body</span>.<span class='ident'>id</span>);
 
         {
-            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>euv</span> <span class='op'>=</span> <span class='ident'>euv</span>::<span class='ident'>ExprUseVisitor</span>::<span class='ident'>new</span>(<span class='self'>self</span>, <span class='self'>self</span>.<span class='ident'>fcx</span>);
+            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>euv</span> <span class='op'>=</span>
+                <span class='ident'>euv</span>::<span class='ident'>ExprUseVisitor</span>::<span class='ident'>with_options</span>(<span class='self'>self</span>,
+                                                  <span class='self'>self</span>.<span class='ident'>fcx</span>,
+                                                  <span class='ident'>mc</span>::<span class='ident'>MemCategorizationOptions</span> {
+                                                      <span class='ident'>during_closure_kind_inference</span>: <span class='bool-val'>true</span>
+                                                  });
             <span class='ident'>euv</span>.<span class='ident'>walk_fn</span>(<span class='ident'>decl</span>, <span class='ident'>body</span>);
         }
 
@@ -831,10 +829,14 @@
             <span class='self'>self</span>.<span class='ident'>fcx</span>.<span class='ident'>demand_eqtype</span>(<span class='ident'>span</span>, <span class='ident'>final_upvar_ty</span>, <span class='ident'>upvar_ty</span>);
         }
 
-        <span class='comment'>// Now we must process and remove any deferred resolutions,</span>
-        <span class='comment'>// since we have a concrete closure kind.</span>
+        <span class='comment'>// If we are also inferred the closure kind here, update the</span>
+        <span class='comment'>// main table and process any deferred resolutions.</span>
         <span class='kw'>let</span> <span class='ident'>closure_def_id</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>fcx</span>.<span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>local_def_id</span>(<span class='ident'>id</span>);
-        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>closures_with_inferred_kinds</span>.<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>id</span>) {
+        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>kind</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>temp_closure_kinds</span>.<span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='ident'>id</span>) {
+            <span class='self'>self</span>.<span class='ident'>fcx</span>.<span class='ident'>tables</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>closure_kinds</span>
+                                        .<span class='ident'>insert</span>(<span class='ident'>closure_def_id</span>, <span class='ident'>kind</span>);
+            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;closure_kind({:?}) = {:?}&quot;</span>, <span class='ident'>closure_def_id</span>, <span class='ident'>kind</span>);
+
             <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>deferred_call_resolutions</span> <span class='op'>=</span>
                 <span class='self'>self</span>.<span class='ident'>fcx</span>.<span class='ident'>remove_deferred_call_resolutions</span>(<span class='ident'>closure_def_id</span>);
             <span class='kw'>for</span> <span class='ident'>deferred_call_resolution</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>deferred_call_resolutions</span> {
@@ -879,7 +881,7 @@
             })
     }
 
-    <span class='kw'>fn</span> <span class='ident'>adjust_upvar_borrow_kind_for_consume</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
+    <span class='kw'>fn</span> <span class='ident'>adjust_upvar_borrow_kind_for_consume</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
                                             <span class='ident'>cmt</span>: <span class='ident'>mc</span>::<span class='ident'>cmt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
                                             <span class='ident'>mode</span>: <span class='ident'>euv</span>::<span class='ident'>ConsumeMode</span>)
     {
@@ -970,7 +972,7 @@
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>adjust_upvar_borrow_kind_for_unique</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cmt</span>: <span class='ident'>mc</span>::<span class='ident'>cmt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) {
+    <span class='kw'>fn</span> <span class='ident'>adjust_upvar_borrow_kind_for_unique</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>cmt</span>: <span class='ident'>mc</span>::<span class='ident'>cmt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) {
         <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;adjust_upvar_borrow_kind_for_unique(cmt={:?})&quot;</span>,
                <span class='ident'>cmt</span>);
 
@@ -1001,7 +1003,7 @@
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>try_adjust_upvar_deref</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
+    <span class='kw'>fn</span> <span class='ident'>try_adjust_upvar_deref</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
                               <span class='ident'>note</span>: <span class='kw-2'>&amp;</span><span class='ident'>mc</span>::<span class='ident'>Note</span>,
                               <span class='ident'>borrow_kind</span>: <span class='ident'>ty</span>::<span class='ident'>BorrowKind</span>)
                               <span class='op'>-&gt;</span> <span class='ident'>bool</span>
@@ -1050,7 +1052,7 @@
     <span class='doccomment'>/// moving from left to right as needed (but never right to left).</span>
     <span class='doccomment'>/// Here the argument `mutbl` is the borrow_kind that is required by</span>
     <span class='doccomment'>/// some particular use.</span>
-    <span class='kw'>fn</span> <span class='ident'>adjust_upvar_borrow_kind</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
+    <span class='kw'>fn</span> <span class='ident'>adjust_upvar_borrow_kind</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
                                 <span class='ident'>upvar_id</span>: <span class='ident'>ty</span>::<span class='ident'>UpvarId</span>,
                                 <span class='ident'>upvar_capture</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>ty</span>::<span class='ident'>UpvarCapture</span>,
                                 <span class='ident'>kind</span>: <span class='ident'>ty</span>::<span class='ident'>BorrowKind</span>) {
@@ -1080,36 +1082,30 @@
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>adjust_closure_kind</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
+    <span class='kw'>fn</span> <span class='ident'>adjust_closure_kind</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
                            <span class='ident'>closure_id</span>: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>,
                            <span class='ident'>new_kind</span>: <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>) {
         <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;adjust_closure_kind(closure_id={}, new_kind={:?})&quot;</span>,
                <span class='ident'>closure_id</span>, <span class='ident'>new_kind</span>);
 
-        <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>closures_with_inferred_kinds</span>.<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>closure_id</span>) {
-            <span class='kw'>return</span>;
-        }
+        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>existing_kind</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>temp_closure_kinds</span>.<span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='ident'>closure_id</span>) {
+            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;adjust_closure_kind: closure_id={}, existing_kind={:?}, new_kind={:?}&quot;</span>,
+                   <span class='ident'>closure_id</span>, <span class='ident'>existing_kind</span>, <span class='ident'>new_kind</span>);
 
-        <span class='kw'>let</span> <span class='ident'>closure_def_id</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>fcx</span>.<span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>local_def_id</span>(<span class='ident'>closure_id</span>);
-        <span class='kw'>let</span> <span class='ident'>closure_kinds</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>.<span class='ident'>fcx</span>.<span class='ident'>tables</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>closure_kinds</span>;
-        <span class='kw'>let</span> <span class='ident'>existing_kind</span> <span class='op'>=</span> <span class='op'>*</span><span class='ident'>closure_kinds</span>.<span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='ident'>closure_def_id</span>).<span class='ident'>unwrap</span>();
+            <span class='kw'>match</span> (<span class='ident'>existing_kind</span>, <span class='ident'>new_kind</span>) {
+                (<span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>Fn</span>, <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>Fn</span>) <span class='op'>|</span>
+                (<span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnMut</span>, <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>Fn</span>) <span class='op'>|</span>
+                (<span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnMut</span>, <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnMut</span>) <span class='op'>|</span>
+                (<span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnOnce</span>, _) <span class='op'>=&gt;</span> {
+                    <span class='comment'>// no change needed</span>
+                }
 
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;adjust_closure_kind: closure_id={}, existing_kind={:?}, new_kind={:?}&quot;</span>,
-               <span class='ident'>closure_id</span>, <span class='ident'>existing_kind</span>, <span class='ident'>new_kind</span>);
-
-        <span class='kw'>match</span> (<span class='ident'>existing_kind</span>, <span class='ident'>new_kind</span>) {
-            (<span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>Fn</span>, <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>Fn</span>) <span class='op'>|</span>
-            (<span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnMut</span>, <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>Fn</span>) <span class='op'>|</span>
-            (<span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnMut</span>, <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnMut</span>) <span class='op'>|</span>
-            (<span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnOnce</span>, _) <span class='op'>=&gt;</span> {
-                <span class='comment'>// no change needed</span>
-            }
-
-            (<span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>Fn</span>, <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnMut</span>) <span class='op'>|</span>
-            (<span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>Fn</span>, <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnOnce</span>) <span class='op'>|</span>
-            (<span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnMut</span>, <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnOnce</span>) <span class='op'>=&gt;</span> {
-                <span class='comment'>// new kind is stronger than the old kind</span>
-                <span class='ident'>closure_kinds</span>.<span class='ident'>insert</span>(<span class='ident'>closure_def_id</span>, <span class='ident'>new_kind</span>);
+                (<span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>Fn</span>, <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnMut</span>) <span class='op'>|</span>
+                (<span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>Fn</span>, <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnOnce</span>) <span class='op'>|</span>
+                (<span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnMut</span>, <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnOnce</span>) <span class='op'>=&gt;</span> {
+                    <span class='comment'>// new kind is stronger than the old kind</span>
+                    <span class='self'>self</span>.<span class='ident'>temp_closure_kinds</span>.<span class='ident'>insert</span>(<span class='ident'>closure_id</span>, <span class='ident'>new_kind</span>);
+                }
             }
         }
     }
@@ -1123,7 +1119,7 @@
                 <span class='ident'>span</span>: <span class='ident'>Span</span>,
                 <span class='ident'>id</span>: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>)
     {
-        <span class='ident'>intravisit</span>::<span class='ident'>walk_fn</span>(<span class='self'>self</span>, <span class='ident'>fn_kind</span>, <span class='ident'>decl</span>, <span class='ident'>body</span>, <span class='ident'>span</span>);
+        <span class='ident'>intravisit</span>::<span class='ident'>walk_fn</span>(<span class='self'>self</span>, <span class='ident'>fn_kind</span>, <span class='ident'>decl</span>, <span class='ident'>body</span>, <span class='ident'>span</span>, <span class='ident'>id</span>);
         <span class='self'>self</span>.<span class='ident'>analyze_closure</span>(<span class='ident'>id</span>, <span class='ident'>span</span>, <span class='ident'>decl</span>, <span class='ident'>body</span>);
     }
 }
