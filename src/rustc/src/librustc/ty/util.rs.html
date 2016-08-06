@@ -825,6 +825,9 @@
 <span id="781">781</span>
 <span id="782">782</span>
 <span id="783">783</span>
+<span id="784">784</span>
+<span id="785">785</span>
+<span id="786">786</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -838,7 +841,6 @@
 
 <span class='doccomment'>//! misc. type-system utilities too small to deserve their own file</span>
 
-<span class='kw'>use</span> <span class='ident'>hir</span>::<span class='ident'>svh</span>::<span class='ident'>Svh</span>;
 <span class='kw'>use</span> <span class='ident'>hir</span>::<span class='ident'>def_id</span>::<span class='ident'>DefId</span>;
 <span class='kw'>use</span> <span class='ident'>ty</span>::<span class='ident'>subst</span>;
 <span class='kw'>use</span> <span class='ident'>infer</span>::<span class='ident'>InferCtxt</span>;
@@ -846,6 +848,7 @@
 <span class='kw'>use</span> <span class='ident'>traits</span>::{<span class='self'>self</span>, <span class='ident'>ProjectionMode</span>};
 <span class='kw'>use</span> <span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>Ty</span>, <span class='ident'>TyCtxt</span>, <span class='ident'>TypeAndMut</span>, <span class='ident'>TypeFlags</span>, <span class='ident'>TypeFoldable</span>};
 <span class='kw'>use</span> <span class='ident'>ty</span>::{<span class='ident'>Disr</span>, <span class='ident'>ParameterEnvironment</span>};
+<span class='kw'>use</span> <span class='ident'>ty</span>::<span class='ident'>fold</span>::<span class='ident'>TypeVisitor</span>;
 <span class='kw'>use</span> <span class='ident'>ty</span>::<span class='ident'>layout</span>::{<span class='ident'>Layout</span>, <span class='ident'>LayoutError</span>};
 <span class='kw'>use</span> <span class='ident'>ty</span>::<span class='ident'>TypeVariants</span>::<span class='op'>*</span>;
 
@@ -853,6 +856,7 @@
 
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cmp</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>hash</span>::{<span class='ident'>Hash</span>, <span class='ident'>SipHasher</span>, <span class='ident'>Hasher</span>};
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>intrinsics</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>::{<span class='self'>self</span>, <span class='ident'>Name</span>};
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>attr</span>::{<span class='self'>self</span>, <span class='ident'>SignedInt</span>, <span class='ident'>UnsignedInt</span>};
 <span class='kw'>use</span> <span class='ident'>syntax_pos</span>::<span class='ident'>Span</span>;
@@ -1178,148 +1182,13 @@
 
     <span class='doccomment'>/// Creates a hash of the type `Ty` which will be the same no matter what crate</span>
     <span class='doccomment'>/// context it&#39;s calculated within. This is used by the `type_id` intrinsic.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>hash_crate_independent</span>(<span class='self'>self</span>, <span class='ident'>ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>svh</span>: <span class='kw-2'>&amp;</span><span class='ident'>Svh</span>) <span class='op'>-&gt;</span> <span class='ident'>u64</span> {
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>state</span> <span class='op'>=</span> <span class='ident'>SipHasher</span>::<span class='ident'>new</span>();
-        <span class='ident'>helper</span>(<span class='self'>self</span>, <span class='ident'>ty</span>, <span class='ident'>svh</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>state</span>);
-        <span class='kw'>return</span> <span class='ident'>state</span>.<span class='ident'>finish</span>();
-
-        <span class='kw'>fn</span> <span class='ident'>helper</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                  <span class='ident'>ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>svh</span>: <span class='kw-2'>&amp;</span><span class='ident'>Svh</span>,
-                                  <span class='ident'>state</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>SipHasher</span>) {
-            <span class='macro'>macro_rules</span><span class='macro'>!</span> <span class='ident'>byte</span> { (<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>b</span>:<span class='ident'>expr</span>) <span class='op'>=&gt;</span> { (<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>b</span> <span class='kw'>as</span> <span class='ident'>u8</span>).<span class='ident'>hash</span>(<span class='ident'>state</span>) } }
-            <span class='macro'>macro_rules</span><span class='macro'>!</span> <span class='ident'>hash</span> { (<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>e</span>:<span class='ident'>expr</span>) <span class='op'>=&gt;</span> { <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>e</span>.<span class='ident'>hash</span>(<span class='ident'>state</span>) }  }
-
-            <span class='kw'>let</span> <span class='ident'>region</span> <span class='op'>=</span> <span class='op'>|</span><span class='ident'>state</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>SipHasher</span>, <span class='ident'>r</span>: <span class='ident'>ty</span>::<span class='ident'>Region</span><span class='op'>|</span> {
-                <span class='kw'>match</span> <span class='ident'>r</span> {
-                    <span class='ident'>ty</span>::<span class='ident'>ReStatic</span> <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>ReErased</span> <span class='op'>=&gt;</span> {}
-                    <span class='ident'>ty</span>::<span class='ident'>ReLateBound</span>(<span class='ident'>db</span>, <span class='ident'>ty</span>::<span class='ident'>BrAnon</span>(<span class='ident'>i</span>)) <span class='op'>=&gt;</span> {
-                        <span class='ident'>db</span>.<span class='ident'>hash</span>(<span class='ident'>state</span>);
-                        <span class='ident'>i</span>.<span class='ident'>hash</span>(<span class='ident'>state</span>);
-                    }
-                    <span class='ident'>ty</span>::<span class='ident'>ReEmpty</span> <span class='op'>|</span>
-                    <span class='ident'>ty</span>::<span class='ident'>ReEarlyBound</span>(..) <span class='op'>|</span>
-                    <span class='ident'>ty</span>::<span class='ident'>ReLateBound</span>(..) <span class='op'>|</span>
-                    <span class='ident'>ty</span>::<span class='ident'>ReFree</span>(..) <span class='op'>|</span>
-                    <span class='ident'>ty</span>::<span class='ident'>ReScope</span>(..) <span class='op'>|</span>
-                    <span class='ident'>ty</span>::<span class='ident'>ReVar</span>(..) <span class='op'>|</span>
-                    <span class='ident'>ty</span>::<span class='ident'>ReSkolemized</span>(..) <span class='op'>=&gt;</span> {
-                        <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;unexpected region found when hashing a type&quot;</span>)
-                    }
-                }
-            };
-            <span class='kw'>let</span> <span class='ident'>did</span> <span class='op'>=</span> <span class='op'>|</span><span class='ident'>state</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>SipHasher</span>, <span class='ident'>did</span>: <span class='ident'>DefId</span><span class='op'>|</span> {
-                <span class='kw'>let</span> <span class='ident'>h</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='ident'>did</span>.<span class='ident'>is_local</span>() {
-                    <span class='ident'>svh</span>.<span class='ident'>clone</span>()
-                } <span class='kw'>else</span> {
-                    <span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>cstore</span>.<span class='ident'>crate_hash</span>(<span class='ident'>did</span>.<span class='ident'>krate</span>)
-                };
-                <span class='ident'>h</span>.<span class='ident'>hash</span>(<span class='ident'>state</span>);
-                <span class='ident'>did</span>.<span class='ident'>index</span>.<span class='ident'>hash</span>(<span class='ident'>state</span>);
-            };
-            <span class='kw'>let</span> <span class='ident'>mt</span> <span class='op'>=</span> <span class='op'>|</span><span class='ident'>state</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>SipHasher</span>, <span class='ident'>mt</span>: <span class='ident'>TypeAndMut</span><span class='op'>|</span> {
-                <span class='ident'>mt</span>.<span class='ident'>mutbl</span>.<span class='ident'>hash</span>(<span class='ident'>state</span>);
-            };
-            <span class='kw'>let</span> <span class='ident'>fn_sig</span> <span class='op'>=</span> <span class='op'>|</span><span class='ident'>state</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>SipHasher</span>, <span class='ident'>sig</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>Binder</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>FnSig</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span><span class='op'>|</span> {
-                <span class='kw'>let</span> <span class='ident'>sig</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>anonymize_late_bound_regions</span>(<span class='ident'>sig</span>).<span class='number'>0</span>;
-                <span class='kw'>for</span> <span class='ident'>a</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>sig</span>.<span class='ident'>inputs</span> { <span class='ident'>helper</span>(<span class='ident'>tcx</span>, <span class='op'>*</span><span class='ident'>a</span>, <span class='ident'>svh</span>, <span class='ident'>state</span>); }
-                <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>ty</span>::<span class='ident'>FnConverging</span>(<span class='ident'>output</span>) <span class='op'>=</span> <span class='ident'>sig</span>.<span class='ident'>output</span> {
-                    <span class='ident'>helper</span>(<span class='ident'>tcx</span>, <span class='ident'>output</span>, <span class='ident'>svh</span>, <span class='ident'>state</span>);
-                }
-            };
-            <span class='ident'>ty</span>.<span class='ident'>maybe_walk</span>(<span class='op'>|</span><span class='ident'>ty</span><span class='op'>|</span> {
-                <span class='kw'>match</span> <span class='ident'>ty</span>.<span class='ident'>sty</span> {
-                    <span class='ident'>TyBool</span> <span class='op'>=&gt;</span> <span class='macro'>byte</span><span class='macro'>!</span>(<span class='number'>2</span>),
-                    <span class='ident'>TyChar</span> <span class='op'>=&gt;</span> <span class='macro'>byte</span><span class='macro'>!</span>(<span class='number'>3</span>),
-                    <span class='ident'>TyInt</span>(<span class='ident'>i</span>) <span class='op'>=&gt;</span> {
-                        <span class='macro'>byte</span><span class='macro'>!</span>(<span class='number'>4</span>);
-                        <span class='macro'>hash</span><span class='macro'>!</span>(<span class='ident'>i</span>);
-                    }
-                    <span class='ident'>TyUint</span>(<span class='ident'>u</span>) <span class='op'>=&gt;</span> {
-                        <span class='macro'>byte</span><span class='macro'>!</span>(<span class='number'>5</span>);
-                        <span class='macro'>hash</span><span class='macro'>!</span>(<span class='ident'>u</span>);
-                    }
-                    <span class='ident'>TyFloat</span>(<span class='ident'>f</span>) <span class='op'>=&gt;</span> {
-                        <span class='macro'>byte</span><span class='macro'>!</span>(<span class='number'>6</span>);
-                        <span class='macro'>hash</span><span class='macro'>!</span>(<span class='ident'>f</span>);
-                    }
-                    <span class='ident'>TyStr</span> <span class='op'>=&gt;</span> {
-                        <span class='macro'>byte</span><span class='macro'>!</span>(<span class='number'>7</span>);
-                    }
-                    <span class='ident'>TyEnum</span>(<span class='ident'>d</span>, _) <span class='op'>=&gt;</span> {
-                        <span class='macro'>byte</span><span class='macro'>!</span>(<span class='number'>8</span>);
-                        <span class='ident'>did</span>(<span class='ident'>state</span>, <span class='ident'>d</span>.<span class='ident'>did</span>);
-                    }
-                    <span class='ident'>TyBox</span>(_) <span class='op'>=&gt;</span> {
-                        <span class='macro'>byte</span><span class='macro'>!</span>(<span class='number'>9</span>);
-                    }
-                    <span class='ident'>TyArray</span>(_, <span class='ident'>n</span>) <span class='op'>=&gt;</span> {
-                        <span class='macro'>byte</span><span class='macro'>!</span>(<span class='number'>10</span>);
-                        <span class='ident'>n</span>.<span class='ident'>hash</span>(<span class='ident'>state</span>);
-                    }
-                    <span class='ident'>TySlice</span>(_) <span class='op'>=&gt;</span> {
-                        <span class='macro'>byte</span><span class='macro'>!</span>(<span class='number'>11</span>);
-                    }
-                    <span class='ident'>TyRawPtr</span>(<span class='ident'>m</span>) <span class='op'>=&gt;</span> {
-                        <span class='macro'>byte</span><span class='macro'>!</span>(<span class='number'>12</span>);
-                        <span class='ident'>mt</span>(<span class='ident'>state</span>, <span class='ident'>m</span>);
-                    }
-                    <span class='ident'>TyRef</span>(<span class='ident'>r</span>, <span class='ident'>m</span>) <span class='op'>=&gt;</span> {
-                        <span class='macro'>byte</span><span class='macro'>!</span>(<span class='number'>13</span>);
-                        <span class='ident'>region</span>(<span class='ident'>state</span>, <span class='op'>*</span><span class='ident'>r</span>);
-                        <span class='ident'>mt</span>(<span class='ident'>state</span>, <span class='ident'>m</span>);
-                    }
-                    <span class='ident'>TyFnDef</span>(<span class='ident'>def_id</span>, _, _) <span class='op'>=&gt;</span> {
-                        <span class='macro'>byte</span><span class='macro'>!</span>(<span class='number'>14</span>);
-                        <span class='macro'>hash</span><span class='macro'>!</span>(<span class='ident'>def_id</span>);
-                    }
-                    <span class='ident'>TyFnPtr</span>(<span class='kw-2'>ref</span> <span class='ident'>b</span>) <span class='op'>=&gt;</span> {
-                        <span class='macro'>byte</span><span class='macro'>!</span>(<span class='number'>15</span>);
-                        <span class='macro'>hash</span><span class='macro'>!</span>(<span class='ident'>b</span>.<span class='ident'>unsafety</span>);
-                        <span class='macro'>hash</span><span class='macro'>!</span>(<span class='ident'>b</span>.<span class='ident'>abi</span>);
-                        <span class='ident'>fn_sig</span>(<span class='ident'>state</span>, <span class='kw-2'>&amp;</span><span class='ident'>b</span>.<span class='ident'>sig</span>);
-                        <span class='kw'>return</span> <span class='bool-val'>false</span>;
-                    }
-                    <span class='ident'>TyTrait</span>(<span class='kw-2'>ref</span> <span class='ident'>data</span>) <span class='op'>=&gt;</span> {
-                        <span class='macro'>byte</span><span class='macro'>!</span>(<span class='number'>17</span>);
-                        <span class='ident'>did</span>(<span class='ident'>state</span>, <span class='ident'>data</span>.<span class='ident'>principal_def_id</span>());
-                        <span class='macro'>hash</span><span class='macro'>!</span>(<span class='ident'>data</span>.<span class='ident'>bounds</span>);
-
-                        <span class='kw'>let</span> <span class='ident'>principal</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>anonymize_late_bound_regions</span>(<span class='kw-2'>&amp;</span><span class='ident'>data</span>.<span class='ident'>principal</span>).<span class='number'>0</span>;
-                        <span class='kw'>for</span> <span class='ident'>subty</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>principal</span>.<span class='ident'>substs</span>.<span class='ident'>types</span> {
-                            <span class='ident'>helper</span>(<span class='ident'>tcx</span>, <span class='ident'>subty</span>, <span class='ident'>svh</span>, <span class='ident'>state</span>);
-                        }
-
-                        <span class='kw'>return</span> <span class='bool-val'>false</span>;
-                    }
-                    <span class='ident'>TyStruct</span>(<span class='ident'>d</span>, _) <span class='op'>=&gt;</span> {
-                        <span class='macro'>byte</span><span class='macro'>!</span>(<span class='number'>18</span>);
-                        <span class='ident'>did</span>(<span class='ident'>state</span>, <span class='ident'>d</span>.<span class='ident'>did</span>);
-                    }
-                    <span class='ident'>TyTuple</span>(<span class='kw-2'>ref</span> <span class='ident'>inner</span>) <span class='op'>=&gt;</span> {
-                        <span class='macro'>byte</span><span class='macro'>!</span>(<span class='number'>19</span>);
-                        <span class='macro'>hash</span><span class='macro'>!</span>(<span class='ident'>inner</span>.<span class='ident'>len</span>());
-                    }
-                    <span class='ident'>TyParam</span>(<span class='ident'>p</span>) <span class='op'>=&gt;</span> {
-                        <span class='macro'>byte</span><span class='macro'>!</span>(<span class='number'>20</span>);
-                        <span class='macro'>hash</span><span class='macro'>!</span>(<span class='ident'>p</span>.<span class='ident'>space</span>);
-                        <span class='macro'>hash</span><span class='macro'>!</span>(<span class='ident'>p</span>.<span class='ident'>idx</span>);
-                        <span class='macro'>hash</span><span class='macro'>!</span>(<span class='ident'>p</span>.<span class='ident'>name</span>.<span class='ident'>as_str</span>());
-                    }
-                    <span class='ident'>TyInfer</span>(_) <span class='op'>=&gt;</span> <span class='macro'>bug</span><span class='macro'>!</span>(),
-                    <span class='ident'>TyError</span> <span class='op'>=&gt;</span> <span class='macro'>byte</span><span class='macro'>!</span>(<span class='number'>21</span>),
-                    <span class='ident'>TyClosure</span>(<span class='ident'>d</span>, _) <span class='op'>=&gt;</span> {
-                        <span class='macro'>byte</span><span class='macro'>!</span>(<span class='number'>22</span>);
-                        <span class='ident'>did</span>(<span class='ident'>state</span>, <span class='ident'>d</span>);
-                    }
-                    <span class='ident'>TyProjection</span>(<span class='kw-2'>ref</span> <span class='ident'>data</span>) <span class='op'>=&gt;</span> {
-                        <span class='macro'>byte</span><span class='macro'>!</span>(<span class='number'>23</span>);
-                        <span class='ident'>did</span>(<span class='ident'>state</span>, <span class='ident'>data</span>.<span class='ident'>trait_ref</span>.<span class='ident'>def_id</span>);
-                        <span class='macro'>hash</span><span class='macro'>!</span>(<span class='ident'>data</span>.<span class='ident'>item_name</span>.<span class='ident'>as_str</span>());
-                    }
-                }
-                <span class='bool-val'>true</span>
-            });
-        }
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>type_id_hash</span>(<span class='self'>self</span>, <span class='ident'>ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>u64</span> {
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>hasher</span> <span class='op'>=</span> <span class='ident'>TypeIdHasher</span> {
+            <span class='ident'>tcx</span>: <span class='self'>self</span>,
+            <span class='ident'>state</span>: <span class='ident'>SipHasher</span>::<span class='ident'>new</span>()
+        };
+        <span class='ident'>hasher</span>.<span class='ident'>visit_ty</span>(<span class='ident'>ty</span>);
+        <span class='ident'>hasher</span>.<span class='ident'>state</span>.<span class='ident'>finish</span>()
     }
 
     <span class='doccomment'>/// Returns true if this ADT is a dtorck type.</span>
@@ -1350,6 +1219,143 @@
         <span class='comment'>// `*foo.0` of `Foo&lt;&#39;a&gt;(&amp;&#39;a u32)`) or indirectly hidden</span>
         <span class='comment'>// (e.g. calling `foo.0.clone()` of `Foo&lt;T:Clone&gt;`).</span>
         <span class='kw'>return</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>has_attr</span>(<span class='ident'>dtor_method</span>, <span class='string'>&quot;unsafe_destructor_blind_to_params&quot;</span>);
+    }
+}
+
+<span class='kw'>struct</span> <span class='ident'>TypeIdHasher</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>: <span class='lifetime'>&#39;a</span><span class='op'>+</span><span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span>: <span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
+    <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+    <span class='ident'>state</span>: <span class='ident'>SipHasher</span>
+}
+
+<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>TypeIdHasher</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
+    <span class='kw'>fn</span> <span class='ident'>hash</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='ident'>Hash</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>x</span>: <span class='ident'>T</span>) {
+        <span class='ident'>x</span>.<span class='ident'>hash</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>.<span class='ident'>state</span>);
+    }
+
+    <span class='kw'>fn</span> <span class='ident'>hash_discriminant_u8</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>x</span>: <span class='kw-2'>&amp;</span><span class='ident'>T</span>) {
+        <span class='kw'>let</span> <span class='ident'>v</span> <span class='op'>=</span> <span class='kw'>unsafe</span> {
+            <span class='ident'>intrinsics</span>::<span class='ident'>discriminant_value</span>(<span class='ident'>x</span>)
+        };
+        <span class='kw'>let</span> <span class='ident'>b</span> <span class='op'>=</span> <span class='ident'>v</span> <span class='kw'>as</span> <span class='ident'>u8</span>;
+        <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>v</span>, <span class='ident'>b</span> <span class='kw'>as</span> <span class='ident'>u64</span>);
+        <span class='self'>self</span>.<span class='ident'>hash</span>(<span class='ident'>b</span>)
+    }
+
+    <span class='kw'>fn</span> <span class='ident'>def_id</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>did</span>: <span class='ident'>DefId</span>) {
+        <span class='comment'>// Hash the crate identification information.</span>
+        <span class='kw'>let</span> <span class='ident'>name</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>crate_name</span>(<span class='ident'>did</span>.<span class='ident'>krate</span>);
+        <span class='kw'>let</span> <span class='ident'>disambiguator</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>crate_disambiguator</span>(<span class='ident'>did</span>.<span class='ident'>krate</span>);
+        <span class='self'>self</span>.<span class='ident'>hash</span>((<span class='ident'>name</span>, <span class='ident'>disambiguator</span>));
+
+        <span class='comment'>// Hash the item path within that crate.</span>
+        <span class='comment'>// FIXME(#35379) This should use a deterministic</span>
+        <span class='comment'>// DefPath hashing mechanism, not the DefIndex.</span>
+        <span class='self'>self</span>.<span class='ident'>hash</span>(<span class='ident'>did</span>.<span class='ident'>index</span>);
+    }
+}
+
+<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>TypeVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>TypeIdHasher</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
+    <span class='kw'>fn</span> <span class='ident'>visit_ty</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
+        <span class='comment'>// Distinguish between the Ty variants uniformly.</span>
+        <span class='self'>self</span>.<span class='ident'>hash_discriminant_u8</span>(<span class='kw-2'>&amp;</span><span class='ident'>ty</span>.<span class='ident'>sty</span>);
+
+        <span class='kw'>match</span> <span class='ident'>ty</span>.<span class='ident'>sty</span> {
+            <span class='ident'>TyInt</span>(<span class='ident'>i</span>) <span class='op'>=&gt;</span> <span class='self'>self</span>.<span class='ident'>hash</span>(<span class='ident'>i</span>),
+            <span class='ident'>TyUint</span>(<span class='ident'>u</span>) <span class='op'>=&gt;</span> <span class='self'>self</span>.<span class='ident'>hash</span>(<span class='ident'>u</span>),
+            <span class='ident'>TyFloat</span>(<span class='ident'>f</span>) <span class='op'>=&gt;</span> <span class='self'>self</span>.<span class='ident'>hash</span>(<span class='ident'>f</span>),
+            <span class='ident'>TyStruct</span>(<span class='ident'>d</span>, _) <span class='op'>|</span>
+            <span class='ident'>TyEnum</span>(<span class='ident'>d</span>, _) <span class='op'>=&gt;</span> <span class='self'>self</span>.<span class='ident'>def_id</span>(<span class='ident'>d</span>.<span class='ident'>did</span>),
+            <span class='ident'>TyArray</span>(_, <span class='ident'>n</span>) <span class='op'>=&gt;</span> <span class='self'>self</span>.<span class='ident'>hash</span>(<span class='ident'>n</span>),
+            <span class='ident'>TyRawPtr</span>(<span class='ident'>m</span>) <span class='op'>|</span>
+            <span class='ident'>TyRef</span>(_, <span class='ident'>m</span>) <span class='op'>=&gt;</span> <span class='self'>self</span>.<span class='ident'>hash</span>(<span class='ident'>m</span>.<span class='ident'>mutbl</span>),
+            <span class='ident'>TyClosure</span>(<span class='ident'>def_id</span>, _) <span class='op'>|</span>
+            <span class='ident'>TyFnDef</span>(<span class='ident'>def_id</span>, _, _) <span class='op'>=&gt;</span> <span class='self'>self</span>.<span class='ident'>def_id</span>(<span class='ident'>def_id</span>),
+            <span class='ident'>TyFnPtr</span>(<span class='ident'>f</span>) <span class='op'>=&gt;</span> {
+                <span class='self'>self</span>.<span class='ident'>hash</span>(<span class='ident'>f</span>.<span class='ident'>unsafety</span>);
+                <span class='self'>self</span>.<span class='ident'>hash</span>(<span class='ident'>f</span>.<span class='ident'>abi</span>);
+                <span class='self'>self</span>.<span class='ident'>hash</span>(<span class='ident'>f</span>.<span class='ident'>sig</span>.<span class='ident'>variadic</span>());
+            }
+            <span class='ident'>TyTrait</span>(<span class='kw-2'>ref</span> <span class='ident'>data</span>) <span class='op'>=&gt;</span> {
+                <span class='comment'>// Trait objects have a list of projection bounds</span>
+                <span class='comment'>// that are not guaranteed to be sorted in an order</span>
+                <span class='comment'>// that gets preserved across crates, so we need</span>
+                <span class='comment'>// to sort them again by the name, in string form.</span>
+
+                <span class='comment'>// Hash the whole principal trait ref.</span>
+                <span class='self'>self</span>.<span class='ident'>def_id</span>(<span class='ident'>data</span>.<span class='ident'>principal_def_id</span>());
+                <span class='ident'>data</span>.<span class='ident'>principal</span>.<span class='ident'>visit_with</span>(<span class='self'>self</span>);
+
+                <span class='comment'>// Hash region and builtin bounds.</span>
+                <span class='ident'>data</span>.<span class='ident'>bounds</span>.<span class='ident'>region_bound</span>.<span class='ident'>visit_with</span>(<span class='self'>self</span>);
+                <span class='self'>self</span>.<span class='ident'>hash</span>(<span class='ident'>data</span>.<span class='ident'>bounds</span>.<span class='ident'>builtin_bounds</span>);
+
+                <span class='comment'>// Only projection bounds are left, sort and hash them.</span>
+                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>projection_bounds</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span>_<span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>data</span>.<span class='ident'>bounds</span>.<span class='ident'>projection_bounds</span>
+                                                        .<span class='ident'>iter</span>()
+                                                        .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>b</span><span class='op'>|</span> (<span class='ident'>b</span>.<span class='ident'>item_name</span>().<span class='ident'>as_str</span>(), <span class='ident'>b</span>))
+                                                        .<span class='ident'>collect</span>();
+                <span class='ident'>projection_bounds</span>.<span class='ident'>sort_by_key</span>(<span class='op'>|</span><span class='kw-2'>&amp;</span>(<span class='kw-2'>ref</span> <span class='ident'>name</span>, _)<span class='op'>|</span> <span class='ident'>name</span>.<span class='ident'>clone</span>());
+                <span class='kw'>for</span> (<span class='ident'>name</span>, <span class='ident'>bound</span>) <span class='kw'>in</span> <span class='ident'>projection_bounds</span> {
+                    <span class='self'>self</span>.<span class='ident'>def_id</span>(<span class='ident'>bound</span>.<span class='number'>0</span>.<span class='ident'>projection_ty</span>.<span class='ident'>trait_ref</span>.<span class='ident'>def_id</span>);
+                    <span class='self'>self</span>.<span class='ident'>hash</span>(<span class='ident'>name</span>);
+                    <span class='ident'>bound</span>.<span class='ident'>visit_with</span>(<span class='self'>self</span>);
+                }
+
+                <span class='comment'>// Bypass super_visit_with, we&#39;ve visited everything.</span>
+                <span class='kw'>return</span> <span class='bool-val'>false</span>;
+            }
+            <span class='ident'>TyTuple</span>(<span class='ident'>tys</span>) <span class='op'>=&gt;</span> {
+                <span class='self'>self</span>.<span class='ident'>hash</span>(<span class='ident'>tys</span>.<span class='ident'>len</span>());
+            }
+            <span class='ident'>TyParam</span>(<span class='ident'>p</span>) <span class='op'>=&gt;</span> {
+                <span class='self'>self</span>.<span class='ident'>hash</span>(<span class='ident'>p</span>.<span class='ident'>space</span>);
+                <span class='self'>self</span>.<span class='ident'>hash</span>(<span class='ident'>p</span>.<span class='ident'>idx</span>);
+                <span class='self'>self</span>.<span class='ident'>hash</span>(<span class='ident'>p</span>.<span class='ident'>name</span>.<span class='ident'>as_str</span>());
+            }
+            <span class='ident'>TyProjection</span>(<span class='kw-2'>ref</span> <span class='ident'>data</span>) <span class='op'>=&gt;</span> {
+                <span class='self'>self</span>.<span class='ident'>def_id</span>(<span class='ident'>data</span>.<span class='ident'>trait_ref</span>.<span class='ident'>def_id</span>);
+                <span class='self'>self</span>.<span class='ident'>hash</span>(<span class='ident'>data</span>.<span class='ident'>item_name</span>.<span class='ident'>as_str</span>());
+            }
+            <span class='ident'>TyBool</span> <span class='op'>|</span>
+            <span class='ident'>TyChar</span> <span class='op'>|</span>
+            <span class='ident'>TyStr</span> <span class='op'>|</span>
+            <span class='ident'>TyBox</span>(_) <span class='op'>|</span>
+            <span class='ident'>TySlice</span>(_) <span class='op'>|</span>
+            <span class='ident'>TyError</span> <span class='op'>=&gt;</span> {}
+            <span class='ident'>TyInfer</span>(_) <span class='op'>=&gt;</span> <span class='macro'>bug</span><span class='macro'>!</span>()
+        }
+
+        <span class='ident'>ty</span>.<span class='ident'>super_visit_with</span>(<span class='self'>self</span>)
+    }
+
+    <span class='kw'>fn</span> <span class='ident'>visit_region</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>r</span>: <span class='ident'>ty</span>::<span class='ident'>Region</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
+        <span class='kw'>match</span> <span class='ident'>r</span> {
+            <span class='ident'>ty</span>::<span class='ident'>ReStatic</span> <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>ReErased</span> <span class='op'>=&gt;</span> {
+                <span class='self'>self</span>.<span class='ident'>hash</span>::<span class='op'>&lt;</span><span class='ident'>u32</span><span class='op'>&gt;</span>(<span class='number'>0</span>);
+            }
+            <span class='ident'>ty</span>::<span class='ident'>ReLateBound</span>(<span class='ident'>db</span>, <span class='ident'>ty</span>::<span class='ident'>BrAnon</span>(<span class='ident'>i</span>)) <span class='op'>=&gt;</span> {
+                <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>db</span>.<span class='ident'>depth</span> <span class='op'>&gt;</span> <span class='number'>0</span>);
+                <span class='self'>self</span>.<span class='ident'>hash</span>::<span class='op'>&lt;</span><span class='ident'>u32</span><span class='op'>&gt;</span>(<span class='ident'>db</span>.<span class='ident'>depth</span>);
+                <span class='self'>self</span>.<span class='ident'>hash</span>(<span class='ident'>i</span>);
+            }
+            <span class='ident'>ty</span>::<span class='ident'>ReEmpty</span> <span class='op'>|</span>
+            <span class='ident'>ty</span>::<span class='ident'>ReEarlyBound</span>(..) <span class='op'>|</span>
+            <span class='ident'>ty</span>::<span class='ident'>ReLateBound</span>(..) <span class='op'>|</span>
+            <span class='ident'>ty</span>::<span class='ident'>ReFree</span>(..) <span class='op'>|</span>
+            <span class='ident'>ty</span>::<span class='ident'>ReScope</span>(..) <span class='op'>|</span>
+            <span class='ident'>ty</span>::<span class='ident'>ReVar</span>(..) <span class='op'>|</span>
+            <span class='ident'>ty</span>::<span class='ident'>ReSkolemized</span>(..) <span class='op'>=&gt;</span> {
+                <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;unexpected region found when hashing a type&quot;</span>)
+            }
+        }
+        <span class='bool-val'>false</span>
+    }
+
+    <span class='kw'>fn</span> <span class='ident'>visit_binder</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='ident'>TypeFoldable</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>x</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>Binder</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
+        <span class='comment'>// Anonymize late-bound regions so that, for example:</span>
+        <span class='comment'>// `for&lt;&#39;a, b&gt; fn(&amp;&#39;a &amp;&#39;b T)` and `for&lt;&#39;a, b&gt; fn(&amp;&#39;b &amp;&#39;a T)`</span>
+        <span class='comment'>// result in the same TypeId (the two types are equivalent).</span>
+        <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>anonymize_late_bound_regions</span>(<span class='ident'>x</span>).<span class='ident'>super_visit_with</span>(<span class='self'>self</span>)
     }
 }
 
