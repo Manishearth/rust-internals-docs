@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["MirMap",""]]});
+initSidebarItems({"struct":[["MirMap",""],["MirMapConfig",""]]});
