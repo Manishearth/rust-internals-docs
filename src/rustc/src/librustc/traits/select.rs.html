@@ -3065,6 +3065,10 @@
 <span id="3021">3021</span>
 <span id="3022">3022</span>
 <span id="3023">3023</span>
+<span id="3024">3024</span>
+<span id="3025">3025</span>
+<span id="3026">3026</span>
+<span id="3027">3027</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -3091,7 +3095,7 @@
 <span class='kw'>use</span> <span class='kw'>super</span>::{<span class='ident'>ObligationCauseCode</span>, <span class='ident'>BuiltinDerivedObligation</span>, <span class='ident'>ImplDerivedObligation</span>};
 <span class='kw'>use</span> <span class='kw'>super</span>::{<span class='ident'>SelectionError</span>, <span class='ident'>Unimplemented</span>, <span class='ident'>OutputTypeParameterMismatch</span>};
 <span class='kw'>use</span> <span class='kw'>super</span>::{<span class='ident'>ObjectCastObligation</span>, <span class='ident'>Obligation</span>};
-<span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>ProjectionMode</span>;
+<span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>Reveal</span>;
 <span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>TraitNotObjectSafe</span>;
 <span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>Selection</span>;
 <span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>SelectionResult</span>;
@@ -3411,7 +3415,7 @@
         <span class='self'>self</span>.<span class='ident'>infcx</span>
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>projection_mode</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>ProjectionMode</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>projection_mode</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Reveal</span> {
         <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>projection_mode</span>()
     }
 
@@ -4226,20 +4230,17 @@
 
         <span class='comment'>// before we go into the whole skolemization thing, just</span>
         <span class='comment'>// quickly check if the self-type is a projection at all.</span>
-        <span class='kw'>let</span> <span class='ident'>trait_def_id</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>obligation</span>.<span class='ident'>predicate</span>.<span class='number'>0</span>.<span class='ident'>trait_ref</span>.<span class='ident'>self_ty</span>().<span class='ident'>sty</span> {
-            <span class='ident'>ty</span>::<span class='ident'>TyProjection</span>(<span class='kw-2'>ref</span> <span class='ident'>data</span>) <span class='op'>=&gt;</span> <span class='ident'>data</span>.<span class='ident'>trait_ref</span>.<span class='ident'>def_id</span>,
+        <span class='kw'>match</span> <span class='ident'>obligation</span>.<span class='ident'>predicate</span>.<span class='number'>0</span>.<span class='ident'>trait_ref</span>.<span class='ident'>self_ty</span>().<span class='ident'>sty</span> {
+            <span class='ident'>ty</span>::<span class='ident'>TyProjection</span>(_) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyAnon</span>(..) <span class='op'>=&gt;</span> {}
             <span class='ident'>ty</span>::<span class='ident'>TyInfer</span>(<span class='ident'>ty</span>::<span class='ident'>TyVar</span>(_)) <span class='op'>=&gt;</span> {
                 <span class='macro'>span_bug</span><span class='macro'>!</span>(<span class='ident'>obligation</span>.<span class='ident'>cause</span>.<span class='ident'>span</span>,
                     <span class='string'>&quot;Self=_ should have been handled by assemble_candidates&quot;</span>);
             }
-            _ <span class='op'>=&gt;</span> { <span class='kw'>return</span>; }
-        };
-
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;assemble_candidates_for_projected_tys: trait_def_id={:?}&quot;</span>,
-               <span class='ident'>trait_def_id</span>);
+            _ <span class='op'>=&gt;</span> <span class='kw'>return</span>
+        }
 
         <span class='kw'>let</span> <span class='ident'>result</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>probe</span>(<span class='op'>|</span><span class='ident'>this</span>, <span class='ident'>snapshot</span><span class='op'>|</span> {
-            <span class='ident'>this</span>.<span class='ident'>match_projection_obligation_against_bounds_from_trait</span>(<span class='ident'>obligation</span>,
+            <span class='ident'>this</span>.<span class='ident'>match_projection_obligation_against_definition_bounds</span>(<span class='ident'>obligation</span>,
                                                                        <span class='ident'>snapshot</span>)
         });
 
@@ -4248,7 +4249,7 @@
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>match_projection_obligation_against_bounds_from_trait</span>(
+    <span class='kw'>fn</span> <span class='ident'>match_projection_obligation_against_definition_bounds</span>(
         <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
         <span class='ident'>obligation</span>: <span class='kw-2'>&amp;</span><span class='ident'>TraitObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
         <span class='ident'>snapshot</span>: <span class='kw-2'>&amp;</span><span class='ident'>infer</span>::<span class='ident'>CombinedSnapshot</span>)
@@ -4258,28 +4259,29 @@
             <span class='self'>self</span>.<span class='ident'>infcx</span>().<span class='ident'>resolve_type_vars_if_possible</span>(<span class='kw-2'>&amp;</span><span class='ident'>obligation</span>.<span class='ident'>predicate</span>);
         <span class='kw'>let</span> (<span class='ident'>skol_trait_predicate</span>, <span class='ident'>skol_map</span>) <span class='op'>=</span>
             <span class='self'>self</span>.<span class='ident'>infcx</span>().<span class='ident'>skolemize_late_bound_regions</span>(<span class='kw-2'>&amp;</span><span class='ident'>poly_trait_predicate</span>, <span class='ident'>snapshot</span>);
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;match_projection_obligation_against_bounds_from_trait: \
+        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;match_projection_obligation_against_definition_bounds: \
                 skol_trait_predicate={:?} skol_map={:?}&quot;</span>,
                <span class='ident'>skol_trait_predicate</span>,
                <span class='ident'>skol_map</span>);
 
-        <span class='kw'>let</span> <span class='ident'>projection_trait_ref</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>skol_trait_predicate</span>.<span class='ident'>trait_ref</span>.<span class='ident'>self_ty</span>().<span class='ident'>sty</span> {
-            <span class='ident'>ty</span>::<span class='ident'>TyProjection</span>(<span class='kw-2'>ref</span> <span class='ident'>data</span>) <span class='op'>=&gt;</span> <span class='kw-2'>&amp;</span><span class='ident'>data</span>.<span class='ident'>trait_ref</span>,
+        <span class='kw'>let</span> (<span class='ident'>def_id</span>, <span class='ident'>substs</span>) <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>skol_trait_predicate</span>.<span class='ident'>trait_ref</span>.<span class='ident'>self_ty</span>().<span class='ident'>sty</span> {
+            <span class='ident'>ty</span>::<span class='ident'>TyProjection</span>(<span class='kw-2'>ref</span> <span class='ident'>data</span>) <span class='op'>=&gt;</span> (<span class='ident'>data</span>.<span class='ident'>trait_ref</span>.<span class='ident'>def_id</span>, <span class='ident'>data</span>.<span class='ident'>trait_ref</span>.<span class='ident'>substs</span>),
+            <span class='ident'>ty</span>::<span class='ident'>TyAnon</span>(<span class='ident'>def_id</span>, <span class='ident'>substs</span>) <span class='op'>=&gt;</span> (<span class='ident'>def_id</span>, <span class='ident'>substs</span>),
             _ <span class='op'>=&gt;</span> {
                 <span class='macro'>span_bug</span><span class='macro'>!</span>(
                     <span class='ident'>obligation</span>.<span class='ident'>cause</span>.<span class='ident'>span</span>,
-                    <span class='string'>&quot;match_projection_obligation_against_bounds_from_trait() called \
+                    <span class='string'>&quot;match_projection_obligation_against_definition_bounds() called \
                      but self-ty not a projection: {:?}&quot;</span>,
                     <span class='ident'>skol_trait_predicate</span>.<span class='ident'>trait_ref</span>.<span class='ident'>self_ty</span>());
             }
         };
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;match_projection_obligation_against_bounds_from_trait: \
-                projection_trait_ref={:?}&quot;</span>,
-               <span class='ident'>projection_trait_ref</span>);
+        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;match_projection_obligation_against_definition_bounds: \
+                def_id={:?}, substs={:?}&quot;</span>,
+               <span class='ident'>def_id</span>, <span class='ident'>substs</span>);
 
-        <span class='kw'>let</span> <span class='ident'>trait_predicates</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>().<span class='ident'>lookup_predicates</span>(<span class='ident'>projection_trait_ref</span>.<span class='ident'>def_id</span>);
-        <span class='kw'>let</span> <span class='ident'>bounds</span> <span class='op'>=</span> <span class='ident'>trait_predicates</span>.<span class='ident'>instantiate</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>(), <span class='ident'>projection_trait_ref</span>.<span class='ident'>substs</span>);
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;match_projection_obligation_against_bounds_from_trait: \
+        <span class='kw'>let</span> <span class='ident'>item_predicates</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>().<span class='ident'>lookup_predicates</span>(<span class='ident'>def_id</span>);
+        <span class='kw'>let</span> <span class='ident'>bounds</span> <span class='op'>=</span> <span class='ident'>item_predicates</span>.<span class='ident'>instantiate</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>(), <span class='ident'>substs</span>);
+        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;match_projection_obligation_against_definition_bounds: \
                 bounds={:?}&quot;</span>,
                <span class='ident'>bounds</span>);
 
@@ -4294,7 +4296,7 @@
                                                     <span class='kw-2'>&amp;</span><span class='ident'>skol_map</span>,
                                                     <span class='ident'>snapshot</span>)));
 
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;match_projection_obligation_against_bounds_from_trait: \
+        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;match_projection_obligation_against_definition_bounds: \
                 matching_bound={:?}&quot;</span>,
                <span class='ident'>matching_bound</span>);
         <span class='kw'>match</span> <span class='ident'>matching_bound</span> {
@@ -4540,7 +4542,8 @@
                     }
                 }
                 <span class='ident'>ty</span>::<span class='ident'>TyParam</span>(..) <span class='op'>|</span>
-                <span class='ident'>ty</span>::<span class='ident'>TyProjection</span>(..) <span class='op'>=&gt;</span> {
+                <span class='ident'>ty</span>::<span class='ident'>TyProjection</span>(..) <span class='op'>|</span>
+                <span class='ident'>ty</span>::<span class='ident'>TyAnon</span>(..) <span class='op'>=&gt;</span> {
                     <span class='comment'>// In these cases, we don&#39;t know what the actual</span>
                     <span class='comment'>// type is.  Therefore, we cannot break it down</span>
                     <span class='comment'>// into its constituent types. So we don&#39;t</span>
@@ -4864,7 +4867,7 @@
                 }))
             }
 
-            <span class='ident'>ty</span>::<span class='ident'>TyProjection</span>(_) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyParam</span>(_) <span class='op'>=&gt;</span> <span class='prelude-val'>None</span>,
+            <span class='ident'>ty</span>::<span class='ident'>TyProjection</span>(_) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyParam</span>(_) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyAnon</span>(..) <span class='op'>=&gt;</span> <span class='prelude-val'>None</span>,
             <span class='ident'>ty</span>::<span class='ident'>TyInfer</span>(<span class='ident'>ty</span>::<span class='ident'>TyVar</span>(_)) <span class='op'>=&gt;</span> <span class='ident'>Ambiguous</span>,
 
             <span class='ident'>ty</span>::<span class='ident'>TyInfer</span>(<span class='ident'>ty</span>::<span class='ident'>FreshTy</span>(_))
@@ -4910,7 +4913,8 @@
                 <span class='ident'>Where</span>(<span class='ident'>ty</span>::<span class='ident'>Binder</span>(<span class='ident'>tys</span>.<span class='ident'>to_vec</span>()))
             }
 
-            <span class='ident'>ty</span>::<span class='ident'>TyStruct</span>(..) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyEnum</span>(..) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyProjection</span>(..) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyParam</span>(..) <span class='op'>=&gt;</span> {
+            <span class='ident'>ty</span>::<span class='ident'>TyStruct</span>(..) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyEnum</span>(..) <span class='op'>|</span>
+            <span class='ident'>ty</span>::<span class='ident'>TyProjection</span>(..) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyParam</span>(..) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyAnon</span>(..) <span class='op'>=&gt;</span> {
                 <span class='comment'>// Fallback to whatever user-defined impls exist in this case.</span>
                 <span class='prelude-val'>None</span>
             }
@@ -4961,6 +4965,7 @@
             <span class='ident'>ty</span>::<span class='ident'>TyTrait</span>(..) <span class='op'>|</span>
             <span class='ident'>ty</span>::<span class='ident'>TyParam</span>(..) <span class='op'>|</span>
             <span class='ident'>ty</span>::<span class='ident'>TyProjection</span>(..) <span class='op'>|</span>
+            <span class='ident'>ty</span>::<span class='ident'>TyAnon</span>(..) <span class='op'>|</span>
             <span class='ident'>ty</span>::<span class='ident'>TyInfer</span>(<span class='ident'>ty</span>::<span class='ident'>TyVar</span>(_)) <span class='op'>|</span>
             <span class='ident'>ty</span>::<span class='ident'>TyInfer</span>(<span class='ident'>ty</span>::<span class='ident'>FreshTy</span>(_)) <span class='op'>|</span>
             <span class='ident'>ty</span>::<span class='ident'>TyInfer</span>(<span class='ident'>ty</span>::<span class='ident'>FreshIntTy</span>(_)) <span class='op'>|</span>
@@ -5141,7 +5146,7 @@
     {
         <span class='self'>self</span>.<span class='ident'>in_snapshot</span>(<span class='op'>|</span><span class='ident'>this</span>, <span class='ident'>snapshot</span><span class='op'>|</span> {
             <span class='kw'>let</span> <span class='ident'>result</span> <span class='op'>=</span>
-                <span class='ident'>this</span>.<span class='ident'>match_projection_obligation_against_bounds_from_trait</span>(<span class='ident'>obligation</span>,
+                <span class='ident'>this</span>.<span class='ident'>match_projection_obligation_against_definition_bounds</span>(<span class='ident'>obligation</span>,
                                                                            <span class='ident'>snapshot</span>);
             <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>result</span>);
         })
@@ -5195,7 +5200,7 @@
                           <span class='ident'>obligation</span>)
             };
 
-            <span class='kw'>let</span> <span class='ident'>cause</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>derived_cause</span>(<span class='ident'>obligation</span>, <span class='ident'>BuiltinDerivedObligation</span>);
+            <span class='kw'>let</span> <span class='ident'>cause</span> <span class='op'>=</span> <span class='ident'>obligation</span>.<span class='ident'>derived_cause</span>(<span class='ident'>BuiltinDerivedObligation</span>);
             <span class='self'>self</span>.<span class='ident'>collect_predicates_for_types</span>(<span class='ident'>cause</span>,
                                               <span class='ident'>obligation</span>.<span class='ident'>recursion_depth</span><span class='op'>+</span><span class='number'>1</span>,
                                               <span class='ident'>trait_def</span>,
@@ -5275,7 +5280,7 @@
     {
         <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;vtable_default_impl: nested={:?}&quot;</span>, <span class='ident'>nested</span>);
 
-        <span class='kw'>let</span> <span class='ident'>cause</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>derived_cause</span>(<span class='ident'>obligation</span>, <span class='ident'>BuiltinDerivedObligation</span>);
+        <span class='kw'>let</span> <span class='ident'>cause</span> <span class='op'>=</span> <span class='ident'>obligation</span>.<span class='ident'>derived_cause</span>(<span class='ident'>BuiltinDerivedObligation</span>);
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>obligations</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>collect_predicates_for_types</span>(
             <span class='ident'>cause</span>,
             <span class='ident'>obligation</span>.<span class='ident'>recursion_depth</span><span class='op'>+</span><span class='number'>1</span>,
@@ -5286,7 +5291,7 @@
             <span class='kw'>let</span> <span class='ident'>poly_trait_ref</span> <span class='op'>=</span> <span class='ident'>obligation</span>.<span class='ident'>predicate</span>.<span class='ident'>to_poly_trait_ref</span>();
             <span class='kw'>let</span> (<span class='ident'>trait_ref</span>, <span class='ident'>skol_map</span>) <span class='op'>=</span>
                 <span class='ident'>this</span>.<span class='ident'>infcx</span>().<span class='ident'>skolemize_late_bound_regions</span>(<span class='kw-2'>&amp;</span><span class='ident'>poly_trait_ref</span>, <span class='ident'>snapshot</span>);
-            <span class='kw'>let</span> <span class='ident'>cause</span> <span class='op'>=</span> <span class='ident'>this</span>.<span class='ident'>derived_cause</span>(<span class='ident'>obligation</span>, <span class='ident'>ImplDerivedObligation</span>);
+            <span class='kw'>let</span> <span class='ident'>cause</span> <span class='op'>=</span> <span class='ident'>obligation</span>.<span class='ident'>derived_cause</span>(<span class='ident'>ImplDerivedObligation</span>);
             <span class='ident'>this</span>.<span class='ident'>impl_or_trait_obligations</span>(<span class='ident'>cause</span>,
                                            <span class='ident'>obligation</span>.<span class='ident'>recursion_depth</span> <span class='op'>+</span> <span class='number'>1</span>,
                                            <span class='ident'>trait_def_id</span>,
@@ -5321,7 +5326,7 @@
                 <span class='ident'>this</span>.<span class='ident'>rematch_impl</span>(<span class='ident'>impl_def_id</span>, <span class='ident'>obligation</span>,
                                   <span class='ident'>snapshot</span>);
             <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;confirm_impl_candidate substs={:?}&quot;</span>, <span class='ident'>substs</span>);
-            <span class='kw'>let</span> <span class='ident'>cause</span> <span class='op'>=</span> <span class='ident'>this</span>.<span class='ident'>derived_cause</span>(<span class='ident'>obligation</span>, <span class='ident'>ImplDerivedObligation</span>);
+            <span class='kw'>let</span> <span class='ident'>cause</span> <span class='op'>=</span> <span class='ident'>obligation</span>.<span class='ident'>derived_cause</span>(<span class='ident'>ImplDerivedObligation</span>);
             <span class='ident'>this</span>.<span class='ident'>vtable_impl</span>(<span class='ident'>impl_def_id</span>, <span class='ident'>substs</span>, <span class='ident'>cause</span>,
                              <span class='ident'>obligation</span>.<span class='ident'>recursion_depth</span> <span class='op'>+</span> <span class='number'>1</span>,
                              <span class='ident'>skol_map</span>, <span class='ident'>snapshot</span>)
@@ -5974,12 +5979,13 @@
             }).<span class='ident'>collect</span>();
         <span class='self'>self</span>.<span class='ident'>infcx</span>().<span class='ident'>plug_leaks</span>(<span class='ident'>skol_map</span>, <span class='ident'>snapshot</span>, <span class='kw-2'>&amp;</span><span class='ident'>predicates</span>)
     }
+}
 
+<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>TraitObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
     <span class='attribute'>#[<span class='ident'>allow</span>(<span class='ident'>unused_comparisons</span>)]</span>
-    <span class='kw'>fn</span> <span class='ident'>derived_cause</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
-                     <span class='ident'>obligation</span>: <span class='kw-2'>&amp;</span><span class='ident'>TraitObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                     <span class='ident'>variant</span>: <span class='kw'>fn</span>(<span class='ident'>DerivedObligationCause</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>ObligationCauseCode</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-                     <span class='op'>-&gt;</span> <span class='ident'>ObligationCause</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>derived_cause</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
+                        <span class='ident'>variant</span>: <span class='kw'>fn</span>(<span class='ident'>DerivedObligationCause</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>ObligationCauseCode</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
+                        <span class='op'>-&gt;</span> <span class='ident'>ObligationCause</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
     {
         <span class='doccomment'>/*!
          * Creates a cause for obligations that are derived from
@@ -5990,6 +5996,8 @@
          * keep track of the original root obligation for error
          * reporting.
          */</span>
+
+        <span class='kw'>let</span> <span class='ident'>obligation</span> <span class='op'>=</span> <span class='self'>self</span>;
 
         <span class='comment'>// NOTE(flaper87): As of now, it keeps track of the whole error</span>
         <span class='comment'>// chain. Ideally, we should have a way to configure this either</span>
