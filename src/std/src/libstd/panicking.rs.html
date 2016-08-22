@@ -466,6 +466,38 @@
 <span id="422">422</span>
 <span id="423">423</span>
 <span id="424">424</span>
+<span id="425">425</span>
+<span id="426">426</span>
+<span id="427">427</span>
+<span id="428">428</span>
+<span id="429">429</span>
+<span id="430">430</span>
+<span id="431">431</span>
+<span id="432">432</span>
+<span id="433">433</span>
+<span id="434">434</span>
+<span id="435">435</span>
+<span id="436">436</span>
+<span id="437">437</span>
+<span id="438">438</span>
+<span id="439">439</span>
+<span id="440">440</span>
+<span id="441">441</span>
+<span id="442">442</span>
+<span id="443">443</span>
+<span id="444">444</span>
+<span id="445">445</span>
+<span id="446">446</span>
+<span id="447">447</span>
+<span id="448">448</span>
+<span id="449">449</span>
+<span id="450">450</span>
+<span id="451">451</span>
+<span id="452">452</span>
+<span id="453">453</span>
+<span id="454">454</span>
+<span id="455">455</span>
+<span id="456">456</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -494,9 +526,10 @@
 <span class='kw'>use</span> <span class='ident'>fmt</span>;
 <span class='kw'>use</span> <span class='ident'>intrinsics</span>;
 <span class='kw'>use</span> <span class='ident'>mem</span>;
+<span class='kw'>use</span> <span class='ident'>ptr</span>;
 <span class='kw'>use</span> <span class='ident'>raw</span>;
-<span class='kw'>use</span> <span class='ident'>sys_common</span>::<span class='ident'>rwlock</span>::<span class='ident'>RWLock</span>;
 <span class='kw'>use</span> <span class='ident'>sys</span>::<span class='ident'>stdio</span>::<span class='ident'>Stderr</span>;
+<span class='kw'>use</span> <span class='ident'>sys_common</span>::<span class='ident'>rwlock</span>::<span class='ident'>RWLock</span>;
 <span class='kw'>use</span> <span class='ident'>sys_common</span>::<span class='ident'>thread_info</span>;
 <span class='kw'>use</span> <span class='ident'>sys_common</span>::<span class='ident'>util</span>;
 <span class='kw'>use</span> <span class='ident'>thread</span>;
@@ -724,45 +757,76 @@
 
 <span class='doccomment'>/// Invoke a closure, capturing the cause of an unwinding panic if one occurs.</span>
 <span class='kw'>pub</span> <span class='kw'>unsafe</span> <span class='kw'>fn</span> <span class='ident'>try</span><span class='op'>&lt;</span><span class='ident'>R</span>, <span class='ident'>F</span>: <span class='ident'>FnOnce</span>() <span class='op'>-&gt;</span> <span class='ident'>R</span><span class='op'>&gt;</span>(<span class='ident'>f</span>: <span class='ident'>F</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>R</span>, <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>Any</span> <span class='op'>+</span> <span class='ident'>Send</span><span class='op'>&gt;&gt;</span> {
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>slot</span> <span class='op'>=</span> <span class='prelude-val'>None</span>;
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>f</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='ident'>f</span>);
-    <span class='kw'>let</span> <span class='ident'>ret</span>;
+    <span class='kw'>struct</span> <span class='ident'>Data</span><span class='op'>&lt;</span><span class='ident'>F</span>, <span class='ident'>R</span><span class='op'>&gt;</span> {
+        <span class='ident'>f</span>: <span class='ident'>F</span>,
+        <span class='ident'>r</span>: <span class='ident'>R</span>,
+    }
 
-    {
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>to_run</span> <span class='op'>=</span> <span class='op'>||</span> {
-            <span class='ident'>slot</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='ident'>f</span>.<span class='ident'>take</span>().<span class='ident'>unwrap</span>()());
-        };
-        <span class='kw'>let</span> <span class='ident'>fnptr</span> <span class='op'>=</span> <span class='ident'>get_call</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>to_run</span>);
-        <span class='kw'>let</span> <span class='ident'>dataptr</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>to_run</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw-2'>mut</span> _ <span class='kw'>as</span> <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>u8</span>;
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>any_data</span> <span class='op'>=</span> <span class='number'>0</span>;
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>any_vtable</span> <span class='op'>=</span> <span class='number'>0</span>;
-        <span class='kw'>let</span> <span class='ident'>fnptr</span> <span class='op'>=</span> <span class='ident'>mem</span>::<span class='ident'>transmute</span>::<span class='op'>&lt;</span><span class='kw'>fn</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> _), <span class='kw'>fn</span>(<span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>u8</span>)<span class='op'>&gt;</span>(<span class='ident'>fnptr</span>);
-        <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='ident'>__rust_maybe_catch_panic</span>(<span class='ident'>fnptr</span>,
-                                         <span class='ident'>dataptr</span>,
-                                         <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>any_data</span>,
-                                         <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>any_vtable</span>);
-        <span class='kw'>if</span> <span class='ident'>r</span> <span class='op'>==</span> <span class='number'>0</span> {
-            <span class='ident'>ret</span> <span class='op'>=</span> <span class='prelude-val'>Ok</span>(());
-        } <span class='kw'>else</span> {
-            <span class='ident'>update_panic_count</span>(<span class='op'>-</span><span class='number'>1</span>);
-            <span class='ident'>ret</span> <span class='op'>=</span> <span class='prelude-val'>Err</span>(<span class='ident'>mem</span>::<span class='ident'>transmute</span>(<span class='ident'>raw</span>::<span class='ident'>TraitObject</span> {
-                <span class='ident'>data</span>: <span class='ident'>any_data</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw-2'>mut</span> _,
-                <span class='ident'>vtable</span>: <span class='ident'>any_vtable</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw-2'>mut</span> _,
-            }));
+    <span class='comment'>// We do some sketchy operations with ownership here for the sake of</span>
+    <span class='comment'>// performance. The `Data` structure is never actually fully valid, but</span>
+    <span class='comment'>// instead it always contains at least one uninitialized field. We can only</span>
+    <span class='comment'>// pass pointers down to `__rust_maybe_catch_panic` (can&#39;t pass objects by</span>
+    <span class='comment'>// value), so we do all the ownership tracking here manully.</span>
+    <span class='comment'>//</span>
+    <span class='comment'>// Note that this is all invalid if any of these functions unwind, but the</span>
+    <span class='comment'>// whole point of this function is to prevent that! As a result we go</span>
+    <span class='comment'>// through a transition where:</span>
+    <span class='comment'>//</span>
+    <span class='comment'>// * First, only the closure we&#39;re going to call is initialized. The return</span>
+    <span class='comment'>//   value is uninitialized.</span>
+    <span class='comment'>// * When we make the function call, the `do_call` function below, we take</span>
+    <span class='comment'>//   ownership of the function pointer, replacing it with uninitialized</span>
+    <span class='comment'>//   data. At this point the `Data` structure is entirely uninitialized, but</span>
+    <span class='comment'>//   it won&#39;t drop due to an unwind because it&#39;s owned on the other side of</span>
+    <span class='comment'>//   the catch panic.</span>
+    <span class='comment'>// * If the closure successfully returns, we write the return value into the</span>
+    <span class='comment'>//   data&#39;s return slot. Note that `ptr::write` is used as it&#39;s overwriting</span>
+    <span class='comment'>//   uninitialized data.</span>
+    <span class='comment'>// * Finally, when we come back out of the `__rust_maybe_catch_panic` we&#39;re</span>
+    <span class='comment'>//   in one of two states:</span>
+    <span class='comment'>//</span>
+    <span class='comment'>//      1. The closure didn&#39;t panic, in which case the return value was</span>
+    <span class='comment'>//         filled in. We have to be careful to `forget` the closure,</span>
+    <span class='comment'>//         however, as ownership was passed to the `do_call` function.</span>
+    <span class='comment'>//      2. The closure panicked, in which case the return value wasn&#39;t</span>
+    <span class='comment'>//         filled in. In this case the entire `data` structure is invalid,</span>
+    <span class='comment'>//         so we forget the entire thing.</span>
+    <span class='comment'>//</span>
+    <span class='comment'>// Once we stack all that together we should have the &quot;most efficient&#39;</span>
+    <span class='comment'>// method of calling a catch panic whilst juggling ownership.</span>
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>any_data</span> <span class='op'>=</span> <span class='number'>0</span>;
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>any_vtable</span> <span class='op'>=</span> <span class='number'>0</span>;
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>data</span> <span class='op'>=</span> <span class='ident'>Data</span> {
+        <span class='ident'>f</span>: <span class='ident'>f</span>,
+        <span class='ident'>r</span>: <span class='ident'>mem</span>::<span class='ident'>uninitialized</span>(),
+    };
+
+    <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='ident'>__rust_maybe_catch_panic</span>(<span class='ident'>do_call</span>::<span class='op'>&lt;</span><span class='ident'>F</span>, <span class='ident'>R</span><span class='op'>&gt;</span>,
+                                     <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>data</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw-2'>mut</span> _ <span class='kw'>as</span> <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>u8</span>,
+                                     <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>any_data</span>,
+                                     <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>any_vtable</span>);
+
+    <span class='kw'>return</span> <span class='kw'>if</span> <span class='ident'>r</span> <span class='op'>==</span> <span class='number'>0</span> {
+        <span class='kw'>let</span> <span class='ident'>Data</span> { <span class='ident'>f</span>, <span class='ident'>r</span> } <span class='op'>=</span> <span class='ident'>data</span>;
+        <span class='ident'>mem</span>::<span class='ident'>forget</span>(<span class='ident'>f</span>);
+        <span class='macro'>debug_assert</span><span class='macro'>!</span>(<span class='ident'>update_panic_count</span>(<span class='number'>0</span>) <span class='op'>==</span> <span class='number'>0</span>);
+        <span class='prelude-val'>Ok</span>(<span class='ident'>r</span>)
+    } <span class='kw'>else</span> {
+        <span class='ident'>mem</span>::<span class='ident'>forget</span>(<span class='ident'>data</span>);
+        <span class='ident'>update_panic_count</span>(<span class='op'>-</span><span class='number'>1</span>);
+        <span class='macro'>debug_assert</span><span class='macro'>!</span>(<span class='ident'>update_panic_count</span>(<span class='number'>0</span>) <span class='op'>==</span> <span class='number'>0</span>);
+        <span class='prelude-val'>Err</span>(<span class='ident'>mem</span>::<span class='ident'>transmute</span>(<span class='ident'>raw</span>::<span class='ident'>TraitObject</span> {
+            <span class='ident'>data</span>: <span class='ident'>any_data</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw-2'>mut</span> _,
+            <span class='ident'>vtable</span>: <span class='ident'>any_vtable</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw-2'>mut</span> _,
+        }))
+    };
+
+    <span class='kw'>fn</span> <span class='ident'>do_call</span><span class='op'>&lt;</span><span class='ident'>F</span>: <span class='ident'>FnOnce</span>() <span class='op'>-&gt;</span> <span class='ident'>R</span>, <span class='ident'>R</span><span class='op'>&gt;</span>(<span class='ident'>data</span>: <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>u8</span>) {
+        <span class='kw'>unsafe</span> {
+            <span class='kw'>let</span> <span class='ident'>data</span> <span class='op'>=</span> <span class='ident'>data</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>Data</span><span class='op'>&lt;</span><span class='ident'>F</span>, <span class='ident'>R</span><span class='op'>&gt;</span>;
+            <span class='kw'>let</span> <span class='ident'>f</span> <span class='op'>=</span> <span class='ident'>ptr</span>::<span class='ident'>read</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> (<span class='op'>*</span><span class='ident'>data</span>).<span class='ident'>f</span>);
+            <span class='ident'>ptr</span>::<span class='ident'>write</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> (<span class='op'>*</span><span class='ident'>data</span>).<span class='ident'>r</span>, <span class='ident'>f</span>());
         }
-    }
-
-    <span class='macro'>debug_assert</span><span class='macro'>!</span>(<span class='ident'>update_panic_count</span>(<span class='number'>0</span>) <span class='op'>==</span> <span class='number'>0</span>);
-    <span class='kw'>return</span> <span class='ident'>ret</span>.<span class='ident'>map</span>(<span class='op'>|</span>()<span class='op'>|</span> {
-        <span class='ident'>slot</span>.<span class='ident'>take</span>().<span class='ident'>unwrap</span>()
-    });
-
-    <span class='kw'>fn</span> <span class='ident'>get_call</span><span class='op'>&lt;</span><span class='ident'>F</span>: <span class='ident'>FnMut</span>()<span class='op'>&gt;</span>(_: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>F</span>) <span class='op'>-&gt;</span> <span class='kw'>fn</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>F</span>) {
-        <span class='ident'>call</span>
-    }
-
-    <span class='kw'>fn</span> <span class='ident'>call</span><span class='op'>&lt;</span><span class='ident'>F</span>: <span class='ident'>FnMut</span>()<span class='op'>&gt;</span>(<span class='ident'>f</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>F</span>) {
-        <span class='ident'>f</span>()
     }
 }
 
