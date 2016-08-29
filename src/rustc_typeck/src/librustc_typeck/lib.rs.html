@@ -406,6 +406,17 @@
 <span id="362">362</span>
 <span id="363">363</span>
 <span id="364">364</span>
+<span id="365">365</span>
+<span id="366">366</span>
+<span id="367">367</span>
+<span id="368">368</span>
+<span id="369">369</span>
+<span id="370">370</span>
+<span id="371">371</span>
+<span id="372">372</span>
+<span id="373">373</span>
+<span id="374">374</span>
+<span id="375">375</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -516,7 +527,7 @@ This API is completely unstable and subject to change.
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>infer</span>::<span class='ident'>TypeOrigin</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::<span class='ident'>subst</span>::<span class='ident'>Substs</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>Ty</span>, <span class='ident'>TyCtxt</span>, <span class='ident'>TypeFoldable</span>};
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>traits</span>::<span class='ident'>ProjectionMode</span>;
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>traits</span>::{<span class='self'>self</span>, <span class='ident'>Reveal</span>};
 <span class='kw'>use</span> <span class='ident'>session</span>::{<span class='ident'>config</span>, <span class='ident'>CompileResult</span>};
 <span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>common</span>::<span class='ident'>time</span>;
 
@@ -541,15 +552,12 @@ This API is completely unstable and subject to change.
 <span class='kw'>pub</span> <span class='kw'>mod</span> <span class='ident'>variance</span>;
 
 <span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>TypeAndSubsts</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='ident'>substs</span>: <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+    <span class='kw'>pub</span> <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
     <span class='kw'>pub</span> <span class='ident'>ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
 }
 
 <span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>CrateCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>: <span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
     <span class='ident'>ast_ty_to_ty_cache</span>: <span class='ident'>RefCell</span><span class='op'>&lt;</span><span class='ident'>NodeMap</span><span class='op'>&lt;</span><span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span>,
-
-    <span class='doccomment'>/// A mapping from method call sites to traits that have that method.</span>
-    <span class='kw'>pub</span> <span class='ident'>trait_map</span>: <span class='ident'>hir</span>::<span class='ident'>TraitMap</span>,
 
     <span class='doccomment'>/// A vector of every trait accessible in the whole crate</span>
     <span class='doccomment'>/// (i.e. including those from subcrates). This is used only for</span>
@@ -562,6 +570,11 @@ This API is completely unstable and subject to change.
     <span class='kw'>pub</span> <span class='ident'>stack</span>: <span class='ident'>RefCell</span><span class='op'>&lt;</span><span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>collect</span>::<span class='ident'>AstConvRequest</span><span class='op'>&gt;&gt;</span>,
 
     <span class='kw'>pub</span> <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+
+    <span class='doccomment'>/// Obligations which will have to be checked at the end of</span>
+    <span class='doccomment'>/// type-checking, after all functions have been inferred.</span>
+    <span class='doccomment'>/// The key is the NodeId of the item the obligations were from.</span>
+    <span class='kw'>pub</span> <span class='ident'>deferred_obligations</span>: <span class='ident'>RefCell</span><span class='op'>&lt;</span><span class='ident'>NodeMap</span><span class='op'>&lt;</span><span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>traits</span>::<span class='ident'>DeferredObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;&gt;</span>,
 }
 
 <span class='comment'>// Functions that write types into the node type table</span>
@@ -590,8 +603,10 @@ This API is completely unstable and subject to change.
                              <span class='ident'>abi</span>: <span class='ident'>Abi</span>,
                              <span class='ident'>span</span>: <span class='ident'>Span</span>) {
     <span class='kw'>if</span> <span class='ident'>decl</span>.<span class='ident'>variadic</span> <span class='op'>&amp;&amp;</span> <span class='ident'>abi</span> <span class='op'>!=</span> <span class='ident'>Abi</span>::<span class='ident'>C</span> {
-        <span class='macro'>span_err</span><span class='macro'>!</span>(<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>span</span>, <span class='ident'>E0045</span>,
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>err</span> <span class='op'>=</span> <span class='macro'>struct_span_err</span><span class='macro'>!</span>(<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>span</span>, <span class='ident'>E0045</span>,
                   <span class='string'>&quot;variadic function must have C calling convention&quot;</span>);
+        <span class='ident'>err</span>.<span class='ident'>span_label</span>(<span class='ident'>span</span>, <span class='kw-2'>&amp;</span>(<span class='string'>&quot;variadics require C calling conventions&quot;</span>).<span class='ident'>to_string</span>())
+            .<span class='ident'>emit</span>();
     }
 }
 
@@ -600,7 +615,7 @@ This API is completely unstable and subject to change.
                                 <span class='ident'>t1</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
                                 <span class='ident'>t2</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
                                 <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-    <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>infer_ctxt</span>(<span class='prelude-val'>None</span>, <span class='prelude-val'>None</span>, <span class='ident'>ProjectionMode</span>::<span class='ident'>AnyFinal</span>).<span class='ident'>enter</span>(<span class='op'>|</span><span class='ident'>infcx</span><span class='op'>|</span> {
+    <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>infer_ctxt</span>(<span class='prelude-val'>None</span>, <span class='prelude-val'>None</span>, <span class='ident'>Reveal</span>::<span class='ident'>NotSpecializable</span>).<span class='ident'>enter</span>(<span class='op'>|</span><span class='ident'>infcx</span><span class='op'>|</span> {
         <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Err</span>(<span class='ident'>err</span>) <span class='op'>=</span> <span class='ident'>infcx</span>.<span class='ident'>eq_types</span>(<span class='bool-val'>false</span>, <span class='ident'>origin</span>.<span class='ident'>clone</span>(), <span class='ident'>t1</span>, <span class='ident'>t2</span>) {
             <span class='ident'>infcx</span>.<span class='ident'>report_mismatched_types</span>(<span class='ident'>origin</span>, <span class='ident'>t1</span>, <span class='ident'>t2</span>, <span class='ident'>err</span>);
             <span class='bool-val'>false</span>
@@ -620,11 +635,15 @@ This API is completely unstable and subject to change.
             <span class='kw'>match</span> <span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>find</span>(<span class='ident'>main_id</span>) {
                 <span class='prelude-val'>Some</span>(<span class='ident'>hir_map</span>::<span class='ident'>NodeItem</span>(<span class='ident'>it</span>)) <span class='op'>=&gt;</span> {
                     <span class='kw'>match</span> <span class='ident'>it</span>.<span class='ident'>node</span> {
-                        <span class='ident'>hir</span>::<span class='ident'>ItemFn</span>(_, _, _, _, <span class='kw-2'>ref</span> <span class='ident'>ps</span>, _)
-                        <span class='kw'>if</span> <span class='ident'>ps</span>.<span class='ident'>is_parameterized</span>() <span class='op'>=&gt;</span> {
-                            <span class='macro'>span_err</span><span class='macro'>!</span>(<span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>main_span</span>, <span class='ident'>E0131</span>,
-                                      <span class='string'>&quot;main function is not allowed to have type parameters&quot;</span>);
-                            <span class='kw'>return</span>;
+                        <span class='ident'>hir</span>::<span class='ident'>ItemFn</span>(_, _, _, _, <span class='kw-2'>ref</span> <span class='ident'>generics</span>, _) <span class='op'>=&gt;</span> {
+                            <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>gen_span</span>) <span class='op'>=</span> <span class='ident'>generics</span>.<span class='ident'>span</span>() {
+                                <span class='macro'>struct_span_err</span><span class='macro'>!</span>(<span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>gen_span</span>, <span class='ident'>E0131</span>,
+                                         <span class='string'>&quot;main function is not allowed to have type parameters&quot;</span>)
+                                    .<span class='ident'>span_label</span>(<span class='ident'>gen_span</span>,
+                                                <span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;main cannot have type parameters&quot;</span>))
+                                    .<span class='ident'>emit</span>();
+                                <span class='kw'>return</span>;
+                            }
                         }
                         _ <span class='op'>=&gt;</span> ()
                     }
@@ -632,14 +651,14 @@ This API is completely unstable and subject to change.
                 _ <span class='op'>=&gt;</span> ()
             }
             <span class='kw'>let</span> <span class='ident'>main_def_id</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>local_def_id</span>(<span class='ident'>main_id</span>);
-            <span class='kw'>let</span> <span class='ident'>substs</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>mk_substs</span>(<span class='ident'>Substs</span>::<span class='ident'>empty</span>());
+            <span class='kw'>let</span> <span class='ident'>substs</span> <span class='op'>=</span> <span class='ident'>Substs</span>::<span class='ident'>empty</span>(<span class='ident'>tcx</span>);
             <span class='kw'>let</span> <span class='ident'>se_ty</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>mk_fn_def</span>(<span class='ident'>main_def_id</span>, <span class='ident'>substs</span>,
                                       <span class='ident'>tcx</span>.<span class='ident'>mk_bare_fn</span>(<span class='ident'>ty</span>::<span class='ident'>BareFnTy</span> {
                 <span class='ident'>unsafety</span>: <span class='ident'>hir</span>::<span class='ident'>Unsafety</span>::<span class='ident'>Normal</span>,
                 <span class='ident'>abi</span>: <span class='ident'>Abi</span>::<span class='ident'>Rust</span>,
                 <span class='ident'>sig</span>: <span class='ident'>ty</span>::<span class='ident'>Binder</span>(<span class='ident'>ty</span>::<span class='ident'>FnSig</span> {
                     <span class='ident'>inputs</span>: <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
-                    <span class='ident'>output</span>: <span class='ident'>ty</span>::<span class='ident'>FnConverging</span>(<span class='ident'>tcx</span>.<span class='ident'>mk_nil</span>()),
+                    <span class='ident'>output</span>: <span class='ident'>tcx</span>.<span class='ident'>mk_nil</span>(),
                     <span class='ident'>variadic</span>: <span class='bool-val'>false</span>
                 })
             }));
@@ -670,8 +689,12 @@ This API is completely unstable and subject to change.
                     <span class='kw'>match</span> <span class='ident'>it</span>.<span class='ident'>node</span> {
                         <span class='ident'>hir</span>::<span class='ident'>ItemFn</span>(_,_,_,_,<span class='kw-2'>ref</span> <span class='ident'>ps</span>,_)
                         <span class='kw'>if</span> <span class='ident'>ps</span>.<span class='ident'>is_parameterized</span>() <span class='op'>=&gt;</span> {
-                            <span class='macro'>span_err</span><span class='macro'>!</span>(<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>start_span</span>, <span class='ident'>E0132</span>,
-                                      <span class='string'>&quot;start function is not allowed to have type parameters&quot;</span>);
+                            <span class='kw'>let</span> <span class='ident'>sp</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>sp</span>) <span class='op'>=</span> <span class='ident'>ps</span>.<span class='ident'>span</span>() { <span class='ident'>sp</span> } <span class='kw'>else</span> { <span class='ident'>start_span</span> };
+                            <span class='macro'>struct_span_err</span><span class='macro'>!</span>(<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>sp</span>, <span class='ident'>E0132</span>,
+                                <span class='string'>&quot;start function is not allowed to have type parameters&quot;</span>)
+                                .<span class='ident'>span_label</span>(<span class='ident'>sp</span>,
+                                            <span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;start function cannot have type parameters&quot;</span>))
+                                .<span class='ident'>emit</span>();
                             <span class='kw'>return</span>;
                         }
                         _ <span class='op'>=&gt;</span> ()
@@ -681,7 +704,7 @@ This API is completely unstable and subject to change.
             }
 
             <span class='kw'>let</span> <span class='ident'>start_def_id</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>local_def_id</span>(<span class='ident'>start_id</span>);
-            <span class='kw'>let</span> <span class='ident'>substs</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>mk_substs</span>(<span class='ident'>Substs</span>::<span class='ident'>empty</span>());
+            <span class='kw'>let</span> <span class='ident'>substs</span> <span class='op'>=</span> <span class='ident'>Substs</span>::<span class='ident'>empty</span>(<span class='ident'>tcx</span>);
             <span class='kw'>let</span> <span class='ident'>se_ty</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>mk_fn_def</span>(<span class='ident'>start_def_id</span>, <span class='ident'>substs</span>,
                                       <span class='ident'>tcx</span>.<span class='ident'>mk_bare_fn</span>(<span class='ident'>ty</span>::<span class='ident'>BareFnTy</span> {
                 <span class='ident'>unsafety</span>: <span class='ident'>hir</span>::<span class='ident'>Unsafety</span>::<span class='ident'>Normal</span>,
@@ -691,7 +714,7 @@ This API is completely unstable and subject to change.
                         <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>isize</span>,
                         <span class='ident'>tcx</span>.<span class='ident'>mk_imm_ptr</span>(<span class='ident'>tcx</span>.<span class='ident'>mk_imm_ptr</span>(<span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>u8</span>))
                     ),
-                    <span class='ident'>output</span>: <span class='ident'>ty</span>::<span class='ident'>FnConverging</span>(<span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>isize</span>),
+                    <span class='ident'>output</span>: <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>isize</span>,
                     <span class='ident'>variadic</span>: <span class='bool-val'>false</span>,
                 }),
             }));
@@ -723,16 +746,15 @@ This API is completely unstable and subject to change.
     }
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>check_crate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                             <span class='ident'>trait_map</span>: <span class='ident'>hir</span>::<span class='ident'>TraitMap</span>)
+<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>check_crate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
                              <span class='op'>-&gt;</span> <span class='ident'>CompileResult</span> {
     <span class='kw'>let</span> <span class='ident'>time_passes</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>time_passes</span>();
     <span class='kw'>let</span> <span class='ident'>ccx</span> <span class='op'>=</span> <span class='ident'>CrateCtxt</span> {
         <span class='ident'>ast_ty_to_ty_cache</span>: <span class='ident'>RefCell</span>::<span class='ident'>new</span>(<span class='ident'>NodeMap</span>()),
-        <span class='ident'>trait_map</span>: <span class='ident'>trait_map</span>,
         <span class='ident'>all_traits</span>: <span class='ident'>RefCell</span>::<span class='ident'>new</span>(<span class='prelude-val'>None</span>),
         <span class='ident'>stack</span>: <span class='ident'>RefCell</span>::<span class='ident'>new</span>(<span class='ident'>Vec</span>::<span class='ident'>new</span>()),
-        <span class='ident'>tcx</span>: <span class='ident'>tcx</span>
+        <span class='ident'>tcx</span>: <span class='ident'>tcx</span>,
+        <span class='ident'>deferred_obligations</span>: <span class='ident'>RefCell</span>::<span class='ident'>new</span>(<span class='ident'>NodeMap</span>()),
     };
 
     <span class='comment'>// this ensures that later parts of type checking can assume that items</span>
