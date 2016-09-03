@@ -47,7 +47,7 @@
                    <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
                        [<span class='inner'>&#x2212;</span>]
                    </a>
-               </span><a id='src-33946' class='srclink' href='../../src/core/src/libcore/cell.rs.html#11-1133' title='goto source code'>[src]</a></span></h1>
+               </span><a id='src-33946' class='srclink' href='../../src/core/src/libcore/cell.rs.html#11-1162' title='goto source code'>[src]</a></span></h1>
 <div class='docblock'><p>Shareable mutable containers.</p>
 
 <p>Values of the <code>Cell&lt;T&gt;</code> and <code>RefCell&lt;T&gt;</code> types may be mutated through shared references (i.e.
@@ -196,46 +196,106 @@ is declared to take <code>&amp;self</code>, not <code>&amp;mut self</code>. Ther
 <code>clone</code> method must use cell types. For example, <code>Rc&lt;T&gt;</code> maintains its reference counts within a
 <code>Cell&lt;T&gt;</code>.</p>
 
-<span class='rusttest'>fn main() {
+<span class='rusttest'>#![feature(core_intrinsics)]
+#![feature(shared)]
+extern crate core;
+fn main() {
     use std::cell::Cell;
+use std::ptr::Shared;
+use std::intrinsics::abort;
+use std::intrinsics::assume;
 
-struct Rc&lt;T&gt; {
-    ptr: *mut RcBox&lt;T&gt;
+struct Rc&lt;T: ?Sized&gt; {
+    ptr: Shared&lt;RcBox&lt;T&gt;&gt;
 }
 
-struct RcBox&lt;T&gt; {
-#[allow(dead_code)]
+struct RcBox&lt;T: ?Sized&gt; {
+    strong: Cell&lt;usize&gt;,
+    refcount: Cell&lt;usize&gt;,
     value: T,
-    refcount: Cell&lt;usize&gt;
 }
 
-impl&lt;T&gt; Clone for Rc&lt;T&gt; {
+impl&lt;T: ?Sized&gt; Clone for Rc&lt;T&gt; {
     fn clone(&amp;self) -&gt; Rc&lt;T&gt; {
-        unsafe {
-            (*self.ptr).refcount.set((*self.ptr).refcount.get() + 1);
-            Rc { ptr: self.ptr }
-        }
+        self.inc_strong();
+        Rc { ptr: self.ptr }
     }
+}
+
+trait RcBoxPtr&lt;T: ?Sized&gt; {
+
+    fn inner(&amp;self) -&gt; &amp;RcBox&lt;T&gt;;
+
+    fn strong(&amp;self) -&gt; usize {
+        self.inner().strong.get()
+    }
+
+    fn inc_strong(&amp;self) {
+        self.inner()
+            .strong
+            .set(self.strong()
+                     .checked_add(1)
+                     .unwrap_or_else(|| unsafe { abort() }));
+    }
+}
+
+impl&lt;T: ?Sized&gt; RcBoxPtr&lt;T&gt; for Rc&lt;T&gt; {
+   fn inner(&amp;self) -&gt; &amp;RcBox&lt;T&gt; {
+       unsafe {
+           assume(!(*(&amp;self.ptr as *const _ as *const *const ())).is_null());
+           &amp;(**self.ptr)
+       }
+   }
 }
 }</span><pre class='rust rust-example-rendered'>
+<span class='attribute'>#<span class='op'>!</span>[<span class='ident'>feature</span>(<span class='ident'>core_intrinsics</span>)]</span>
+<span class='attribute'>#<span class='op'>!</span>[<span class='ident'>feature</span>(<span class='ident'>shared</span>)]</span>
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cell</span>::<span class='ident'>Cell</span>;
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>ptr</span>::<span class='ident'>Shared</span>;
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>intrinsics</span>::<span class='ident'>abort</span>;
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>intrinsics</span>::<span class='ident'>assume</span>;
 
-<span class='kw'>struct</span> <span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='ident'>ptr</span>: <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>RcBox</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>
+<span class='kw'>struct</span> <span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>T</span>: ?<span class='ident'>Sized</span><span class='op'>&gt;</span> {
+    <span class='ident'>ptr</span>: <span class='ident'>Shared</span><span class='op'>&lt;</span><span class='ident'>RcBox</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>
 }
 
-<span class='kw'>struct</span> <span class='ident'>RcBox</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
+<span class='kw'>struct</span> <span class='ident'>RcBox</span><span class='op'>&lt;</span><span class='ident'>T</span>: ?<span class='ident'>Sized</span><span class='op'>&gt;</span> {
+    <span class='ident'>strong</span>: <span class='ident'>Cell</span><span class='op'>&lt;</span><span class='ident'>usize</span><span class='op'>&gt;</span>,
+    <span class='ident'>refcount</span>: <span class='ident'>Cell</span><span class='op'>&lt;</span><span class='ident'>usize</span><span class='op'>&gt;</span>,
     <span class='ident'>value</span>: <span class='ident'>T</span>,
-    <span class='ident'>refcount</span>: <span class='ident'>Cell</span><span class='op'>&lt;</span><span class='ident'>usize</span><span class='op'>&gt;</span>
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>Clone</span> <span class='kw'>for</span> <span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
+<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: ?<span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>Clone</span> <span class='kw'>for</span> <span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
     <span class='kw'>fn</span> <span class='ident'>clone</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-        <span class='kw'>unsafe</span> {
-            (<span class='op'>*</span><span class='self'>self</span>.<span class='ident'>ptr</span>).<span class='ident'>refcount</span>.<span class='ident'>set</span>((<span class='op'>*</span><span class='self'>self</span>.<span class='ident'>ptr</span>).<span class='ident'>refcount</span>.<span class='ident'>get</span>() <span class='op'>+</span> <span class='number'>1</span>);
-            <span class='ident'>Rc</span> { <span class='ident'>ptr</span>: <span class='self'>self</span>.<span class='ident'>ptr</span> }
-        }
+        <span class='self'>self</span>.<span class='ident'>inc_strong</span>();
+        <span class='ident'>Rc</span> { <span class='ident'>ptr</span>: <span class='self'>self</span>.<span class='ident'>ptr</span> }
     }
+}
+
+<span class='kw'>trait</span> <span class='ident'>RcBoxPtr</span><span class='op'>&lt;</span><span class='ident'>T</span>: ?<span class='ident'>Sized</span><span class='op'>&gt;</span> {
+
+    <span class='kw'>fn</span> <span class='ident'>inner</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='ident'>RcBox</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>;
+
+    <span class='kw'>fn</span> <span class='ident'>strong</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
+        <span class='self'>self</span>.<span class='ident'>inner</span>().<span class='ident'>strong</span>.<span class='ident'>get</span>()
+    }
+
+    <span class='kw'>fn</span> <span class='ident'>inc_strong</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) {
+        <span class='self'>self</span>.<span class='ident'>inner</span>()
+            .<span class='ident'>strong</span>
+            .<span class='ident'>set</span>(<span class='self'>self</span>.<span class='ident'>strong</span>()
+                     .<span class='ident'>checked_add</span>(<span class='number'>1</span>)
+                     .<span class='ident'>unwrap_or_else</span>(<span class='op'>||</span> <span class='kw'>unsafe</span> { <span class='ident'>abort</span>() }));
+    }
+}
+
+<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: ?<span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>RcBoxPtr</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
+   <span class='kw'>fn</span> <span class='ident'>inner</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='ident'>RcBox</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
+       <span class='kw'>unsafe</span> {
+           <span class='ident'>assume</span>(<span class='op'>!</span>(<span class='op'>*</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>ptr</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw'>const</span> _ <span class='kw'>as</span> <span class='op'>*</span><span class='kw'>const</span> <span class='op'>*</span><span class='kw'>const</span> ())).<span class='ident'>is_null</span>());
+           <span class='kw-2'>&amp;</span>(<span class='op'>*</span><span class='op'>*</span><span class='self'>self</span>.<span class='ident'>ptr</span>)
+       }
+   }
 }</pre>
 </div><h2 id='structs' class='section-header'><a href="#structs">Structs</a></h2>
 <table>

@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["lex","Map a string to tts, using a made-up filename. For example, `lex(15)` will return a TokenStream containing the literal 15."]]});

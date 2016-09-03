@@ -469,12 +469,6 @@
 <span id="425">425</span>
 <span id="426">426</span>
 <span id="427">427</span>
-<span id="428">428</span>
-<span id="429">429</span>
-<span id="430">430</span>
-<span id="431">431</span>
-<span id="432">432</span>
-<span id="433">433</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2016 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -506,11 +500,10 @@
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::<span class='ident'>TyCtxt</span>;
 <span class='kw'>use</span> <span class='ident'>syntax_pos</span>::<span class='ident'>Span</span>;
 
-<span class='kw'>use</span> <span class='ident'>build</span>::<span class='ident'>Location</span>;
-
 <span class='kw'>use</span> <span class='ident'>rustc_data_structures</span>::<span class='ident'>indexed_vec</span>::{<span class='ident'>IndexVec</span>, <span class='ident'>Idx</span>};
 
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>mem</span>;
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>usize</span>;
 
 <span class='doccomment'>/// State of a temporary during collection and promotion.</span>
 <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Copy</span>, <span class='ident'>Clone</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>, <span class='ident'>Debug</span>)]</span>
@@ -555,13 +548,12 @@
 
 <span class='kw'>struct</span> <span class='ident'>TempCollector</span> {
     <span class='ident'>temps</span>: <span class='ident'>IndexVec</span><span class='op'>&lt;</span><span class='ident'>Temp</span>, <span class='ident'>TempState</span><span class='op'>&gt;</span>,
-    <span class='ident'>location</span>: <span class='ident'>Location</span>,
     <span class='ident'>span</span>: <span class='ident'>Span</span>
 }
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>Visitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>TempCollector</span> {
-    <span class='kw'>fn</span> <span class='ident'>visit_lvalue</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>lvalue</span>: <span class='kw-2'>&amp;</span><span class='ident'>Lvalue</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>context</span>: <span class='ident'>LvalueContext</span>) {
-        <span class='self'>self</span>.<span class='ident'>super_lvalue</span>(<span class='ident'>lvalue</span>, <span class='ident'>context</span>);
+    <span class='kw'>fn</span> <span class='ident'>visit_lvalue</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>lvalue</span>: <span class='kw-2'>&amp;</span><span class='ident'>Lvalue</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>context</span>: <span class='ident'>LvalueContext</span>, <span class='ident'>location</span>: <span class='ident'>Location</span>) {
+        <span class='self'>self</span>.<span class='ident'>super_lvalue</span>(<span class='ident'>lvalue</span>, <span class='ident'>context</span>, <span class='ident'>location</span>);
         <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>Lvalue</span>::<span class='ident'>Temp</span>(<span class='ident'>index</span>) <span class='op'>=</span> <span class='op'>*</span><span class='ident'>lvalue</span> {
             <span class='comment'>// Ignore drops, if the temp gets promoted,</span>
             <span class='comment'>// then it&#39;s constant and thus drop is noop.</span>
@@ -579,7 +571,7 @@
                     <span class='ident'>LvalueContext</span>::<span class='ident'>Store</span> <span class='op'>|</span>
                     <span class='ident'>LvalueContext</span>::<span class='ident'>Call</span> <span class='op'>=&gt;</span> {
                         <span class='op'>*</span><span class='ident'>temp</span> <span class='op'>=</span> <span class='ident'>TempState</span>::<span class='ident'>Defined</span> {
-                            <span class='ident'>location</span>: <span class='self'>self</span>.<span class='ident'>location</span>,
+                            <span class='ident'>location</span>: <span class='ident'>location</span>,
                             <span class='ident'>uses</span>: <span class='number'>0</span>
                         };
                         <span class='kw'>return</span>;
@@ -604,27 +596,11 @@
     <span class='kw'>fn</span> <span class='ident'>visit_source_info</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>source_info</span>: <span class='kw-2'>&amp;</span><span class='ident'>SourceInfo</span>) {
         <span class='self'>self</span>.<span class='ident'>span</span> <span class='op'>=</span> <span class='ident'>source_info</span>.<span class='ident'>span</span>;
     }
-
-    <span class='kw'>fn</span> <span class='ident'>visit_statement</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>bb</span>: <span class='ident'>BasicBlock</span>, <span class='ident'>statement</span>: <span class='kw-2'>&amp;</span><span class='ident'>Statement</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) {
-        <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>location</span>.<span class='ident'>block</span>, <span class='ident'>bb</span>);
-        <span class='self'>self</span>.<span class='ident'>super_statement</span>(<span class='ident'>bb</span>, <span class='ident'>statement</span>);
-        <span class='self'>self</span>.<span class='ident'>location</span>.<span class='ident'>statement_index</span> <span class='op'>+=</span> <span class='number'>1</span>;
-    }
-
-    <span class='kw'>fn</span> <span class='ident'>visit_basic_block_data</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>bb</span>: <span class='ident'>BasicBlock</span>, <span class='ident'>data</span>: <span class='kw-2'>&amp;</span><span class='ident'>BasicBlockData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) {
-        <span class='self'>self</span>.<span class='ident'>location</span>.<span class='ident'>statement_index</span> <span class='op'>=</span> <span class='number'>0</span>;
-        <span class='self'>self</span>.<span class='ident'>location</span>.<span class='ident'>block</span> <span class='op'>=</span> <span class='ident'>bb</span>;
-        <span class='self'>self</span>.<span class='ident'>super_basic_block_data</span>(<span class='ident'>bb</span>, <span class='ident'>data</span>);
-    }
 }
 
 <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>collect_temps</span>(<span class='ident'>mir</span>: <span class='kw-2'>&amp;</span><span class='ident'>Mir</span>, <span class='ident'>rpo</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>ReversePostorder</span>) <span class='op'>-&gt;</span> <span class='ident'>IndexVec</span><span class='op'>&lt;</span><span class='ident'>Temp</span>, <span class='ident'>TempState</span><span class='op'>&gt;</span> {
     <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>collector</span> <span class='op'>=</span> <span class='ident'>TempCollector</span> {
         <span class='ident'>temps</span>: <span class='ident'>IndexVec</span>::<span class='ident'>from_elem</span>(<span class='ident'>TempState</span>::<span class='ident'>Undefined</span>, <span class='kw-2'>&amp;</span><span class='ident'>mir</span>.<span class='ident'>temp_decls</span>),
-        <span class='ident'>location</span>: <span class='ident'>Location</span> {
-            <span class='ident'>block</span>: <span class='ident'>START_BLOCK</span>,
-            <span class='ident'>statement_index</span>: <span class='number'>0</span>
-        },
         <span class='ident'>span</span>: <span class='ident'>mir</span>.<span class='ident'>span</span>
     };
     <span class='kw'>for</span> (<span class='ident'>bb</span>, <span class='ident'>data</span>) <span class='kw'>in</span> <span class='ident'>rpo</span> {
@@ -744,9 +720,15 @@
 
         <span class='comment'>// Then, recurse for components in the Rvalue or Call.</span>
         <span class='kw'>if</span> <span class='ident'>stmt_idx</span> <span class='op'>&lt;</span> <span class='ident'>no_stmts</span> {
-            <span class='self'>self</span>.<span class='ident'>visit_rvalue</span>(<span class='ident'>rvalue</span>.<span class='ident'>as_mut</span>().<span class='ident'>unwrap</span>());
+            <span class='self'>self</span>.<span class='ident'>visit_rvalue</span>(<span class='ident'>rvalue</span>.<span class='ident'>as_mut</span>().<span class='ident'>unwrap</span>(), <span class='ident'>Location</span> {
+                <span class='ident'>block</span>: <span class='ident'>bb</span>,
+                <span class='ident'>statement_index</span>: <span class='ident'>stmt_idx</span>
+            });
         } <span class='kw'>else</span> {
-            <span class='self'>self</span>.<span class='ident'>visit_terminator_kind</span>(<span class='ident'>bb</span>, <span class='ident'>call</span>.<span class='ident'>as_mut</span>().<span class='ident'>unwrap</span>());
+            <span class='self'>self</span>.<span class='ident'>visit_terminator_kind</span>(<span class='ident'>bb</span>, <span class='ident'>call</span>.<span class='ident'>as_mut</span>().<span class='ident'>unwrap</span>(), <span class='ident'>Location</span> {
+                <span class='ident'>block</span>: <span class='ident'>bb</span>,
+                <span class='ident'>statement_index</span>: <span class='ident'>no_stmts</span>
+            });
         }
 
         <span class='kw'>let</span> <span class='ident'>new_temp</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>promoted</span>.<span class='ident'>temp_decls</span>.<span class='ident'>push</span>(<span class='ident'>TempDecl</span> {
@@ -805,7 +787,10 @@
                 }
             }
         };
-        <span class='self'>self</span>.<span class='ident'>visit_rvalue</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>rvalue</span>);
+        <span class='self'>self</span>.<span class='ident'>visit_rvalue</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>rvalue</span>, <span class='ident'>Location</span>{
+            <span class='ident'>block</span>: <span class='ident'>BasicBlock</span>::<span class='ident'>new</span>(<span class='number'>0</span>),
+            <span class='ident'>statement_index</span>: <span class='ident'>usize</span>::<span class='ident'>MAX</span>
+        });
         <span class='self'>self</span>.<span class='ident'>assign</span>(<span class='ident'>Lvalue</span>::<span class='ident'>ReturnPointer</span>, <span class='ident'>rvalue</span>, <span class='ident'>span</span>);
         <span class='self'>self</span>.<span class='ident'>source</span>.<span class='ident'>promoted</span>.<span class='ident'>push</span>(<span class='self'>self</span>.<span class='ident'>promoted</span>);
     }
@@ -813,11 +798,14 @@
 
 <span class='doccomment'>/// Replaces all temporaries with their promoted counterparts.</span>
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>MutVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>Promoter</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>visit_lvalue</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>lvalue</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Lvalue</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>context</span>: <span class='ident'>LvalueContext</span>) {
+    <span class='kw'>fn</span> <span class='ident'>visit_lvalue</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
+                    <span class='ident'>lvalue</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Lvalue</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+                    <span class='ident'>context</span>: <span class='ident'>LvalueContext</span>,
+                    <span class='ident'>location</span>: <span class='ident'>Location</span>) {
         <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>Lvalue</span>::<span class='ident'>Temp</span>(<span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>temp</span>) <span class='op'>=</span> <span class='op'>*</span><span class='ident'>lvalue</span> {
             <span class='op'>*</span><span class='ident'>temp</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>promote_temp</span>(<span class='op'>*</span><span class='ident'>temp</span>);
         }
-        <span class='self'>self</span>.<span class='ident'>super_lvalue</span>(<span class='ident'>lvalue</span>, <span class='ident'>context</span>);
+        <span class='self'>self</span>.<span class='ident'>super_lvalue</span>(<span class='ident'>lvalue</span>, <span class='ident'>context</span>, <span class='ident'>location</span>);
     }
 }
 
