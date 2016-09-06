@@ -1434,6 +1434,16 @@
 <span id="1390">1390</span>
 <span id="1391">1391</span>
 <span id="1392">1392</span>
+<span id="1393">1393</span>
+<span id="1394">1394</span>
+<span id="1395">1395</span>
+<span id="1396">1396</span>
+<span id="1397">1397</span>
+<span id="1398">1398</span>
+<span id="1399">1399</span>
+<span id="1400">1400</span>
+<span id="1401">1401</span>
+<span id="1402">1402</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -1932,6 +1942,10 @@
 
     <span class='doccomment'>/// Cache for layouts computed from types.</span>
     <span class='kw'>pub</span> <span class='ident'>layout_cache</span>: <span class='ident'>RefCell</span><span class='op'>&lt;</span><span class='ident'>FnvHashMap</span><span class='op'>&lt;</span><span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Layout</span><span class='op'>&gt;&gt;</span>,
+
+    <span class='doccomment'>/// Map from function to the `#[derive]` mode that it&#39;s defining. Only used</span>
+    <span class='doccomment'>/// by `rustc-macro` crates.</span>
+    <span class='kw'>pub</span> <span class='ident'>derive_macros</span>: <span class='ident'>RefCell</span><span class='op'>&lt;</span><span class='ident'>NodeMap</span><span class='op'>&lt;</span><span class='ident'>token</span>::<span class='ident'>InternedString</span><span class='op'>&gt;&gt;</span>,
 }
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>GlobalCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
@@ -2193,6 +2207,7 @@
             <span class='ident'>crate_name</span>: <span class='ident'>token</span>::<span class='ident'>intern_and_get_ident</span>(<span class='ident'>crate_name</span>),
             <span class='ident'>data_layout</span>: <span class='ident'>data_layout</span>,
             <span class='ident'>layout_cache</span>: <span class='ident'>RefCell</span>::<span class='ident'>new</span>(<span class='ident'>FnvHashMap</span>()),
+            <span class='ident'>derive_macros</span>: <span class='ident'>RefCell</span>::<span class='ident'>new</span>(<span class='ident'>NodeMap</span>()),
        }, <span class='ident'>f</span>)
     }
 }
@@ -2464,8 +2479,8 @@
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>print_debug_stats</span>(<span class='self'>self</span>) {
         <span class='macro'>sty_debug_print</span><span class='macro'>!</span>(
             <span class='self'>self</span>,
-            <span class='ident'>TyEnum</span>, <span class='ident'>TyBox</span>, <span class='ident'>TyArray</span>, <span class='ident'>TySlice</span>, <span class='ident'>TyRawPtr</span>, <span class='ident'>TyRef</span>, <span class='ident'>TyFnDef</span>, <span class='ident'>TyFnPtr</span>,
-            <span class='ident'>TyTrait</span>, <span class='ident'>TyStruct</span>, <span class='ident'>TyClosure</span>, <span class='ident'>TyTuple</span>, <span class='ident'>TyParam</span>, <span class='ident'>TyInfer</span>, <span class='ident'>TyProjection</span>, <span class='ident'>TyAnon</span>);
+            <span class='ident'>TyEnum</span>, <span class='ident'>TyBox</span>, <span class='ident'>TyArray</span>, <span class='ident'>TySlice</span>, <span class='ident'>TyRawPtr</span>, <span class='ident'>TyRef</span>, <span class='ident'>TyFnDef</span>, <span class='ident'>TyFnPtr</span>, <span class='ident'>TyTrait</span>,
+            <span class='ident'>TyStruct</span>, <span class='ident'>TyUnion</span>, <span class='ident'>TyClosure</span>, <span class='ident'>TyTuple</span>, <span class='ident'>TyParam</span>, <span class='ident'>TyInfer</span>, <span class='ident'>TyProjection</span>, <span class='ident'>TyAnon</span>);
 
         <span class='macro'>println</span><span class='macro'>!</span>(<span class='string'>&quot;Substs interner: #{}&quot;</span>, <span class='self'>self</span>.<span class='ident'>interners</span>.<span class='ident'>substs</span>.<span class='ident'>borrow</span>().<span class='ident'>len</span>());
         <span class='macro'>println</span><span class='macro'>!</span>(<span class='string'>&quot;BareFnTy interner: #{}&quot;</span>, <span class='self'>self</span>.<span class='ident'>interners</span>.<span class='ident'>bare_fn</span>.<span class='ident'>borrow</span>().<span class='ident'>len</span>());
@@ -2751,6 +2766,11 @@
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>mk_struct</span>(<span class='self'>self</span>, <span class='ident'>def</span>: <span class='ident'>AdtDef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
         <span class='comment'>// take a copy of substs so that we own the vectors inside</span>
         <span class='self'>self</span>.<span class='ident'>mk_ty</span>(<span class='ident'>TyStruct</span>(<span class='ident'>def</span>, <span class='ident'>substs</span>))
+    }
+
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>mk_union</span>(<span class='self'>self</span>, <span class='ident'>def</span>: <span class='ident'>AdtDef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
+        <span class='comment'>// take a copy of substs so that we own the vectors inside</span>
+        <span class='self'>self</span>.<span class='ident'>mk_ty</span>(<span class='ident'>TyUnion</span>(<span class='ident'>def</span>, <span class='ident'>substs</span>))
     }
 
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>mk_closure</span>(<span class='self'>self</span>,

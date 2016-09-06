@@ -533,6 +533,15 @@
 <span id="489">489</span>
 <span id="490">490</span>
 <span id="491">491</span>
+<span id="492">492</span>
+<span id="493">493</span>
+<span id="494">494</span>
+<span id="495">495</span>
+<span id="496">496</span>
+<span id="497">497</span>
+<span id="498">498</span>
+<span id="499">499</span>
+<span id="500">500</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -557,6 +566,7 @@
 <span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>Failure</span>::<span class='op'>*</span>;
 
 <span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>cmp</span>;
+<span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>intrinsics</span>::<span class='ident'>abort</span>;
 <span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>isize</span>;
 
 <span class='kw'>use</span> <span class='ident'>sync</span>::<span class='ident'>atomic</span>::{<span class='ident'>AtomicUsize</span>, <span class='ident'>AtomicIsize</span>, <span class='ident'>AtomicBool</span>, <span class='ident'>Ordering</span>};
@@ -570,6 +580,7 @@
 
 <span class='kw'>const</span> <span class='ident'>DISCONNECTED</span>: <span class='ident'>isize</span> <span class='op'>=</span> <span class='ident'>isize</span>::<span class='ident'>MIN</span>;
 <span class='kw'>const</span> <span class='ident'>FUDGE</span>: <span class='ident'>isize</span> <span class='op'>=</span> <span class='number'>1024</span>;
+<span class='kw'>const</span> <span class='ident'>MAX_REFCOUNT</span>: <span class='ident'>usize</span> <span class='op'>=</span> (<span class='ident'>isize</span>::<span class='ident'>MAX</span>) <span class='kw'>as</span> <span class='ident'>usize</span>;
 <span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>test</span>)]</span>
 <span class='kw'>const</span> <span class='ident'>MAX_STEALS</span>: <span class='ident'>isize</span> <span class='op'>=</span> <span class='number'>5</span>;
 <span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>not</span>(<span class='ident'>test</span>))]</span>
@@ -582,7 +593,7 @@
     <span class='ident'>to_wake</span>: <span class='ident'>AtomicUsize</span>, <span class='comment'>// SignalToken for wake up</span>
 
     <span class='comment'>// The number of channels which are currently using this packet.</span>
-    <span class='ident'>channels</span>: <span class='ident'>AtomicIsize</span>,
+    <span class='ident'>channels</span>: <span class='ident'>AtomicUsize</span>,
 
     <span class='comment'>// See the discussion in Port::drop and the channel send methods for what</span>
     <span class='comment'>// these are used for</span>
@@ -608,7 +619,7 @@
             <span class='ident'>cnt</span>: <span class='ident'>AtomicIsize</span>::<span class='ident'>new</span>(<span class='number'>0</span>),
             <span class='ident'>steals</span>: <span class='number'>0</span>,
             <span class='ident'>to_wake</span>: <span class='ident'>AtomicUsize</span>::<span class='ident'>new</span>(<span class='number'>0</span>),
-            <span class='ident'>channels</span>: <span class='ident'>AtomicIsize</span>::<span class='ident'>new</span>(<span class='number'>2</span>),
+            <span class='ident'>channels</span>: <span class='ident'>AtomicUsize</span>::<span class='ident'>new</span>(<span class='number'>2</span>),
             <span class='ident'>port_dropped</span>: <span class='ident'>AtomicBool</span>::<span class='ident'>new</span>(<span class='bool-val'>false</span>),
             <span class='ident'>sender_drain</span>: <span class='ident'>AtomicIsize</span>::<span class='ident'>new</span>(<span class='number'>0</span>),
             <span class='ident'>select_lock</span>: <span class='ident'>Mutex</span>::<span class='ident'>new</span>(()),
@@ -876,7 +887,14 @@
     <span class='comment'>// Prepares this shared packet for a channel clone, essentially just bumping</span>
     <span class='comment'>// a refcount.</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>clone_chan</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) {
-        <span class='self'>self</span>.<span class='ident'>channels</span>.<span class='ident'>fetch_add</span>(<span class='number'>1</span>, <span class='ident'>Ordering</span>::<span class='ident'>SeqCst</span>);
+        <span class='kw'>let</span> <span class='ident'>old_count</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>channels</span>.<span class='ident'>fetch_add</span>(<span class='number'>1</span>, <span class='ident'>Ordering</span>::<span class='ident'>SeqCst</span>);
+
+        <span class='comment'>// See comments on Arc::clone() on why we do this (for `mem::forget`).</span>
+        <span class='kw'>if</span> <span class='ident'>old_count</span> <span class='op'>&gt;</span> <span class='ident'>MAX_REFCOUNT</span> {
+            <span class='kw'>unsafe</span> {
+                <span class='ident'>abort</span>();
+            }
+        }
     }
 
     <span class='comment'>// Decrement the reference count on a channel. This is called whenever a</span>
