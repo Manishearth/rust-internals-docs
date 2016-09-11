@@ -811,6 +811,8 @@
 <span id="767">767</span>
 <span id="768">768</span>
 <span id="769">769</span>
+<span id="770">770</span>
+<span id="771">771</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -826,7 +828,7 @@
 
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>::<span class='ident'>def_id</span>::<span class='ident'>DefId</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::<span class='ident'>subst</span>::<span class='ident'>Substs</span>;
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>Ty</span>, <span class='ident'>TyCtxt</span>};
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>AdtKind</span>, <span class='ident'>Ty</span>, <span class='ident'>TyCtxt</span>};
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::<span class='ident'>layout</span>::{<span class='ident'>Layout</span>, <span class='ident'>Primitive</span>};
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>traits</span>::<span class='ident'>Reveal</span>;
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>const_val</span>::<span class='ident'>ConstVal</span>;
@@ -1245,110 +1247,112 @@ assert_eq!(x, y);
         }
 
         <span class='kw'>match</span> <span class='ident'>ty</span>.<span class='ident'>sty</span> {
-            <span class='ident'>ty</span>::<span class='ident'>TyStruct</span>(<span class='ident'>def</span>, <span class='ident'>substs</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>cx</span>.<span class='ident'>lookup_repr_hints</span>(<span class='ident'>def</span>.<span class='ident'>did</span>).<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>attr</span>::<span class='ident'>ReprExtern</span>) {
-                    <span class='kw'>return</span> <span class='ident'>FfiUnsafe</span>(
-                        <span class='string'>&quot;found struct without foreign-function-safe \
-                         representation annotation in foreign module, \
-                         consider adding a #[repr(C)] attribute to \
-                         the type&quot;</span>);
-                }
-
-                <span class='comment'>// We can&#39;t completely trust repr(C) markings; make sure the</span>
-                <span class='comment'>// fields are actually safe.</span>
-                <span class='kw'>if</span> <span class='ident'>def</span>.<span class='ident'>struct_variant</span>().<span class='ident'>fields</span>.<span class='ident'>is_empty</span>() {
-                    <span class='kw'>return</span> <span class='ident'>FfiUnsafe</span>(
-                        <span class='string'>&quot;found zero-size struct in foreign module, consider \
-                         adding a member to this struct&quot;</span>);
-                }
-
-                <span class='kw'>for</span> <span class='ident'>field</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>def</span>.<span class='ident'>struct_variant</span>().<span class='ident'>fields</span> {
-                    <span class='kw'>let</span> <span class='ident'>field_ty</span> <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>normalize_associated_type</span>(<span class='kw-2'>&amp;</span><span class='ident'>field</span>.<span class='ident'>ty</span>(<span class='ident'>cx</span>, <span class='ident'>substs</span>));
-                    <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>check_type_for_ffi</span>(<span class='ident'>cache</span>, <span class='ident'>field_ty</span>);
-                    <span class='kw'>match</span> <span class='ident'>r</span> {
-                        <span class='ident'>FfiSafe</span> <span class='op'>=&gt;</span> {}
-                        <span class='ident'>FfiBadStruct</span>(..) <span class='op'>|</span> <span class='ident'>FfiBadUnion</span>(..) <span class='op'>|</span> <span class='ident'>FfiBadEnum</span>(..) <span class='op'>=&gt;</span> { <span class='kw'>return</span> <span class='ident'>r</span>; }
-                        <span class='ident'>FfiUnsafe</span>(<span class='ident'>s</span>) <span class='op'>=&gt;</span> { <span class='kw'>return</span> <span class='ident'>FfiBadStruct</span>(<span class='ident'>def</span>.<span class='ident'>did</span>, <span class='ident'>s</span>); }
-                    }
-                }
-                <span class='ident'>FfiSafe</span>
-            }
-            <span class='ident'>ty</span>::<span class='ident'>TyUnion</span>(<span class='ident'>def</span>, <span class='ident'>substs</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>cx</span>.<span class='ident'>lookup_repr_hints</span>(<span class='ident'>def</span>.<span class='ident'>did</span>).<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>attr</span>::<span class='ident'>ReprExtern</span>) {
-                    <span class='kw'>return</span> <span class='ident'>FfiUnsafe</span>(
-                        <span class='string'>&quot;found union without foreign-function-safe \
-                         representation annotation in foreign module, \
-                         consider adding a #[repr(C)] attribute to \
-                         the type&quot;</span>);
-                }
-
-                <span class='kw'>for</span> <span class='ident'>field</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>def</span>.<span class='ident'>struct_variant</span>().<span class='ident'>fields</span> {
-                    <span class='kw'>let</span> <span class='ident'>field_ty</span> <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>normalize_associated_type</span>(<span class='kw-2'>&amp;</span><span class='ident'>field</span>.<span class='ident'>ty</span>(<span class='ident'>cx</span>, <span class='ident'>substs</span>));
-                    <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>check_type_for_ffi</span>(<span class='ident'>cache</span>, <span class='ident'>field_ty</span>);
-                    <span class='kw'>match</span> <span class='ident'>r</span> {
-                        <span class='ident'>FfiSafe</span> <span class='op'>=&gt;</span> {}
-                        <span class='ident'>FfiBadStruct</span>(..) <span class='op'>|</span> <span class='ident'>FfiBadUnion</span>(..) <span class='op'>|</span> <span class='ident'>FfiBadEnum</span>(..) <span class='op'>=&gt;</span> { <span class='kw'>return</span> <span class='ident'>r</span>; }
-                        <span class='ident'>FfiUnsafe</span>(<span class='ident'>s</span>) <span class='op'>=&gt;</span> { <span class='kw'>return</span> <span class='ident'>FfiBadUnion</span>(<span class='ident'>def</span>.<span class='ident'>did</span>, <span class='ident'>s</span>); }
-                    }
-                }
-                <span class='ident'>FfiSafe</span>
-            }
-            <span class='ident'>ty</span>::<span class='ident'>TyEnum</span>(<span class='ident'>def</span>, <span class='ident'>substs</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>if</span> <span class='ident'>def</span>.<span class='ident'>variants</span>.<span class='ident'>is_empty</span>() {
-                    <span class='comment'>// Empty enums are okay... although sort of useless.</span>
-                    <span class='kw'>return</span> <span class='ident'>FfiSafe</span>
-                }
-
-                <span class='comment'>// Check for a repr() attribute to specify the size of the</span>
-                <span class='comment'>// discriminant.</span>
-                <span class='kw'>let</span> <span class='ident'>repr_hints</span> <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>lookup_repr_hints</span>(<span class='ident'>def</span>.<span class='ident'>did</span>);
-                <span class='kw'>match</span> <span class='kw-2'>&amp;</span><span class='ident'>repr_hints</span>[..] {
-                    <span class='kw-2'>&amp;</span>[] <span class='op'>=&gt;</span> {
-                        <span class='comment'>// Special-case types like `Option&lt;extern fn()&gt;`.</span>
-                        <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>is_repr_nullable_ptr</span>(<span class='ident'>cx</span>, <span class='ident'>def</span>, <span class='ident'>substs</span>) {
-                            <span class='kw'>return</span> <span class='ident'>FfiUnsafe</span>(
-                                <span class='string'>&quot;found enum without foreign-function-safe \
-                                 representation annotation in foreign module, \
-                                 consider adding a #[repr(...)] attribute to \
-                                 the type&quot;</span>)
-                        }
-                    }
-                    <span class='kw-2'>&amp;</span>[<span class='kw-2'>ref</span> <span class='ident'>hint</span>] <span class='op'>=&gt;</span> {
-                        <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>hint</span>.<span class='ident'>is_ffi_safe</span>() {
-                            <span class='comment'>// FIXME: This shouldn&#39;t be reachable: we should check</span>
-                            <span class='comment'>// this earlier.</span>
-                            <span class='kw'>return</span> <span class='ident'>FfiUnsafe</span>(
-                                <span class='string'>&quot;enum has unexpected #[repr(...)] attribute&quot;</span>)
-                        }
-
-                        <span class='comment'>// Enum with an explicitly sized discriminant; either</span>
-                        <span class='comment'>// a C-style enum or a discriminated union.</span>
-
-                        <span class='comment'>// The layout of enum variants is implicitly repr(C).</span>
-                        <span class='comment'>// FIXME: Is that correct?</span>
-                    }
-                    _ <span class='op'>=&gt;</span> {
-                        <span class='comment'>// FIXME: This shouldn&#39;t be reachable: we should check</span>
-                        <span class='comment'>// this earlier.</span>
+            <span class='ident'>ty</span>::<span class='ident'>TyAdt</span>(<span class='ident'>def</span>, <span class='ident'>substs</span>) <span class='op'>=&gt;</span> <span class='kw'>match</span> <span class='ident'>def</span>.<span class='ident'>adt_kind</span>() {
+                <span class='ident'>AdtKind</span>::<span class='ident'>Struct</span> <span class='op'>=&gt;</span> {
+                    <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>cx</span>.<span class='ident'>lookup_repr_hints</span>(<span class='ident'>def</span>.<span class='ident'>did</span>).<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>attr</span>::<span class='ident'>ReprExtern</span>) {
                         <span class='kw'>return</span> <span class='ident'>FfiUnsafe</span>(
-                            <span class='string'>&quot;enum has too many #[repr(...)] attributes&quot;</span>);
+                            <span class='string'>&quot;found struct without foreign-function-safe \
+                            representation annotation in foreign module, \
+                            consider adding a #[repr(C)] attribute to \
+                            the type&quot;</span>);
                     }
-                }
 
-                <span class='comment'>// Check the contained variants.</span>
-                <span class='kw'>for</span> <span class='ident'>variant</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>def</span>.<span class='ident'>variants</span> {
-                    <span class='kw'>for</span> <span class='ident'>field</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>variant</span>.<span class='ident'>fields</span> {
-                        <span class='kw'>let</span> <span class='ident'>arg</span> <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>normalize_associated_type</span>(<span class='kw-2'>&amp;</span><span class='ident'>field</span>.<span class='ident'>ty</span>(<span class='ident'>cx</span>, <span class='ident'>substs</span>));
-                        <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>check_type_for_ffi</span>(<span class='ident'>cache</span>, <span class='ident'>arg</span>);
+                    <span class='comment'>// We can&#39;t completely trust repr(C) markings; make sure the</span>
+                    <span class='comment'>// fields are actually safe.</span>
+                    <span class='kw'>if</span> <span class='ident'>def</span>.<span class='ident'>struct_variant</span>().<span class='ident'>fields</span>.<span class='ident'>is_empty</span>() {
+                        <span class='kw'>return</span> <span class='ident'>FfiUnsafe</span>(
+                            <span class='string'>&quot;found zero-size struct in foreign module, consider \
+                            adding a member to this struct&quot;</span>);
+                    }
+
+                    <span class='kw'>for</span> <span class='ident'>field</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>def</span>.<span class='ident'>struct_variant</span>().<span class='ident'>fields</span> {
+                        <span class='kw'>let</span> <span class='ident'>field_ty</span> <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>normalize_associated_type</span>(<span class='kw-2'>&amp;</span><span class='ident'>field</span>.<span class='ident'>ty</span>(<span class='ident'>cx</span>, <span class='ident'>substs</span>));
+                        <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>check_type_for_ffi</span>(<span class='ident'>cache</span>, <span class='ident'>field_ty</span>);
                         <span class='kw'>match</span> <span class='ident'>r</span> {
                             <span class='ident'>FfiSafe</span> <span class='op'>=&gt;</span> {}
                             <span class='ident'>FfiBadStruct</span>(..) <span class='op'>|</span> <span class='ident'>FfiBadUnion</span>(..) <span class='op'>|</span> <span class='ident'>FfiBadEnum</span>(..) <span class='op'>=&gt;</span> { <span class='kw'>return</span> <span class='ident'>r</span>; }
-                            <span class='ident'>FfiUnsafe</span>(<span class='ident'>s</span>) <span class='op'>=&gt;</span> { <span class='kw'>return</span> <span class='ident'>FfiBadEnum</span>(<span class='ident'>def</span>.<span class='ident'>did</span>, <span class='ident'>s</span>); }
+                            <span class='ident'>FfiUnsafe</span>(<span class='ident'>s</span>) <span class='op'>=&gt;</span> { <span class='kw'>return</span> <span class='ident'>FfiBadStruct</span>(<span class='ident'>def</span>.<span class='ident'>did</span>, <span class='ident'>s</span>); }
                         }
                     }
+                    <span class='ident'>FfiSafe</span>
                 }
-                <span class='ident'>FfiSafe</span>
-            }
+                <span class='ident'>AdtKind</span>::<span class='ident'>Union</span> <span class='op'>=&gt;</span> {
+                    <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>cx</span>.<span class='ident'>lookup_repr_hints</span>(<span class='ident'>def</span>.<span class='ident'>did</span>).<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>attr</span>::<span class='ident'>ReprExtern</span>) {
+                        <span class='kw'>return</span> <span class='ident'>FfiUnsafe</span>(
+                            <span class='string'>&quot;found union without foreign-function-safe \
+                            representation annotation in foreign module, \
+                            consider adding a #[repr(C)] attribute to \
+                            the type&quot;</span>);
+                    }
+
+                    <span class='kw'>for</span> <span class='ident'>field</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>def</span>.<span class='ident'>struct_variant</span>().<span class='ident'>fields</span> {
+                        <span class='kw'>let</span> <span class='ident'>field_ty</span> <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>normalize_associated_type</span>(<span class='kw-2'>&amp;</span><span class='ident'>field</span>.<span class='ident'>ty</span>(<span class='ident'>cx</span>, <span class='ident'>substs</span>));
+                        <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>check_type_for_ffi</span>(<span class='ident'>cache</span>, <span class='ident'>field_ty</span>);
+                        <span class='kw'>match</span> <span class='ident'>r</span> {
+                            <span class='ident'>FfiSafe</span> <span class='op'>=&gt;</span> {}
+                            <span class='ident'>FfiBadStruct</span>(..) <span class='op'>|</span> <span class='ident'>FfiBadUnion</span>(..) <span class='op'>|</span> <span class='ident'>FfiBadEnum</span>(..) <span class='op'>=&gt;</span> { <span class='kw'>return</span> <span class='ident'>r</span>; }
+                            <span class='ident'>FfiUnsafe</span>(<span class='ident'>s</span>) <span class='op'>=&gt;</span> { <span class='kw'>return</span> <span class='ident'>FfiBadUnion</span>(<span class='ident'>def</span>.<span class='ident'>did</span>, <span class='ident'>s</span>); }
+                        }
+                    }
+                    <span class='ident'>FfiSafe</span>
+                }
+                <span class='ident'>AdtKind</span>::<span class='ident'>Enum</span> <span class='op'>=&gt;</span> {
+                    <span class='kw'>if</span> <span class='ident'>def</span>.<span class='ident'>variants</span>.<span class='ident'>is_empty</span>() {
+                        <span class='comment'>// Empty enums are okay... although sort of useless.</span>
+                        <span class='kw'>return</span> <span class='ident'>FfiSafe</span>
+                    }
+
+                    <span class='comment'>// Check for a repr() attribute to specify the size of the</span>
+                    <span class='comment'>// discriminant.</span>
+                    <span class='kw'>let</span> <span class='ident'>repr_hints</span> <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>lookup_repr_hints</span>(<span class='ident'>def</span>.<span class='ident'>did</span>);
+                    <span class='kw'>match</span> <span class='kw-2'>&amp;</span><span class='ident'>repr_hints</span>[..] {
+                        <span class='kw-2'>&amp;</span>[] <span class='op'>=&gt;</span> {
+                            <span class='comment'>// Special-case types like `Option&lt;extern fn()&gt;`.</span>
+                            <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>is_repr_nullable_ptr</span>(<span class='ident'>cx</span>, <span class='ident'>def</span>, <span class='ident'>substs</span>) {
+                                <span class='kw'>return</span> <span class='ident'>FfiUnsafe</span>(
+                                    <span class='string'>&quot;found enum without foreign-function-safe \
+                                    representation annotation in foreign module, \
+                                    consider adding a #[repr(...)] attribute to \
+                                    the type&quot;</span>)
+                            }
+                        }
+                        <span class='kw-2'>&amp;</span>[<span class='kw-2'>ref</span> <span class='ident'>hint</span>] <span class='op'>=&gt;</span> {
+                            <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>hint</span>.<span class='ident'>is_ffi_safe</span>() {
+                                <span class='comment'>// FIXME: This shouldn&#39;t be reachable: we should check</span>
+                                <span class='comment'>// this earlier.</span>
+                                <span class='kw'>return</span> <span class='ident'>FfiUnsafe</span>(
+                                    <span class='string'>&quot;enum has unexpected #[repr(...)] attribute&quot;</span>)
+                            }
+
+                            <span class='comment'>// Enum with an explicitly sized discriminant; either</span>
+                            <span class='comment'>// a C-style enum or a discriminated union.</span>
+
+                            <span class='comment'>// The layout of enum variants is implicitly repr(C).</span>
+                            <span class='comment'>// FIXME: Is that correct?</span>
+                        }
+                        _ <span class='op'>=&gt;</span> {
+                            <span class='comment'>// FIXME: This shouldn&#39;t be reachable: we should check</span>
+                            <span class='comment'>// this earlier.</span>
+                            <span class='kw'>return</span> <span class='ident'>FfiUnsafe</span>(
+                                <span class='string'>&quot;enum has too many #[repr(...)] attributes&quot;</span>);
+                        }
+                    }
+
+                    <span class='comment'>// Check the contained variants.</span>
+                    <span class='kw'>for</span> <span class='ident'>variant</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>def</span>.<span class='ident'>variants</span> {
+                        <span class='kw'>for</span> <span class='ident'>field</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>variant</span>.<span class='ident'>fields</span> {
+                            <span class='kw'>let</span> <span class='ident'>arg</span> <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>normalize_associated_type</span>(<span class='kw-2'>&amp;</span><span class='ident'>field</span>.<span class='ident'>ty</span>(<span class='ident'>cx</span>, <span class='ident'>substs</span>));
+                            <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>check_type_for_ffi</span>(<span class='ident'>cache</span>, <span class='ident'>arg</span>);
+                            <span class='kw'>match</span> <span class='ident'>r</span> {
+                                <span class='ident'>FfiSafe</span> <span class='op'>=&gt;</span> {}
+                                <span class='ident'>FfiBadStruct</span>(..) <span class='op'>|</span> <span class='ident'>FfiBadUnion</span>(..) <span class='op'>|</span> <span class='ident'>FfiBadEnum</span>(..) <span class='op'>=&gt;</span> { <span class='kw'>return</span> <span class='ident'>r</span>; }
+                                <span class='ident'>FfiUnsafe</span>(<span class='ident'>s</span>) <span class='op'>=&gt;</span> { <span class='kw'>return</span> <span class='ident'>FfiBadEnum</span>(<span class='ident'>def</span>.<span class='ident'>did</span>, <span class='ident'>s</span>); }
+                            }
+                        }
+                    }
+                    <span class='ident'>FfiSafe</span>
+                }
+            },
 
             <span class='ident'>ty</span>::<span class='ident'>TyChar</span> <span class='op'>=&gt;</span> {
                 <span class='ident'>FfiUnsafe</span>(<span class='string'>&quot;found Rust type `char` in foreign module, while \

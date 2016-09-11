@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["strip_unconfigured_items",""]],"struct":[["StripUnconfigured","A folder that strips out items that do not belong in the current configuration."]]});
+initSidebarItems({"fn":[["features",""]],"struct":[["StripUnconfigured","A folder that strips out items that do not belong in the current configuration."]]});

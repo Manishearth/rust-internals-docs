@@ -6234,16 +6234,6 @@
 <span id="6190">6190</span>
 <span id="6191">6191</span>
 <span id="6192">6192</span>
-<span id="6193">6193</span>
-<span id="6194">6194</span>
-<span id="6195">6195</span>
-<span id="6196">6196</span>
-<span id="6197">6197</span>
-<span id="6198">6198</span>
-<span id="6199">6199</span>
-<span id="6200">6200</span>
-<span id="6201">6201</span>
-<span id="6202">6202</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -6511,8 +6501,7 @@
     <span class='doccomment'>/// extra detail when the same error is seen twice</span>
     <span class='kw'>pub</span> <span class='ident'>obsolete_set</span>: <span class='ident'>HashSet</span><span class='op'>&lt;</span><span class='ident'>ObsoleteSyntax</span><span class='op'>&gt;</span>,
     <span class='doccomment'>/// Used to determine the path to externally loaded source files</span>
-    <span class='kw'>pub</span> <span class='ident'>filename</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>String</span><span class='op'>&gt;</span>,
-    <span class='kw'>pub</span> <span class='ident'>mod_path_stack</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>InternedString</span><span class='op'>&gt;</span>,
+    <span class='kw'>pub</span> <span class='ident'>directory</span>: <span class='ident'>PathBuf</span>,
     <span class='doccomment'>/// Stack of open delimiters and their spans. Used for error message.</span>
     <span class='kw'>pub</span> <span class='ident'>open_braces</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span>(<span class='ident'>token</span>::<span class='ident'>DelimToken</span>, <span class='ident'>Span</span>)<span class='op'>&gt;</span>,
     <span class='doccomment'>/// Flag if this parser &quot;owns&quot; the directory that it is currently parsing</span>
@@ -6593,9 +6582,11 @@
     {
         <span class='kw'>let</span> <span class='ident'>tok0</span> <span class='op'>=</span> <span class='ident'>rdr</span>.<span class='ident'>real_token</span>();
         <span class='kw'>let</span> <span class='ident'>span</span> <span class='op'>=</span> <span class='ident'>tok0</span>.<span class='ident'>sp</span>;
-        <span class='kw'>let</span> <span class='ident'>filename</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='ident'>span</span> <span class='op'>!=</span> <span class='ident'>syntax_pos</span>::<span class='ident'>DUMMY_SP</span> {
-            <span class='prelude-val'>Some</span>(<span class='ident'>sess</span>.<span class='ident'>codemap</span>().<span class='ident'>span_to_filename</span>(<span class='ident'>span</span>))
-        } <span class='kw'>else</span> { <span class='prelude-val'>None</span> };
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>directory</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>span</span> {
+            <span class='ident'>syntax_pos</span>::<span class='ident'>DUMMY_SP</span> <span class='op'>=&gt;</span> <span class='ident'>PathBuf</span>::<span class='ident'>new</span>(),
+            _ <span class='op'>=&gt;</span> <span class='ident'>PathBuf</span>::<span class='ident'>from</span>(<span class='ident'>sess</span>.<span class='ident'>codemap</span>().<span class='ident'>span_to_filename</span>(<span class='ident'>span</span>)),
+        };
+        <span class='ident'>directory</span>.<span class='ident'>pop</span>();
         <span class='kw'>let</span> <span class='ident'>placeholder</span> <span class='op'>=</span> <span class='ident'>TokenAndSpan</span> {
             <span class='ident'>tok</span>: <span class='ident'>token</span>::<span class='ident'>Underscore</span>,
             <span class='ident'>sp</span>: <span class='ident'>span</span>,
@@ -6624,8 +6615,7 @@
             <span class='ident'>quote_depth</span>: <span class='number'>0</span>,
             <span class='ident'>parsing_token_tree</span>: <span class='bool-val'>false</span>,
             <span class='ident'>obsolete_set</span>: <span class='ident'>HashSet</span>::<span class='ident'>new</span>(),
-            <span class='ident'>mod_path_stack</span>: <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
-            <span class='ident'>filename</span>: <span class='ident'>filename</span>,
+            <span class='ident'>directory</span>: <span class='ident'>directory</span>,
             <span class='ident'>open_braces</span>: <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
             <span class='ident'>owns_directory</span>: <span class='bool-val'>true</span>,
             <span class='ident'>root_module_name</span>: <span class='prelude-val'>None</span>,
@@ -11553,27 +11543,24 @@
             <span class='kw'>let</span> (<span class='ident'>m</span>, <span class='ident'>attrs</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>eval_src_mod</span>(<span class='ident'>id</span>, <span class='kw-2'>&amp;</span><span class='ident'>outer_attrs</span>, <span class='ident'>id_span</span>)?;
             <span class='prelude-val'>Ok</span>((<span class='ident'>id</span>, <span class='ident'>m</span>, <span class='prelude-val'>Some</span>(<span class='ident'>attrs</span>)))
         } <span class='kw'>else</span> {
-            <span class='self'>self</span>.<span class='ident'>push_mod_path</span>(<span class='ident'>id</span>, <span class='kw-2'>&amp;</span><span class='ident'>outer_attrs</span>);
+            <span class='kw'>let</span> <span class='ident'>directory</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>directory</span>.<span class='ident'>clone</span>();
+            <span class='self'>self</span>.<span class='ident'>push_directory</span>(<span class='ident'>id</span>, <span class='kw-2'>&amp;</span><span class='ident'>outer_attrs</span>);
             <span class='self'>self</span>.<span class='ident'>expect</span>(<span class='kw-2'>&amp;</span><span class='ident'>token</span>::<span class='ident'>OpenDelim</span>(<span class='ident'>token</span>::<span class='ident'>Brace</span>))?;
             <span class='kw'>let</span> <span class='ident'>mod_inner_lo</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>span</span>.<span class='ident'>lo</span>;
             <span class='kw'>let</span> <span class='ident'>attrs</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>parse_inner_attributes</span>()?;
             <span class='kw'>let</span> <span class='ident'>m</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>parse_mod_items</span>(<span class='kw-2'>&amp;</span><span class='ident'>token</span>::<span class='ident'>CloseDelim</span>(<span class='ident'>token</span>::<span class='ident'>Brace</span>), <span class='ident'>mod_inner_lo</span>)?;
-            <span class='self'>self</span>.<span class='ident'>pop_mod_path</span>();
+            <span class='self'>self</span>.<span class='ident'>directory</span> <span class='op'>=</span> <span class='ident'>directory</span>;
             <span class='prelude-val'>Ok</span>((<span class='ident'>id</span>, <span class='ident'>ItemKind</span>::<span class='ident'>Mod</span>(<span class='ident'>m</span>), <span class='prelude-val'>Some</span>(<span class='ident'>attrs</span>)))
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>push_mod_path</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>id</span>: <span class='ident'>Ident</span>, <span class='ident'>attrs</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>Attribute</span>]) {
+    <span class='kw'>fn</span> <span class='ident'>push_directory</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>id</span>: <span class='ident'>Ident</span>, <span class='ident'>attrs</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>Attribute</span>]) {
         <span class='kw'>let</span> <span class='ident'>default_path</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>id_to_interned_str</span>(<span class='ident'>id</span>);
         <span class='kw'>let</span> <span class='ident'>file_path</span> <span class='op'>=</span> <span class='kw'>match</span> ::<span class='ident'>attr</span>::<span class='ident'>first_attr_value_str_by_name</span>(<span class='ident'>attrs</span>, <span class='string'>&quot;path&quot;</span>) {
             <span class='prelude-val'>Some</span>(<span class='ident'>d</span>) <span class='op'>=&gt;</span> <span class='ident'>d</span>,
             <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='ident'>default_path</span>,
         };
-        <span class='self'>self</span>.<span class='ident'>mod_path_stack</span>.<span class='ident'>push</span>(<span class='ident'>file_path</span>)
-    }
-
-    <span class='kw'>fn</span> <span class='ident'>pop_mod_path</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) {
-        <span class='self'>self</span>.<span class='ident'>mod_path_stack</span>.<span class='ident'>pop</span>().<span class='ident'>unwrap</span>();
+        <span class='self'>self</span>.<span class='ident'>directory</span>.<span class='ident'>push</span>(<span class='kw-2'>&amp;</span><span class='op'>*</span><span class='ident'>file_path</span>)
     }
 
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>submod_path_from_attr</span>(<span class='ident'>attrs</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>ast</span>::<span class='ident'>Attribute</span>], <span class='ident'>dir_path</span>: <span class='kw-2'>&amp;</span><span class='ident'>Path</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>PathBuf</span><span class='op'>&gt;</span> {
@@ -11621,18 +11608,11 @@
                    <span class='ident'>id</span>: <span class='ident'>ast</span>::<span class='ident'>Ident</span>,
                    <span class='ident'>outer_attrs</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>ast</span>::<span class='ident'>Attribute</span>],
                    <span class='ident'>id_sp</span>: <span class='ident'>Span</span>) <span class='op'>-&gt;</span> <span class='ident'>PResult</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>ModulePathSuccess</span><span class='op'>&gt;</span> {
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>prefix</span> <span class='op'>=</span> <span class='ident'>PathBuf</span>::<span class='ident'>from</span>(<span class='self'>self</span>.<span class='ident'>filename</span>.<span class='ident'>as_ref</span>().<span class='ident'>unwrap</span>());
-        <span class='ident'>prefix</span>.<span class='ident'>pop</span>();
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>dir_path</span> <span class='op'>=</span> <span class='ident'>prefix</span>;
-        <span class='kw'>for</span> <span class='ident'>part</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>mod_path_stack</span> {
-            <span class='ident'>dir_path</span>.<span class='ident'>push</span>(<span class='kw-2'>&amp;</span><span class='op'>*</span><span class='op'>*</span><span class='ident'>part</span>);
-        }
-
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>p</span>) <span class='op'>=</span> <span class='ident'>Parser</span>::<span class='ident'>submod_path_from_attr</span>(<span class='ident'>outer_attrs</span>, <span class='kw-2'>&amp;</span><span class='ident'>dir_path</span>) {
+        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>p</span>) <span class='op'>=</span> <span class='ident'>Parser</span>::<span class='ident'>submod_path_from_attr</span>(<span class='ident'>outer_attrs</span>, <span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>directory</span>) {
             <span class='kw'>return</span> <span class='prelude-val'>Ok</span>(<span class='ident'>ModulePathSuccess</span> { <span class='ident'>path</span>: <span class='ident'>p</span>, <span class='ident'>owns_directory</span>: <span class='bool-val'>true</span> });
         }
 
-        <span class='kw'>let</span> <span class='ident'>paths</span> <span class='op'>=</span> <span class='ident'>Parser</span>::<span class='ident'>default_submod_path</span>(<span class='ident'>id</span>, <span class='kw-2'>&amp;</span><span class='ident'>dir_path</span>, <span class='self'>self</span>.<span class='ident'>sess</span>.<span class='ident'>codemap</span>());
+        <span class='kw'>let</span> <span class='ident'>paths</span> <span class='op'>=</span> <span class='ident'>Parser</span>::<span class='ident'>default_submod_path</span>(<span class='ident'>id</span>, <span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>directory</span>, <span class='self'>self</span>.<span class='ident'>sess</span>.<span class='ident'>codemap</span>());
 
         <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>restrictions</span>.<span class='ident'>contains</span>(<span class='ident'>Restrictions</span>::<span class='ident'>NO_NONINLINE_MOD</span>) {
             <span class='kw'>let</span> <span class='ident'>msg</span> <span class='op'>=</span>
@@ -11647,8 +11627,8 @@
         } <span class='kw'>else</span> <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>owns_directory</span> {
             <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>err</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>diagnostic</span>().<span class='ident'>struct_span_err</span>(<span class='ident'>id_sp</span>,
                 <span class='string'>&quot;cannot declare a new module at this location&quot;</span>);
-            <span class='kw'>let</span> <span class='ident'>this_module</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>mod_path_stack</span>.<span class='ident'>last</span>() {
-                <span class='prelude-val'>Some</span>(<span class='ident'>name</span>) <span class='op'>=&gt;</span> <span class='ident'>name</span>.<span class='ident'>to_string</span>(),
+            <span class='kw'>let</span> <span class='ident'>this_module</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>directory</span>.<span class='ident'>file_name</span>() {
+                <span class='prelude-val'>Some</span>(<span class='ident'>file_name</span>) <span class='op'>=&gt;</span> <span class='ident'>file_name</span>.<span class='ident'>to_str</span>().<span class='ident'>unwrap</span>().<span class='ident'>to_owned</span>(),
                 <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='self'>self</span>.<span class='ident'>root_module_name</span>.<span class='ident'>as_ref</span>().<span class='ident'>unwrap</span>().<span class='ident'>clone</span>(),
             };
             <span class='ident'>err</span>.<span class='ident'>span_note</span>(<span class='ident'>id_sp</span>,
