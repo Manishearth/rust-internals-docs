@@ -1712,6 +1712,7 @@
 <span class='kw'>use</span> <span class='ident'>tls_context</span>;
 <span class='kw'>use</span> <span class='ident'>tydecode</span>::<span class='ident'>TyDecoder</span>;
 
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>::<span class='ident'>def_id</span>::<span class='ident'>CRATE_DEF_INDEX</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>::<span class='ident'>svh</span>::<span class='ident'>Svh</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>::<span class='ident'>map</span> <span class='kw'>as</span> <span class='ident'>hir_map</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>::<span class='ident'>map</span>::<span class='ident'>DefKey</span>;
@@ -2416,15 +2417,7 @@
     <span class='kw'>where</span> <span class='ident'>F</span>: <span class='ident'>FnMut</span>(<span class='ident'>DefLike</span>, <span class='ident'>ast</span>::<span class='ident'>Name</span>, <span class='ident'>ty</span>::<span class='ident'>Visibility</span>),
           <span class='ident'>G</span>: <span class='ident'>FnMut</span>(<span class='ident'>ast</span>::<span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>CrateMetadata</span><span class='op'>&gt;</span>,
 {
-    <span class='kw'>let</span> <span class='ident'>root_doc</span> <span class='op'>=</span> <span class='ident'>rbml</span>::<span class='ident'>Doc</span>::<span class='ident'>new</span>(<span class='ident'>cdata</span>.<span class='ident'>data</span>());
-    <span class='kw'>let</span> <span class='ident'>misc_info_doc</span> <span class='op'>=</span> <span class='ident'>reader</span>::<span class='ident'>get_doc</span>(<span class='ident'>root_doc</span>, <span class='ident'>tag_misc_info</span>);
-    <span class='kw'>let</span> <span class='ident'>crate_items_doc</span> <span class='op'>=</span> <span class='ident'>reader</span>::<span class='ident'>get_doc</span>(<span class='ident'>misc_info_doc</span>,
-                                          <span class='ident'>tag_misc_info_crate_items</span>);
-
-    <span class='ident'>each_child_of_item_or_crate</span>(<span class='ident'>cdata</span>,
-                                <span class='ident'>crate_items_doc</span>,
-                                <span class='ident'>get_crate_data</span>,
-                                <span class='ident'>callback</span>)
+    <span class='ident'>each_child_of_item</span>(<span class='ident'>cdata</span>, <span class='ident'>CRATE_DEF_INDEX</span>, <span class='ident'>get_crate_data</span>, <span class='ident'>callback</span>)
 }
 
 <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>get_item_name</span>(<span class='ident'>cdata</span>: <span class='ident'>Cmd</span>, <span class='ident'>id</span>: <span class='ident'>DefIndex</span>) <span class='op'>-&gt;</span> <span class='ident'>ast</span>::<span class='ident'>Name</span> {
@@ -2450,7 +2443,7 @@
         <span class='ident'>krate</span>: <span class='ident'>cdata</span>.<span class='ident'>cnum</span>,
         <span class='ident'>index</span>: <span class='ident'>def_key</span>(<span class='ident'>cdata</span>, <span class='ident'>id</span>).<span class='ident'>parent</span>.<span class='ident'>unwrap</span>()
     };
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>parent_def_path</span> <span class='op'>=</span> <span class='ident'>def_path</span>(<span class='ident'>cdata</span>, <span class='ident'>id</span>);
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>parent_def_path</span> <span class='op'>=</span> <span class='ident'>def_path</span>(<span class='ident'>cdata</span>, <span class='ident'>id</span>).<span class='ident'>unwrap</span>();
     <span class='ident'>parent_def_path</span>.<span class='ident'>data</span>.<span class='ident'>pop</span>();
     <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>ast_doc</span>) <span class='op'>=</span> <span class='ident'>reader</span>::<span class='ident'>maybe_get_doc</span>(<span class='ident'>item_doc</span>, <span class='ident'>tag_ast</span> <span class='kw'>as</span> <span class='ident'>usize</span>) {
         <span class='kw'>let</span> <span class='ident'>ii</span> <span class='op'>=</span> <span class='ident'>decode_inlined_item</span>(<span class='ident'>cdata</span>,
@@ -3317,9 +3310,16 @@
     }
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>def_path</span>(<span class='ident'>cdata</span>: <span class='ident'>Cmd</span>, <span class='ident'>id</span>: <span class='ident'>DefIndex</span>) <span class='op'>-&gt;</span> <span class='ident'>hir_map</span>::<span class='ident'>DefPath</span> {
+<span class='comment'>// Returns the path leading to the thing with this `id`. Note that</span>
+<span class='comment'>// some def-ids don&#39;t wind up in the metadata, so `def_path` sometimes</span>
+<span class='comment'>// returns `None`</span>
+<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>def_path</span>(<span class='ident'>cdata</span>: <span class='ident'>Cmd</span>, <span class='ident'>id</span>: <span class='ident'>DefIndex</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>hir_map</span>::<span class='ident'>DefPath</span><span class='op'>&gt;</span> {
     <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;def_path(id={:?})&quot;</span>, <span class='ident'>id</span>);
-    <span class='ident'>hir_map</span>::<span class='ident'>DefPath</span>::<span class='ident'>make</span>(<span class='ident'>cdata</span>.<span class='ident'>cnum</span>, <span class='ident'>id</span>, <span class='op'>|</span><span class='ident'>parent</span><span class='op'>|</span> <span class='ident'>def_key</span>(<span class='ident'>cdata</span>, <span class='ident'>parent</span>))
+    <span class='kw'>if</span> <span class='ident'>cdata</span>.<span class='ident'>get_item</span>(<span class='ident'>id</span>).<span class='ident'>is_some</span>() {
+        <span class='prelude-val'>Some</span>(<span class='ident'>hir_map</span>::<span class='ident'>DefPath</span>::<span class='ident'>make</span>(<span class='ident'>cdata</span>.<span class='ident'>cnum</span>, <span class='ident'>id</span>, <span class='op'>|</span><span class='ident'>parent</span><span class='op'>|</span> <span class='ident'>def_key</span>(<span class='ident'>cdata</span>, <span class='ident'>parent</span>)))
+    } <span class='kw'>else</span> {
+        <span class='prelude-val'>None</span>
+    }
 }
 
 <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>get_panic_strategy</span>(<span class='ident'>data</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>u8</span>]) <span class='op'>-&gt;</span> <span class='ident'>PanicStrategy</span> {
