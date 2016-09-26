@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["lower_crate",""]],"struct":[["DummyResolver",""],["LoweringContext",""]],"trait":[["Resolver",""]]});
+initSidebarItems({"fn":[["lower_crate",""]],"struct":[["LoweringContext",""]],"trait":[["Resolver",""]]});

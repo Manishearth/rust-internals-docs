@@ -1,5 +1,5 @@
 (function() {var implementors = {};
-implementors["rustc_driver"] = [];
+implementors["rustc_driver"] = [];implementors["rustdoc"] = [];
 
             if (window.register_implementors) {
                 window.register_implementors(implementors);

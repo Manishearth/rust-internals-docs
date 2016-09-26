@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["call_bad_macro_reexport",""]],"struct":[["MacroLoader",""]],"type":[["MacroSelection",""]]});
+initSidebarItems({"fn":[["call_bad_macro_reexport",""],["load_macros",""]],"type":[["MacroSelection",""]]});

@@ -1384,6 +1384,23 @@
 <span id="1340">1340</span>
 <span id="1341">1341</span>
 <span id="1342">1342</span>
+<span id="1343">1343</span>
+<span id="1344">1344</span>
+<span id="1345">1345</span>
+<span id="1346">1346</span>
+<span id="1347">1347</span>
+<span id="1348">1348</span>
+<span id="1349">1349</span>
+<span id="1350">1350</span>
+<span id="1351">1351</span>
+<span id="1352">1352</span>
+<span id="1353">1353</span>
+<span id="1354">1354</span>
+<span id="1355">1355</span>
+<span id="1356">1356</span>
+<span id="1357">1357</span>
+<span id="1358">1358</span>
+<span id="1359">1359</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2013 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -1441,6 +1458,7 @@
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>attr</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>attr</span>::<span class='ident'>IntType</span>;
 <span class='kw'>use</span> <span class='ident'>abi</span>::<span class='ident'>FAT_PTR_ADDR</span>;
+<span class='kw'>use</span> <span class='ident'>base</span>;
 <span class='kw'>use</span> <span class='ident'>build</span>::<span class='op'>*</span>;
 <span class='kw'>use</span> <span class='ident'>common</span>::<span class='op'>*</span>;
 <span class='kw'>use</span> <span class='ident'>debuginfo</span>::<span class='ident'>DebugLoc</span>;
@@ -1618,7 +1636,7 @@
                 }
 
                 <span class='kw'>if</span> <span class='ident'>cases</span>.<span class='ident'>len</span>() <span class='op'>==</span> <span class='number'>1</span> <span class='op'>&amp;&amp;</span> <span class='ident'>hint</span> <span class='op'>==</span> <span class='ident'>attr</span>::<span class='ident'>ReprAny</span> {
-                    <span class='comment'>// Equivalent to a struct/tuple/newtype.</span>
+                    <span class='comment'>// Equivalent to a struct or tuple.</span>
                     <span class='kw'>return</span> <span class='ident'>Univariant</span>(<span class='ident'>mk_struct</span>(<span class='ident'>cx</span>, <span class='kw-2'>&amp;</span><span class='ident'>cases</span>[<span class='number'>0</span>].<span class='ident'>tys</span>, <span class='bool-val'>false</span>, <span class='ident'>t</span>));
                 }
 
@@ -1943,9 +1961,9 @@
 
     <span class='kw'>let</span> <span class='ident'>attempts</span>;
     <span class='kw'>match</span> <span class='ident'>hint</span> {
-        <span class='ident'>attr</span>::<span class='ident'>ReprInt</span>(<span class='ident'>span</span>, <span class='ident'>ity</span>) <span class='op'>=&gt;</span> {
+        <span class='ident'>attr</span>::<span class='ident'>ReprInt</span>(<span class='ident'>ity</span>) <span class='op'>=&gt;</span> {
             <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>bounds_usable</span>(<span class='ident'>cx</span>, <span class='ident'>ity</span>, <span class='ident'>bounds</span>) {
-                <span class='macro'>span_bug</span><span class='macro'>!</span>(<span class='ident'>span</span>, <span class='string'>&quot;representation hint insufficient for discriminant range&quot;</span>)
+                <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;representation hint insufficient for discriminant range&quot;</span>)
             }
             <span class='kw'>return</span> <span class='ident'>ity</span>;
         }
@@ -2350,14 +2368,30 @@
                 <span class='ident'>Store</span>(<span class='ident'>bcx</span>, <span class='ident'>C_null</span>(<span class='ident'>llptrty</span>), <span class='ident'>val</span>);
             }
         }
-        <span class='ident'>StructWrappedNullablePointer</span> { <span class='ident'>nndiscr</span>, <span class='kw-2'>ref</span> <span class='ident'>discrfield</span>, .. } <span class='op'>=&gt;</span> {
+        <span class='ident'>StructWrappedNullablePointer</span> { <span class='ident'>nndiscr</span>, <span class='kw-2'>ref</span> <span class='ident'>discrfield</span>, <span class='kw-2'>ref</span> <span class='ident'>nonnull</span>, .. } <span class='op'>=&gt;</span> {
             <span class='kw'>if</span> <span class='ident'>discr</span> <span class='op'>!=</span> <span class='ident'>nndiscr</span> {
-                <span class='kw'>let</span> <span class='ident'>llptrptr</span> <span class='op'>=</span> <span class='ident'>GEPi</span>(<span class='ident'>bcx</span>, <span class='ident'>val</span>, <span class='kw-2'>&amp;</span><span class='ident'>discrfield</span>[..]);
-                <span class='kw'>let</span> <span class='ident'>llptrty</span> <span class='op'>=</span> <span class='ident'>val_ty</span>(<span class='ident'>llptrptr</span>).<span class='ident'>element_type</span>();
-                <span class='ident'>Store</span>(<span class='ident'>bcx</span>, <span class='ident'>C_null</span>(<span class='ident'>llptrty</span>), <span class='ident'>llptrptr</span>);
+                <span class='kw'>if</span> <span class='ident'>target_sets_discr_via_memset</span>(<span class='ident'>bcx</span>) {
+                    <span class='comment'>// Issue #34427: As workaround for LLVM bug on</span>
+                    <span class='comment'>// ARM, use memset of 0 on whole struct rather</span>
+                    <span class='comment'>// than storing null to single target field.</span>
+                    <span class='kw'>let</span> <span class='ident'>b</span> <span class='op'>=</span> <span class='ident'>B</span>(<span class='ident'>bcx</span>);
+                    <span class='kw'>let</span> <span class='ident'>llptr</span> <span class='op'>=</span> <span class='ident'>b</span>.<span class='ident'>pointercast</span>(<span class='ident'>val</span>, <span class='ident'>Type</span>::<span class='ident'>i8</span>(<span class='ident'>b</span>.<span class='ident'>ccx</span>).<span class='ident'>ptr_to</span>());
+                    <span class='kw'>let</span> <span class='ident'>fill_byte</span> <span class='op'>=</span> <span class='ident'>C_u8</span>(<span class='ident'>b</span>.<span class='ident'>ccx</span>, <span class='number'>0</span>);
+                    <span class='kw'>let</span> <span class='ident'>size</span> <span class='op'>=</span> <span class='ident'>C_uint</span>(<span class='ident'>b</span>.<span class='ident'>ccx</span>, <span class='ident'>nonnull</span>.<span class='ident'>size</span>);
+                    <span class='kw'>let</span> <span class='ident'>align</span> <span class='op'>=</span> <span class='ident'>C_i32</span>(<span class='ident'>b</span>.<span class='ident'>ccx</span>, <span class='ident'>nonnull</span>.<span class='ident'>align</span> <span class='kw'>as</span> <span class='ident'>i32</span>);
+                    <span class='ident'>base</span>::<span class='ident'>call_memset</span>(<span class='kw-2'>&amp;</span><span class='ident'>b</span>, <span class='ident'>llptr</span>, <span class='ident'>fill_byte</span>, <span class='ident'>size</span>, <span class='ident'>align</span>, <span class='bool-val'>false</span>);
+                } <span class='kw'>else</span> {
+                    <span class='kw'>let</span> <span class='ident'>llptrptr</span> <span class='op'>=</span> <span class='ident'>GEPi</span>(<span class='ident'>bcx</span>, <span class='ident'>val</span>, <span class='kw-2'>&amp;</span><span class='ident'>discrfield</span>[..]);
+                    <span class='kw'>let</span> <span class='ident'>llptrty</span> <span class='op'>=</span> <span class='ident'>val_ty</span>(<span class='ident'>llptrptr</span>).<span class='ident'>element_type</span>();
+                    <span class='ident'>Store</span>(<span class='ident'>bcx</span>, <span class='ident'>C_null</span>(<span class='ident'>llptrty</span>), <span class='ident'>llptrptr</span>);
+                }
             }
         }
     }
+}
+
+<span class='kw'>fn</span> <span class='ident'>target_sets_discr_via_memset</span><span class='op'>&lt;</span><span class='lifetime'>&#39;blk</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>bcx</span>: <span class='ident'>Block</span><span class='op'>&lt;</span><span class='lifetime'>&#39;blk</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
+    <span class='ident'>bcx</span>.<span class='ident'>sess</span>().<span class='ident'>target</span>.<span class='ident'>target</span>.<span class='ident'>arch</span> <span class='op'>==</span> <span class='string'>&quot;arm&quot;</span> <span class='op'>||</span> <span class='ident'>bcx</span>.<span class='ident'>sess</span>().<span class='ident'>target</span>.<span class='ident'>target</span>.<span class='ident'>arch</span> <span class='op'>==</span> <span class='string'>&quot;aarch64&quot;</span>
 }
 
 <span class='kw'>fn</span> <span class='ident'>assert_discr_in_range</span>(<span class='ident'>ity</span>: <span class='ident'>IntType</span>, <span class='ident'>min</span>: <span class='ident'>Disr</span>, <span class='ident'>max</span>: <span class='ident'>Disr</span>, <span class='ident'>discr</span>: <span class='ident'>Disr</span>) {

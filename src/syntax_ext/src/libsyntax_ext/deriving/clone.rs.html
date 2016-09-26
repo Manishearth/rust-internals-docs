@@ -229,6 +229,32 @@
 <span id="185">185</span>
 <span id="186">186</span>
 <span id="187">187</span>
+<span id="188">188</span>
+<span id="189">189</span>
+<span id="190">190</span>
+<span id="191">191</span>
+<span id="192">192</span>
+<span id="193">193</span>
+<span id="194">194</span>
+<span id="195">195</span>
+<span id="196">196</span>
+<span id="197">197</span>
+<span id="198">198</span>
+<span id="199">199</span>
+<span id="200">200</span>
+<span id="201">201</span>
+<span id="202">202</span>
+<span id="203">203</span>
+<span id="204">204</span>
+<span id="205">205</span>
+<span id="206">206</span>
+<span id="207">207</span>
+<span id="208">208</span>
+<span id="209">209</span>
+<span id="210">210</span>
+<span id="211">211</span>
+<span id="212">212</span>
+<span id="213">213</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -243,19 +269,13 @@
 <span class='kw'>use</span> <span class='ident'>deriving</span>::<span class='ident'>generic</span>::<span class='op'>*</span>;
 <span class='kw'>use</span> <span class='ident'>deriving</span>::<span class='ident'>generic</span>::<span class='ident'>ty</span>::<span class='op'>*</span>;
 
-<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>::{<span class='ident'>Expr</span>, <span class='ident'>Generics</span>, <span class='ident'>ItemKind</span>, <span class='ident'>MetaItem</span>, <span class='ident'>VariantData</span>};
+<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>::{<span class='self'>self</span>, <span class='ident'>Expr</span>, <span class='ident'>Generics</span>, <span class='ident'>ItemKind</span>, <span class='ident'>MetaItem</span>, <span class='ident'>VariantData</span>};
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>attr</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ext</span>::<span class='ident'>base</span>::{<span class='ident'>Annotatable</span>, <span class='ident'>ExtCtxt</span>};
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ext</span>::<span class='ident'>build</span>::<span class='ident'>AstBuilder</span>;
-<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>parse</span>::<span class='ident'>token</span>::<span class='ident'>InternedString</span>;
+<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>parse</span>::<span class='ident'>token</span>::{<span class='ident'>keywords</span>, <span class='ident'>InternedString</span>};
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ptr</span>::<span class='ident'>P</span>;
 <span class='kw'>use</span> <span class='ident'>syntax_pos</span>::<span class='ident'>Span</span>;
-
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>PartialEq</span>)]</span>
-<span class='kw'>enum</span> <span class='ident'>Mode</span> {
-    <span class='ident'>Deep</span>,
-    <span class='ident'>Shallow</span>,
-}
 
 <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>expand_deriving_clone</span>(<span class='ident'>cx</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>ExtCtxt</span>,
                              <span class='ident'>span</span>: <span class='ident'>Span</span>,
@@ -272,29 +292,38 @@
     <span class='comment'>//      if we used the short form with generics, we&#39;d have to bound the generics with</span>
     <span class='comment'>//      Clone + Copy, and then there&#39;d be no Clone impl at all if the user fills in something</span>
     <span class='comment'>//      that is Clone but not Copy. and until specialization we can&#39;t write both impls.</span>
+    <span class='comment'>// - the item is a union with Copy fields</span>
+    <span class='comment'>//      Unions with generic parameters still can derive Clone because they require Copy</span>
+    <span class='comment'>//      for deriving, Clone alone is not enough.</span>
+    <span class='comment'>//      Whever Clone is implemented for fields is irrelevant so we don&#39;t assert it.</span>
     <span class='kw'>let</span> <span class='ident'>bounds</span>;
-    <span class='kw'>let</span> <span class='ident'>unify_fieldless_variants</span>;
     <span class='kw'>let</span> <span class='ident'>substructure</span>;
+    <span class='kw'>let</span> <span class='ident'>is_shallow</span>;
     <span class='kw'>match</span> <span class='op'>*</span><span class='ident'>item</span> {
         <span class='ident'>Annotatable</span>::<span class='ident'>Item</span>(<span class='kw-2'>ref</span> <span class='ident'>annitem</span>) <span class='op'>=&gt;</span> {
             <span class='kw'>match</span> <span class='ident'>annitem</span>.<span class='ident'>node</span> {
                 <span class='ident'>ItemKind</span>::<span class='ident'>Struct</span>(_, <span class='ident'>Generics</span> { <span class='kw-2'>ref</span> <span class='ident'>ty_params</span>, .. }) <span class='op'>|</span>
                 <span class='ident'>ItemKind</span>::<span class='ident'>Enum</span>(_, <span class='ident'>Generics</span> { <span class='kw-2'>ref</span> <span class='ident'>ty_params</span>, .. })
-                    <span class='kw'>if</span> <span class='ident'>ty_params</span>.<span class='ident'>is_empty</span>() <span class='op'>&amp;&amp;</span>
-                       <span class='ident'>attr</span>::<span class='ident'>contains_name</span>(<span class='kw-2'>&amp;</span><span class='ident'>annitem</span>.<span class='ident'>attrs</span>, <span class='string'>&quot;rustc_copy_clone_marker&quot;</span>) <span class='op'>=&gt;</span> {
-
-                    <span class='ident'>bounds</span> <span class='op'>=</span> <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>Literal</span>(<span class='macro'>path_std</span><span class='macro'>!</span>(<span class='ident'>cx</span>, <span class='ident'>core</span>::<span class='ident'>marker</span>::<span class='ident'>Copy</span>))];
-                    <span class='ident'>unify_fieldless_variants</span> <span class='op'>=</span> <span class='bool-val'>true</span>;
+                        <span class='kw'>if</span> <span class='ident'>attr</span>::<span class='ident'>contains_name</span>(<span class='kw-2'>&amp;</span><span class='ident'>annitem</span>.<span class='ident'>attrs</span>, <span class='string'>&quot;rustc_copy_clone_marker&quot;</span>) <span class='op'>&amp;&amp;</span>
+                           <span class='ident'>ty_params</span>.<span class='ident'>is_empty</span>() <span class='op'>=&gt;</span> {
+                    <span class='ident'>bounds</span> <span class='op'>=</span> <span class='macro'>vec</span><span class='macro'>!</span>[];
+                    <span class='ident'>is_shallow</span> <span class='op'>=</span> <span class='bool-val'>true</span>;
                     <span class='ident'>substructure</span> <span class='op'>=</span> <span class='ident'>combine_substructure</span>(<span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='op'>|</span><span class='ident'>c</span>, <span class='ident'>s</span>, <span class='ident'>sub</span><span class='op'>|</span> {
-                        <span class='ident'>cs_clone</span>(<span class='string'>&quot;Clone&quot;</span>, <span class='ident'>c</span>, <span class='ident'>s</span>, <span class='ident'>sub</span>, <span class='ident'>Mode</span>::<span class='ident'>Shallow</span>)
+                        <span class='ident'>cs_clone_shallow</span>(<span class='string'>&quot;Clone&quot;</span>, <span class='ident'>c</span>, <span class='ident'>s</span>, <span class='ident'>sub</span>, <span class='bool-val'>false</span>)
                     }));
                 }
-
+                <span class='ident'>ItemKind</span>::<span class='ident'>Union</span>(..) <span class='op'>=&gt;</span> {
+                    <span class='ident'>bounds</span> <span class='op'>=</span> <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>Literal</span>(<span class='macro'>path_std</span><span class='macro'>!</span>(<span class='ident'>cx</span>, <span class='ident'>core</span>::<span class='ident'>marker</span>::<span class='ident'>Copy</span>))];
+                    <span class='ident'>is_shallow</span> <span class='op'>=</span> <span class='bool-val'>true</span>;
+                    <span class='ident'>substructure</span> <span class='op'>=</span> <span class='ident'>combine_substructure</span>(<span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='op'>|</span><span class='ident'>c</span>, <span class='ident'>s</span>, <span class='ident'>sub</span><span class='op'>|</span> {
+                        <span class='ident'>cs_clone_shallow</span>(<span class='string'>&quot;Clone&quot;</span>, <span class='ident'>c</span>, <span class='ident'>s</span>, <span class='ident'>sub</span>, <span class='bool-val'>true</span>)
+                    }));
+                }
                 _ <span class='op'>=&gt;</span> {
                     <span class='ident'>bounds</span> <span class='op'>=</span> <span class='macro'>vec</span><span class='macro'>!</span>[];
-                    <span class='ident'>unify_fieldless_variants</span> <span class='op'>=</span> <span class='bool-val'>false</span>;
+                    <span class='ident'>is_shallow</span> <span class='op'>=</span> <span class='bool-val'>false</span>;
                     <span class='ident'>substructure</span> <span class='op'>=</span> <span class='ident'>combine_substructure</span>(<span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='op'>|</span><span class='ident'>c</span>, <span class='ident'>s</span>, <span class='ident'>sub</span><span class='op'>|</span> {
-                        <span class='ident'>cs_clone</span>(<span class='string'>&quot;Clone&quot;</span>, <span class='ident'>c</span>, <span class='ident'>s</span>, <span class='ident'>sub</span>, <span class='ident'>Mode</span>::<span class='ident'>Deep</span>)
+                        <span class='ident'>cs_clone</span>(<span class='string'>&quot;Clone&quot;</span>, <span class='ident'>c</span>, <span class='ident'>s</span>, <span class='ident'>sub</span>)
                     }));
                 }
             }
@@ -312,7 +341,7 @@
         <span class='ident'>additional_bounds</span>: <span class='ident'>bounds</span>,
         <span class='ident'>generics</span>: <span class='ident'>LifetimeBounds</span>::<span class='ident'>empty</span>(),
         <span class='ident'>is_unsafe</span>: <span class='bool-val'>false</span>,
-        <span class='ident'>supports_unions</span>: <span class='bool-val'>false</span>,
+        <span class='ident'>supports_unions</span>: <span class='bool-val'>true</span>,
         <span class='ident'>methods</span>: <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>MethodDef</span> {
                           <span class='ident'>name</span>: <span class='string'>&quot;clone&quot;</span>,
                           <span class='ident'>generics</span>: <span class='ident'>LifetimeBounds</span>::<span class='ident'>empty</span>(),
@@ -321,37 +350,72 @@
                           <span class='ident'>ret_ty</span>: <span class='ident'>Self_</span>,
                           <span class='ident'>attributes</span>: <span class='ident'>attrs</span>,
                           <span class='ident'>is_unsafe</span>: <span class='bool-val'>false</span>,
-                          <span class='ident'>unify_fieldless_variants</span>: <span class='ident'>unify_fieldless_variants</span>,
+                          <span class='ident'>unify_fieldless_variants</span>: <span class='bool-val'>false</span>,
                           <span class='ident'>combine_substructure</span>: <span class='ident'>substructure</span>,
                       }],
         <span class='ident'>associated_types</span>: <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
     };
 
-    <span class='ident'>trait_def</span>.<span class='ident'>expand</span>(<span class='ident'>cx</span>, <span class='ident'>mitem</span>, <span class='ident'>item</span>, <span class='ident'>push</span>)
+    <span class='ident'>trait_def</span>.<span class='ident'>expand_ext</span>(<span class='ident'>cx</span>, <span class='ident'>mitem</span>, <span class='ident'>item</span>, <span class='ident'>push</span>, <span class='ident'>is_shallow</span>)
+}
+
+<span class='kw'>fn</span> <span class='ident'>cs_clone_shallow</span>(<span class='ident'>name</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>,
+                    <span class='ident'>cx</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>ExtCtxt</span>,
+                    <span class='ident'>trait_span</span>: <span class='ident'>Span</span>,
+                    <span class='ident'>substr</span>: <span class='kw-2'>&amp;</span><span class='ident'>Substructure</span>,
+                    <span class='ident'>is_union</span>: <span class='ident'>bool</span>)
+                    <span class='op'>-&gt;</span> <span class='ident'>P</span><span class='op'>&lt;</span><span class='ident'>Expr</span><span class='op'>&gt;</span> {
+    <span class='kw'>fn</span> <span class='ident'>assert_ty_bounds</span>(<span class='ident'>cx</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>ExtCtxt</span>, <span class='ident'>stmts</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>Stmt</span><span class='op'>&gt;</span>,
+                        <span class='ident'>ty</span>: <span class='ident'>P</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>Ty</span><span class='op'>&gt;</span>, <span class='ident'>span</span>: <span class='ident'>Span</span>, <span class='ident'>helper_name</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) {
+        <span class='comment'>// Generate statement `let _: helper_name&lt;ty&gt;;`,</span>
+        <span class='comment'>// set the expn ID so we can use the unstable struct.</span>
+        <span class='kw'>let</span> <span class='ident'>span</span> <span class='op'>=</span> <span class='kw'>super</span>::<span class='ident'>allow_unstable</span>(<span class='ident'>cx</span>, <span class='ident'>span</span>, <span class='string'>&quot;derive(Clone)&quot;</span>);
+        <span class='kw'>let</span> <span class='ident'>assert_path</span> <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>path_all</span>(<span class='ident'>span</span>, <span class='bool-val'>true</span>,
+                                        <span class='ident'>cx</span>.<span class='ident'>std_path</span>(<span class='kw-2'>&amp;</span>[<span class='string'>&quot;clone&quot;</span>, <span class='ident'>helper_name</span>]),
+                                        <span class='macro'>vec</span><span class='macro'>!</span>[], <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>ty</span>], <span class='macro'>vec</span><span class='macro'>!</span>[]);
+        <span class='ident'>stmts</span>.<span class='ident'>push</span>(<span class='ident'>cx</span>.<span class='ident'>stmt_let_type_only</span>(<span class='ident'>span</span>, <span class='ident'>cx</span>.<span class='ident'>ty_path</span>(<span class='ident'>assert_path</span>)));
+    }
+    <span class='kw'>fn</span> <span class='ident'>process_variant</span>(<span class='ident'>cx</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>ExtCtxt</span>, <span class='ident'>stmts</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>Stmt</span><span class='op'>&gt;</span>, <span class='ident'>variant</span>: <span class='kw-2'>&amp;</span><span class='ident'>VariantData</span>) {
+        <span class='kw'>for</span> <span class='ident'>field</span> <span class='kw'>in</span> <span class='ident'>variant</span>.<span class='ident'>fields</span>() {
+            <span class='comment'>// let _: AssertParamIsClone&lt;FieldTy&gt;;</span>
+            <span class='ident'>assert_ty_bounds</span>(<span class='ident'>cx</span>, <span class='ident'>stmts</span>, <span class='ident'>field</span>.<span class='ident'>ty</span>.<span class='ident'>clone</span>(), <span class='ident'>field</span>.<span class='ident'>span</span>, <span class='string'>&quot;AssertParamIsClone&quot;</span>);
+        }
+    }
+
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>stmts</span> <span class='op'>=</span> <span class='ident'>Vec</span>::<span class='ident'>new</span>();
+    <span class='kw'>if</span> <span class='ident'>is_union</span> {
+        <span class='comment'>// let _: AssertParamIsCopy&lt;Self&gt;;</span>
+        <span class='kw'>let</span> <span class='ident'>self_ty</span> <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>ty_path</span>(<span class='ident'>cx</span>.<span class='ident'>path_ident</span>(<span class='ident'>trait_span</span>, <span class='ident'>keywords</span>::<span class='ident'>SelfType</span>.<span class='ident'>ident</span>()));
+        <span class='ident'>assert_ty_bounds</span>(<span class='ident'>cx</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>stmts</span>, <span class='ident'>self_ty</span>, <span class='ident'>trait_span</span>, <span class='string'>&quot;AssertParamIsCopy&quot;</span>);
+    } <span class='kw'>else</span> {
+        <span class='kw'>match</span> <span class='op'>*</span><span class='ident'>substr</span>.<span class='ident'>fields</span> {
+            <span class='ident'>StaticStruct</span>(<span class='ident'>vdata</span>, ..) <span class='op'>=&gt;</span> {
+                <span class='ident'>process_variant</span>(<span class='ident'>cx</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>stmts</span>, <span class='ident'>vdata</span>);
+            }
+            <span class='ident'>StaticEnum</span>(<span class='ident'>enum_def</span>, ..) <span class='op'>=&gt;</span> {
+                <span class='kw'>for</span> <span class='ident'>variant</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>enum_def</span>.<span class='ident'>variants</span> {
+                    <span class='ident'>process_variant</span>(<span class='ident'>cx</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>stmts</span>, <span class='kw-2'>&amp;</span><span class='ident'>variant</span>.<span class='ident'>node</span>.<span class='ident'>data</span>);
+                }
+            }
+            _ <span class='op'>=&gt;</span> <span class='ident'>cx</span>.<span class='ident'>span_bug</span>(<span class='ident'>trait_span</span>, <span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;unexpected substructure in \
+                                                    shallow `derive({})`&quot;</span>, <span class='ident'>name</span>))
+        }
+    }
+    <span class='ident'>stmts</span>.<span class='ident'>push</span>(<span class='ident'>cx</span>.<span class='ident'>stmt_expr</span>(<span class='ident'>cx</span>.<span class='ident'>expr_deref</span>(<span class='ident'>trait_span</span>, <span class='ident'>cx</span>.<span class='ident'>expr_self</span>(<span class='ident'>trait_span</span>))));
+    <span class='ident'>cx</span>.<span class='ident'>expr_block</span>(<span class='ident'>cx</span>.<span class='ident'>block</span>(<span class='ident'>trait_span</span>, <span class='ident'>stmts</span>))
 }
 
 <span class='kw'>fn</span> <span class='ident'>cs_clone</span>(<span class='ident'>name</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>,
             <span class='ident'>cx</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>ExtCtxt</span>,
             <span class='ident'>trait_span</span>: <span class='ident'>Span</span>,
-            <span class='ident'>substr</span>: <span class='kw-2'>&amp;</span><span class='ident'>Substructure</span>,
-            <span class='ident'>mode</span>: <span class='ident'>Mode</span>)
+            <span class='ident'>substr</span>: <span class='kw-2'>&amp;</span><span class='ident'>Substructure</span>)
             <span class='op'>-&gt;</span> <span class='ident'>P</span><span class='op'>&lt;</span><span class='ident'>Expr</span><span class='op'>&gt;</span> {
     <span class='kw'>let</span> <span class='ident'>ctor_path</span>;
     <span class='kw'>let</span> <span class='ident'>all_fields</span>;
-    <span class='kw'>let</span> <span class='ident'>fn_path</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>mode</span> {
-        <span class='ident'>Mode</span>::<span class='ident'>Shallow</span> <span class='op'>=&gt;</span> <span class='ident'>cx</span>.<span class='ident'>std_path</span>(<span class='kw-2'>&amp;</span>[<span class='string'>&quot;clone&quot;</span>, <span class='string'>&quot;assert_receiver_is_clone&quot;</span>]),
-        <span class='ident'>Mode</span>::<span class='ident'>Deep</span> <span class='op'>=&gt;</span> <span class='ident'>cx</span>.<span class='ident'>std_path</span>(<span class='kw-2'>&amp;</span>[<span class='string'>&quot;clone&quot;</span>, <span class='string'>&quot;Clone&quot;</span>, <span class='string'>&quot;clone&quot;</span>]),
-    };
+    <span class='kw'>let</span> <span class='ident'>fn_path</span> <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>std_path</span>(<span class='kw-2'>&amp;</span>[<span class='string'>&quot;clone&quot;</span>, <span class='string'>&quot;Clone&quot;</span>, <span class='string'>&quot;clone&quot;</span>]);
     <span class='kw'>let</span> <span class='ident'>subcall</span> <span class='op'>=</span> <span class='op'>|</span><span class='ident'>cx</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>ExtCtxt</span>, <span class='ident'>field</span>: <span class='kw-2'>&amp;</span><span class='ident'>FieldInfo</span><span class='op'>|</span> {
         <span class='kw'>let</span> <span class='ident'>args</span> <span class='op'>=</span> <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>cx</span>.<span class='ident'>expr_addr_of</span>(<span class='ident'>field</span>.<span class='ident'>span</span>, <span class='ident'>field</span>.<span class='ident'>self_</span>.<span class='ident'>clone</span>())];
-
-        <span class='kw'>let</span> <span class='ident'>span</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='ident'>mode</span> <span class='op'>==</span> <span class='ident'>Mode</span>::<span class='ident'>Shallow</span> {
-            <span class='comment'>// set the expn ID so we can call the unstable method</span>
-            <span class='kw'>super</span>::<span class='ident'>allow_unstable</span>(<span class='ident'>cx</span>, <span class='ident'>field</span>.<span class='ident'>span</span>, <span class='string'>&quot;derive(Clone)&quot;</span>)
-        } <span class='kw'>else</span> {
-            <span class='ident'>field</span>.<span class='ident'>span</span>
-        };
-        <span class='ident'>cx</span>.<span class='ident'>expr_call_global</span>(<span class='ident'>span</span>, <span class='ident'>fn_path</span>.<span class='ident'>clone</span>(), <span class='ident'>args</span>)
+        <span class='ident'>cx</span>.<span class='ident'>expr_call_global</span>(<span class='ident'>field</span>.<span class='ident'>span</span>, <span class='ident'>fn_path</span>.<span class='ident'>clone</span>(), <span class='ident'>args</span>)
     };
 
     <span class='kw'>let</span> <span class='ident'>vdata</span>;
@@ -377,44 +441,32 @@
         }
     }
 
-    <span class='kw'>match</span> <span class='ident'>mode</span> {
-        <span class='ident'>Mode</span>::<span class='ident'>Shallow</span> <span class='op'>=&gt;</span> {
-            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>stmts</span> <span class='op'>=</span> <span class='ident'>all_fields</span>.<span class='ident'>iter</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>f</span><span class='op'>|</span> {
-                <span class='kw'>let</span> <span class='ident'>call</span> <span class='op'>=</span> <span class='ident'>subcall</span>(<span class='ident'>cx</span>, <span class='ident'>f</span>);
-                <span class='ident'>cx</span>.<span class='ident'>stmt_expr</span>(<span class='ident'>call</span>)
-            }).<span class='ident'>collect</span>::<span class='op'>&lt;</span><span class='ident'>Vec</span><span class='op'>&lt;</span>_<span class='op'>&gt;&gt;</span>();
-            <span class='ident'>stmts</span>.<span class='ident'>push</span>(<span class='ident'>cx</span>.<span class='ident'>stmt_expr</span>(<span class='ident'>cx</span>.<span class='ident'>expr_deref</span>(<span class='ident'>trait_span</span>, <span class='ident'>cx</span>.<span class='ident'>expr_self</span>(<span class='ident'>trait_span</span>))));
-            <span class='ident'>cx</span>.<span class='ident'>expr_block</span>(<span class='ident'>cx</span>.<span class='ident'>block</span>(<span class='ident'>trait_span</span>, <span class='ident'>stmts</span>))
-        }
-        <span class='ident'>Mode</span>::<span class='ident'>Deep</span> <span class='op'>=&gt;</span> {
-            <span class='kw'>match</span> <span class='op'>*</span><span class='ident'>vdata</span> {
-                <span class='ident'>VariantData</span>::<span class='ident'>Struct</span>(..) <span class='op'>=&gt;</span> {
-                    <span class='kw'>let</span> <span class='ident'>fields</span> <span class='op'>=</span> <span class='ident'>all_fields</span>.<span class='ident'>iter</span>()
-                        .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>field</span><span class='op'>|</span> {
-                            <span class='kw'>let</span> <span class='ident'>ident</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>field</span>.<span class='ident'>name</span> {
-                                <span class='prelude-val'>Some</span>(<span class='ident'>i</span>) <span class='op'>=&gt;</span> <span class='ident'>i</span>,
-                                <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> {
-                                    <span class='ident'>cx</span>.<span class='ident'>span_bug</span>(<span class='ident'>trait_span</span>,
-                                                <span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;unnamed field in normal struct in \
-                                                     `derive({})`&quot;</span>,
-                                                         <span class='ident'>name</span>))
-                                }
-                            };
-                            <span class='kw'>let</span> <span class='ident'>call</span> <span class='op'>=</span> <span class='ident'>subcall</span>(<span class='ident'>cx</span>, <span class='ident'>field</span>);
-                            <span class='ident'>cx</span>.<span class='ident'>field_imm</span>(<span class='ident'>field</span>.<span class='ident'>span</span>, <span class='ident'>ident</span>, <span class='ident'>call</span>)
-                        })
-                        .<span class='ident'>collect</span>::<span class='op'>&lt;</span><span class='ident'>Vec</span><span class='op'>&lt;</span>_<span class='op'>&gt;&gt;</span>();
+    <span class='kw'>match</span> <span class='op'>*</span><span class='ident'>vdata</span> {
+        <span class='ident'>VariantData</span>::<span class='ident'>Struct</span>(..) <span class='op'>=&gt;</span> {
+            <span class='kw'>let</span> <span class='ident'>fields</span> <span class='op'>=</span> <span class='ident'>all_fields</span>.<span class='ident'>iter</span>()
+                .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>field</span><span class='op'>|</span> {
+                    <span class='kw'>let</span> <span class='ident'>ident</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>field</span>.<span class='ident'>name</span> {
+                        <span class='prelude-val'>Some</span>(<span class='ident'>i</span>) <span class='op'>=&gt;</span> <span class='ident'>i</span>,
+                        <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> {
+                            <span class='ident'>cx</span>.<span class='ident'>span_bug</span>(<span class='ident'>trait_span</span>,
+                                        <span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;unnamed field in normal struct in \
+                                                `derive({})`&quot;</span>,
+                                                    <span class='ident'>name</span>))
+                        }
+                    };
+                    <span class='kw'>let</span> <span class='ident'>call</span> <span class='op'>=</span> <span class='ident'>subcall</span>(<span class='ident'>cx</span>, <span class='ident'>field</span>);
+                    <span class='ident'>cx</span>.<span class='ident'>field_imm</span>(<span class='ident'>field</span>.<span class='ident'>span</span>, <span class='ident'>ident</span>, <span class='ident'>call</span>)
+                })
+                .<span class='ident'>collect</span>::<span class='op'>&lt;</span><span class='ident'>Vec</span><span class='op'>&lt;</span>_<span class='op'>&gt;&gt;</span>();
 
-                    <span class='ident'>cx</span>.<span class='ident'>expr_struct</span>(<span class='ident'>trait_span</span>, <span class='ident'>ctor_path</span>, <span class='ident'>fields</span>)
-                }
-                <span class='ident'>VariantData</span>::<span class='ident'>Tuple</span>(..) <span class='op'>=&gt;</span> {
-                    <span class='kw'>let</span> <span class='ident'>subcalls</span> <span class='op'>=</span> <span class='ident'>all_fields</span>.<span class='ident'>iter</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>f</span><span class='op'>|</span> <span class='ident'>subcall</span>(<span class='ident'>cx</span>, <span class='ident'>f</span>)).<span class='ident'>collect</span>();
-                    <span class='kw'>let</span> <span class='ident'>path</span> <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>expr_path</span>(<span class='ident'>ctor_path</span>);
-                    <span class='ident'>cx</span>.<span class='ident'>expr_call</span>(<span class='ident'>trait_span</span>, <span class='ident'>path</span>, <span class='ident'>subcalls</span>)
-                }
-                <span class='ident'>VariantData</span>::<span class='ident'>Unit</span>(..) <span class='op'>=&gt;</span> <span class='ident'>cx</span>.<span class='ident'>expr_path</span>(<span class='ident'>ctor_path</span>),
-            }
+            <span class='ident'>cx</span>.<span class='ident'>expr_struct</span>(<span class='ident'>trait_span</span>, <span class='ident'>ctor_path</span>, <span class='ident'>fields</span>)
         }
+        <span class='ident'>VariantData</span>::<span class='ident'>Tuple</span>(..) <span class='op'>=&gt;</span> {
+            <span class='kw'>let</span> <span class='ident'>subcalls</span> <span class='op'>=</span> <span class='ident'>all_fields</span>.<span class='ident'>iter</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>f</span><span class='op'>|</span> <span class='ident'>subcall</span>(<span class='ident'>cx</span>, <span class='ident'>f</span>)).<span class='ident'>collect</span>();
+            <span class='kw'>let</span> <span class='ident'>path</span> <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>expr_path</span>(<span class='ident'>ctor_path</span>);
+            <span class='ident'>cx</span>.<span class='ident'>expr_call</span>(<span class='ident'>trait_span</span>, <span class='ident'>path</span>, <span class='ident'>subcalls</span>)
+        }
+        <span class='ident'>VariantData</span>::<span class='ident'>Unit</span>(..) <span class='op'>=&gt;</span> <span class='ident'>cx</span>.<span class='ident'>expr_path</span>(<span class='ident'>ctor_path</span>),
     }
 }
 </pre>

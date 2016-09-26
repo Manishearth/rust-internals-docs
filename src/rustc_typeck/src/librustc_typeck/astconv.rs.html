@@ -2330,9 +2330,6 @@
 <span id="2286">2286</span>
 <span id="2287">2287</span>
 <span id="2288">2288</span>
-<span id="2289">2289</span>
-<span id="2290">2290</span>
-<span id="2291">2291</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -3470,16 +3467,23 @@
             <span class='kw'>return</span> <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>err</span>;
         }
 
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>associated_types</span>: <span class='ident'>FnvHashSet</span><span class='op'>&lt;</span>(<span class='ident'>DefId</span>, <span class='ident'>ast</span>::<span class='ident'>Name</span>)<span class='op'>&gt;</span> <span class='op'>=</span>
-            <span class='ident'>traits</span>::<span class='ident'>supertraits</span>(<span class='ident'>tcx</span>, <span class='ident'>principal</span>)
-            .<span class='ident'>flat_map</span>(<span class='op'>|</span><span class='ident'>tr</span><span class='op'>|</span> {
-                <span class='kw'>let</span> <span class='ident'>trait_def</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>lookup_trait_def</span>(<span class='ident'>tr</span>.<span class='ident'>def_id</span>());
-                <span class='ident'>trait_def</span>.<span class='ident'>associated_type_names</span>
-                    .<span class='ident'>clone</span>()
-                    .<span class='ident'>into_iter</span>()
-                    .<span class='ident'>map</span>(<span class='kw'>move</span> <span class='op'>|</span><span class='ident'>associated_type_name</span><span class='op'>|</span> (<span class='ident'>tr</span>.<span class='ident'>def_id</span>(), <span class='ident'>associated_type_name</span>))
-            })
-            .<span class='ident'>collect</span>();
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>associated_types</span> <span class='op'>=</span> <span class='ident'>FnvHashSet</span>::<span class='ident'>default</span>();
+        <span class='kw'>for</span> <span class='ident'>tr</span> <span class='kw'>in</span> <span class='ident'>traits</span>::<span class='ident'>supertraits</span>(<span class='ident'>tcx</span>, <span class='ident'>principal</span>) {
+            <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>trait_id</span>) <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>as_local_node_id</span>(<span class='ident'>tr</span>.<span class='ident'>def_id</span>()) {
+                <span class='kw'>use</span> <span class='ident'>collect</span>::<span class='ident'>trait_associated_type_names</span>;
+
+                <span class='ident'>associated_types</span>.<span class='ident'>extend</span>(<span class='ident'>trait_associated_type_names</span>(<span class='ident'>tcx</span>, <span class='ident'>trait_id</span>)
+                    .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>name</span><span class='op'>|</span> (<span class='ident'>tr</span>.<span class='ident'>def_id</span>(), <span class='ident'>name</span>)))
+            } <span class='kw'>else</span> {
+                <span class='kw'>let</span> <span class='ident'>trait_items</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>impl_or_trait_items</span>(<span class='ident'>tr</span>.<span class='ident'>def_id</span>());
+                <span class='ident'>associated_types</span>.<span class='ident'>extend</span>(<span class='ident'>trait_items</span>.<span class='ident'>iter</span>().<span class='ident'>filter_map</span>(<span class='op'>|</span><span class='kw-2'>&amp;</span><span class='ident'>def_id</span><span class='op'>|</span> {
+                    <span class='kw'>match</span> <span class='ident'>tcx</span>.<span class='ident'>impl_or_trait_item</span>(<span class='ident'>def_id</span>) {
+                        <span class='ident'>ty</span>::<span class='ident'>TypeTraitItem</span>(<span class='kw-2'>ref</span> <span class='ident'>item</span>) <span class='op'>=&gt;</span> <span class='prelude-val'>Some</span>(<span class='ident'>item</span>.<span class='ident'>name</span>),
+                        _ <span class='op'>=&gt;</span> <span class='prelude-val'>None</span>
+                    }
+                }).<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>name</span><span class='op'>|</span> (<span class='ident'>tr</span>.<span class='ident'>def_id</span>(), <span class='ident'>name</span>)));
+            }
+        }
 
         <span class='kw'>for</span> <span class='ident'>projection_bound</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>projection_bounds</span> {
             <span class='kw'>let</span> <span class='ident'>pair</span> <span class='op'>=</span> (<span class='ident'>projection_bound</span>.<span class='number'>0</span>.<span class='ident'>projection_ty</span>.<span class='ident'>trait_ref</span>.<span class='ident'>def_id</span>,
@@ -3620,23 +3624,17 @@
         <span class='comment'>// Find the type of the associated item, and the trait where the associated</span>
         <span class='comment'>// item is declared.</span>
         <span class='kw'>let</span> <span class='ident'>bound</span> <span class='op'>=</span> <span class='kw'>match</span> (<span class='kw-2'>&amp;</span><span class='ident'>ty</span>.<span class='ident'>sty</span>, <span class='ident'>ty_path_def</span>) {
-            (_, <span class='ident'>Def</span>::<span class='ident'>SelfTy</span>(<span class='prelude-val'>Some</span>(<span class='ident'>trait_did</span>), <span class='prelude-val'>Some</span>(<span class='ident'>impl_id</span>))) <span class='op'>=&gt;</span> {
-                <span class='comment'>// For Def::SelfTy() values inlined from another crate, the</span>
-                <span class='comment'>// impl_id will be DUMMY_NODE_ID, which would cause problems</span>
-                <span class='comment'>// here. But we should never run into an impl from another crate</span>
-                <span class='comment'>// in this pass.</span>
-                <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>impl_id</span> <span class='op'>!=</span> <span class='ident'>ast</span>::<span class='ident'>DUMMY_NODE_ID</span>);
-
+            (_, <span class='ident'>Def</span>::<span class='ident'>SelfTy</span>(<span class='prelude-val'>Some</span>(_), <span class='prelude-val'>Some</span>(<span class='ident'>impl_def_id</span>))) <span class='op'>=&gt;</span> {
                 <span class='comment'>// `Self` in an impl of a trait - we have a concrete self type and a</span>
                 <span class='comment'>// trait reference.</span>
-                <span class='kw'>let</span> <span class='ident'>trait_ref</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>impl_trait_ref</span>(<span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>local_def_id</span>(<span class='ident'>impl_id</span>)).<span class='ident'>unwrap</span>();
+                <span class='kw'>let</span> <span class='ident'>trait_ref</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>impl_trait_ref</span>(<span class='ident'>impl_def_id</span>).<span class='ident'>unwrap</span>();
                 <span class='kw'>let</span> <span class='ident'>trait_ref</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>free_substs</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>get_free_substs</span>() {
                     <span class='ident'>trait_ref</span>.<span class='ident'>subst</span>(<span class='ident'>tcx</span>, <span class='ident'>free_substs</span>)
                 } <span class='kw'>else</span> {
                     <span class='ident'>trait_ref</span>
                 };
 
-                <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>ensure_super_predicates</span>(<span class='ident'>span</span>, <span class='ident'>trait_did</span>).<span class='ident'>is_err</span>() {
+                <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>ensure_super_predicates</span>(<span class='ident'>span</span>, <span class='ident'>trait_ref</span>.<span class='ident'>def_id</span>).<span class='ident'>is_err</span>() {
                     <span class='kw'>return</span> (<span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>err</span>, <span class='ident'>Def</span>::<span class='prelude-val'>Err</span>);
                 }
 
@@ -3708,7 +3706,7 @@
             <span class='ident'>item</span>.<span class='ident'>expect</span>(<span class='string'>&quot;missing associated type&quot;</span>).<span class='ident'>def_id</span>()
         };
 
-        (<span class='ident'>ty</span>, <span class='ident'>Def</span>::<span class='ident'>AssociatedTy</span>(<span class='ident'>trait_did</span>, <span class='ident'>item_did</span>))
+        (<span class='ident'>ty</span>, <span class='ident'>Def</span>::<span class='ident'>AssociatedTy</span>(<span class='ident'>item_did</span>))
     }
 
     <span class='kw'>fn</span> <span class='ident'>qpath_to_ty</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
@@ -3840,16 +3838,11 @@
                     <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>err</span>
                 }
             }
-            <span class='ident'>Def</span>::<span class='ident'>SelfTy</span>(_, <span class='prelude-val'>Some</span>(<span class='ident'>impl_id</span>)) <span class='op'>=&gt;</span> {
+            <span class='ident'>Def</span>::<span class='ident'>SelfTy</span>(_, <span class='prelude-val'>Some</span>(<span class='ident'>def_id</span>)) <span class='op'>=&gt;</span> {
                 <span class='comment'>// Self in impl (we know the concrete type).</span>
 
-                <span class='comment'>// For Def::SelfTy() values inlined from another crate, the</span>
-                <span class='comment'>// impl_id will be DUMMY_NODE_ID, which would cause problems</span>
-                <span class='comment'>// here. But we should never run into an impl from another crate</span>
-                <span class='comment'>// in this pass.</span>
-                <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>impl_id</span> <span class='op'>!=</span> <span class='ident'>ast</span>::<span class='ident'>DUMMY_NODE_ID</span>);
-
                 <span class='ident'>tcx</span>.<span class='ident'>prohibit_type_params</span>(<span class='ident'>base_segments</span>);
+                <span class='kw'>let</span> <span class='ident'>impl_id</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>as_local_node_id</span>(<span class='ident'>def_id</span>).<span class='ident'>unwrap</span>();
                 <span class='kw'>let</span> <span class='ident'>ty</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>node_id_to_type</span>(<span class='ident'>impl_id</span>);
                 <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>free_substs</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>get_free_substs</span>() {
                     <span class='ident'>ty</span>.<span class='ident'>subst</span>(<span class='ident'>tcx</span>, <span class='ident'>free_substs</span>)
@@ -3862,8 +3855,9 @@
                 <span class='ident'>tcx</span>.<span class='ident'>prohibit_type_params</span>(<span class='ident'>base_segments</span>);
                 <span class='ident'>tcx</span>.<span class='ident'>mk_self_type</span>()
             }
-            <span class='ident'>Def</span>::<span class='ident'>AssociatedTy</span>(<span class='ident'>trait_did</span>, _) <span class='op'>=&gt;</span> {
+            <span class='ident'>Def</span>::<span class='ident'>AssociatedTy</span>(<span class='ident'>def_id</span>) <span class='op'>=&gt;</span> {
                 <span class='ident'>tcx</span>.<span class='ident'>prohibit_type_params</span>(<span class='kw-2'>&amp;</span><span class='ident'>base_segments</span>[..<span class='ident'>base_segments</span>.<span class='ident'>len</span>()<span class='op'>-</span><span class='number'>2</span>]);
+                <span class='kw'>let</span> <span class='ident'>trait_did</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>parent_def_id</span>(<span class='ident'>def_id</span>).<span class='ident'>unwrap</span>();
                 <span class='self'>self</span>.<span class='ident'>qpath_to_ty</span>(<span class='ident'>rscope</span>,
                                  <span class='ident'>span</span>,
                                  <span class='ident'>param_mode</span>,

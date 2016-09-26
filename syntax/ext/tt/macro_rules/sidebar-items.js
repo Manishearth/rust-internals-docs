@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["compile","Converts a `macro_rules!` invocation into a syntax extension."]]});
+initSidebarItems({"fn":[["compile","Converts a `macro_rules!` invocation into a syntax extension."]],"struct":[["MacroRulesExpander",""]]});

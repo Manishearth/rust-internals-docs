@@ -319,9 +319,6 @@
 <span id="275">275</span>
 <span id="276">276</span>
 <span id="277">277</span>
-<span id="278">278</span>
-<span id="279">279</span>
-<span id="280">280</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2016 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -338,12 +335,13 @@
 <span class='kw'>use</span> <span class='ident'>errors</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>::{<span class='self'>self</span>, <span class='ident'>Ident</span>, <span class='ident'>NodeId</span>};
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>codemap</span>::{<span class='ident'>ExpnInfo</span>, <span class='ident'>NameAndSpan</span>, <span class='ident'>MacroAttribute</span>};
-<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ext</span>::<span class='ident'>base</span>::{<span class='ident'>ExtCtxt</span>, <span class='ident'>DummyMacroLoader</span>};
+<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ext</span>::<span class='ident'>base</span>::<span class='ident'>ExtCtxt</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ext</span>::<span class='ident'>build</span>::<span class='ident'>AstBuilder</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ext</span>::<span class='ident'>expand</span>::<span class='ident'>ExpansionConfig</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>parse</span>::<span class='ident'>ParseSess</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>parse</span>::<span class='ident'>token</span>::{<span class='self'>self</span>, <span class='ident'>InternedString</span>};
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>feature_gate</span>::<span class='ident'>Features</span>;
+<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>fold</span>::<span class='ident'>Folder</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ptr</span>::<span class='ident'>P</span>;
 <span class='kw'>use</span> <span class='ident'>syntax_pos</span>::{<span class='ident'>Span</span>, <span class='ident'>DUMMY_SP</span>};
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>visit</span>::{<span class='self'>self</span>, <span class='ident'>Visitor</span>};
@@ -364,16 +362,14 @@
 }
 
 <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>modify</span>(<span class='ident'>sess</span>: <span class='kw-2'>&amp;</span><span class='ident'>ParseSess</span>,
+              <span class='ident'>resolver</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> ::<span class='ident'>syntax</span>::<span class='ident'>ext</span>::<span class='ident'>base</span>::<span class='ident'>Resolver</span>,
               <span class='kw-2'>mut</span> <span class='ident'>krate</span>: <span class='ident'>ast</span>::<span class='ident'>Crate</span>,
               <span class='ident'>is_rustc_macro_crate</span>: <span class='ident'>bool</span>,
               <span class='ident'>num_crate_types</span>: <span class='ident'>usize</span>,
               <span class='ident'>handler</span>: <span class='kw-2'>&amp;</span><span class='ident'>errors</span>::<span class='ident'>Handler</span>,
               <span class='ident'>features</span>: <span class='kw-2'>&amp;</span><span class='ident'>Features</span>) <span class='op'>-&gt;</span> <span class='ident'>ast</span>::<span class='ident'>Crate</span> {
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>loader</span> <span class='op'>=</span> <span class='ident'>DummyMacroLoader</span>;
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>cx</span> <span class='op'>=</span> <span class='ident'>ExtCtxt</span>::<span class='ident'>new</span>(<span class='ident'>sess</span>,
-                              <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
-                              <span class='ident'>ExpansionConfig</span>::<span class='ident'>default</span>(<span class='string'>&quot;rustc_macro&quot;</span>.<span class='ident'>to_string</span>()),
-                              <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>loader</span>);
+    <span class='kw'>let</span> <span class='ident'>ecfg</span> <span class='op'>=</span> <span class='ident'>ExpansionConfig</span>::<span class='ident'>default</span>(<span class='string'>&quot;rustc_macro&quot;</span>.<span class='ident'>to_string</span>());
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>cx</span> <span class='op'>=</span> <span class='ident'>ExtCtxt</span>::<span class='ident'>new</span>(<span class='ident'>sess</span>, <span class='ident'>Vec</span>::<span class='ident'>new</span>(), <span class='ident'>ecfg</span>, <span class='ident'>resolver</span>);
 
     <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>collect</span> <span class='op'>=</span> <span class='ident'>CollectCustomDerives</span> {
         <span class='ident'>derives</span>: <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
@@ -593,15 +589,13 @@
         <span class='ident'>i</span>.<span class='ident'>vis</span> <span class='op'>=</span> <span class='ident'>ast</span>::<span class='ident'>Visibility</span>::<span class='ident'>Public</span>;
         <span class='ident'>i</span>
     });
-    <span class='kw'>let</span> <span class='ident'>module</span> <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>item_mod</span>(<span class='ident'>span</span>,
-                             <span class='ident'>span</span>,
-                             <span class='ident'>ast</span>::<span class='ident'>Ident</span>::<span class='ident'>with_empty_ctxt</span>(<span class='ident'>token</span>::<span class='ident'>gensym</span>(<span class='string'>&quot;registrar&quot;</span>)),
-                             <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
-                             <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>krate</span>, <span class='ident'>func</span>]);
-    <span class='ident'>module</span>.<span class='ident'>map</span>(<span class='op'>|</span><span class='kw-2'>mut</span> <span class='ident'>i</span><span class='op'>|</span> {
+    <span class='kw'>let</span> <span class='ident'>ident</span> <span class='op'>=</span> <span class='ident'>ast</span>::<span class='ident'>Ident</span>::<span class='ident'>with_empty_ctxt</span>(<span class='ident'>token</span>::<span class='ident'>gensym</span>(<span class='string'>&quot;registrar&quot;</span>));
+    <span class='kw'>let</span> <span class='ident'>module</span> <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>item_mod</span>(<span class='ident'>span</span>, <span class='ident'>span</span>, <span class='ident'>ident</span>, <span class='ident'>Vec</span>::<span class='ident'>new</span>(), <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>krate</span>, <span class='ident'>func</span>]).<span class='ident'>map</span>(<span class='op'>|</span><span class='kw-2'>mut</span> <span class='ident'>i</span><span class='op'>|</span> {
         <span class='ident'>i</span>.<span class='ident'>vis</span> <span class='op'>=</span> <span class='ident'>ast</span>::<span class='ident'>Visibility</span>::<span class='ident'>Public</span>;
         <span class='ident'>i</span>
-    })
+    });
+
+    <span class='ident'>cx</span>.<span class='ident'>monotonic_expander</span>().<span class='ident'>fold_item</span>(<span class='ident'>module</span>).<span class='ident'>pop</span>().<span class='ident'>unwrap</span>()
 }
 </pre>
 </section>
