@@ -1,1 +1,0 @@
-initSidebarItems({"struct":[["Rc","A single-threaded reference-counting pointer."],["Weak","A weak version of [`Rc`][rc]."]]});

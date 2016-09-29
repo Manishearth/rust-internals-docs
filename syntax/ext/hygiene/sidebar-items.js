@@ -1,1 +1,0 @@
-initSidebarItems({"fn":[["reset_hygiene_data",""]],"struct":[["Mark","A mark is a unique id associated with a macro expansion."],["SyntaxContext","A SyntaxContext represents a chain of macro expansions (represented by marks)."],["SyntaxContextData",""]]});

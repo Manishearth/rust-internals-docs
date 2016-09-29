@@ -1,1 +1,0 @@
-initSidebarItems({"fn":[["add_configuration","Add `target_feature = \"...\"` cfgs for a variety of platform specific features (SSE, NEON etc.)."]]});

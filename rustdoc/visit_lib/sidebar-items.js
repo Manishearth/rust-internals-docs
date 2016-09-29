@@ -1,1 +1,0 @@
-initSidebarItems({"struct":[["LibEmbargoVisitor","Similar to `librustc_privacy::EmbargoVisitor`, but also takes specific rustdoc annotations into account (i.e. `doc(hidden)`)"]]});

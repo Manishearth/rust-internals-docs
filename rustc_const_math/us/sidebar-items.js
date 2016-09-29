@@ -1,1 +1,0 @@
-initSidebarItems({"enum":[["ConstUsize","Depending on the target only one variant is ever used in a compilation. Anything else is an error. This invariant is checked at several locations"]]});

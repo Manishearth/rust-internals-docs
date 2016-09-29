@@ -1,1 +1,0 @@
-initSidebarItems({"enum":[["IntrinsicDef",""],["Type",""]],"struct":[["Intrinsic",""]]});

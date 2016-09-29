@@ -1,1 +1,0 @@
-initSidebarItems({"constant":[["DIAGNOSTICS",""]],"enum":[["MakeGlobMap",""],["Namespace",""],["ResolveResult",""]],"struct":[["ModuleS","One node in the tree of modules."],["NameBinding",""],["Resolver","The main resolver class."],["ResolverArenas",""]],"trait":[["ToNameBinding",""]],"type":[["ErrorMessage",""],["Module",""]]});

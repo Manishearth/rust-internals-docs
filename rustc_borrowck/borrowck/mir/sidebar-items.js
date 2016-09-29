@@ -1,1 +1,0 @@
-initSidebarItems({"mod":[["elaborate_drops",""]]});

@@ -1,1 +1,0 @@
-initSidebarItems({"struct":[["Error",""],["ObligationForest",""],["Outcome",""],["Snapshot",""]],"trait":[["ForestObligation",""],["ObligationProcessor",""]]});

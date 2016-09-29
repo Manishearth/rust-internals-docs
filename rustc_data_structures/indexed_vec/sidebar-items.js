@@ -1,1 +1,0 @@
-initSidebarItems({"struct":[["IndexVec",""],["IntoIdx",""]],"trait":[["Idx","Represents some newtyped `usize` wrapper."]],"type":[["Enumerated",""]]});

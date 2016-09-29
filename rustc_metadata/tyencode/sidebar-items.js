@@ -1,1 +1,0 @@
-initSidebarItems({"fn":[["enc_bare_fn_ty",""],["enc_closure_ty",""],["enc_generics",""],["enc_predicate",""],["enc_region",""],["enc_substs",""],["enc_trait_ref",""],["enc_ty",""]],"struct":[["ctxt",""],["ty_abbrev",""]],"type":[["abbrev_map",""]]});
