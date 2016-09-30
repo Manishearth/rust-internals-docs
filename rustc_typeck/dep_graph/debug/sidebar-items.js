@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["DepNodeFilter","A dep-node filter goes from a user-defined string to a query over nodes. Right now the format is like this:"],["EdgeFilter","A filter like `F -> G` where `F` and `G` are valid dep-node filters. This can be used to test the source/target independently."]]});

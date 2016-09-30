@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["build_block_emitter","Take a `ExtCtxt`, `Span`, and `TokenStream`, and produce a Macro Result that parses the TokenStream as a block and returns it as an `Expr`."]],"mod":[["prelude",""]]});

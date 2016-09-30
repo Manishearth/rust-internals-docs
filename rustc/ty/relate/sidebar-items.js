@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["Cause",""]],"fn":[["expected_found",""],["expected_found_bool",""],["relate_substs",""],["super_relate_tys","The main \"type relation\" routine. Note that this does not handle inference artifacts, so you should filter those out before calling it."]],"trait":[["Relate",""],["TypeRelation",""]],"type":[["RelateResult",""]]});

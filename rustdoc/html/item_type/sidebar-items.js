@@ -1,0 +1,1 @@
+initSidebarItems({"constant":[["NAMESPACE_MACRO",""],["NAMESPACE_TYPE",""],["NAMESPACE_VALUE",""]],"enum":[["ItemType","Item type. Corresponds to `clean::ItemEnum` variants."],["NameSpace",""]]});

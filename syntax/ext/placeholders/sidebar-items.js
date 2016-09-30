@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["macro_scope_placeholder",""],["placeholder",""],["reconstructed_macro_rules",""]],"struct":[["PlaceholderExpander",""]]});

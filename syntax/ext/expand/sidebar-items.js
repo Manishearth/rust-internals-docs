@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["Expansion",""],["ExpansionKind",""],["InvocationKind",""]],"fn":[["expand_crate",""],["expand_crate_with_expander",""]],"struct":[["ExpansionConfig",""],["Invocation",""],["MacroExpander",""]]});

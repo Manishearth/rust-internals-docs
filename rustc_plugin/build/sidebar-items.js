@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["find_plugin_registrar","Find the function marked with `#[plugin_registrar]`, if any."]]});

@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Arc","An atomically reference counted wrapper for shared state. Destruction is deterministic, and will occur as soon as the last owner is gone. It is marked as `Send` because it uses atomic reference counting."],["Weak","A weak pointer to an `Arc`."]]});

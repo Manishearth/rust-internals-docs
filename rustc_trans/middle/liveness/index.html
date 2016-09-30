@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="rustdoc">
+    <meta name="description" content="API documentation for the Rust `liveness` mod in crate `rustc_trans`.">
+    <meta name="keywords" content="rust, rustlang, rust-lang, liveness">
+
+    <title>rustc_trans::middle::liveness - Rust</title>
+
+    <link rel="stylesheet" type="text/css" href="../../../rustdoc.css">
+    <link rel="stylesheet" type="text/css" href="../../../main.css">
+    
+
+    <link rel="shortcut icon" href="https://doc.rust-lang.org/favicon.ico">
+    
+</head>
+<body class="rustdoc">
+    <!--[if lte IE 8]>
+    <div class="warning">
+        This old browser is unsupported and will most likely display funky
+        things.
+    </div>
+    <![endif]-->
+
+    
+
+    <nav class="sidebar">
+        <a href='../../../rustc_trans/index.html'><img src='https://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png' alt='logo' width='100'></a>
+        <p class='location'><a href='../../index.html'>rustc_trans</a>::<wbr><a href='../index.html'>middle</a></p><script>window.sidebarCurrent = {name: 'liveness', ty: 'mod', relpath: '../'};</script><script defer src="../sidebar-items.js"></script>
+    </nav>
+
+    <nav class="sub">
+        <form class="search-form js-only">
+            <div class="search-container">
+                <input class="search-input" name="search"
+                       autocomplete="off"
+                       placeholder="Click or press ‘S’ to search, ‘?’ for more options…"
+                       type="search">
+            </div>
+        </form>
+    </nav>
+
+    <section id='main' class="content mod">
+<h1 class='fqn'><span class='in-band'>Module <a href='../../index.html'>rustc_trans</a>::<wbr><a href='../index.html'>middle</a>::<wbr><a class='mod' href=''>liveness</a></span><span class='out-of-band'><span class='since' title='Stable since Rust version '></span><span id='render-detail'>
+                   <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
+                       [<span class='inner'>&#x2212;</span>]
+                   </a>
+               </span><a id='src-11358' class='srclink' href='../../../rustc/middle/liveness/index.html?gotosrc=11358' title='goto source code'>[src]</a></span></h1>
+<div class='stability'><em class='stab unstable'>Unstable (<code>rustc_private</code>)</em></div><div class='docblock'><p>A classic liveness analysis based on dataflow over the AST.  Computes,
+for each local variable in a function, whether that variable is live
+at a given point.  Program execution points are identified by their
+id.</p>
+
+<h1 id='basic-idea' class='section-header'><a href='#basic-idea'>Basic idea</a></h1>
+<p>The basic model is that each local variable is assigned an index.  We
+represent sets of local variables using a vector indexed by this
+index.  The value in the vector is either 0, indicating the variable
+is dead, or the id of an expression that uses the variable.</p>
+
+<p>We conceptually walk over the AST in reverse execution order.  If we
+find a use of a variable, we add it to the set of live variables.  If
+we find an assignment to a variable, we remove it from the set of live
+variables.  When we have to merge two flows, we take the union of
+those two flows---if the variable is live on both paths, we simply
+pick one id.  In the event of loops, we continue doing this until a
+fixed point is reached.</p>
+
+<h2 id='checking-initialization' class='section-header'><a href='#checking-initialization'>Checking initialization</a></h2>
+<p>At the function entry point, all variables must be dead.  If this is
+not the case, we can report an error using the id found in the set of
+live variables, which identifies a use of the variable which is not
+dominated by an assignment.</p>
+
+<h2 id='checking-moves' class='section-header'><a href='#checking-moves'>Checking moves</a></h2>
+<p>After each explicit move, the variable must be dead.</p>
+
+<h2 id='computing-last-uses' class='section-header'><a href='#computing-last-uses'>Computing last uses</a></h2>
+<p>Any use of the variable where the variable is dead afterwards is a
+last use.</p>
+
+<h1 id='implementation-details' class='section-header'><a href='#implementation-details'>Implementation details</a></h1>
+<p>The actual implementation contains two (nested) walks over the AST.
+The outer walk has the job of building up the ir_maps instance for the
+enclosing function.  On the way down the tree, it identifies those AST
+nodes and variable IDs that will be needed for the liveness analysis
+and assigns them contiguous IDs.  The liveness id for an AST node is
+called a <code>live_node</code> (it&#39;s a newtype&#39;d usize) and the id for a variable
+is called a <code>variable</code> (another newtype&#39;d usize).</p>
+
+<p>On the way back up the tree, as we are about to exit from a function
+declaration we allocate a <code>liveness</code> instance.  Now that we know
+precisely how many nodes and variables we need, we can allocate all
+the various arrays that we will need to precisely the right size.  We then
+perform the actual propagation on the <code>liveness</code> instance.</p>
+
+<p>This propagation is encoded in the various <code>propagate_through_*()</code>
+methods.  It effectively does a reverse walk of the AST; whenever we
+reach a loop node, we iterate until a fixed point is reached.</p>
+
+<h2 id='the-users-struct' class='section-header'><a href='#the-users-struct'>The <code>Users</code> struct</a></h2>
+<p>At each live node <code>N</code>, we track three pieces of information for each
+variable <code>V</code> (these are encapsulated in the <code>Users</code> struct):</p>
+
+<ul>
+<li><p><code>reader</code>: the <code>LiveNode</code> ID of some node which will read the value
+that <code>V</code> holds on entry to <code>N</code>.  Formally: a node <code>M</code> such
+that there exists a path <code>P</code> from <code>N</code> to <code>M</code> where <code>P</code> does not
+write <code>V</code>.  If the <code>reader</code> is <code>invalid_node()</code>, then the current
+value will never be read (the variable is dead, essentially).</p></li>
+<li><p><code>writer</code>: the <code>LiveNode</code> ID of some node which will write the
+variable <code>V</code> and which is reachable from <code>N</code>.  Formally: a node <code>M</code>
+such that there exists a path <code>P</code> from <code>N</code> to <code>M</code> and <code>M</code> writes
+<code>V</code>.  If the <code>writer</code> is <code>invalid_node()</code>, then there is no writer
+of <code>V</code> that follows <code>N</code>.</p></li>
+<li><p><code>used</code>: a boolean value indicating whether <code>V</code> is <em>used</em>.  We
+distinguish a <em>read</em> from a <em>use</em> in that a <em>use</em> is some read that
+is not just used to generate a new value.  For example, <code>x += 1</code> is
+a read but not a use.  This is used to generate better warnings.</p></li>
+</ul>
+
+<h2 id='special-variables' class='section-header'><a href='#special-variables'>Special Variables</a></h2>
+<p>We generate various special variables for various, well, special purposes.
+These are described in the <code>specials</code> struct:</p>
+
+<ul>
+<li><p><code>exit_ln</code>: a live node that is generated to represent every &#39;exit&#39; from
+the function, whether it be by explicit return, panic, or other means.</p></li>
+<li><p><code>fallthrough_ln</code>: a live node that represents a fallthrough</p></li>
+<li><p><code>no_ret_var</code>: a synthetic variable that is only &#39;read&#39; from, the
+fallthrough node.  This allows us to detect functions where we fail
+to return explicitly.</p></li>
+<li><p><code>clean_exit_var</code>: a synthetic variable that is only &#39;read&#39; from the
+fallthrough node.  It is only live if the function could converge
+via means other than an explicit <code>return</code> expression. That is, it is
+only dead if the end of the function&#39;s block can never be reached.
+It is the responsibility of typeck to ensure that there are no
+<code>return</code> expressions in a function declared as diverging.</p></li>
+</ul>
+</div><h2 id='functions' class='section-header'><a href="#functions">Functions</a></h2>
+<table>
+                       <tr class='unstable module-item'>
+                           <td><a class='fn' href='fn.check_crate.html'
+                                  title='rustc_trans::middle::liveness::check_crate'>check_crate</a></td>
+                           <td class='docblock-short'>
+                               [<em class='stab unstable'>Unstable</em>] 
+                           </td>
+                       </tr></table></section>
+    <section id='search' class="content hidden"></section>
+
+    <section class="footer"></section>
+
+    <aside id="help" class="hidden">
+        <div>
+            <h1 class="hidden">Help</h1>
+
+            <div class="shortcuts">
+                <h2>Keyboard Shortcuts</h2>
+
+                <dl>
+                    <dt>?</dt>
+                    <dd>Show this help dialog</dd>
+                    <dt>S</dt>
+                    <dd>Focus the search field</dd>
+                    <dt>&larrb;</dt>
+                    <dd>Move up in search results</dd>
+                    <dt>&rarrb;</dt>
+                    <dd>Move down in search results</dd>
+                    <dt>&#9166;</dt>
+                    <dd>Go to active search result</dd>
+                    <dt>+</dt>
+                    <dd>Collapse/expand all sections</dd>
+                </dl>
+            </div>
+
+            <div class="infos">
+                <h2>Search Tricks</h2>
+
+                <p>
+                    Prefix searches with a type followed by a colon (e.g.
+                    <code>fn:</code>) to restrict the search to a given type.
+                </p>
+
+                <p>
+                    Accepted types are: <code>fn</code>, <code>mod</code>,
+                    <code>struct</code>, <code>enum</code>,
+                    <code>trait</code>, <code>type</code>, <code>macro</code>,
+                    and <code>const</code>.
+                </p>
+
+                <p>
+                    Search functions by type signature (e.g.
+                    <code>vec -> usize</code> or <code>* -> vec</code>)
+                </p>
+            </div>
+        </div>
+    </aside>
+
+    
+
+    <script>
+        window.rootPath = "../../../";
+        window.currentCrate = "rustc_trans";
+        window.playgroundUrl = "";
+    </script>
+    <script src="../../../jquery.js"></script>
+    <script src="../../../main.js"></script>
+    
+    <script defer src="../../../search-index.js"></script>
+</body>
+</html>
