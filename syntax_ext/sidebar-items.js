@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["register_builtins",""]],"mod":[["deriving","The compiler code necessary to implement the `#[derive]` extensions."],["rustc_macro_registrar",""]]});
+initSidebarItems({"fn":[["register_builtins",""]],"mod":[["deriving","The compiler code necessary to implement the `#[derive]` extensions."],["proc_macro_registrar",""]]});

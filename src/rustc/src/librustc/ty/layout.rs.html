@@ -1469,13 +1469,6 @@
 <span id="1425">1425</span>
 <span id="1426">1426</span>
 <span id="1427">1427</span>
-<span id="1428">1428</span>
-<span id="1429">1429</span>
-<span id="1430">1430</span>
-<span id="1431">1431</span>
-<span id="1432">1432</span>
-<span id="1433">1433</span>
-<span id="1434">1434</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2016 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -1990,11 +1983,11 @@
     <span class='doccomment'>/// If true, the size is exact, otherwise it&#39;s only a lower bound.</span>
     <span class='kw'>pub</span> <span class='ident'>sized</span>: <span class='ident'>bool</span>,
 
-    <span class='doccomment'>/// Offsets for the first byte after each field.</span>
-    <span class='doccomment'>/// That is, field_offset(i) = offset_after_field[i - 1] and the</span>
-    <span class='doccomment'>/// whole structure&#39;s size is the last offset, excluding padding.</span>
-    <span class='comment'>// FIXME(eddyb) use small vector optimization for the common case.</span>
-    <span class='kw'>pub</span> <span class='ident'>offset_after_field</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Size</span><span class='op'>&gt;</span>
+    <span class='doccomment'>/// Offsets for the first byte of each field.</span>
+    <span class='doccomment'>/// FIXME(eddyb) use small vector optimization for the common case.</span>
+    <span class='kw'>pub</span> <span class='ident'>offsets</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Size</span><span class='op'>&gt;</span>,
+
+    <span class='kw'>pub</span> <span class='ident'>min_size</span>: <span class='ident'>Size</span>,
 }
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>Struct</span> {
@@ -2003,7 +1996,8 @@
             <span class='ident'>align</span>: <span class='kw'>if</span> <span class='ident'>packed</span> { <span class='ident'>dl</span>.<span class='ident'>i8_align</span> } <span class='kw'>else</span> { <span class='ident'>dl</span>.<span class='ident'>aggregate_align</span> },
             <span class='ident'>packed</span>: <span class='ident'>packed</span>,
             <span class='ident'>sized</span>: <span class='bool-val'>true</span>,
-            <span class='ident'>offset_after_field</span>: <span class='macro'>vec</span><span class='macro'>!</span>[]
+            <span class='ident'>offsets</span>: <span class='macro'>vec</span><span class='macro'>!</span>[],
+            <span class='ident'>min_size</span>: <span class='ident'>Size</span>::<span class='ident'>from_bytes</span>(<span class='number'>0</span>),
         }
     }
 
@@ -2013,12 +2007,14 @@
                      <span class='ident'>scapegoat</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span><span class='op'>&gt;</span>)
                      <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(), <span class='ident'>LayoutError</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span><span class='op'>&gt;&gt;</span>
     <span class='kw'>where</span> <span class='ident'>I</span>: <span class='ident'>Iterator</span><span class='op'>&lt;</span><span class='ident'>Item</span><span class='op'>=</span><span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>Layout</span>, <span class='ident'>LayoutError</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>offset_after_field</span>.<span class='ident'>reserve</span>(<span class='ident'>fields</span>.<span class='ident'>size_hint</span>().<span class='number'>0</span>);
+        <span class='self'>self</span>.<span class='ident'>offsets</span>.<span class='ident'>reserve</span>(<span class='ident'>fields</span>.<span class='ident'>size_hint</span>().<span class='number'>0</span>);
+
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>offset</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>min_size</span>;
 
         <span class='kw'>for</span> <span class='ident'>field</span> <span class='kw'>in</span> <span class='ident'>fields</span> {
             <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>sized</span> {
                 <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;Struct::extend: field #{} of `{}` comes after unsized field&quot;</span>,
-                     <span class='self'>self</span>.<span class='ident'>offset_after_field</span>.<span class='ident'>len</span>(), <span class='ident'>scapegoat</span>);
+                     <span class='self'>self</span>.<span class='ident'>offsets</span>.<span class='ident'>len</span>(), <span class='ident'>scapegoat</span>);
             }
 
             <span class='kw'>let</span> <span class='ident'>field</span> <span class='op'>=</span> <span class='ident'>field</span>?;
@@ -2027,34 +2023,29 @@
             }
 
             <span class='comment'>// Invariant: offset &lt; dl.obj_size_bound() &lt;= 1&lt;&lt;61</span>
-            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>offset</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>packed</span> {
+            <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>packed</span> {
                 <span class='kw'>let</span> <span class='ident'>align</span> <span class='op'>=</span> <span class='ident'>field</span>.<span class='ident'>align</span>(<span class='ident'>dl</span>);
                 <span class='self'>self</span>.<span class='ident'>align</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>align</span>.<span class='ident'>max</span>(<span class='ident'>align</span>);
-                <span class='self'>self</span>.<span class='ident'>offset_after_field</span>.<span class='ident'>last_mut</span>().<span class='ident'>map_or</span>(<span class='ident'>Size</span>::<span class='ident'>from_bytes</span>(<span class='number'>0</span>), <span class='op'>|</span><span class='ident'>last</span><span class='op'>|</span> {
-                    <span class='op'>*</span><span class='ident'>last</span> <span class='op'>=</span> <span class='ident'>last</span>.<span class='ident'>abi_align</span>(<span class='ident'>align</span>);
-                    <span class='op'>*</span><span class='ident'>last</span>
-                })
-            } <span class='kw'>else</span> {
-                <span class='self'>self</span>.<span class='ident'>offset_after_field</span>.<span class='ident'>last</span>().<span class='ident'>map_or</span>(<span class='ident'>Size</span>::<span class='ident'>from_bytes</span>(<span class='number'>0</span>), <span class='op'>|</span><span class='kw-2'>&amp;</span><span class='ident'>last</span><span class='op'>|</span> <span class='ident'>last</span>)
-            };
+                <span class='ident'>offset</span> <span class='op'>=</span> <span class='ident'>offset</span>.<span class='ident'>abi_align</span>(<span class='ident'>align</span>);
+            }
+
+            <span class='self'>self</span>.<span class='ident'>offsets</span>.<span class='ident'>push</span>(<span class='ident'>offset</span>);
+
 
             <span class='ident'>offset</span> <span class='op'>=</span> <span class='ident'>offset</span>.<span class='ident'>checked_add</span>(<span class='ident'>field</span>.<span class='ident'>size</span>(<span class='ident'>dl</span>), <span class='ident'>dl</span>)
                            .<span class='ident'>map_or</span>(<span class='prelude-val'>Err</span>(<span class='ident'>LayoutError</span>::<span class='ident'>SizeOverflow</span>(<span class='ident'>scapegoat</span>)), <span class='prelude-val'>Ok</span>)?;
-
-            <span class='self'>self</span>.<span class='ident'>offset_after_field</span>.<span class='ident'>push</span>(<span class='ident'>offset</span>);
         }
+
+        <span class='self'>self</span>.<span class='ident'>min_size</span> <span class='op'>=</span> <span class='ident'>offset</span>;
 
         <span class='prelude-val'>Ok</span>(())
     }
 
     <span class='doccomment'>/// Get the size without trailing alignment padding.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>min_size</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Size</span> {
-        <span class='self'>self</span>.<span class='ident'>offset_after_field</span>.<span class='ident'>last</span>().<span class='ident'>map_or</span>(<span class='ident'>Size</span>::<span class='ident'>from_bytes</span>(<span class='number'>0</span>), <span class='op'>|</span><span class='kw-2'>&amp;</span><span class='ident'>last</span><span class='op'>|</span> <span class='ident'>last</span>)
-    }
 
     <span class='doccomment'>/// Get the size with trailing aligment padding.</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>stride</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Size</span> {
-        <span class='self'>self</span>.<span class='ident'>min_size</span>().<span class='ident'>abi_align</span>(<span class='self'>self</span>.<span class='ident'>align</span>)
+        <span class='self'>self</span>.<span class='ident'>min_size</span>.<span class='ident'>abi_align</span>(<span class='self'>self</span>.<span class='ident'>align</span>)
     }
 
     <span class='doccomment'>/// Determine whether a structure would be zero-sized, given its fields.</span>
@@ -2149,15 +2140,6 @@
             }
         }
         <span class='prelude-val'>Ok</span>(<span class='prelude-val'>None</span>)
-    }
-
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>offset_of_field</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>index</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='ident'>Size</span> {
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>index</span> <span class='op'>&lt;</span> <span class='self'>self</span>.<span class='ident'>offset_after_field</span>.<span class='ident'>len</span>());
-        <span class='kw'>if</span> <span class='ident'>index</span> <span class='op'>==</span> <span class='number'>0</span> {
-            <span class='ident'>Size</span>::<span class='ident'>from_bytes</span>(<span class='number'>0</span>)
-        } <span class='kw'>else</span> {
-            <span class='self'>self</span>.<span class='ident'>offset_after_field</span>[<span class='ident'>index</span><span class='op'>-</span><span class='number'>1</span>]
-        }
     }
 }
 
@@ -2617,7 +2599,7 @@
                     });
                     <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>st</span> <span class='op'>=</span> <span class='ident'>Struct</span>::<span class='ident'>new</span>(<span class='ident'>dl</span>, <span class='bool-val'>false</span>);
                     <span class='ident'>st</span>.<span class='ident'>extend</span>(<span class='ident'>dl</span>, <span class='ident'>discr</span>.<span class='ident'>iter</span>().<span class='ident'>map</span>(<span class='prelude-val'>Ok</span>).<span class='ident'>chain</span>(<span class='ident'>fields</span>), <span class='ident'>ty</span>)?;
-                    <span class='ident'>size</span> <span class='op'>=</span> <span class='ident'>cmp</span>::<span class='ident'>max</span>(<span class='ident'>size</span>, <span class='ident'>st</span>.<span class='ident'>min_size</span>());
+                    <span class='ident'>size</span> <span class='op'>=</span> <span class='ident'>cmp</span>::<span class='ident'>max</span>(<span class='ident'>size</span>, <span class='ident'>st</span>.<span class='ident'>min_size</span>);
                     <span class='ident'>align</span> <span class='op'>=</span> <span class='ident'>align</span>.<span class='ident'>max</span>(<span class='ident'>st</span>.<span class='ident'>align</span>);
                     <span class='prelude-val'>Ok</span>(<span class='ident'>st</span>)
                 }).<span class='ident'>collect</span>::<span class='op'>&lt;</span><span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>Vec</span><span class='op'>&lt;</span>_<span class='op'>&gt;</span>, _<span class='op'>&gt;&gt;</span>()?;
@@ -2650,11 +2632,15 @@
                     <span class='kw'>let</span> <span class='ident'>old_ity_size</span> <span class='op'>=</span> <span class='ident'>Int</span>(<span class='ident'>min_ity</span>).<span class='ident'>size</span>(<span class='ident'>dl</span>);
                     <span class='kw'>let</span> <span class='ident'>new_ity_size</span> <span class='op'>=</span> <span class='ident'>Int</span>(<span class='ident'>ity</span>).<span class='ident'>size</span>(<span class='ident'>dl</span>);
                     <span class='kw'>for</span> <span class='ident'>variant</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>variants</span> {
-                        <span class='kw'>for</span> <span class='ident'>offset</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>variant</span>.<span class='ident'>offset_after_field</span> {
+                        <span class='kw'>for</span> <span class='ident'>offset</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>variant</span>.<span class='ident'>offsets</span>[<span class='number'>1</span>..] {
                             <span class='kw'>if</span> <span class='op'>*</span><span class='ident'>offset</span> <span class='op'>&gt;</span> <span class='ident'>old_ity_size</span> {
                                 <span class='kw'>break</span>;
                             }
                             <span class='op'>*</span><span class='ident'>offset</span> <span class='op'>=</span> <span class='ident'>new_ity_size</span>;
+                        }
+                        <span class='comment'>// We might be making the struct larger.</span>
+                        <span class='kw'>if</span> <span class='ident'>variant</span>.<span class='ident'>min_size</span> <span class='op'>&lt;=</span> <span class='ident'>old_ity_size</span> {
+                            <span class='ident'>variant</span>.<span class='ident'>min_size</span> <span class='op'>=</span> <span class='ident'>new_ity_size</span>;
                         }
                     }
                 }

@@ -1099,6 +1099,18 @@
 <span id="1055">1055</span>
 <span id="1056">1056</span>
 <span id="1057">1057</span>
+<span id="1058">1058</span>
+<span id="1059">1059</span>
+<span id="1060">1060</span>
+<span id="1061">1061</span>
+<span id="1062">1062</span>
+<span id="1063">1063</span>
+<span id="1064">1064</span>
+<span id="1065">1065</span>
+<span id="1066">1066</span>
+<span id="1067">1067</span>
+<span id="1068">1068</span>
+<span id="1069">1069</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2016 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -1336,9 +1348,20 @@
         <span class='kw'>let</span> <span class='ident'>print_file_copy_stats</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>debugging_opts</span>.<span class='ident'>incremental_info</span>;
 
         <span class='comment'>// Try copying over all files from the source directory</span>
-        <span class='kw'>if</span> <span class='ident'>copy_files</span>(<span class='kw-2'>&amp;</span><span class='ident'>session_dir</span>, <span class='kw-2'>&amp;</span><span class='ident'>source_directory</span>, <span class='ident'>print_file_copy_stats</span>).<span class='ident'>is_ok</span>() {
+        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Ok</span>(<span class='ident'>allows_links</span>) <span class='op'>=</span> <span class='ident'>copy_files</span>(<span class='kw-2'>&amp;</span><span class='ident'>session_dir</span>, <span class='kw-2'>&amp;</span><span class='ident'>source_directory</span>,
+                                             <span class='ident'>print_file_copy_stats</span>) {
             <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;successfully copied data from: {}&quot;</span>,
                    <span class='ident'>source_directory</span>.<span class='ident'>display</span>());
+
+            <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>allows_links</span> {
+                <span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>warn</span>(<span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;Hard linking files in the incremental \
+                                        compilation cache failed. Copying files \
+                                        instead. Consider moving the cache \
+                                        directory to a file system which supports \
+                                        hard linking in session dir `{}`&quot;</span>,
+                                        <span class='ident'>session_dir</span>.<span class='ident'>display</span>())
+                    );
+            }
 
             <span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>init_incr_comp_session</span>(<span class='ident'>session_dir</span>, <span class='ident'>directory_lock</span>);
             <span class='kw'>return</span> <span class='prelude-val'>Ok</span>(<span class='bool-val'>true</span>)
@@ -1459,7 +1482,7 @@
 <span class='kw'>fn</span> <span class='ident'>copy_files</span>(<span class='ident'>target_dir</span>: <span class='kw-2'>&amp;</span><span class='ident'>Path</span>,
               <span class='ident'>source_dir</span>: <span class='kw-2'>&amp;</span><span class='ident'>Path</span>,
               <span class='ident'>print_stats_on_success</span>: <span class='ident'>bool</span>)
-              <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(), ()<span class='op'>&gt;</span> {
+              <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>bool</span>, ()<span class='op'>&gt;</span> {
     <span class='comment'>// We acquire a shared lock on the lock file of the directory, so that</span>
     <span class='comment'>// nobody deletes it out from under us while we are reading from it.</span>
     <span class='kw'>let</span> <span class='ident'>lock_file_path</span> <span class='op'>=</span> <span class='ident'>lock_file_path</span>(<span class='ident'>source_dir</span>);
@@ -1511,7 +1534,7 @@
         <span class='macro'>println</span><span class='macro'>!</span>(<span class='string'>&quot;incr. comp. session directory: {} files copied&quot;</span>, <span class='ident'>files_copied</span>);
     }
 
-    <span class='prelude-val'>Ok</span>(())
+    <span class='prelude-val'>Ok</span>(<span class='ident'>files_linked</span> <span class='op'>&gt;</span> <span class='number'>0</span> <span class='op'>||</span> <span class='ident'>files_copied</span> <span class='op'>==</span> <span class='number'>0</span>)
 }
 
 <span class='doccomment'>/// Generate unique directory path of the form:</span>
@@ -1758,13 +1781,14 @@
               <span class='ident'>crate_name</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>,
               <span class='ident'>crate_disambiguator</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>)
               <span class='op'>-&gt;</span> <span class='ident'>PathBuf</span> {
-    <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>hash</span>::{<span class='ident'>SipHasher</span>, <span class='ident'>Hasher</span>, <span class='ident'>Hash</span>};
+    <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>hash</span>::{<span class='ident'>Hasher</span>, <span class='ident'>Hash</span>};
+    <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>collections</span>::<span class='ident'>hash_map</span>::<span class='ident'>DefaultHasher</span>;
 
     <span class='kw'>let</span> <span class='ident'>incr_dir</span> <span class='op'>=</span> <span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>incremental</span>.<span class='ident'>as_ref</span>().<span class='ident'>unwrap</span>().<span class='ident'>clone</span>();
 
     <span class='comment'>// The full crate disambiguator is really long. A hash of it should be</span>
     <span class='comment'>// sufficient.</span>
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>hasher</span> <span class='op'>=</span> <span class='ident'>SipHasher</span>::<span class='ident'>new</span>();
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>hasher</span> <span class='op'>=</span> <span class='ident'>DefaultHasher</span>::<span class='ident'>new</span>();
     <span class='ident'>crate_disambiguator</span>.<span class='ident'>hash</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>hasher</span>);
 
     <span class='kw'>let</span> <span class='ident'>crate_name</span> <span class='op'>=</span> <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;{}-{}&quot;</span>, <span class='ident'>crate_name</span>, <span class='ident'>encode_base_36</span>(<span class='ident'>hasher</span>.<span class='ident'>finish</span>()));
