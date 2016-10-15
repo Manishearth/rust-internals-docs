@@ -242,6 +242,16 @@
 <span id="198">198</span>
 <span id="199">199</span>
 <span id="200">200</span>
+<span id="201">201</span>
+<span id="202">202</span>
+<span id="203">203</span>
+<span id="204">204</span>
+<span id="205">205</span>
+<span id="206">206</span>
+<span id="207">207</span>
+<span id="208">208</span>
+<span id="209">209</span>
+<span id="210">210</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -275,7 +285,6 @@
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cell</span>::<span class='ident'>RefCell</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>hash</span>::{<span class='ident'>Hash</span>, <span class='ident'>Hasher</span>};
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>collections</span>::<span class='ident'>hash_map</span>::<span class='ident'>DefaultHasher</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>dep_graph</span>::<span class='ident'>DepNode</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>::<span class='ident'>def_id</span>::{<span class='ident'>CRATE_DEF_INDEX</span>, <span class='ident'>DefId</span>};
@@ -288,10 +297,12 @@
 <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>def_path_hash</span>::<span class='ident'>DefPathHashes</span>;
 <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>svh_visitor</span>::<span class='ident'>StrictVersionHashVisitor</span>;
 <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>caching_codemap_view</span>::<span class='ident'>CachingCodemapView</span>;
+<span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>hasher</span>::<span class='ident'>IchHasher</span>;
 
 <span class='kw'>mod</span> <span class='ident'>def_path_hash</span>;
 <span class='kw'>mod</span> <span class='ident'>svh_visitor</span>;
 <span class='kw'>mod</span> <span class='ident'>caching_codemap_view</span>;
+<span class='kw'>mod</span> <span class='ident'>hasher</span>;
 
 <span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>IncrementalHashesMap</span> {
     <span class='ident'>hashes</span>: <span class='ident'>FnvHashMap</span><span class='op'>&lt;</span><span class='ident'>DepNode</span><span class='op'>&lt;</span><span class='ident'>DefId</span><span class='op'>&gt;</span>, <span class='ident'>u64</span><span class='op'>&gt;</span>,
@@ -318,6 +329,10 @@
 
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>iter</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> ::<span class='ident'>std</span>::<span class='ident'>collections</span>::<span class='ident'>hash_map</span>::<span class='ident'>Iter</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>DepNode</span><span class='op'>&lt;</span><span class='ident'>DefId</span><span class='op'>&gt;</span>, <span class='ident'>u64</span><span class='op'>&gt;</span> {
         <span class='self'>self</span>.<span class='ident'>hashes</span>.<span class='ident'>iter</span>()
+    }
+
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>len</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
+        <span class='self'>self</span>.<span class='ident'>hashes</span>.<span class='ident'>len</span>()
     }
 }
 
@@ -347,6 +362,9 @@
                                  <span class='op'>|</span><span class='ident'>v</span><span class='op'>|</span> <span class='ident'>visit</span>::<span class='ident'>walk_crate</span>(<span class='ident'>v</span>, <span class='ident'>krate</span>));
         <span class='ident'>krate</span>.<span class='ident'>visit_all_items</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>visitor</span>);
     });
+
+    <span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>perf_stats</span>.<span class='ident'>incr_comp_hashes_count</span>.<span class='ident'>set</span>(<span class='ident'>visitor</span>.<span class='ident'>hashes</span>.<span class='ident'>len</span>() <span class='kw'>as</span> <span class='ident'>u64</span>);
+
     <span class='ident'>record_time</span>(<span class='kw-2'>&amp;</span><span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>perf_stats</span>.<span class='ident'>svh_time</span>, <span class='op'>||</span> <span class='ident'>visitor</span>.<span class='ident'>compute_crate_hash</span>());
     <span class='ident'>visitor</span>.<span class='ident'>hashes</span>
 }
@@ -372,9 +390,7 @@
     {
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>def_id</span>.<span class='ident'>is_local</span>());
         <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;HashItemsVisitor::calculate(def_id={:?})&quot;</span>, <span class='ident'>def_id</span>);
-        <span class='comment'>// FIXME: this should use SHA1, not DefaultHasher. DefaultHasher is not</span>
-        <span class='comment'>// built to avoid collisions.</span>
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>state</span> <span class='op'>=</span> <span class='ident'>DefaultHasher</span>::<span class='ident'>new</span>();
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>state</span> <span class='op'>=</span> <span class='ident'>IchHasher</span>::<span class='ident'>new</span>();
         <span class='ident'>walk_op</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>StrictVersionHashVisitor</span>::<span class='ident'>new</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>state</span>,
                                                    <span class='self'>self</span>.<span class='ident'>tcx</span>,
                                                    <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>.<span class='ident'>def_path_hashes</span>,
@@ -383,12 +399,16 @@
         <span class='kw'>let</span> <span class='ident'>item_hash</span> <span class='op'>=</span> <span class='ident'>state</span>.<span class='ident'>finish</span>();
         <span class='self'>self</span>.<span class='ident'>hashes</span>.<span class='ident'>insert</span>(<span class='ident'>DepNode</span>::<span class='ident'>Hir</span>(<span class='ident'>def_id</span>), <span class='ident'>item_hash</span>);
         <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;calculate_item_hash: def_id={:?} hash={:?}&quot;</span>, <span class='ident'>def_id</span>, <span class='ident'>item_hash</span>);
+
+        <span class='kw'>let</span> <span class='ident'>bytes_hashed</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>perf_stats</span>.<span class='ident'>incr_comp_bytes_hashed</span>.<span class='ident'>get</span>() <span class='op'>+</span>
+                           <span class='ident'>state</span>.<span class='ident'>bytes_hashed</span>();
+        <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>perf_stats</span>.<span class='ident'>incr_comp_bytes_hashed</span>.<span class='ident'>set</span>(<span class='ident'>bytes_hashed</span>);
     }
 
     <span class='kw'>fn</span> <span class='ident'>compute_crate_hash</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) {
         <span class='kw'>let</span> <span class='ident'>krate</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>krate</span>();
 
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>crate_state</span> <span class='op'>=</span> <span class='ident'>DefaultHasher</span>::<span class='ident'>new</span>();
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>crate_state</span> <span class='op'>=</span> <span class='ident'>IchHasher</span>::<span class='ident'>new</span>();
 
         <span class='kw'>let</span> <span class='ident'>crate_disambiguator</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>local_crate_disambiguator</span>();
         <span class='string'>&quot;crate_disambiguator&quot;</span>.<span class='ident'>hash</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>crate_state</span>);

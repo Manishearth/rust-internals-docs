@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["load_external_files",""],["load_string",""]],"struct":[["ExternalHtml",""]]});
+initSidebarItems({"enum":[["LoadStringError",""]],"fn":[["load_string",""]],"struct":[["ExternalHtml",""]]});
