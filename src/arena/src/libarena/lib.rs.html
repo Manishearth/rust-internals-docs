@@ -496,6 +496,39 @@
 <span id="452">452</span>
 <span id="453">453</span>
 <span id="454">454</span>
+<span id="455">455</span>
+<span id="456">456</span>
+<span id="457">457</span>
+<span id="458">458</span>
+<span id="459">459</span>
+<span id="460">460</span>
+<span id="461">461</span>
+<span id="462">462</span>
+<span id="463">463</span>
+<span id="464">464</span>
+<span id="465">465</span>
+<span id="466">466</span>
+<span id="467">467</span>
+<span id="468">468</span>
+<span id="469">469</span>
+<span id="470">470</span>
+<span id="471">471</span>
+<span id="472">472</span>
+<span id="473">473</span>
+<span id="474">474</span>
+<span id="475">475</span>
+<span id="476">476</span>
+<span id="477">477</span>
+<span id="478">478</span>
+<span id="479">479</span>
+<span id="480">480</span>
+<span id="481">481</span>
+<span id="482">482</span>
+<span id="483">483</span>
+<span id="484">484</span>
+<span id="485">485</span>
+<span id="486">486</span>
+<span id="487">487</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -545,6 +578,7 @@
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>marker</span>::{<span class='ident'>PhantomData</span>, <span class='ident'>Send</span>};
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>mem</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>ptr</span>;
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>slice</span>;
 
 <span class='kw'>use</span> <span class='ident'>alloc</span>::<span class='ident'>heap</span>;
 <span class='kw'>use</span> <span class='ident'>alloc</span>::<span class='ident'>raw_vec</span>::<span class='ident'>RawVec</span>;
@@ -632,7 +666,7 @@
     <span class='attribute'>#[<span class='ident'>inline</span>]</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>alloc</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>object</span>: <span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>T</span> {
         <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>ptr</span> <span class='op'>==</span> <span class='self'>self</span>.<span class='ident'>end</span> {
-            <span class='self'>self</span>.<span class='ident'>grow</span>()
+            <span class='self'>self</span>.<span class='ident'>grow</span>(<span class='number'>1</span>)
         }
 
         <span class='kw'>unsafe</span> {
@@ -653,24 +687,56 @@
         }
     }
 
+    <span class='doccomment'>/// Allocates a slice of objects that are copy into the `TypedArena`, returning a mutable</span>
+    <span class='doccomment'>/// reference to it. Will panic if passed a zero-sized types.</span>
+    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>alloc_slice</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>slice</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>T</span>]) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> [<span class='ident'>T</span>]
+        <span class='kw'>where</span> <span class='ident'>T</span>: <span class='ident'>Copy</span> {
+        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>mem</span>::<span class='ident'>size_of</span>::<span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>() <span class='op'>!=</span> <span class='number'>0</span>);
+        <span class='kw'>if</span> <span class='ident'>slice</span>.<span class='ident'>len</span>() <span class='op'>==</span> <span class='number'>0</span> {
+            <span class='kw'>return</span> <span class='kw'>unsafe</span> { <span class='ident'>slice</span>::<span class='ident'>from_raw_parts_mut</span>(<span class='ident'>heap</span>::<span class='ident'>EMPTY</span> <span class='kw'>as</span> <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>T</span>, <span class='number'>0</span>) };
+        }
+
+        <span class='kw'>let</span> <span class='ident'>available_capacity_bytes</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>end</span>.<span class='ident'>get</span>() <span class='kw'>as</span> <span class='ident'>usize</span> <span class='op'>-</span> <span class='self'>self</span>.<span class='ident'>ptr</span>.<span class='ident'>get</span>() <span class='kw'>as</span> <span class='ident'>usize</span>;
+        <span class='kw'>let</span> <span class='ident'>at_least_bytes</span> <span class='op'>=</span> <span class='ident'>slice</span>.<span class='ident'>len</span>() <span class='op'>*</span> <span class='ident'>mem</span>::<span class='ident'>size_of</span>::<span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>();
+        <span class='kw'>if</span> <span class='ident'>available_capacity_bytes</span> <span class='op'>&lt;</span> <span class='ident'>at_least_bytes</span> {
+            <span class='self'>self</span>.<span class='ident'>grow</span>(<span class='ident'>slice</span>.<span class='ident'>len</span>());
+        }
+
+        <span class='kw'>unsafe</span> {
+            <span class='kw'>let</span> <span class='ident'>start_ptr</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>ptr</span>.<span class='ident'>get</span>();
+            <span class='kw'>let</span> <span class='ident'>arena_slice</span> <span class='op'>=</span> <span class='ident'>slice</span>::<span class='ident'>from_raw_parts_mut</span>(<span class='ident'>start_ptr</span>, <span class='ident'>slice</span>.<span class='ident'>len</span>());
+            <span class='self'>self</span>.<span class='ident'>ptr</span>.<span class='ident'>set</span>(<span class='ident'>start_ptr</span>.<span class='ident'>offset</span>(<span class='ident'>arena_slice</span>.<span class='ident'>len</span>() <span class='kw'>as</span> <span class='ident'>isize</span>));
+            <span class='ident'>arena_slice</span>.<span class='ident'>copy_from_slice</span>(<span class='ident'>slice</span>);
+            <span class='ident'>arena_slice</span>
+        }
+    }
+
     <span class='doccomment'>/// Grows the arena.</span>
     <span class='attribute'>#[<span class='ident'>inline</span>(<span class='ident'>never</span>)]</span>
     <span class='attribute'>#[<span class='ident'>cold</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>grow</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) {
+    <span class='kw'>fn</span> <span class='ident'>grow</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>n</span>: <span class='ident'>usize</span>) {
         <span class='kw'>unsafe</span> {
             <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>chunks</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>chunks</span>.<span class='ident'>borrow_mut</span>();
-            <span class='kw'>let</span> (<span class='ident'>chunk</span>, <span class='ident'>new_capacity</span>);
+            <span class='kw'>let</span> (<span class='ident'>chunk</span>, <span class='kw-2'>mut</span> <span class='ident'>new_capacity</span>);
             <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>last_chunk</span>) <span class='op'>=</span> <span class='ident'>chunks</span>.<span class='ident'>last_mut</span>() {
-                <span class='kw'>if</span> <span class='ident'>last_chunk</span>.<span class='ident'>storage</span>.<span class='ident'>double_in_place</span>() {
+                <span class='kw'>let</span> <span class='ident'>used_bytes</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>ptr</span>.<span class='ident'>get</span>() <span class='kw'>as</span> <span class='ident'>usize</span> <span class='op'>-</span> <span class='ident'>last_chunk</span>.<span class='ident'>start</span>() <span class='kw'>as</span> <span class='ident'>usize</span>;
+                <span class='kw'>let</span> <span class='ident'>currently_used_cap</span> <span class='op'>=</span> <span class='ident'>used_bytes</span> <span class='op'>/</span> <span class='ident'>mem</span>::<span class='ident'>size_of</span>::<span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>();
+                <span class='kw'>if</span> <span class='ident'>last_chunk</span>.<span class='ident'>storage</span>.<span class='ident'>reserve_in_place</span>(<span class='ident'>currently_used_cap</span>, <span class='ident'>n</span>) {
                     <span class='self'>self</span>.<span class='ident'>end</span>.<span class='ident'>set</span>(<span class='ident'>last_chunk</span>.<span class='ident'>end</span>());
                     <span class='kw'>return</span>;
                 } <span class='kw'>else</span> {
                     <span class='kw'>let</span> <span class='ident'>prev_capacity</span> <span class='op'>=</span> <span class='ident'>last_chunk</span>.<span class='ident'>storage</span>.<span class='ident'>cap</span>();
-                    <span class='ident'>new_capacity</span> <span class='op'>=</span> <span class='ident'>prev_capacity</span>.<span class='ident'>checked_mul</span>(<span class='number'>2</span>).<span class='ident'>unwrap</span>();
+                    <span class='kw'>loop</span> {
+                        <span class='ident'>new_capacity</span> <span class='op'>=</span> <span class='ident'>prev_capacity</span>.<span class='ident'>checked_mul</span>(<span class='number'>2</span>).<span class='ident'>unwrap</span>();
+                        <span class='kw'>if</span> <span class='ident'>new_capacity</span> <span class='op'>&gt;=</span> <span class='ident'>currently_used_cap</span> <span class='op'>+</span> <span class='ident'>n</span> {
+                            <span class='kw'>break</span>;
+                        }
+                    }
                 }
             } <span class='kw'>else</span> {
                 <span class='kw'>let</span> <span class='ident'>elem_size</span> <span class='op'>=</span> <span class='ident'>cmp</span>::<span class='ident'>max</span>(<span class='number'>1</span>, <span class='ident'>mem</span>::<span class='ident'>size_of</span>::<span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>());
-                <span class='ident'>new_capacity</span> <span class='op'>=</span> <span class='ident'>cmp</span>::<span class='ident'>max</span>(<span class='number'>1</span>, <span class='ident'>PAGE</span> <span class='op'>/</span> <span class='ident'>elem_size</span>);
+                <span class='ident'>new_capacity</span> <span class='op'>=</span> <span class='ident'>cmp</span>::<span class='ident'>max</span>(<span class='ident'>n</span>, <span class='ident'>PAGE</span> <span class='op'>/</span> <span class='ident'>elem_size</span>);
             }
             <span class='ident'>chunk</span> <span class='op'>=</span> <span class='ident'>TypedArenaChunk</span>::<span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>::<span class='ident'>new</span>(<span class='ident'>new_capacity</span>);
             <span class='self'>self</span>.<span class='ident'>ptr</span>.<span class='ident'>set</span>(<span class='ident'>chunk</span>.<span class='ident'>start</span>());

@@ -334,6 +334,7 @@
 <span id="290">290</span>
 <span id="291">291</span>
 <span id="292">292</span>
+<span id="293">293</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -353,13 +354,13 @@
 <span class='kw'>use</span> <span class='ident'>rustc_data_structures</span>::<span class='ident'>fnv</span>::<span class='ident'>FnvHashMap</span>;
 <span class='kw'>use</span> <span class='ident'>rustc_serialize</span>::<span class='ident'>Encodable</span> <span class='kw'>as</span> <span class='ident'>RustcEncodable</span>;
 <span class='kw'>use</span> <span class='ident'>rustc_serialize</span>::<span class='ident'>opaque</span>::<span class='ident'>Encoder</span>;
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>hash</span>::{<span class='ident'>Hash</span>, <span class='ident'>Hasher</span>};
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>hash</span>::<span class='ident'>Hash</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>io</span>::{<span class='self'>self</span>, <span class='ident'>Cursor</span>, <span class='ident'>Write</span>};
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>fs</span>::{<span class='self'>self</span>, <span class='ident'>File</span>};
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>path</span>::<span class='ident'>PathBuf</span>;
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>collections</span>::<span class='ident'>hash_map</span>::<span class='ident'>DefaultHasher</span>;
 
 <span class='kw'>use</span> <span class='ident'>IncrementalHashesMap</span>;
+<span class='kw'>use</span> <span class='ident'>ich</span>::<span class='ident'>Fingerprint</span>;
 <span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>data</span>::<span class='op'>*</span>;
 <span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>directory</span>::<span class='op'>*</span>;
 <span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>hash</span>::<span class='op'>*</span>;
@@ -367,6 +368,7 @@
 <span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>fs</span>::<span class='op'>*</span>;
 <span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>dirty_clean</span>;
 <span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>file_format</span>;
+<span class='kw'>use</span> <span class='ident'>calculate_svh</span>::<span class='ident'>hasher</span>::<span class='ident'>IchHasher</span>;
 
 <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>save_dep_graph</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
                                 <span class='ident'>incremental_hashes_map</span>: <span class='kw-2'>&amp;</span><span class='ident'>IncrementalHashesMap</span>,
@@ -522,7 +524,7 @@
                               <span class='ident'>svh</span>: <span class='ident'>Svh</span>,
                               <span class='ident'>preds</span>: <span class='kw-2'>&amp;</span><span class='ident'>Predecessors</span>,
                               <span class='ident'>builder</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>DefIdDirectoryBuilder</span>,
-                              <span class='ident'>current_metadata_hashes</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>FnvHashMap</span><span class='op'>&lt;</span><span class='ident'>DefId</span>, <span class='ident'>u64</span><span class='op'>&gt;</span>,
+                              <span class='ident'>current_metadata_hashes</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>FnvHashMap</span><span class='op'>&lt;</span><span class='ident'>DefId</span>, <span class='ident'>Fingerprint</span><span class='op'>&gt;</span>,
                               <span class='ident'>encoder</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Encoder</span>)
                               <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
     <span class='comment'>// For each `MetaData(X)` node where `X` is local, accumulate a</span>
@@ -570,7 +572,7 @@
         <span class='comment'>// is the det. hash of the def-path. This is convenient</span>
         <span class='comment'>// because we can sort this to get a stable ordering across</span>
         <span class='comment'>// compilations, even if the def-ids themselves have changed.</span>
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>hashes</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span>(<span class='ident'>DepNode</span><span class='op'>&lt;</span><span class='ident'>u64</span><span class='op'>&gt;</span>, <span class='ident'>u64</span>)<span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>sources</span>.<span class='ident'>iter</span>()
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>hashes</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span>(<span class='ident'>DepNode</span><span class='op'>&lt;</span><span class='ident'>u64</span><span class='op'>&gt;</span>, <span class='ident'>Fingerprint</span>)<span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>sources</span>.<span class='ident'>iter</span>()
             .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>dep_node</span><span class='op'>|</span> {
                 <span class='kw'>let</span> <span class='ident'>hash_dep_node</span> <span class='op'>=</span> <span class='ident'>dep_node</span>.<span class='ident'>map_def</span>(<span class='op'>|</span><span class='kw-2'>&amp;</span><span class='ident'>def_id</span><span class='op'>|</span> <span class='prelude-val'>Some</span>(<span class='ident'>def_id_hash</span>(<span class='ident'>def_id</span>))).<span class='ident'>unwrap</span>();
                 <span class='kw'>let</span> <span class='ident'>hash</span> <span class='op'>=</span> <span class='ident'>preds</span>.<span class='ident'>hashes</span>[<span class='ident'>dep_node</span>];
@@ -579,7 +581,7 @@
             .<span class='ident'>collect</span>();
 
         <span class='ident'>hashes</span>.<span class='ident'>sort</span>();
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>state</span> <span class='op'>=</span> <span class='ident'>DefaultHasher</span>::<span class='ident'>new</span>();
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>state</span> <span class='op'>=</span> <span class='ident'>IchHasher</span>::<span class='ident'>new</span>();
         <span class='ident'>hashes</span>.<span class='ident'>hash</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>state</span>);
         <span class='kw'>let</span> <span class='ident'>hash</span> <span class='op'>=</span> <span class='ident'>state</span>.<span class='ident'>finish</span>();
 
