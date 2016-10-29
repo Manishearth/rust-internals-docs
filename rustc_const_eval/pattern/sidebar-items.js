@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["BindingMode",""],["PatternError",""],["PatternKind",""]],"struct":[["FieldPattern",""],["Pattern",""],["PatternContext",""]],"trait":[["PatternFoldable",""],["PatternFolder",""]]});

@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["CrateLoader",""],["Library",""],["Macros",""]]});
+initSidebarItems({"struct":[["CrateLoader",""],["Library",""]]});

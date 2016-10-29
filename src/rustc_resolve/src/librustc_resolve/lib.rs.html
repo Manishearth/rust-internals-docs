@@ -3688,7 +3688,7 @@
 
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ext</span>::<span class='ident'>hygiene</span>::{<span class='ident'>Mark</span>, <span class='ident'>SyntaxContext</span>};
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>::{<span class='self'>self</span>, <span class='ident'>FloatTy</span>};
-<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>::{<span class='ident'>CRATE_NODE_ID</span>, <span class='ident'>Name</span>, <span class='ident'>NodeId</span>, <span class='ident'>Ident</span>, <span class='ident'>IntTy</span>, <span class='ident'>UintTy</span>};
+<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>::{<span class='ident'>CRATE_NODE_ID</span>, <span class='ident'>Name</span>, <span class='ident'>NodeId</span>, <span class='ident'>Ident</span>, <span class='ident'>SpannedIdent</span>, <span class='ident'>IntTy</span>, <span class='ident'>UintTy</span>};
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ext</span>::<span class='ident'>base</span>::<span class='ident'>SyntaxExtension</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>parse</span>::<span class='ident'>token</span>::{<span class='self'>self</span>, <span class='ident'>keywords</span>};
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>util</span>::<span class='ident'>lev_distance</span>::<span class='ident'>find_best_match_for_name</span>;
@@ -4478,6 +4478,10 @@
             _ <span class='op'>=&gt;</span> <span class='bool-val'>false</span>,
         }
     }
+
+    <span class='kw'>fn</span> <span class='ident'>is_local</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
+        <span class='self'>self</span>.<span class='ident'>normal_ancestor_id</span>.<span class='ident'>is_some</span>()
+    }
 }
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> <span class='ident'>fmt</span>::<span class='ident'>Debug</span> <span class='kw'>for</span> <span class='ident'>ModuleS</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
@@ -5213,14 +5217,7 @@
     <span class='kw'>fn</span> <span class='ident'>resolve_module_prefix</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>module_path</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>Ident</span>], <span class='ident'>span</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Span</span><span class='op'>&gt;</span>)
                              <span class='op'>-&gt;</span> <span class='ident'>ResolveResult</span><span class='op'>&lt;</span><span class='ident'>ModulePrefixResult</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;&gt;</span> {
         <span class='kw'>if</span> <span class='kw-2'>&amp;</span><span class='op'>*</span><span class='ident'>module_path</span>[<span class='number'>0</span>].<span class='ident'>name</span>.<span class='ident'>as_str</span>() <span class='op'>==</span> <span class='string'>&quot;$crate&quot;</span> {
-            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>ctxt</span> <span class='op'>=</span> <span class='ident'>module_path</span>[<span class='number'>0</span>].<span class='ident'>ctxt</span>;
-            <span class='kw'>while</span> <span class='ident'>ctxt</span>.<span class='ident'>source</span>().<span class='number'>0</span> <span class='op'>!=</span> <span class='ident'>SyntaxContext</span>::<span class='ident'>empty</span>() {
-                <span class='ident'>ctxt</span> <span class='op'>=</span> <span class='ident'>ctxt</span>.<span class='ident'>source</span>().<span class='number'>0</span>;
-            }
-            <span class='kw'>let</span> <span class='ident'>module</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>invocations</span>[<span class='kw-2'>&amp;</span><span class='ident'>ctxt</span>.<span class='ident'>source</span>().<span class='number'>1</span>].<span class='ident'>module</span>.<span class='ident'>get</span>();
-            <span class='kw'>let</span> <span class='ident'>crate_root</span> <span class='op'>=</span>
-                <span class='kw'>if</span> <span class='ident'>module</span>.<span class='ident'>def_id</span>().<span class='ident'>unwrap</span>().<span class='ident'>is_local</span>() { <span class='self'>self</span>.<span class='ident'>graph_root</span> } <span class='kw'>else</span> { <span class='ident'>module</span> };
-            <span class='kw'>return</span> <span class='ident'>Success</span>(<span class='ident'>PrefixFound</span>(<span class='ident'>crate_root</span>, <span class='number'>1</span>))
+            <span class='kw'>return</span> <span class='ident'>Success</span>(<span class='ident'>PrefixFound</span>(<span class='self'>self</span>.<span class='ident'>resolve_crate_var</span>(<span class='ident'>module_path</span>[<span class='number'>0</span>].<span class='ident'>ctxt</span>), <span class='number'>1</span>));
         }
 
         <span class='comment'>// Start at the current module if we see `self` or `super`, or at the</span>
@@ -5251,6 +5248,14 @@
                <span class='ident'>module_to_string</span>(<span class='kw-2'>&amp;</span><span class='ident'>containing_module</span>));
 
         <span class='kw'>return</span> <span class='ident'>Success</span>(<span class='ident'>PrefixFound</span>(<span class='ident'>containing_module</span>, <span class='ident'>i</span>));
+    }
+
+    <span class='kw'>fn</span> <span class='ident'>resolve_crate_var</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='kw-2'>mut</span> <span class='ident'>crate_var_ctxt</span>: <span class='ident'>SyntaxContext</span>) <span class='op'>-&gt;</span> <span class='ident'>Module</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
+        <span class='kw'>while</span> <span class='ident'>crate_var_ctxt</span>.<span class='ident'>source</span>().<span class='number'>0</span> <span class='op'>!=</span> <span class='ident'>SyntaxContext</span>::<span class='ident'>empty</span>() {
+            <span class='ident'>crate_var_ctxt</span> <span class='op'>=</span> <span class='ident'>crate_var_ctxt</span>.<span class='ident'>source</span>().<span class='number'>0</span>;
+        }
+        <span class='kw'>let</span> <span class='ident'>module</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>invocations</span>[<span class='kw-2'>&amp;</span><span class='ident'>crate_var_ctxt</span>.<span class='ident'>source</span>().<span class='number'>1</span>].<span class='ident'>module</span>.<span class='ident'>get</span>();
+        <span class='kw'>if</span> <span class='ident'>module</span>.<span class='ident'>is_local</span>() { <span class='self'>self</span>.<span class='ident'>graph_root</span> } <span class='kw'>else</span> { <span class='ident'>module</span> }
     }
 
     <span class='comment'>// AST resolution</span>
@@ -5911,7 +5916,7 @@
     }
 
     <span class='kw'>fn</span> <span class='ident'>fresh_binding</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                     <span class='ident'>ident</span>: <span class='kw-2'>&amp;</span><span class='ident'>ast</span>::<span class='ident'>SpannedIdent</span>,
+                     <span class='ident'>ident</span>: <span class='kw-2'>&amp;</span><span class='ident'>SpannedIdent</span>,
                      <span class='ident'>pat_id</span>: <span class='ident'>NodeId</span>,
                      <span class='ident'>outer_pat_id</span>: <span class='ident'>NodeId</span>,
                      <span class='ident'>pat_src</span>: <span class='ident'>PatternSource</span>,
@@ -6202,7 +6207,8 @@
         <span class='kw'>let</span> <span class='ident'>unqualified_def</span> <span class='op'>=</span> <span class='ident'>resolve_identifier_with_fallback</span>(<span class='self'>self</span>, <span class='prelude-val'>None</span>);
         <span class='kw'>let</span> <span class='ident'>qualified_binding</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>resolve_module_relative_path</span>(<span class='ident'>span</span>, <span class='ident'>segments</span>, <span class='ident'>namespace</span>);
         <span class='kw'>match</span> (<span class='ident'>qualified_binding</span>, <span class='ident'>unqualified_def</span>) {
-            (<span class='prelude-val'>Ok</span>(<span class='ident'>binding</span>), <span class='prelude-val'>Some</span>(<span class='kw-2'>ref</span> <span class='ident'>ud</span>)) <span class='kw'>if</span> <span class='ident'>binding</span>.<span class='ident'>def</span>() <span class='op'>==</span> <span class='ident'>ud</span>.<span class='ident'>def</span> <span class='op'>=&gt;</span> {
+            (<span class='prelude-val'>Ok</span>(<span class='ident'>binding</span>), <span class='prelude-val'>Some</span>(<span class='kw-2'>ref</span> <span class='ident'>ud</span>)) <span class='kw'>if</span> <span class='ident'>binding</span>.<span class='ident'>def</span>() <span class='op'>==</span> <span class='ident'>ud</span>.<span class='ident'>def</span> <span class='op'>&amp;&amp;</span>
+                                           <span class='ident'>segments</span>[<span class='number'>0</span>].<span class='ident'>identifier</span>.<span class='ident'>name</span>.<span class='ident'>as_str</span>() <span class='op'>!=</span> <span class='string'>&quot;$crate&quot;</span> <span class='op'>=&gt;</span> {
                 <span class='self'>self</span>.<span class='ident'>session</span>
                     .<span class='ident'>add_lint</span>(<span class='ident'>lint</span>::<span class='ident'>builtin</span>::<span class='ident'>UNUSED_QUALIFICATIONS</span>,
                               <span class='ident'>id</span>,
@@ -6475,11 +6481,11 @@
         } <span class='ident'>SuggestionType</span>::<span class='ident'>NotFound</span>
     }
 
-    <span class='kw'>fn</span> <span class='ident'>resolve_labeled_block</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>label</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Ident</span><span class='op'>&gt;</span>, <span class='ident'>id</span>: <span class='ident'>NodeId</span>, <span class='ident'>block</span>: <span class='kw-2'>&amp;</span><span class='ident'>Block</span>) {
+    <span class='kw'>fn</span> <span class='ident'>resolve_labeled_block</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>label</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>SpannedIdent</span><span class='op'>&gt;</span>, <span class='ident'>id</span>: <span class='ident'>NodeId</span>, <span class='ident'>block</span>: <span class='kw-2'>&amp;</span><span class='ident'>Block</span>) {
         <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>label</span>) <span class='op'>=</span> <span class='ident'>label</span> {
             <span class='kw'>let</span> <span class='ident'>def</span> <span class='op'>=</span> <span class='ident'>Def</span>::<span class='ident'>Label</span>(<span class='ident'>id</span>);
             <span class='self'>self</span>.<span class='ident'>with_label_rib</span>(<span class='op'>|</span><span class='ident'>this</span><span class='op'>|</span> {
-                <span class='ident'>this</span>.<span class='ident'>label_ribs</span>.<span class='ident'>last_mut</span>().<span class='ident'>unwrap</span>().<span class='ident'>bindings</span>.<span class='ident'>insert</span>(<span class='ident'>label</span>, <span class='ident'>def</span>);
+                <span class='ident'>this</span>.<span class='ident'>label_ribs</span>.<span class='ident'>last_mut</span>().<span class='ident'>unwrap</span>().<span class='ident'>bindings</span>.<span class='ident'>insert</span>(<span class='ident'>label</span>.<span class='ident'>node</span>, <span class='ident'>def</span>);
                 <span class='ident'>this</span>.<span class='ident'>visit_block</span>(<span class='ident'>block</span>);
             });
         } <span class='kw'>else</span> {
@@ -6672,19 +6678,6 @@
                 <span class='ident'>visit</span>::<span class='ident'>walk_expr</span>(<span class='self'>self</span>, <span class='ident'>expr</span>);
             }
 
-            <span class='ident'>ExprKind</span>::<span class='ident'>Loop</span>(_, <span class='prelude-val'>Some</span>(<span class='ident'>label</span>)) <span class='op'>|</span> <span class='ident'>ExprKind</span>::<span class='ident'>While</span>(.., <span class='prelude-val'>Some</span>(<span class='ident'>label</span>)) <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>with_label_rib</span>(<span class='op'>|</span><span class='ident'>this</span><span class='op'>|</span> {
-                    <span class='kw'>let</span> <span class='ident'>def</span> <span class='op'>=</span> <span class='ident'>Def</span>::<span class='ident'>Label</span>(<span class='ident'>expr</span>.<span class='ident'>id</span>);
-
-                    {
-                        <span class='kw'>let</span> <span class='ident'>rib</span> <span class='op'>=</span> <span class='ident'>this</span>.<span class='ident'>label_ribs</span>.<span class='ident'>last_mut</span>().<span class='ident'>unwrap</span>();
-                        <span class='ident'>rib</span>.<span class='ident'>bindings</span>.<span class='ident'>insert</span>(<span class='ident'>label</span>.<span class='ident'>node</span>, <span class='ident'>def</span>);
-                    }
-
-                    <span class='ident'>visit</span>::<span class='ident'>walk_expr</span>(<span class='ident'>this</span>, <span class='ident'>expr</span>);
-                })
-            }
-
             <span class='ident'>ExprKind</span>::<span class='ident'>Break</span>(<span class='prelude-val'>Some</span>(<span class='ident'>label</span>)) <span class='op'>|</span> <span class='ident'>ExprKind</span>::<span class='ident'>Continue</span>(<span class='prelude-val'>Some</span>(<span class='ident'>label</span>)) <span class='op'>=&gt;</span> {
                 <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>search_label</span>(<span class='ident'>label</span>.<span class='ident'>node</span>) {
                     <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> {
@@ -6714,12 +6707,19 @@
                 <span class='ident'>optional_else</span>.<span class='ident'>as_ref</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>expr</span><span class='op'>|</span> <span class='self'>self</span>.<span class='ident'>visit_expr</span>(<span class='ident'>expr</span>));
             }
 
+            <span class='ident'>ExprKind</span>::<span class='ident'>Loop</span>(<span class='kw-2'>ref</span> <span class='ident'>block</span>, <span class='ident'>label</span>) <span class='op'>=&gt;</span> <span class='self'>self</span>.<span class='ident'>resolve_labeled_block</span>(<span class='ident'>label</span>, <span class='ident'>expr</span>.<span class='ident'>id</span>, <span class='kw-2'>&amp;</span><span class='ident'>block</span>),
+
+            <span class='ident'>ExprKind</span>::<span class='ident'>While</span>(<span class='kw-2'>ref</span> <span class='ident'>subexpression</span>, <span class='kw-2'>ref</span> <span class='ident'>block</span>, <span class='ident'>label</span>) <span class='op'>=&gt;</span> {
+                <span class='self'>self</span>.<span class='ident'>visit_expr</span>(<span class='ident'>subexpression</span>);
+                <span class='self'>self</span>.<span class='ident'>resolve_labeled_block</span>(<span class='ident'>label</span>, <span class='ident'>expr</span>.<span class='ident'>id</span>, <span class='kw-2'>&amp;</span><span class='ident'>block</span>);
+            }
+
             <span class='ident'>ExprKind</span>::<span class='ident'>WhileLet</span>(<span class='kw-2'>ref</span> <span class='ident'>pattern</span>, <span class='kw-2'>ref</span> <span class='ident'>subexpression</span>, <span class='kw-2'>ref</span> <span class='ident'>block</span>, <span class='ident'>label</span>) <span class='op'>=&gt;</span> {
                 <span class='self'>self</span>.<span class='ident'>visit_expr</span>(<span class='ident'>subexpression</span>);
                 <span class='self'>self</span>.<span class='ident'>value_ribs</span>.<span class='ident'>push</span>(<span class='ident'>Rib</span>::<span class='ident'>new</span>(<span class='ident'>NormalRibKind</span>));
                 <span class='self'>self</span>.<span class='ident'>resolve_pattern</span>(<span class='ident'>pattern</span>, <span class='ident'>PatternSource</span>::<span class='ident'>WhileLet</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>FnvHashMap</span>());
 
-                <span class='self'>self</span>.<span class='ident'>resolve_labeled_block</span>(<span class='ident'>label</span>.<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>l</span><span class='op'>|</span> <span class='ident'>l</span>.<span class='ident'>node</span>), <span class='ident'>expr</span>.<span class='ident'>id</span>, <span class='ident'>block</span>);
+                <span class='self'>self</span>.<span class='ident'>resolve_labeled_block</span>(<span class='ident'>label</span>, <span class='ident'>expr</span>.<span class='ident'>id</span>, <span class='ident'>block</span>);
 
                 <span class='self'>self</span>.<span class='ident'>value_ribs</span>.<span class='ident'>pop</span>();
             }
@@ -6729,7 +6729,7 @@
                 <span class='self'>self</span>.<span class='ident'>value_ribs</span>.<span class='ident'>push</span>(<span class='ident'>Rib</span>::<span class='ident'>new</span>(<span class='ident'>NormalRibKind</span>));
                 <span class='self'>self</span>.<span class='ident'>resolve_pattern</span>(<span class='ident'>pattern</span>, <span class='ident'>PatternSource</span>::<span class='ident'>For</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>FnvHashMap</span>());
 
-                <span class='self'>self</span>.<span class='ident'>resolve_labeled_block</span>(<span class='ident'>label</span>.<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>l</span><span class='op'>|</span> <span class='ident'>l</span>.<span class='ident'>node</span>), <span class='ident'>expr</span>.<span class='ident'>id</span>, <span class='ident'>block</span>);
+                <span class='self'>self</span>.<span class='ident'>resolve_labeled_block</span>(<span class='ident'>label</span>, <span class='ident'>expr</span>.<span class='ident'>id</span>, <span class='ident'>block</span>);
 
                 <span class='self'>self</span>.<span class='ident'>value_ribs</span>.<span class='ident'>pop</span>();
             }
