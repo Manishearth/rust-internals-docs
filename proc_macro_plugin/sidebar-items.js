@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["plugin_registrar",""]],"mod":[["build",""],["parse","Parsing utilities for writing procedural macros."],["prelude",""]]});
+initSidebarItems({"fn":[["plugin_registrar",""]]});

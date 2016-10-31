@@ -1558,6 +1558,23 @@
 <span id="1514">1514</span>
 <span id="1515">1515</span>
 <span id="1516">1516</span>
+<span id="1517">1517</span>
+<span id="1518">1518</span>
+<span id="1519">1519</span>
+<span id="1520">1520</span>
+<span id="1521">1521</span>
+<span id="1522">1522</span>
+<span id="1523">1523</span>
+<span id="1524">1524</span>
+<span id="1525">1525</span>
+<span id="1526">1526</span>
+<span id="1527">1527</span>
+<span id="1528">1528</span>
+<span id="1529">1529</span>
+<span id="1530">1530</span>
+<span id="1531">1531</span>
+<span id="1532">1532</span>
+<span id="1533">1533</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -1583,6 +1600,7 @@
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>region</span>::<span class='ident'>RegionMaps</span>;
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>resolve_lifetime</span>;
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>stability</span>;
+<span class='kw'>use</span> <span class='ident'>mir</span>::<span class='ident'>Mir</span>;
 <span class='kw'>use</span> <span class='ident'>ty</span>::<span class='ident'>subst</span>::{<span class='ident'>Kind</span>, <span class='ident'>Substs</span>};
 <span class='kw'>use</span> <span class='ident'>traits</span>;
 <span class='kw'>use</span> <span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>TraitRef</span>, <span class='ident'>Ty</span>, <span class='ident'>TypeAndMut</span>};
@@ -1626,8 +1644,9 @@
 
     <span class='comment'>// references</span>
     <span class='ident'>generics</span>: <span class='ident'>TypedArena</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>Generics</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
-    <span class='ident'>trait_defs</span>: <span class='ident'>TypedArena</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>TraitDef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
-    <span class='ident'>adt_defs</span>: <span class='ident'>TypedArena</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>AdtDefData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
+    <span class='ident'>trait_def</span>: <span class='ident'>TypedArena</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>TraitDef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
+    <span class='ident'>adt_def</span>: <span class='ident'>TypedArena</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>AdtDefData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
+    <span class='ident'>mir</span>: <span class='ident'>TypedArena</span><span class='op'>&lt;</span><span class='ident'>RefCell</span><span class='op'>&lt;</span><span class='ident'>Mir</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span>,
 }
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>CtxtArenas</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
@@ -1642,8 +1661,9 @@
             <span class='ident'>layout</span>: <span class='ident'>TypedArena</span>::<span class='ident'>new</span>(),
 
             <span class='ident'>generics</span>: <span class='ident'>TypedArena</span>::<span class='ident'>new</span>(),
-            <span class='ident'>trait_defs</span>: <span class='ident'>TypedArena</span>::<span class='ident'>new</span>(),
-            <span class='ident'>adt_defs</span>: <span class='ident'>TypedArena</span>::<span class='ident'>new</span>()
+            <span class='ident'>trait_def</span>: <span class='ident'>TypedArena</span>::<span class='ident'>new</span>(),
+            <span class='ident'>adt_def</span>: <span class='ident'>TypedArena</span>::<span class='ident'>new</span>(),
+            <span class='ident'>mir</span>: <span class='ident'>TypedArena</span>::<span class='ident'>new</span>()
         }
     }
 }
@@ -1919,6 +1939,15 @@
 
     <span class='kw'>pub</span> <span class='ident'>map</span>: <span class='ident'>ast_map</span>::<span class='ident'>Map</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
 
+    <span class='doccomment'>/// Maps from the def-id of a function/method or const/static</span>
+    <span class='doccomment'>/// to its MIR. Mutation is done at an item granularity to</span>
+    <span class='doccomment'>/// allow MIR optimization passes to function and still</span>
+    <span class='doccomment'>/// access cross-crate MIR (e.g. inlining or const eval).</span>
+    <span class='doccomment'>///</span>
+    <span class='doccomment'>/// Note that cross-crate MIR appears to be always borrowed</span>
+    <span class='doccomment'>/// (in the `RefCell` sense) to prevent accidental mutation.</span>
+    <span class='kw'>pub</span> <span class='ident'>mir_map</span>: <span class='ident'>RefCell</span><span class='op'>&lt;</span><span class='ident'>DepTrackingMap</span><span class='op'>&lt;</span><span class='ident'>maps</span>::<span class='ident'>Mir</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span>,
+
     <span class='comment'>// Records the free variables refrenced by every closure</span>
     <span class='comment'>// expression. Do not track deps for this, just recompute it from</span>
     <span class='comment'>// scratch every time.</span>
@@ -2165,6 +2194,10 @@
         <span class='self'>self</span>.<span class='ident'>global_interners</span>.<span class='ident'>arenas</span>.<span class='ident'>generics</span>.<span class='ident'>alloc</span>(<span class='ident'>generics</span>)
     }
 
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>alloc_mir</span>(<span class='self'>self</span>, <span class='ident'>mir</span>: <span class='ident'>Mir</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;gcx</span> <span class='ident'>RefCell</span><span class='op'>&lt;</span><span class='ident'>Mir</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span><span class='op'>&gt;&gt;</span> {
+        <span class='self'>self</span>.<span class='ident'>global_interners</span>.<span class='ident'>arenas</span>.<span class='ident'>mir</span>.<span class='ident'>alloc</span>(<span class='ident'>RefCell</span>::<span class='ident'>new</span>(<span class='ident'>mir</span>))
+    }
+
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>intern_trait_def</span>(<span class='self'>self</span>, <span class='ident'>def</span>: <span class='ident'>ty</span>::<span class='ident'>TraitDef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span><span class='op'>&gt;</span>)
                             <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;gcx</span> <span class='ident'>ty</span>::<span class='ident'>TraitDef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span><span class='op'>&gt;</span> {
         <span class='kw'>let</span> <span class='ident'>did</span> <span class='op'>=</span> <span class='ident'>def</span>.<span class='ident'>trait_ref</span>.<span class='ident'>def_id</span>;
@@ -2178,7 +2211,7 @@
 
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>alloc_trait_def</span>(<span class='self'>self</span>, <span class='ident'>def</span>: <span class='ident'>ty</span>::<span class='ident'>TraitDef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span><span class='op'>&gt;</span>)
                            <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;gcx</span> <span class='ident'>ty</span>::<span class='ident'>TraitDef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>global_interners</span>.<span class='ident'>arenas</span>.<span class='ident'>trait_defs</span>.<span class='ident'>alloc</span>(<span class='ident'>def</span>)
+        <span class='self'>self</span>.<span class='ident'>global_interners</span>.<span class='ident'>arenas</span>.<span class='ident'>trait_def</span>.<span class='ident'>alloc</span>(<span class='ident'>def</span>)
     }
 
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>insert_adt_def</span>(<span class='self'>self</span>, <span class='ident'>did</span>: <span class='ident'>DefId</span>, <span class='ident'>adt_def</span>: <span class='ident'>ty</span>::<span class='ident'>AdtDefMaster</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span><span class='op'>&gt;</span>) {
@@ -2194,7 +2227,7 @@
                           <span class='ident'>variants</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>VariantDefData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;gcx</span><span class='op'>&gt;&gt;</span>)
                           <span class='op'>-&gt;</span> <span class='ident'>ty</span>::<span class='ident'>AdtDefMaster</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span><span class='op'>&gt;</span> {
         <span class='kw'>let</span> <span class='ident'>def</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>AdtDefData</span>::<span class='ident'>new</span>(<span class='self'>self</span>, <span class='ident'>did</span>, <span class='ident'>kind</span>, <span class='ident'>variants</span>);
-        <span class='kw'>let</span> <span class='ident'>interned</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>global_interners</span>.<span class='ident'>arenas</span>.<span class='ident'>adt_defs</span>.<span class='ident'>alloc</span>(<span class='ident'>def</span>);
+        <span class='kw'>let</span> <span class='ident'>interned</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>global_interners</span>.<span class='ident'>arenas</span>.<span class='ident'>adt_def</span>.<span class='ident'>alloc</span>(<span class='ident'>def</span>);
         <span class='self'>self</span>.<span class='ident'>insert_adt_def</span>(<span class='ident'>did</span>, <span class='ident'>interned</span>);
         <span class='ident'>interned</span>
     }
@@ -2299,6 +2332,7 @@
             <span class='ident'>super_predicates</span>: <span class='ident'>RefCell</span>::<span class='ident'>new</span>(<span class='ident'>DepTrackingMap</span>::<span class='ident'>new</span>(<span class='ident'>dep_graph</span>.<span class='ident'>clone</span>())),
             <span class='ident'>fulfilled_predicates</span>: <span class='ident'>RefCell</span>::<span class='ident'>new</span>(<span class='ident'>fulfilled_predicates</span>),
             <span class='ident'>map</span>: <span class='ident'>map</span>,
+            <span class='ident'>mir_map</span>: <span class='ident'>RefCell</span>::<span class='ident'>new</span>(<span class='ident'>DepTrackingMap</span>::<span class='ident'>new</span>(<span class='ident'>dep_graph</span>.<span class='ident'>clone</span>())),
             <span class='ident'>freevars</span>: <span class='ident'>RefCell</span>::<span class='ident'>new</span>(<span class='ident'>freevars</span>),
             <span class='ident'>maybe_unused_trait_imports</span>: <span class='ident'>maybe_unused_trait_imports</span>,
             <span class='ident'>tcache</span>: <span class='ident'>RefCell</span>::<span class='ident'>new</span>(<span class='ident'>DepTrackingMap</span>::<span class='ident'>new</span>(<span class='ident'>dep_graph</span>.<span class='ident'>clone</span>())),
