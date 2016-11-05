@@ -541,6 +541,43 @@
 <span id="497">497</span>
 <span id="498">498</span>
 <span id="499">499</span>
+<span id="500">500</span>
+<span id="501">501</span>
+<span id="502">502</span>
+<span id="503">503</span>
+<span id="504">504</span>
+<span id="505">505</span>
+<span id="506">506</span>
+<span id="507">507</span>
+<span id="508">508</span>
+<span id="509">509</span>
+<span id="510">510</span>
+<span id="511">511</span>
+<span id="512">512</span>
+<span id="513">513</span>
+<span id="514">514</span>
+<span id="515">515</span>
+<span id="516">516</span>
+<span id="517">517</span>
+<span id="518">518</span>
+<span id="519">519</span>
+<span id="520">520</span>
+<span id="521">521</span>
+<span id="522">522</span>
+<span id="523">523</span>
+<span id="524">524</span>
+<span id="525">525</span>
+<span id="526">526</span>
+<span id="527">527</span>
+<span id="528">528</span>
+<span id="529">529</span>
+<span id="530">530</span>
+<span id="531">531</span>
+<span id="532">532</span>
+<span id="533">533</span>
+<span id="534">534</span>
+<span id="535">535</span>
+<span id="536">536</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -555,6 +592,7 @@
 <span class='kw'>use</span> <span class='ident'>hir</span>::<span class='ident'>def_id</span>::<span class='ident'>DefId</span>;
 <span class='kw'>use</span> <span class='ident'>ty</span>::<span class='ident'>subst</span>::{<span class='ident'>Subst</span>, <span class='ident'>Substs</span>};
 <span class='kw'>use</span> <span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>Ty</span>, <span class='ident'>TyCtxt</span>, <span class='ident'>ToPredicate</span>, <span class='ident'>ToPolyTraitRef</span>};
+<span class='kw'>use</span> <span class='ident'>ty</span>::<span class='ident'>outlives</span>::<span class='ident'>Component</span>;
 <span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>common</span>::<span class='ident'>ErrorReported</span>;
 <span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>nodemap</span>::<span class='ident'>FnvHashSet</span>;
 
@@ -710,27 +748,63 @@
             <span class='ident'>ty</span>::<span class='ident'>Predicate</span>::<span class='ident'>ClosureKind</span>(..) <span class='op'>=&gt;</span> {
                 <span class='comment'>// Nothing to elaborate when waiting for a closure&#39;s kind to be inferred.</span>
             }
-            <span class='ident'>ty</span>::<span class='ident'>Predicate</span>::<span class='ident'>RegionOutlives</span>(..) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>Predicate</span>::<span class='ident'>TypeOutlives</span>(..) <span class='op'>=&gt;</span> {
-                <span class='comment'>// Currently, we do not &quot;elaborate&quot; predicates like</span>
-                <span class='comment'>// `&#39;a : &#39;b` or `T : &#39;a`.  We could conceivably do</span>
-                <span class='comment'>// more here.  For example,</span>
+
+            <span class='ident'>ty</span>::<span class='ident'>Predicate</span>::<span class='ident'>RegionOutlives</span>(..) <span class='op'>=&gt;</span> {
+                <span class='comment'>// Nothing to elaborate from `&#39;a: &#39;b`.</span>
+            }
+
+            <span class='ident'>ty</span>::<span class='ident'>Predicate</span>::<span class='ident'>TypeOutlives</span>(<span class='kw-2'>ref</span> <span class='ident'>data</span>) <span class='op'>=&gt;</span> {
+                <span class='comment'>// We know that `T: &#39;a` for some type `T`. We can</span>
+                <span class='comment'>// often elaborate this. For example, if we know that</span>
+                <span class='comment'>// `[U]: &#39;a`, that implies that `U: &#39;a`. Similarly, if</span>
+                <span class='comment'>// we know `&amp;&#39;a U: &#39;b`, then we know that `&#39;a: &#39;b` and</span>
+                <span class='comment'>// `U: &#39;b`.</span>
                 <span class='comment'>//</span>
-                <span class='comment'>//     &amp;&#39;a int : &#39;b</span>
-                <span class='comment'>//</span>
-                <span class='comment'>// implies that</span>
-                <span class='comment'>//</span>
-                <span class='comment'>//     &#39;a : &#39;b</span>
-                <span class='comment'>//</span>
-                <span class='comment'>// and we could get even more if we took WF</span>
-                <span class='comment'>// constraints into account. For example,</span>
-                <span class='comment'>//</span>
-                <span class='comment'>//     &amp;&#39;a &amp;&#39;b int : &#39;c</span>
-                <span class='comment'>//</span>
-                <span class='comment'>// implies that</span>
-                <span class='comment'>//</span>
-                <span class='comment'>//     &#39;b : &#39;a</span>
-                <span class='comment'>//     &#39;a : &#39;c</span>
+                <span class='comment'>// We can basically ignore bound regions here. So for</span>
+                <span class='comment'>// example `for&lt;&#39;c&gt; Foo&lt;&#39;a,&#39;c&gt;: &#39;b` can be elaborated to</span>
+                <span class='comment'>// `&#39;a: &#39;b`.</span>
+
+                <span class='comment'>// Ignore `for&lt;&#39;a&gt; T: &#39;a` -- we might in the future</span>
+                <span class='comment'>// consider this as evidence that `T: &#39;static`, but</span>
+                <span class='comment'>// I&#39;m a bit wary of such constructions and so for now</span>
+                <span class='comment'>// I want to be conservative. --nmatsakis</span>
+                <span class='kw'>let</span> <span class='ident'>ty_max</span> <span class='op'>=</span> <span class='ident'>data</span>.<span class='ident'>skip_binder</span>().<span class='number'>0</span>;
+                <span class='kw'>let</span> <span class='ident'>r_min</span> <span class='op'>=</span> <span class='ident'>data</span>.<span class='ident'>skip_binder</span>().<span class='number'>1</span>;
+                <span class='kw'>if</span> <span class='ident'>r_min</span>.<span class='ident'>is_bound</span>() {
+                    <span class='kw'>return</span>;
+                }
+
+                <span class='kw'>let</span> <span class='ident'>visited</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>.<span class='ident'>visited</span>;
+                <span class='self'>self</span>.<span class='ident'>stack</span>.<span class='ident'>extend</span>(
+                    <span class='ident'>tcx</span>.<span class='ident'>outlives_components</span>(<span class='ident'>ty_max</span>)
+                       .<span class='ident'>into_iter</span>()
+                       .<span class='ident'>filter_map</span>(<span class='op'>|</span><span class='ident'>component</span><span class='op'>|</span> <span class='kw'>match</span> <span class='ident'>component</span> {
+                           <span class='ident'>Component</span>::<span class='ident'>Region</span>(<span class='ident'>r</span>) <span class='op'>=&gt;</span> <span class='kw'>if</span> <span class='ident'>r</span>.<span class='ident'>is_bound</span>() {
+                               <span class='prelude-val'>None</span>
+                           } <span class='kw'>else</span> {
+                               <span class='prelude-val'>Some</span>(<span class='ident'>ty</span>::<span class='ident'>Predicate</span>::<span class='ident'>RegionOutlives</span>(
+                                   <span class='ident'>ty</span>::<span class='ident'>Binder</span>(<span class='ident'>ty</span>::<span class='ident'>OutlivesPredicate</span>(<span class='ident'>r</span>, <span class='ident'>r_min</span>))))
+                           },
+
+                           <span class='ident'>Component</span>::<span class='ident'>Param</span>(<span class='ident'>p</span>) <span class='op'>=&gt;</span> {
+                               <span class='kw'>let</span> <span class='ident'>ty</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>mk_param</span>(<span class='ident'>p</span>.<span class='ident'>idx</span>, <span class='ident'>p</span>.<span class='ident'>name</span>);
+                               <span class='prelude-val'>Some</span>(<span class='ident'>ty</span>::<span class='ident'>Predicate</span>::<span class='ident'>TypeOutlives</span>(
+                                   <span class='ident'>ty</span>::<span class='ident'>Binder</span>(<span class='ident'>ty</span>::<span class='ident'>OutlivesPredicate</span>(<span class='ident'>ty</span>, <span class='ident'>r_min</span>))))
+                           },
+
+                           <span class='ident'>Component</span>::<span class='ident'>UnresolvedInferenceVariable</span>(_) <span class='op'>=&gt;</span> {
+                               <span class='prelude-val'>None</span>
+                           },
+
+                           <span class='ident'>Component</span>::<span class='ident'>Projection</span>(_) <span class='op'>|</span>
+                           <span class='ident'>Component</span>::<span class='ident'>EscapingProjection</span>(_) <span class='op'>=&gt;</span> {
+                               <span class='comment'>// We can probably do more here. This</span>
+                               <span class='comment'>// corresponds to a case like `&lt;T as</span>
+                               <span class='comment'>// Foo&lt;&#39;a&gt;&gt;::U: &#39;b`.</span>
+                               <span class='prelude-val'>None</span>
+                           },
+                       })
+                       .<span class='ident'>filter</span>(<span class='op'>|</span><span class='ident'>p</span><span class='op'>|</span> <span class='ident'>visited</span>.<span class='ident'>insert</span>(<span class='ident'>p</span>)));
             }
         }
     }

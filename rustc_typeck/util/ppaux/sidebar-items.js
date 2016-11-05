@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["Ns","Namespace of the path given to parameterized to print."]],"fn":[["parameterized",""],["verbose",""]]});
+initSidebarItems({"fn":[["parameterized",""],["verbose",""]]});

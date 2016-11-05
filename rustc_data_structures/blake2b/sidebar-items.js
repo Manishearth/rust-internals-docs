@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["blake2b",""],["blake2b_final",""],["blake2b_new",""],["blake2b_update",""]],"struct":[["Blake2bCtx",""]]});
+initSidebarItems({"fn":[["blake2b",""]],"struct":[["Blake2bCtx",""],["Blake2bHasher",""]]});

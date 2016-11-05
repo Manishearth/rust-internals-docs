@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Diagnostic",""],["SubDiagnostic","For example a note attached to an error."]]});
