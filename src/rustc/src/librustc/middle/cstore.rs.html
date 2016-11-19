@@ -473,6 +473,19 @@
 <span id="429">429</span>
 <span id="430">430</span>
 <span id="431">431</span>
+<span id="432">432</span>
+<span id="433">433</span>
+<span id="434">434</span>
+<span id="435">435</span>
+<span id="436">436</span>
+<span id="437">437</span>
+<span id="438">438</span>
+<span id="439">439</span>
+<span id="440">440</span>
+<span id="441">441</span>
+<span id="442">442</span>
+<span id="443">443</span>
+<span id="444">444</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -510,6 +523,7 @@
 <span class='kw'>use</span> <span class='ident'>session</span>::<span class='ident'>search_paths</span>::<span class='ident'>PathKind</span>;
 <span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>nodemap</span>::{<span class='ident'>NodeSet</span>, <span class='ident'>DefIdMap</span>};
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>path</span>::<span class='ident'>PathBuf</span>;
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>rc</span>::<span class='ident'>Rc</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>attr</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ext</span>::<span class='ident'>base</span>::<span class='ident'>SyntaxExtension</span>;
@@ -537,7 +551,18 @@
 <span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>CrateSource</span> {
     <span class='kw'>pub</span> <span class='ident'>dylib</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span>(<span class='ident'>PathBuf</span>, <span class='ident'>PathKind</span>)<span class='op'>&gt;</span>,
     <span class='kw'>pub</span> <span class='ident'>rlib</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span>(<span class='ident'>PathBuf</span>, <span class='ident'>PathKind</span>)<span class='op'>&gt;</span>,
-    <span class='kw'>pub</span> <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>,
+}
+
+<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>RustcEncodable</span>, <span class='ident'>RustcDecodable</span>, <span class='ident'>Copy</span>, <span class='ident'>Clone</span>, <span class='ident'>Ord</span>, <span class='ident'>PartialOrd</span>, <span class='ident'>Eq</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Debug</span>)]</span>
+<span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>DepKind</span> {
+    <span class='doccomment'>/// A dependency that is only used for its macros.</span>
+    <span class='ident'>MacrosOnly</span>,
+    <span class='doccomment'>/// A dependency that is always injected into the dependency list and so</span>
+    <span class='doccomment'>/// doesn&#39;t need to be linked to an rlib, e.g. the injected allocator.</span>
+    <span class='ident'>Implicit</span>,
+    <span class='doccomment'>/// A dependency that is required by an rlib version of this crate.</span>
+    <span class='doccomment'>/// Ordinary `extern crate`s result in `Explicit` dependencies.</span>
+    <span class='ident'>Explicit</span>,
 }
 
 <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Copy</span>, <span class='ident'>Debug</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Clone</span>, <span class='ident'>RustcEncodable</span>, <span class='ident'>RustcDecodable</span>)]</span>
@@ -551,6 +576,13 @@
     <span class='ident'>NativeStatic</span>,    <span class='comment'>// native static library (.a archive)</span>
     <span class='ident'>NativeFramework</span>, <span class='comment'>// OSX-specific</span>
     <span class='ident'>NativeUnknown</span>,   <span class='comment'>// default way to specify a dynamic library</span>
+}
+
+<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Hash</span>, <span class='ident'>RustcEncodable</span>, <span class='ident'>RustcDecodable</span>)]</span>
+<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>NativeLibrary</span> {
+    <span class='kw'>pub</span> <span class='ident'>kind</span>: <span class='ident'>NativeLibraryKind</span>,
+    <span class='kw'>pub</span> <span class='ident'>name</span>: <span class='ident'>String</span>,
+    <span class='kw'>pub</span> <span class='ident'>cfg</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>P</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>MetaItem</span><span class='op'>&gt;&gt;</span>,
 }
 
 <span class='doccomment'>/// The data we save and restore about an inlined item or method.  This is not</span>
@@ -569,6 +601,11 @@
     <span class='ident'>Item</span>(<span class='ident'>DefId</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>hir</span>::<span class='ident'>Item</span>),
     <span class='ident'>TraitItem</span>(<span class='ident'>DefId</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>hir</span>::<span class='ident'>TraitItem</span>),
     <span class='ident'>ImplItem</span>(<span class='ident'>DefId</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>hir</span>::<span class='ident'>ImplItem</span>)
+}
+
+<span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>LoadedMacro</span> {
+    <span class='ident'>MacroRules</span>(<span class='ident'>ast</span>::<span class='ident'>MacroDef</span>),
+    <span class='ident'>ProcMacro</span>(<span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>SyntaxExtension</span><span class='op'>&gt;</span>),
 }
 
 <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Copy</span>, <span class='ident'>Clone</span>, <span class='ident'>Debug</span>)]</span>
@@ -623,7 +660,7 @@
     <span class='kw'>fn</span> <span class='ident'>implementations_of_trait</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>filter</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>DefId</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>DefId</span><span class='op'>&gt;</span>;
 
     <span class='comment'>// impl info</span>
-    <span class='kw'>fn</span> <span class='ident'>impl_or_trait_items</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>def_id</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>DefId</span><span class='op'>&gt;</span>;
+    <span class='kw'>fn</span> <span class='ident'>associated_item_def_ids</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>def_id</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>DefId</span><span class='op'>&gt;</span>;
     <span class='kw'>fn</span> <span class='ident'>impl_trait_ref</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>def</span>: <span class='ident'>DefId</span>)
                           <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>TraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>;
     <span class='kw'>fn</span> <span class='ident'>impl_polarity</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>def</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='ident'>hir</span>::<span class='ident'>ImplPolarity</span>;
@@ -633,8 +670,8 @@
 
     <span class='comment'>// trait/impl-item info</span>
     <span class='kw'>fn</span> <span class='ident'>trait_of_item</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>def_id</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>DefId</span><span class='op'>&gt;</span>;
-    <span class='kw'>fn</span> <span class='ident'>impl_or_trait_item</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>def</span>: <span class='ident'>DefId</span>)
-                              <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>ImplOrTraitItem</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>;
+    <span class='kw'>fn</span> <span class='ident'>associated_item</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>def</span>: <span class='ident'>DefId</span>)
+                           <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>AssociatedItem</span><span class='op'>&gt;</span>;
 
     <span class='comment'>// flags</span>
     <span class='kw'>fn</span> <span class='ident'>is_const_fn</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>did</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span>;
@@ -646,10 +683,10 @@
     <span class='comment'>// crate metadata</span>
     <span class='kw'>fn</span> <span class='ident'>dylib_dependency_formats</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>)
                                     <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span>(<span class='ident'>CrateNum</span>, <span class='ident'>LinkagePreference</span>)<span class='op'>&gt;</span>;
+    <span class='kw'>fn</span> <span class='ident'>dep_kind</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>DepKind</span>;
     <span class='kw'>fn</span> <span class='ident'>lang_items</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span>(<span class='ident'>DefIndex</span>, <span class='ident'>usize</span>)<span class='op'>&gt;</span>;
     <span class='kw'>fn</span> <span class='ident'>missing_lang_items</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>lang_items</span>::<span class='ident'>LangItem</span><span class='op'>&gt;</span>;
     <span class='kw'>fn</span> <span class='ident'>is_staged_api</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span>;
-    <span class='kw'>fn</span> <span class='ident'>is_explicitly_linked</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span>;
     <span class='kw'>fn</span> <span class='ident'>is_allocator</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span>;
     <span class='kw'>fn</span> <span class='ident'>is_panic_runtime</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span>;
     <span class='kw'>fn</span> <span class='ident'>is_compiler_builtins</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span>;
@@ -663,7 +700,7 @@
     <span class='kw'>fn</span> <span class='ident'>crate_hash</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>Svh</span>;
     <span class='kw'>fn</span> <span class='ident'>crate_disambiguator</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>InternedString</span>;
     <span class='kw'>fn</span> <span class='ident'>plugin_registrar_fn</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>DefId</span><span class='op'>&gt;</span>;
-    <span class='kw'>fn</span> <span class='ident'>native_libraries</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span>(<span class='ident'>NativeLibraryKind</span>, <span class='ident'>String</span>)<span class='op'>&gt;</span>;
+    <span class='kw'>fn</span> <span class='ident'>native_libraries</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>NativeLibrary</span><span class='op'>&gt;</span>;
     <span class='kw'>fn</span> <span class='ident'>reachable_ids</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>DefId</span><span class='op'>&gt;</span>;
     <span class='kw'>fn</span> <span class='ident'>is_no_builtins</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span>;
 
@@ -676,6 +713,7 @@
     <span class='kw'>fn</span> <span class='ident'>relative_def_path</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>def</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>hir_map</span>::<span class='ident'>DefPath</span><span class='op'>&gt;</span>;
     <span class='kw'>fn</span> <span class='ident'>struct_field_names</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>def</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>Name</span><span class='op'>&gt;</span>;
     <span class='kw'>fn</span> <span class='ident'>item_children</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>did</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>def</span>::<span class='ident'>Export</span><span class='op'>&gt;</span>;
+    <span class='kw'>fn</span> <span class='ident'>load_macro</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>did</span>: <span class='ident'>DefId</span>, <span class='ident'>sess</span>: <span class='kw-2'>&amp;</span><span class='ident'>Session</span>) <span class='op'>-&gt;</span> <span class='ident'>LoadedMacro</span>;
 
     <span class='comment'>// misc. metadata</span>
     <span class='kw'>fn</span> <span class='ident'>maybe_get_item_ast</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>def</span>: <span class='ident'>DefId</span>)
@@ -689,7 +727,7 @@
     <span class='comment'>// This is basically a 1-based range of ints, which is a little</span>
     <span class='comment'>// silly - I may fix that.</span>
     <span class='kw'>fn</span> <span class='ident'>crates</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>CrateNum</span><span class='op'>&gt;</span>;
-    <span class='kw'>fn</span> <span class='ident'>used_libraries</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span>(<span class='ident'>String</span>, <span class='ident'>NativeLibraryKind</span>)<span class='op'>&gt;</span>;
+    <span class='kw'>fn</span> <span class='ident'>used_libraries</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>NativeLibrary</span><span class='op'>&gt;</span>;
     <span class='kw'>fn</span> <span class='ident'>used_link_args</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>String</span><span class='op'>&gt;</span>;
 
     <span class='comment'>// utility functions</span>
@@ -787,8 +825,8 @@
     }
 
     <span class='comment'>// impl info</span>
-    <span class='kw'>fn</span> <span class='ident'>impl_or_trait_items</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>def_id</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>DefId</span><span class='op'>&gt;</span>
-        { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;impl_or_trait_items&quot;</span>) }
+    <span class='kw'>fn</span> <span class='ident'>associated_item_def_ids</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>def_id</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>DefId</span><span class='op'>&gt;</span>
+        { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;associated_items&quot;</span>) }
     <span class='kw'>fn</span> <span class='ident'>impl_trait_ref</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>def</span>: <span class='ident'>DefId</span>)
                           <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>TraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span> { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;impl_trait_ref&quot;</span>) }
     <span class='kw'>fn</span> <span class='ident'>impl_polarity</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>def</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='ident'>hir</span>::<span class='ident'>ImplPolarity</span> { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;impl_polarity&quot;</span>) }
@@ -799,8 +837,8 @@
 
     <span class='comment'>// trait/impl-item info</span>
     <span class='kw'>fn</span> <span class='ident'>trait_of_item</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>def_id</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>DefId</span><span class='op'>&gt;</span> { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;trait_of_item&quot;</span>) }
-    <span class='kw'>fn</span> <span class='ident'>impl_or_trait_item</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>def</span>: <span class='ident'>DefId</span>)
-                              <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>ImplOrTraitItem</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span> { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;impl_or_trait_item&quot;</span>) }
+    <span class='kw'>fn</span> <span class='ident'>associated_item</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>def</span>: <span class='ident'>DefId</span>)
+                           <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>AssociatedItem</span><span class='op'>&gt;</span> { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;associated_item&quot;</span>) }
 
     <span class='comment'>// flags</span>
     <span class='kw'>fn</span> <span class='ident'>is_const_fn</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>did</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;is_const_fn&quot;</span>) }
@@ -818,7 +856,7 @@
     <span class='kw'>fn</span> <span class='ident'>missing_lang_items</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>lang_items</span>::<span class='ident'>LangItem</span><span class='op'>&gt;</span>
         { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;missing_lang_items&quot;</span>) }
     <span class='kw'>fn</span> <span class='ident'>is_staged_api</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;is_staged_api&quot;</span>) }
-    <span class='kw'>fn</span> <span class='ident'>is_explicitly_linked</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;is_explicitly_linked&quot;</span>) }
+    <span class='kw'>fn</span> <span class='ident'>dep_kind</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>DepKind</span> { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;is_explicitly_linked&quot;</span>) }
     <span class='kw'>fn</span> <span class='ident'>is_allocator</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;is_allocator&quot;</span>) }
     <span class='kw'>fn</span> <span class='ident'>is_panic_runtime</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;is_panic_runtime&quot;</span>) }
     <span class='kw'>fn</span> <span class='ident'>is_compiler_builtins</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;is_compiler_builtins&quot;</span>) }
@@ -835,7 +873,7 @@
                            <span class='op'>-&gt;</span> <span class='ident'>InternedString</span> { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;crate_disambiguator&quot;</span>) }
     <span class='kw'>fn</span> <span class='ident'>plugin_registrar_fn</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>DefId</span><span class='op'>&gt;</span>
         { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;plugin_registrar_fn&quot;</span>) }
-    <span class='kw'>fn</span> <span class='ident'>native_libraries</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span>(<span class='ident'>NativeLibraryKind</span>, <span class='ident'>String</span>)<span class='op'>&gt;</span>
+    <span class='kw'>fn</span> <span class='ident'>native_libraries</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>NativeLibrary</span><span class='op'>&gt;</span>
         { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;native_libraries&quot;</span>) }
     <span class='kw'>fn</span> <span class='ident'>reachable_ids</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>DefId</span><span class='op'>&gt;</span> { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;reachable_ids&quot;</span>) }
     <span class='kw'>fn</span> <span class='ident'>is_no_builtins</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>cnum</span>: <span class='ident'>CrateNum</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;is_no_builtins&quot;</span>) }
@@ -847,6 +885,7 @@
     }
     <span class='kw'>fn</span> <span class='ident'>struct_field_names</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>def</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>Name</span><span class='op'>&gt;</span> { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;struct_field_names&quot;</span>) }
     <span class='kw'>fn</span> <span class='ident'>item_children</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>did</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>def</span>::<span class='ident'>Export</span><span class='op'>&gt;</span> { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;item_children&quot;</span>) }
+    <span class='kw'>fn</span> <span class='ident'>load_macro</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>did</span>: <span class='ident'>DefId</span>, <span class='ident'>sess</span>: <span class='kw-2'>&amp;</span><span class='ident'>Session</span>) <span class='op'>-&gt;</span> <span class='ident'>LoadedMacro</span> { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;load_macro&quot;</span>) }
 
     <span class='comment'>// misc. metadata</span>
     <span class='kw'>fn</span> <span class='ident'>maybe_get_item_ast</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>def</span>: <span class='ident'>DefId</span>)
@@ -869,7 +908,9 @@
     <span class='comment'>// This is basically a 1-based range of ints, which is a little</span>
     <span class='comment'>// silly - I may fix that.</span>
     <span class='kw'>fn</span> <span class='ident'>crates</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>CrateNum</span><span class='op'>&gt;</span> { <span class='macro'>vec</span><span class='macro'>!</span>[] }
-    <span class='kw'>fn</span> <span class='ident'>used_libraries</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span>(<span class='ident'>String</span>, <span class='ident'>NativeLibraryKind</span>)<span class='op'>&gt;</span> { <span class='macro'>vec</span><span class='macro'>!</span>[] }
+    <span class='kw'>fn</span> <span class='ident'>used_libraries</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>NativeLibrary</span><span class='op'>&gt;</span> {
+        <span class='macro'>vec</span><span class='macro'>!</span>[]
+    }
     <span class='kw'>fn</span> <span class='ident'>used_link_args</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>String</span><span class='op'>&gt;</span> { <span class='macro'>vec</span><span class='macro'>!</span>[] }
 
     <span class='comment'>// utility functions</span>
@@ -886,23 +927,8 @@
     <span class='kw'>fn</span> <span class='ident'>metadata_encoding_version</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span>[<span class='ident'>u8</span>] { <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;metadata_encoding_version&quot;</span>) }
 }
 
-<span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>LoadedMacros</span> {
-    <span class='ident'>MacroRules</span>(<span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>MacroDef</span><span class='op'>&gt;</span>),
-    <span class='ident'>ProcMacros</span>(<span class='ident'>Vec</span><span class='op'>&lt;</span>(<span class='ident'>ast</span>::<span class='ident'>Name</span>, <span class='ident'>SyntaxExtension</span>)<span class='op'>&gt;</span>),
-}
-
-<span class='kw'>impl</span> <span class='ident'>LoadedMacros</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_proc_macros</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-        <span class='kw'>match</span> <span class='op'>*</span><span class='self'>self</span> {
-            <span class='ident'>LoadedMacros</span>::<span class='ident'>ProcMacros</span>(_) <span class='op'>=&gt;</span> <span class='bool-val'>true</span>,
-            _ <span class='op'>=&gt;</span> <span class='bool-val'>false</span>,
-        }
-    }
-}
-
 <span class='kw'>pub</span> <span class='kw'>trait</span> <span class='ident'>CrateLoader</span> {
-    <span class='kw'>fn</span> <span class='ident'>process_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>item</span>: <span class='kw-2'>&amp;</span><span class='ident'>ast</span>::<span class='ident'>Item</span>, <span class='ident'>defs</span>: <span class='kw-2'>&amp;</span><span class='ident'>Definitions</span>, <span class='ident'>load_macros</span>: <span class='ident'>bool</span>)
-                    <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>LoadedMacros</span><span class='op'>&gt;</span>;
+    <span class='kw'>fn</span> <span class='ident'>process_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>item</span>: <span class='kw-2'>&amp;</span><span class='ident'>ast</span>::<span class='ident'>Item</span>, <span class='ident'>defs</span>: <span class='kw-2'>&amp;</span><span class='ident'>Definitions</span>);
     <span class='kw'>fn</span> <span class='ident'>postprocess</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>krate</span>: <span class='kw-2'>&amp;</span><span class='ident'>ast</span>::<span class='ident'>Crate</span>);
 }
 </pre>

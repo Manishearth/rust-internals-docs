@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["DeepVisitor",""]],"trait":[["ItemLikeVisitor","The \"item-like visitor\" visitor defines only the top-level methods that can be invoked by `Crate::visit_all_item_likes()`. Whether this trait is the right one to implement will depend on the overall pattern you need. Here are the three available patterns, in roughly the order of desirability:"]]});

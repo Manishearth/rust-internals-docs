@@ -782,6 +782,32 @@
 <span id="738">738</span>
 <span id="739">739</span>
 <span id="740">740</span>
+<span id="741">741</span>
+<span id="742">742</span>
+<span id="743">743</span>
+<span id="744">744</span>
+<span id="745">745</span>
+<span id="746">746</span>
+<span id="747">747</span>
+<span id="748">748</span>
+<span id="749">749</span>
+<span id="750">750</span>
+<span id="751">751</span>
+<span id="752">752</span>
+<span id="753">753</span>
+<span id="754">754</span>
+<span id="755">755</span>
+<span id="756">756</span>
+<span id="757">757</span>
+<span id="758">758</span>
+<span id="759">759</span>
+<span id="760">760</span>
+<span id="761">761</span>
+<span id="762">762</span>
+<span id="763">763</span>
+<span id="764">764</span>
+<span id="765">765</span>
+<span id="766">766</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -800,6 +826,7 @@
 <span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>Vtable</span>::<span class='op'>*</span>;
 <span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>ObligationCauseCode</span>::<span class='op'>*</span>;
 
+<span class='kw'>use</span> <span class='ident'>hir</span>;
 <span class='kw'>use</span> <span class='ident'>hir</span>::<span class='ident'>def_id</span>::<span class='ident'>DefId</span>;
 <span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>free_region</span>::<span class='ident'>FreeRegionMap</span>;
 <span class='kw'>use</span> <span class='ident'>ty</span>::<span class='ident'>subst</span>::<span class='ident'>Substs</span>;
@@ -933,6 +960,35 @@
         <span class='ident'>trait_item_def_id</span>: <span class='ident'>DefId</span>,
         <span class='ident'>lint_id</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>NodeId</span><span class='op'>&gt;</span>,
     },
+
+    <span class='comment'>// Checking that this expression can be assigned where it needs to be</span>
+    <span class='comment'>// FIXME(eddyb) #11161 is the original Expr required?</span>
+    <span class='ident'>ExprAssignable</span>,
+
+    <span class='comment'>// Computing common supertype in the arms of a match expression</span>
+    <span class='ident'>MatchExpressionArm</span> { <span class='ident'>arm_span</span>: <span class='ident'>Span</span>,
+                         <span class='ident'>source</span>: <span class='ident'>hir</span>::<span class='ident'>MatchSource</span> },
+
+    <span class='comment'>// Computing common supertype in an if expression</span>
+    <span class='ident'>IfExpression</span>,
+
+    <span class='comment'>// Computing common supertype of an if expression with no else counter-part</span>
+    <span class='ident'>IfExpressionWithNoElse</span>,
+
+    <span class='comment'>// `where a == b`</span>
+    <span class='ident'>EquatePredicate</span>,
+
+    <span class='comment'>// `main` has wrong type</span>
+    <span class='ident'>MainFunctionType</span>,
+
+    <span class='comment'>// `start` has wrong type</span>
+    <span class='ident'>StartFunctionType</span>,
+
+    <span class='comment'>// intrinsic has wrong type</span>
+    <span class='ident'>IntrinsicType</span>,
+
+    <span class='comment'>// method receiver</span>
+    <span class='ident'>MethodReceiver</span>,
 }
 
 <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Debug</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>)]</span>
@@ -1363,18 +1419,14 @@
     <span class='ident'>supertraits</span>(<span class='ident'>tcx</span>, <span class='ident'>trait_ref</span>).<span class='ident'>flat_map</span>(<span class='kw'>move</span> <span class='op'>|</span><span class='ident'>trait_ref</span><span class='op'>|</span> {
         <span class='ident'>tcx</span>.<span class='ident'>populate_implementations_for_trait_if_necessary</span>(<span class='ident'>trait_ref</span>.<span class='ident'>def_id</span>());
 
-        <span class='kw'>let</span> <span class='ident'>trait_item_def_ids</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>impl_or_trait_items</span>(<span class='ident'>trait_ref</span>.<span class='ident'>def_id</span>());
-        <span class='kw'>let</span> <span class='ident'>trait_methods</span> <span class='op'>=</span> (<span class='number'>0</span>..<span class='ident'>trait_item_def_ids</span>.<span class='ident'>len</span>()).<span class='ident'>filter_map</span>(<span class='kw'>move</span> <span class='op'>|</span><span class='ident'>i</span><span class='op'>|</span> {
-            <span class='kw'>match</span> <span class='ident'>tcx</span>.<span class='ident'>impl_or_trait_item</span>(<span class='ident'>trait_item_def_ids</span>[<span class='ident'>i</span>]) {
-                <span class='ident'>ty</span>::<span class='ident'>MethodTraitItem</span>(<span class='ident'>m</span>) <span class='op'>=&gt;</span> <span class='prelude-val'>Some</span>(<span class='ident'>m</span>),
-                _ <span class='op'>=&gt;</span> <span class='prelude-val'>None</span>
-            }
-        });
+        <span class='kw'>let</span> <span class='ident'>trait_methods</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>associated_items</span>(<span class='ident'>trait_ref</span>.<span class='ident'>def_id</span>())
+            .<span class='ident'>filter</span>(<span class='op'>|</span><span class='ident'>item</span><span class='op'>|</span> <span class='ident'>item</span>.<span class='ident'>kind</span> <span class='op'>==</span> <span class='ident'>ty</span>::<span class='ident'>AssociatedKind</span>::<span class='ident'>Method</span>);
 
         <span class='comment'>// Now list each method&#39;s DefId and Substs (for within its trait).</span>
         <span class='comment'>// If the method can never be called from this object, produce None.</span>
         <span class='ident'>trait_methods</span>.<span class='ident'>map</span>(<span class='kw'>move</span> <span class='op'>|</span><span class='ident'>trait_method</span><span class='op'>|</span> {
             <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;get_vtable_methods: trait_method={:?}&quot;</span>, <span class='ident'>trait_method</span>);
+            <span class='kw'>let</span> <span class='ident'>def_id</span> <span class='op'>=</span> <span class='ident'>trait_method</span>.<span class='ident'>def_id</span>;
 
             <span class='comment'>// Some methods cannot be called on an object; skip those.</span>
             <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>tcx</span>.<span class='ident'>is_vtable_safe_method</span>(<span class='ident'>trait_ref</span>.<span class='ident'>def_id</span>(), <span class='kw-2'>&amp;</span><span class='ident'>trait_method</span>) {
@@ -1384,21 +1436,21 @@
 
             <span class='comment'>// the method may have some early-bound lifetimes, add</span>
             <span class='comment'>// regions for those</span>
-            <span class='kw'>let</span> <span class='ident'>substs</span> <span class='op'>=</span> <span class='ident'>Substs</span>::<span class='ident'>for_item</span>(<span class='ident'>tcx</span>, <span class='ident'>trait_method</span>.<span class='ident'>def_id</span>,
-                                            <span class='op'>|</span>_, _<span class='op'>|</span> <span class='ident'>tcx</span>.<span class='ident'>mk_region</span>(<span class='ident'>ty</span>::<span class='ident'>ReErased</span>),
-                                            <span class='op'>|</span><span class='ident'>def</span>, _<span class='op'>|</span> <span class='ident'>trait_ref</span>.<span class='ident'>substs</span>().<span class='ident'>type_for_def</span>(<span class='ident'>def</span>));
+            <span class='kw'>let</span> <span class='ident'>substs</span> <span class='op'>=</span> <span class='ident'>Substs</span>::<span class='ident'>for_item</span>(<span class='ident'>tcx</span>, <span class='ident'>def_id</span>,
+                                          <span class='op'>|</span>_, _<span class='op'>|</span> <span class='ident'>tcx</span>.<span class='ident'>mk_region</span>(<span class='ident'>ty</span>::<span class='ident'>ReErased</span>),
+                                          <span class='op'>|</span><span class='ident'>def</span>, _<span class='op'>|</span> <span class='ident'>trait_ref</span>.<span class='ident'>substs</span>().<span class='ident'>type_for_def</span>(<span class='ident'>def</span>));
 
             <span class='comment'>// It&#39;s possible that the method relies on where clauses that</span>
             <span class='comment'>// do not hold for this particular set of type parameters.</span>
             <span class='comment'>// Note that this method could then never be called, so we</span>
             <span class='comment'>// do not want to try and trans it, in that case (see #23435).</span>
-            <span class='kw'>let</span> <span class='ident'>predicates</span> <span class='op'>=</span> <span class='ident'>trait_method</span>.<span class='ident'>predicates</span>.<span class='ident'>instantiate_own</span>(<span class='ident'>tcx</span>, <span class='ident'>substs</span>);
+            <span class='kw'>let</span> <span class='ident'>predicates</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>item_predicates</span>(<span class='ident'>def_id</span>).<span class='ident'>instantiate_own</span>(<span class='ident'>tcx</span>, <span class='ident'>substs</span>);
             <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>normalize_and_test_predicates</span>(<span class='ident'>tcx</span>, <span class='ident'>predicates</span>.<span class='ident'>predicates</span>) {
                 <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;get_vtable_methods: predicates do not hold&quot;</span>);
                 <span class='kw'>return</span> <span class='prelude-val'>None</span>;
             }
 
-            <span class='prelude-val'>Some</span>((<span class='ident'>trait_method</span>.<span class='ident'>def_id</span>, <span class='ident'>substs</span>))
+            <span class='prelude-val'>Some</span>((<span class='ident'>def_id</span>, <span class='ident'>substs</span>))
         })
     })
 }

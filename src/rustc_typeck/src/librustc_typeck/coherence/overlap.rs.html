@@ -246,6 +246,13 @@
 <span id="202">202</span>
 <span id="203">203</span>
 <span id="204">204</span>
+<span id="205">205</span>
+<span id="206">206</span>
+<span id="207">207</span>
+<span id="208">208</span>
+<span id="209">209</span>
+<span id="210">210</span>
+<span id="211">211</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -263,11 +270,11 @@
 
 <span class='kw'>use</span> <span class='ident'>hir</span>::<span class='ident'>def_id</span>::<span class='ident'>DefId</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>traits</span>::{<span class='self'>self</span>, <span class='ident'>Reveal</span>};
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>TyCtxt</span>};
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>TyCtxt</span>, <span class='ident'>TypeFoldable</span>};
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>dep_graph</span>::<span class='ident'>DepNode</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>;
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>::<span class='ident'>intravisit</span>;
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>::<span class='ident'>itemlikevisit</span>::<span class='ident'>ItemLikeVisitor</span>;
 <span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>nodemap</span>::<span class='ident'>DefIdMap</span>;
 <span class='kw'>use</span> <span class='ident'>lint</span>;
 
@@ -279,7 +286,7 @@
 
     <span class='comment'>// this secondary walk specifically checks for some other cases,</span>
     <span class='comment'>// like defaulted traits, for which additional overlap rules exist</span>
-    <span class='ident'>tcx</span>.<span class='ident'>visit_all_items_in_krate</span>(<span class='ident'>DepNode</span>::<span class='ident'>CoherenceOverlapCheckSpecial</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>overlap</span>);
+    <span class='ident'>tcx</span>.<span class='ident'>visit_all_item_likes_in_krate</span>(<span class='ident'>DepNode</span>::<span class='ident'>CoherenceOverlapCheckSpecial</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>overlap</span>);
 }
 
 <span class='kw'>struct</span> <span class='ident'>OverlapChecker</span><span class='op'>&lt;</span><span class='lifetime'>&#39;cx</span>, <span class='lifetime'>&#39;tcx</span>: <span class='lifetime'>&#39;cx</span><span class='op'>&gt;</span> {
@@ -297,25 +304,23 @@
             <span class='ident'>Value</span>,
         }
 
-        <span class='kw'>fn</span> <span class='ident'>name_and_namespace</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                        <span class='ident'>def_id</span>: <span class='ident'>DefId</span>)
-                                        <span class='op'>-&gt;</span> (<span class='ident'>ast</span>::<span class='ident'>Name</span>, <span class='ident'>Namespace</span>) {
-            <span class='kw'>let</span> <span class='ident'>item</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>impl_or_trait_item</span>(<span class='ident'>def_id</span>);
-            (<span class='ident'>item</span>.<span class='ident'>name</span>(),
-             <span class='kw'>match</span> <span class='ident'>item</span> {
-                 <span class='ident'>ty</span>::<span class='ident'>TypeTraitItem</span>(..) <span class='op'>=&gt;</span> <span class='ident'>Namespace</span>::<span class='ident'>Type</span>,
-                 <span class='ident'>ty</span>::<span class='ident'>ConstTraitItem</span>(..) <span class='op'>=&gt;</span> <span class='ident'>Namespace</span>::<span class='ident'>Value</span>,
-                 <span class='ident'>ty</span>::<span class='ident'>MethodTraitItem</span>(..) <span class='op'>=&gt;</span> <span class='ident'>Namespace</span>::<span class='ident'>Value</span>,
-             })
-        }
+        <span class='kw'>let</span> <span class='ident'>name_and_namespace</span> <span class='op'>=</span> <span class='op'>|</span><span class='ident'>def_id</span><span class='op'>|</span> {
+            <span class='kw'>let</span> <span class='ident'>item</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>associated_item</span>(<span class='ident'>def_id</span>);
+            (<span class='ident'>item</span>.<span class='ident'>name</span>, <span class='kw'>match</span> <span class='ident'>item</span>.<span class='ident'>kind</span> {
+                <span class='ident'>ty</span>::<span class='ident'>AssociatedKind</span>::<span class='ident'>Type</span> <span class='op'>=&gt;</span> <span class='ident'>Namespace</span>::<span class='ident'>Type</span>,
+                <span class='ident'>ty</span>::<span class='ident'>AssociatedKind</span>::<span class='ident'>Const</span> <span class='op'>|</span>
+                <span class='ident'>ty</span>::<span class='ident'>AssociatedKind</span>::<span class='ident'>Method</span> <span class='op'>=&gt;</span> <span class='ident'>Namespace</span>::<span class='ident'>Value</span>,
+            })
+        };
 
-        <span class='kw'>let</span> <span class='ident'>impl_items</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>impl_or_trait_item_def_ids</span>.<span class='ident'>borrow</span>();
+        <span class='kw'>let</span> <span class='ident'>impl_items1</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>associated_item_def_ids</span>(<span class='ident'>impl1</span>);
+        <span class='kw'>let</span> <span class='ident'>impl_items2</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>associated_item_def_ids</span>(<span class='ident'>impl2</span>);
 
-        <span class='kw'>for</span> <span class='kw-2'>&amp;</span><span class='ident'>item1</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>impl_items</span>[<span class='kw-2'>&amp;</span><span class='ident'>impl1</span>][..] {
-            <span class='kw'>let</span> (<span class='ident'>name</span>, <span class='ident'>namespace</span>) <span class='op'>=</span> <span class='ident'>name_and_namespace</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>, <span class='ident'>item1</span>);
+        <span class='kw'>for</span> <span class='kw-2'>&amp;</span><span class='ident'>item1</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>impl_items1</span>[..] {
+            <span class='kw'>let</span> (<span class='ident'>name</span>, <span class='ident'>namespace</span>) <span class='op'>=</span> <span class='ident'>name_and_namespace</span>(<span class='ident'>item1</span>);
 
-            <span class='kw'>for</span> <span class='kw-2'>&amp;</span><span class='ident'>item2</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>impl_items</span>[<span class='kw-2'>&amp;</span><span class='ident'>impl2</span>][..] {
-                <span class='kw'>if</span> (<span class='ident'>name</span>, <span class='ident'>namespace</span>) <span class='op'>==</span> <span class='ident'>name_and_namespace</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>, <span class='ident'>item2</span>) {
+            <span class='kw'>for</span> <span class='kw-2'>&amp;</span><span class='ident'>item2</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>impl_items2</span>[..] {
+                <span class='kw'>if</span> (<span class='ident'>name</span>, <span class='ident'>namespace</span>) <span class='op'>==</span> <span class='ident'>name_and_namespace</span>(<span class='ident'>item2</span>) {
                     <span class='kw'>let</span> <span class='ident'>msg</span> <span class='op'>=</span> <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;duplicate definitions with name `{}`&quot;</span>, <span class='ident'>name</span>);
                     <span class='kw'>let</span> <span class='ident'>node_id</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>as_local_node_id</span>(<span class='ident'>item1</span>).<span class='ident'>unwrap</span>();
                     <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>add_lint</span>(<span class='ident'>lint</span>::<span class='ident'>builtin</span>::<span class='ident'>OVERLAPPING_INHERENT_IMPLS</span>,
@@ -348,7 +353,7 @@
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;cx</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;v</span><span class='op'>&gt;</span> <span class='ident'>intravisit</span>::<span class='ident'>Visitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;v</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>OverlapChecker</span><span class='op'>&lt;</span><span class='lifetime'>&#39;cx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
+<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;cx</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;v</span><span class='op'>&gt;</span> <span class='ident'>ItemLikeVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;v</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>OverlapChecker</span><span class='op'>&lt;</span><span class='lifetime'>&#39;cx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
     <span class='kw'>fn</span> <span class='ident'>visit_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>item</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;v</span> <span class='ident'>hir</span>::<span class='ident'>Item</span>) {
         <span class='kw'>match</span> <span class='ident'>item</span>.<span class='ident'>node</span> {
             <span class='ident'>hir</span>::<span class='ident'>ItemEnum</span>(..) <span class='op'>|</span>
@@ -384,6 +389,12 @@
                 <span class='kw'>let</span> <span class='ident'>impl_def_id</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>local_def_id</span>(<span class='ident'>item</span>.<span class='ident'>id</span>);
                 <span class='kw'>let</span> <span class='ident'>trait_ref</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>impl_trait_ref</span>(<span class='ident'>impl_def_id</span>).<span class='ident'>unwrap</span>();
                 <span class='kw'>let</span> <span class='ident'>trait_def_id</span> <span class='op'>=</span> <span class='ident'>trait_ref</span>.<span class='ident'>def_id</span>;
+
+                <span class='kw'>if</span> <span class='ident'>trait_ref</span>.<span class='ident'>references_error</span>() {
+                    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;coherence: skipping impl {:?} with error {:?}&quot;</span>,
+                           <span class='ident'>impl_def_id</span>, <span class='ident'>trait_ref</span>);
+                    <span class='kw'>return</span>
+                }
 
                 <span class='kw'>let</span> <span class='ident'>_task</span> <span class='op'>=</span>
                     <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>dep_graph</span>.<span class='ident'>in_task</span>(<span class='ident'>DepNode</span>::<span class='ident'>CoherenceOverlapCheck</span>(<span class='ident'>trait_def_id</span>));
@@ -449,6 +460,9 @@
             }
             _ <span class='op'>=&gt;</span> {}
         }
+    }
+
+    <span class='kw'>fn</span> <span class='ident'>visit_impl_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>_impl_item</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>ImplItem</span>) {
     }
 }
 </pre>

@@ -1974,11 +1974,6 @@
 <span id="1930">1930</span>
 <span id="1931">1931</span>
 <span id="1932">1932</span>
-<span id="1933">1933</span>
-<span id="1934">1934</span>
-<span id="1935">1935</span>
-<span id="1936">1936</span>
-<span id="1937">1937</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -2056,12 +2051,12 @@
 <span class='kw'>use</span> <span class='ident'>partitioning</span>::{<span class='self'>self</span>, <span class='ident'>PartitioningStrategy</span>, <span class='ident'>CodegenUnit</span>};
 <span class='kw'>use</span> <span class='ident'>symbol_map</span>::<span class='ident'>SymbolMap</span>;
 <span class='kw'>use</span> <span class='ident'>symbol_names_test</span>;
-<span class='kw'>use</span> <span class='ident'>trans_item</span>::<span class='ident'>TransItem</span>;
+<span class='kw'>use</span> <span class='ident'>trans_item</span>::{<span class='ident'>TransItem</span>, <span class='ident'>DefPathBasedNames</span>};
 <span class='kw'>use</span> <span class='ident'>type_</span>::<span class='ident'>Type</span>;
 <span class='kw'>use</span> <span class='ident'>type_of</span>;
 <span class='kw'>use</span> <span class='ident'>value</span>::<span class='ident'>Value</span>;
 <span class='kw'>use</span> <span class='ident'>Disr</span>;
-<span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>nodemap</span>::{<span class='ident'>NodeSet</span>, <span class='ident'>FnvHashMap</span>, <span class='ident'>FnvHashSet</span>};
+<span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>nodemap</span>::{<span class='ident'>NodeSet</span>, <span class='ident'>FxHashMap</span>, <span class='ident'>FxHashSet</span>};
 
 <span class='kw'>use</span> <span class='ident'>arena</span>::<span class='ident'>TypedArena</span>;
 <span class='kw'>use</span> <span class='ident'>libc</span>::<span class='ident'>c_uint</span>;
@@ -2985,34 +2980,49 @@
     }
 }
 
-<span class='doccomment'>/// Builds an LLVM function out of a source function.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// If the function closes over its environment a closure will be returned.</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>trans_closure</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                               <span class='ident'>llfndecl</span>: <span class='ident'>ValueRef</span>,
-                               <span class='ident'>instance</span>: <span class='ident'>Instance</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                               <span class='ident'>sig</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>FnSig</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                               <span class='ident'>abi</span>: <span class='ident'>Abi</span>) {
-    <span class='ident'>ccx</span>.<span class='ident'>stats</span>().<span class='ident'>n_closures</span>.<span class='ident'>set</span>(<span class='ident'>ccx</span>.<span class='ident'>stats</span>().<span class='ident'>n_closures</span>.<span class='ident'>get</span>() <span class='op'>+</span> <span class='number'>1</span>);
-
-    <span class='kw'>let</span> <span class='ident'>_icx</span> <span class='op'>=</span> <span class='ident'>push_ctxt</span>(<span class='string'>&quot;trans_closure&quot;</span>);
-    <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>ccx</span>.<span class='ident'>sess</span>().<span class='ident'>no_landing_pads</span>() {
-        <span class='ident'>attributes</span>::<span class='ident'>emit_uwtable</span>(<span class='ident'>llfndecl</span>, <span class='bool-val'>true</span>);
-    }
+<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>trans_instance</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>instance</span>: <span class='ident'>Instance</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) {
+    <span class='kw'>let</span> <span class='ident'>_s</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='ident'>ccx</span>.<span class='ident'>sess</span>().<span class='ident'>trans_stats</span>() {
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>instance_name</span> <span class='op'>=</span> <span class='ident'>String</span>::<span class='ident'>new</span>();
+        <span class='ident'>DefPathBasedNames</span>::<span class='ident'>new</span>(<span class='ident'>ccx</span>.<span class='ident'>tcx</span>(), <span class='bool-val'>true</span>, <span class='bool-val'>true</span>)
+            .<span class='ident'>push_def_path</span>(<span class='ident'>instance</span>.<span class='ident'>def</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>instance_name</span>);
+        <span class='prelude-val'>Some</span>(<span class='ident'>StatRecorder</span>::<span class='ident'>new</span>(<span class='ident'>ccx</span>, <span class='ident'>instance_name</span>))
+    } <span class='kw'>else</span> {
+        <span class='prelude-val'>None</span>
+    };
 
     <span class='comment'>// this is an info! to allow collecting monomorphization statistics</span>
     <span class='comment'>// and to allow finding the last function before LLVM aborts from</span>
     <span class='comment'>// release builds.</span>
-    <span class='macro'>info</span><span class='macro'>!</span>(<span class='string'>&quot;trans_closure(..., {})&quot;</span>, <span class='ident'>instance</span>);
+    <span class='macro'>info</span><span class='macro'>!</span>(<span class='string'>&quot;trans_instance({})&quot;</span>, <span class='ident'>instance</span>);
 
-    <span class='kw'>let</span> <span class='ident'>fn_ty</span> <span class='op'>=</span> <span class='ident'>FnType</span>::<span class='ident'>new</span>(<span class='ident'>ccx</span>, <span class='ident'>abi</span>, <span class='ident'>sig</span>, <span class='kw-2'>&amp;</span>[]);
+    <span class='kw'>let</span> <span class='ident'>_icx</span> <span class='op'>=</span> <span class='ident'>push_ctxt</span>(<span class='string'>&quot;trans_instance&quot;</span>);
+
+    <span class='kw'>let</span> <span class='ident'>fn_ty</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>().<span class='ident'>item_type</span>(<span class='ident'>instance</span>.<span class='ident'>def</span>);
+    <span class='kw'>let</span> <span class='ident'>fn_ty</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>().<span class='ident'>erase_regions</span>(<span class='kw-2'>&amp;</span><span class='ident'>fn_ty</span>);
+    <span class='kw'>let</span> <span class='ident'>fn_ty</span> <span class='op'>=</span> <span class='ident'>monomorphize</span>::<span class='ident'>apply_param_substs</span>(<span class='ident'>ccx</span>.<span class='ident'>shared</span>(), <span class='ident'>instance</span>.<span class='ident'>substs</span>, <span class='kw-2'>&amp;</span><span class='ident'>fn_ty</span>);
+
+    <span class='kw'>let</span> <span class='ident'>ty</span>::<span class='ident'>BareFnTy</span> { <span class='ident'>abi</span>, <span class='kw-2'>ref</span> <span class='ident'>sig</span>, .. } <span class='op'>=</span> <span class='op'>*</span><span class='ident'>common</span>::<span class='ident'>ty_fn_ty</span>(<span class='ident'>ccx</span>, <span class='ident'>fn_ty</span>);
+    <span class='kw'>let</span> <span class='ident'>sig</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>().<span class='ident'>erase_late_bound_regions_and_normalize</span>(<span class='ident'>sig</span>);
+
+    <span class='kw'>let</span> <span class='ident'>lldecl</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>ccx</span>.<span class='ident'>instances</span>().<span class='ident'>borrow</span>().<span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='ident'>instance</span>) {
+        <span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>val</span>) <span class='op'>=&gt;</span> <span class='ident'>val</span>,
+        <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;Instance `{:?}` not already declared&quot;</span>, <span class='ident'>instance</span>)
+    };
+
+    <span class='ident'>ccx</span>.<span class='ident'>stats</span>().<span class='ident'>n_closures</span>.<span class='ident'>set</span>(<span class='ident'>ccx</span>.<span class='ident'>stats</span>().<span class='ident'>n_closures</span>.<span class='ident'>get</span>() <span class='op'>+</span> <span class='number'>1</span>);
+
+    <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>ccx</span>.<span class='ident'>sess</span>().<span class='ident'>no_landing_pads</span>() {
+        <span class='ident'>attributes</span>::<span class='ident'>emit_uwtable</span>(<span class='ident'>lldecl</span>, <span class='bool-val'>true</span>);
+    }
+
+    <span class='kw'>let</span> <span class='ident'>fn_ty</span> <span class='op'>=</span> <span class='ident'>FnType</span>::<span class='ident'>new</span>(<span class='ident'>ccx</span>, <span class='ident'>abi</span>, <span class='kw-2'>&amp;</span><span class='ident'>sig</span>, <span class='kw-2'>&amp;</span>[]);
 
     <span class='kw'>let</span> (<span class='ident'>arena</span>, <span class='ident'>fcx</span>): (<span class='ident'>TypedArena</span><span class='op'>&lt;</span>_<span class='op'>&gt;</span>, <span class='ident'>FunctionContext</span>);
     <span class='ident'>arena</span> <span class='op'>=</span> <span class='ident'>TypedArena</span>::<span class='ident'>new</span>();
     <span class='ident'>fcx</span> <span class='op'>=</span> <span class='ident'>FunctionContext</span>::<span class='ident'>new</span>(<span class='ident'>ccx</span>,
-                               <span class='ident'>llfndecl</span>,
+                               <span class='ident'>lldecl</span>,
                                <span class='ident'>fn_ty</span>,
-                               <span class='prelude-val'>Some</span>((<span class='ident'>instance</span>, <span class='ident'>sig</span>, <span class='ident'>abi</span>)),
+                               <span class='prelude-val'>Some</span>((<span class='ident'>instance</span>, <span class='kw-2'>&amp;</span><span class='ident'>sig</span>, <span class='ident'>abi</span>)),
                                <span class='kw-2'>&amp;</span><span class='ident'>arena</span>);
 
     <span class='kw'>if</span> <span class='ident'>fcx</span>.<span class='ident'>mir</span>.<span class='ident'>is_none</span>() {
@@ -3020,26 +3030,6 @@
     }
 
     <span class='ident'>mir</span>::<span class='ident'>trans_mir</span>(<span class='kw-2'>&amp;</span><span class='ident'>fcx</span>);
-}
-
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>trans_instance</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>instance</span>: <span class='ident'>Instance</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) {
-    <span class='kw'>let</span> <span class='ident'>_s</span> <span class='op'>=</span> <span class='ident'>StatRecorder</span>::<span class='ident'>new</span>(<span class='ident'>ccx</span>, <span class='ident'>ccx</span>.<span class='ident'>tcx</span>().<span class='ident'>item_path_str</span>(<span class='ident'>instance</span>.<span class='ident'>def</span>));
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;trans_instance(instance={:?})&quot;</span>, <span class='ident'>instance</span>);
-    <span class='kw'>let</span> <span class='ident'>_icx</span> <span class='op'>=</span> <span class='ident'>push_ctxt</span>(<span class='string'>&quot;trans_instance&quot;</span>);
-
-    <span class='kw'>let</span> <span class='ident'>fn_ty</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>().<span class='ident'>lookup_item_type</span>(<span class='ident'>instance</span>.<span class='ident'>def</span>).<span class='ident'>ty</span>;
-    <span class='kw'>let</span> <span class='ident'>fn_ty</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>().<span class='ident'>erase_regions</span>(<span class='kw-2'>&amp;</span><span class='ident'>fn_ty</span>);
-    <span class='kw'>let</span> <span class='ident'>fn_ty</span> <span class='op'>=</span> <span class='ident'>monomorphize</span>::<span class='ident'>apply_param_substs</span>(<span class='ident'>ccx</span>.<span class='ident'>shared</span>(), <span class='ident'>instance</span>.<span class='ident'>substs</span>, <span class='kw-2'>&amp;</span><span class='ident'>fn_ty</span>);
-
-    <span class='kw'>let</span> <span class='ident'>sig</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>().<span class='ident'>erase_late_bound_regions_and_normalize</span>(<span class='ident'>fn_ty</span>.<span class='ident'>fn_sig</span>());
-    <span class='kw'>let</span> <span class='ident'>abi</span> <span class='op'>=</span> <span class='ident'>fn_ty</span>.<span class='ident'>fn_abi</span>();
-
-    <span class='kw'>let</span> <span class='ident'>lldecl</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>ccx</span>.<span class='ident'>instances</span>().<span class='ident'>borrow</span>().<span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='ident'>instance</span>) {
-        <span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>val</span>) <span class='op'>=&gt;</span> <span class='ident'>val</span>,
-        <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;Instance `{:?}` not already declared&quot;</span>, <span class='ident'>instance</span>)
-    };
-
-    <span class='ident'>trans_closure</span>(<span class='ident'>ccx</span>, <span class='ident'>lldecl</span>, <span class='ident'>instance</span>, <span class='kw-2'>&amp;</span><span class='ident'>sig</span>, <span class='ident'>abi</span>);
 }
 
 <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>trans_ctor_shim</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
@@ -3050,7 +3040,7 @@
     <span class='ident'>attributes</span>::<span class='ident'>inline</span>(<span class='ident'>llfndecl</span>, <span class='ident'>attributes</span>::<span class='ident'>InlineAttr</span>::<span class='ident'>Hint</span>);
     <span class='ident'>attributes</span>::<span class='ident'>set_frame_pointer_elimination</span>(<span class='ident'>ccx</span>, <span class='ident'>llfndecl</span>);
 
-    <span class='kw'>let</span> <span class='ident'>ctor_ty</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>().<span class='ident'>lookup_item_type</span>(<span class='ident'>def_id</span>).<span class='ident'>ty</span>;
+    <span class='kw'>let</span> <span class='ident'>ctor_ty</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>().<span class='ident'>item_type</span>(<span class='ident'>def_id</span>);
     <span class='kw'>let</span> <span class='ident'>ctor_ty</span> <span class='op'>=</span> <span class='ident'>monomorphize</span>::<span class='ident'>apply_param_substs</span>(<span class='ident'>ccx</span>.<span class='ident'>shared</span>(), <span class='ident'>substs</span>, <span class='kw-2'>&amp;</span><span class='ident'>ctor_ty</span>);
 
     <span class='kw'>let</span> <span class='ident'>sig</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>().<span class='ident'>erase_late_bound_regions_and_normalize</span>(<span class='kw-2'>&amp;</span><span class='ident'>ctor_ty</span>.<span class='ident'>fn_sig</span>());
@@ -3300,7 +3290,7 @@
 <span class='kw'>fn</span> <span class='ident'>internalize_symbols</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>sess</span>: <span class='kw-2'>&amp;</span><span class='ident'>Session</span>,
                                  <span class='ident'>ccxs</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateContextList</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
                                  <span class='ident'>symbol_map</span>: <span class='kw-2'>&amp;</span><span class='ident'>SymbolMap</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                 <span class='ident'>reachable</span>: <span class='kw-2'>&amp;</span><span class='ident'>FnvHashSet</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='ident'>str</span><span class='op'>&gt;</span>) {
+                                 <span class='ident'>reachable</span>: <span class='kw-2'>&amp;</span><span class='ident'>FxHashSet</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='ident'>str</span><span class='op'>&gt;</span>) {
     <span class='kw'>let</span> <span class='ident'>scx</span> <span class='op'>=</span> <span class='ident'>ccxs</span>.<span class='ident'>shared</span>();
     <span class='kw'>let</span> <span class='ident'>tcx</span> <span class='op'>=</span> <span class='ident'>scx</span>.<span class='ident'>tcx</span>();
 
@@ -3314,7 +3304,7 @@
     <span class='comment'>// &#39;unsafe&#39; because we are holding on to CStr&#39;s from the LLVM module within</span>
     <span class='comment'>// this block.</span>
     <span class='kw'>unsafe</span> {
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>referenced_somewhere</span> <span class='op'>=</span> <span class='ident'>FnvHashSet</span>();
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>referenced_somewhere</span> <span class='op'>=</span> <span class='ident'>FxHashSet</span>();
 
         <span class='comment'>// Collect all symbols that need to stay externally visible because they</span>
         <span class='comment'>// are referenced via a declaration in some other codegen unit.</span>
@@ -3335,7 +3325,7 @@
 
         <span class='comment'>// Also collect all symbols for which we cannot adjust linkage, because</span>
         <span class='comment'>// it is fixed by some directive in the source code (e.g. #[no_mangle]).</span>
-        <span class='kw'>let</span> <span class='ident'>linkage_fixed_explicitly</span>: <span class='ident'>FnvHashSet</span><span class='op'>&lt;</span>_<span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>scx</span>
+        <span class='kw'>let</span> <span class='ident'>linkage_fixed_explicitly</span>: <span class='ident'>FxHashSet</span><span class='op'>&lt;</span>_<span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>scx</span>
             .<span class='ident'>translation_items</span>()
             .<span class='ident'>borrow</span>()
             .<span class='ident'>iter</span>()
@@ -3496,7 +3486,7 @@
             <span class='ident'>hir_map</span>::<span class='ident'>NodeImplItem</span>(<span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>ImplItem</span> {
                 <span class='ident'>node</span>: <span class='ident'>hir</span>::<span class='ident'>ImplItemKind</span>::<span class='ident'>Method</span>(..), .. }) <span class='op'>=&gt;</span> {
                 <span class='kw'>let</span> <span class='ident'>def_id</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>map</span>.<span class='ident'>local_def_id</span>(<span class='ident'>id</span>);
-                <span class='kw'>let</span> <span class='ident'>generics</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>lookup_generics</span>(<span class='ident'>def_id</span>);
+                <span class='kw'>let</span> <span class='ident'>generics</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>item_generics</span>(<span class='ident'>def_id</span>);
                 <span class='kw'>let</span> <span class='ident'>attributes</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>get_attrs</span>(<span class='ident'>def_id</span>);
                 (<span class='ident'>generics</span>.<span class='ident'>parent_types</span> <span class='op'>==</span> <span class='number'>0</span> <span class='op'>&amp;&amp;</span> <span class='ident'>generics</span>.<span class='ident'>types</span>.<span class='ident'>is_empty</span>()) <span class='op'>&amp;&amp;</span>
                 <span class='comment'>// Functions marked with #[inline] are only ever translated</span>
@@ -3701,7 +3691,7 @@
             <span class='kw'>let</span> <span class='ident'>applicable</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>sess</span>.<span class='ident'>cstore</span>.<span class='ident'>describe_def</span>(<span class='ident'>def_id</span>) {
                 <span class='prelude-val'>Some</span>(<span class='ident'>Def</span>::<span class='ident'>Static</span>(..)) <span class='op'>=&gt;</span> <span class='bool-val'>true</span>,
                 <span class='prelude-val'>Some</span>(<span class='ident'>Def</span>::<span class='ident'>Fn</span>(_)) <span class='op'>=&gt;</span> {
-                    <span class='ident'>shared_ccx</span>.<span class='ident'>tcx</span>().<span class='ident'>lookup_generics</span>(<span class='ident'>def_id</span>).<span class='ident'>types</span>.<span class='ident'>is_empty</span>()
+                    <span class='ident'>shared_ccx</span>.<span class='ident'>tcx</span>().<span class='ident'>item_generics</span>(<span class='ident'>def_id</span>).<span class='ident'>types</span>.<span class='ident'>is_empty</span>()
                 }
                 _ <span class='op'>=&gt;</span> <span class='bool-val'>false</span>
             };
@@ -3844,7 +3834,7 @@
     }
 
     <span class='kw'>if</span> <span class='ident'>scx</span>.<span class='ident'>sess</span>().<span class='ident'>opts</span>.<span class='ident'>debugging_opts</span>.<span class='ident'>print_trans_items</span>.<span class='ident'>is_some</span>() {
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>item_to_cgus</span> <span class='op'>=</span> <span class='ident'>FnvHashMap</span>();
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>item_to_cgus</span> <span class='op'>=</span> <span class='ident'>FxHashMap</span>();
 
         <span class='kw'>for</span> <span class='ident'>cgu</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>codegen_units</span> {
             <span class='kw'>for</span> (<span class='kw-2'>&amp;</span><span class='ident'>trans_item</span>, <span class='kw-2'>&amp;</span><span class='ident'>linkage</span>) <span class='kw'>in</span> <span class='ident'>cgu</span>.<span class='ident'>items</span>() {

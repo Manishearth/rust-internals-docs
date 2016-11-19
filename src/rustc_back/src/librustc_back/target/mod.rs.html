@@ -798,6 +798,21 @@
 <span id="754">754</span>
 <span id="755">755</span>
 <span id="756">756</span>
+<span id="757">757</span>
+<span id="758">758</span>
+<span id="759">759</span>
+<span id="760">760</span>
+<span id="761">761</span>
+<span id="762">762</span>
+<span id="763">763</span>
+<span id="764">764</span>
+<span id="765">765</span>
+<span id="766">766</span>
+<span id="767">767</span>
+<span id="768">768</span>
+<span id="769">769</span>
+<span id="770">770</span>
+<span id="771">771</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -946,6 +961,7 @@
     (<span class='string'>&quot;arm-unknown-linux-gnueabihf&quot;</span>, <span class='ident'>arm_unknown_linux_gnueabihf</span>),
     (<span class='string'>&quot;arm-unknown-linux-musleabi&quot;</span>, <span class='ident'>arm_unknown_linux_musleabi</span>),
     (<span class='string'>&quot;arm-unknown-linux-musleabihf&quot;</span>, <span class='ident'>arm_unknown_linux_musleabihf</span>),
+    (<span class='string'>&quot;armv5te-unknown-linux-gnueabi&quot;</span>, <span class='ident'>armv5te_unknown_linux_gnueabi</span>),
     (<span class='string'>&quot;armv7-unknown-linux-gnueabihf&quot;</span>, <span class='ident'>armv7_unknown_linux_gnueabihf</span>),
     (<span class='string'>&quot;armv7-unknown-linux-musleabihf&quot;</span>, <span class='ident'>armv7_unknown_linux_musleabihf</span>),
     (<span class='string'>&quot;aarch64-unknown-linux-gnu&quot;</span>, <span class='ident'>aarch64_unknown_linux_gnu</span>),
@@ -1159,6 +1175,11 @@
     <span class='comment'>// will &#39;just work&#39;.</span>
     <span class='kw'>pub</span> <span class='ident'>obj_is_bitcode</span>: <span class='ident'>bool</span>,
 
+    <span class='comment'>// LLVM can&#39;t produce object files for this target. Instead, we&#39;ll make LLVM</span>
+    <span class='comment'>// emit assembly and then use `gcc` to turn that assembly into an object</span>
+    <span class='comment'>// file</span>
+    <span class='kw'>pub</span> <span class='ident'>no_integrated_as</span>: <span class='ident'>bool</span>,
+
     <span class='doccomment'>/// Don&#39;t use this field; instead use the `.max_atomic_width()` method.</span>
     <span class='kw'>pub</span> <span class='ident'>max_atomic_width</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>u64</span><span class='op'>&gt;</span>,
 
@@ -1168,6 +1189,9 @@
     <span class='doccomment'>/// A blacklist of ABIs unsupported by the current target. Note that generic</span>
     <span class='doccomment'>/// ABIs are considered to be supported on all platforms and cannot be blacklisted.</span>
     <span class='kw'>pub</span> <span class='ident'>abi_blacklist</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Abi</span><span class='op'>&gt;</span>,
+
+    <span class='doccomment'>/// Whether or not the CRT is statically linked by default.</span>
+    <span class='kw'>pub</span> <span class='ident'>crt_static_default</span>: <span class='ident'>bool</span>,
 }
 
 <span class='kw'>impl</span> <span class='ident'>Default</span> <span class='kw'>for</span> <span class='ident'>TargetOptions</span> {
@@ -1216,9 +1240,11 @@
             <span class='ident'>allow_asm</span>: <span class='bool-val'>true</span>,
             <span class='ident'>has_elf_tls</span>: <span class='bool-val'>false</span>,
             <span class='ident'>obj_is_bitcode</span>: <span class='bool-val'>false</span>,
+            <span class='ident'>no_integrated_as</span>: <span class='bool-val'>false</span>,
             <span class='ident'>max_atomic_width</span>: <span class='prelude-val'>None</span>,
             <span class='ident'>panic_strategy</span>: <span class='ident'>PanicStrategy</span>::<span class='ident'>Unwind</span>,
             <span class='ident'>abi_blacklist</span>: <span class='macro'>vec</span><span class='macro'>!</span>[],
+            <span class='ident'>crt_static_default</span>: <span class='bool-val'>false</span>,
         }
     }
 }
@@ -1376,8 +1402,10 @@
         <span class='macro'>key</span><span class='macro'>!</span>(<span class='ident'>exe_allocation_crate</span>);
         <span class='macro'>key</span><span class='macro'>!</span>(<span class='ident'>has_elf_tls</span>, <span class='ident'>bool</span>);
         <span class='macro'>key</span><span class='macro'>!</span>(<span class='ident'>obj_is_bitcode</span>, <span class='ident'>bool</span>);
+        <span class='macro'>key</span><span class='macro'>!</span>(<span class='ident'>no_integrated_as</span>, <span class='ident'>bool</span>);
         <span class='macro'>key</span><span class='macro'>!</span>(<span class='ident'>max_atomic_width</span>, <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>u64</span><span class='op'>&gt;</span>);
         <span class='macro'>try</span><span class='macro'>!</span>(<span class='macro'>key</span><span class='macro'>!</span>(<span class='ident'>panic_strategy</span>, <span class='ident'>PanicStrategy</span>));
+        <span class='macro'>key</span><span class='macro'>!</span>(<span class='ident'>crt_static_default</span>, <span class='ident'>bool</span>);
 
         <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>array</span>) <span class='op'>=</span> <span class='ident'>obj</span>.<span class='ident'>find</span>(<span class='string'>&quot;abi-blacklist&quot;</span>).<span class='ident'>and_then</span>(<span class='ident'>Json</span>::<span class='ident'>as_array</span>) {
             <span class='kw'>for</span> <span class='ident'>name</span> <span class='kw'>in</span> <span class='ident'>array</span>.<span class='ident'>iter</span>().<span class='ident'>filter_map</span>(<span class='op'>|</span><span class='ident'>abi</span><span class='op'>|</span> <span class='ident'>abi</span>.<span class='ident'>as_string</span>()) {
@@ -1535,8 +1563,10 @@
         <span class='macro'>target_option_val</span><span class='macro'>!</span>(<span class='ident'>exe_allocation_crate</span>);
         <span class='macro'>target_option_val</span><span class='macro'>!</span>(<span class='ident'>has_elf_tls</span>);
         <span class='macro'>target_option_val</span><span class='macro'>!</span>(<span class='ident'>obj_is_bitcode</span>);
+        <span class='macro'>target_option_val</span><span class='macro'>!</span>(<span class='ident'>no_integrated_as</span>);
         <span class='macro'>target_option_val</span><span class='macro'>!</span>(<span class='ident'>max_atomic_width</span>);
         <span class='macro'>target_option_val</span><span class='macro'>!</span>(<span class='ident'>panic_strategy</span>);
+        <span class='macro'>target_option_val</span><span class='macro'>!</span>(<span class='ident'>crt_static_default</span>);
 
         <span class='kw'>if</span> <span class='ident'>default</span>.<span class='ident'>abi_blacklist</span> <span class='op'>!=</span> <span class='self'>self</span>.<span class='ident'>options</span>.<span class='ident'>abi_blacklist</span> {
             <span class='ident'>d</span>.<span class='ident'>insert</span>(<span class='string'>&quot;abi-blacklist&quot;</span>.<span class='ident'>to_string</span>(), <span class='self'>self</span>.<span class='ident'>options</span>.<span class='ident'>abi_blacklist</span>.<span class='ident'>iter</span>()

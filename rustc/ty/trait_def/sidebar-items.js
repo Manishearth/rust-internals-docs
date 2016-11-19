@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["TraitDef","As `TypeScheme` but for a trait ref."],["TraitFlags",""]]});
+initSidebarItems({"struct":[["TraitDef","A trait's definition with type information."],["TraitFlags",""]]});

@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["ArrayVec",""]],"trait":[["Array",""]],"union":[["ManuallyDrop",""]]});
+initSidebarItems({"struct":[["ArrayVec",""],["Iter",""]],"trait":[["Array",""]],"union":[["ManuallyDrop",""]]});

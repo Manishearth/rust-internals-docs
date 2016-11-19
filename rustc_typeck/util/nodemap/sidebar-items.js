@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["DefIdMap",""],["DefIdSet",""],["FnvHashMap",""],["FnvHashSet",""],["NodeMap",""],["NodeSet",""]],"type":[["DefIdMap",""],["DefIdSet",""],["FnvHashMap",""],["FnvHashSet",""],["NodeMap",""],["NodeSet",""]]});
+initSidebarItems({"fn":[["DefIdMap",""],["DefIdSet",""],["FxHashMap",""],["FxHashSet",""],["NodeMap",""],["NodeSet",""]],"type":[["DefIdMap",""],["DefIdSet",""],["FxHashMap",""],["FxHashSet",""],["NodeMap",""],["NodeSet",""]]});
