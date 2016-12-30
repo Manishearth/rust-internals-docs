@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["build_external_trait",""],["build_impl",""],["build_impls",""],["load_attrs",""],["record_extern_fqn","Record an external fully qualified name in the external_paths cache."],["try_inline","Attempt to inline the definition of a local node id into this AST."]]});
+initSidebarItems({"fn":[["build_external_trait",""],["build_impl",""],["build_impls",""],["load_attrs",""],["record_extern_fqn","Record an external fully qualified name in the external_paths cache."],["try_inline","Attempt to inline a definition into this AST."]]});

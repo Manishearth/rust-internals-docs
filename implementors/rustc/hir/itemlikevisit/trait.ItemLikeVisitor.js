@@ -1,5 +1,11 @@
 (function() {var implementors = {};
-implementors["rustc"] = [];implementors["rustc_trans"] = [];implementors["rustc_lint"] = [];implementors["rustc_metadata"] = [];implementors["rustc_mir"] = [];implementors["rustc_borrowck"] = [];implementors["rustdoc"] = [];
+implementors["rustc"] = [];
+implementors["rustc_borrowck"] = [];
+implementors["rustc_lint"] = [];
+implementors["rustc_metadata"] = [];
+implementors["rustc_mir"] = [];
+implementors["rustc_trans"] = [];
+implementors["rustdoc"] = [];
 
             if (window.register_implementors) {
                 window.register_implementors(implementors);

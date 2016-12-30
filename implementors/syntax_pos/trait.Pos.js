@@ -1,5 +1,14 @@
 (function() {var implementors = {};
-implementors["syntax_pos"] = [];implementors["syntax"] = [];implementors["rustc"] = [];implementors["rustc_trans"] = [];implementors["rustc_lint"] = [];implementors["rustc_metadata"] = [];implementors["rustc_mir"] = [];implementors["rustc_typeck"] = [];implementors["rustc_borrowck"] = [];implementors["rustdoc"] = [];
+implementors["rustc"] = [];
+implementors["rustc_borrowck"] = [];
+implementors["rustc_lint"] = [];
+implementors["rustc_metadata"] = [];
+implementors["rustc_mir"] = [];
+implementors["rustc_trans"] = [];
+implementors["rustc_typeck"] = [];
+implementors["rustdoc"] = [];
+implementors["syntax"] = [];
+implementors["syntax_pos"] = [];
 
             if (window.register_implementors) {
                 window.register_implementors(implementors);

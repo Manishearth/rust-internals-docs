@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["read_signed_leb128",""],["read_unsigned_leb128",""],["write_signed_leb128",""],["write_to_vec",""],["write_unsigned_leb128",""]]});
+initSidebarItems({"fn":[["read_signed_leb128",""],["read_unsigned_leb128",""],["write_signed_leb128",""],["write_signed_leb128_to","encodes an integer using signed leb128 encoding and stores the result using a callback function."],["write_unsigned_leb128",""],["write_unsigned_leb128_to","encodes an integer using unsigned leb128 encoding and stores the result using a callback function."]]});

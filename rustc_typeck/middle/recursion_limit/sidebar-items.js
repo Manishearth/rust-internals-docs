@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["update_recursion_limit",""]]});
+initSidebarItems({"fn":[["update_limits",""]]});

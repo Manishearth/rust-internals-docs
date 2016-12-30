@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["RelationDir",""]],"struct":[["Default",""],["Snapshot",""],["TypeVariableTable",""]]});
+initSidebarItems({"enum":[["RelationDir",""],["TypeVariableOrigin","Reasons to create a type inference variable"]],"struct":[["Default",""],["Snapshot",""],["TypeVariableTable",""]]});

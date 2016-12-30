@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["walk_shallow",""]],"struct":[["TypeWalker",""]]});
+initSidebarItems({"fn":[["walk_shallow",""]],"struct":[["TypeWalker",""]],"type":[["TypeWalkerArray",""],["TypeWalkerStack",""]]});

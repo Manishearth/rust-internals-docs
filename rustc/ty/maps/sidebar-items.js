@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["AdtDefs",""],["AssociatedItemDefIds",""],["AssociatedItems",""],["Generics",""],["ImplTraitRefs",""],["InherentImpls",""],["ItemVariances",""],["Mir",""],["Predicates",""],["ReprHints",""],["SuperPredicates",""],["TraitDefs",""],["Types",""]]});
+initSidebarItems({"struct":[["AdtDefs",""],["AdtSizedConstraint",""],["AssociatedItemDefIds",""],["AssociatedItems",""],["Generics",""],["ImplTraitRefs",""],["InherentImpls",""],["ItemVariances",""],["Mir",""],["Predicates",""],["ReprHints",""],["SuperPredicates",""],["TraitDefs",""],["Types",""]]});
