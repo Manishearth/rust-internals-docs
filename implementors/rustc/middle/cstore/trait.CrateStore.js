@@ -1,7 +1,6 @@
 (function() {var implementors = {};
 implementors["rustc"] = [];
 implementors["rustc_borrowck"] = [];
-implementors["rustc_metadata"] = ["impl&lt;'tcx&gt; <a class='trait' href='rustc/middle/cstore/trait.CrateStore.html' title='rustc::middle::cstore::CrateStore'>CrateStore</a>&lt;'tcx&gt; for <a class='struct' href='rustc_metadata/cstore/struct.CStore.html' title='rustc_metadata::cstore::CStore'>CStore</a>",];
 implementors["rustc_mir"] = [];
 implementors["rustdoc"] = ["impl&lt;'tcx&gt; <a class='trait' href='rustc/middle/cstore/trait.CrateStore.html' title='rustc::middle::cstore::CrateStore'>CrateStore</a>&lt;'tcx&gt; for <a class='struct' href='rustc_metadata/cstore/struct.CStore.html' title='rustc_metadata::cstore::CStore'>CStore</a>",];
 

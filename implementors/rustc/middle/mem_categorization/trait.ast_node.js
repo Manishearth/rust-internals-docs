@@ -1,7 +1,6 @@
 (function() {var implementors = {};
 implementors["rustc"] = [];
 implementors["rustc_borrowck"] = [];
-implementors["rustc_metadata"] = [];
 implementors["rustc_mir"] = [];
 implementors["rustdoc"] = [];
 

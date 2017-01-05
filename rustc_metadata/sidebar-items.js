@@ -1,1 +1,1 @@
-initSidebarItems({"constant":[["DIAGNOSTICS",""]],"mod":[["creader","Validates all used crates and extern libraries and loads their metadata"],["cstore",""],["locator","Finds crate binaries and loads their metadata"]]});
+initSidebarItems({"constant":[["DIAGNOSTICS",""]],"mod":[["creader","Validates all used crates and extern libraries and loads their metadata"],["cstore",""],["locator","Finds crate binaries and loads their metadata"],["middle",""]]});

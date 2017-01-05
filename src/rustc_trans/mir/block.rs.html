@@ -975,6 +975,9 @@
 <span id="930">930</span>
 <span id="931">931</span>
 <span id="932">932</span>
+<span id="933">933</span>
+<span id="934">934</span>
+<span id="935">935</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -1001,13 +1004,15 @@
 <span class='kw'>use</span> <span class='ident'>Disr</span>;
 <span class='kw'>use</span> <span class='ident'>machine</span>::{<span class='ident'>llalign_of_min</span>, <span class='ident'>llbitsize_of_real</span>};
 <span class='kw'>use</span> <span class='ident'>meth</span>;
-<span class='kw'>use</span> <span class='ident'>type_of</span>;
+<span class='kw'>use</span> <span class='ident'>type_of</span>::{<span class='self'>self</span>, <span class='ident'>align_of</span>};
 <span class='kw'>use</span> <span class='ident'>glue</span>;
 <span class='kw'>use</span> <span class='ident'>type_</span>::<span class='ident'>Type</span>;
 
 <span class='kw'>use</span> <span class='ident'>rustc_data_structures</span>::<span class='ident'>indexed_vec</span>::<span class='ident'>IndexVec</span>;
 <span class='kw'>use</span> <span class='ident'>rustc_data_structures</span>::<span class='ident'>fx</span>::<span class='ident'>FxHashMap</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>symbol</span>::<span class='ident'>Symbol</span>;
+
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cmp</span>;
 
 <span class='kw'>use</span> <span class='kw'>super</span>::{<span class='ident'>MirContext</span>, <span class='ident'>LocalRef</span>};
 <span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>analyze</span>::<span class='ident'>CleanupKind</span>;
@@ -1185,7 +1190,7 @@
                     <span class='kw'>let</span> <span class='ident'>llslot</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>op</span>.<span class='ident'>val</span> {
                         <span class='ident'>Immediate</span>(_) <span class='op'>|</span> <span class='ident'>Pair</span>(..) <span class='op'>=&gt;</span> {
                             <span class='kw'>let</span> <span class='ident'>llscratch</span> <span class='op'>=</span> <span class='ident'>bcx</span>.<span class='ident'>fcx</span>().<span class='ident'>alloca</span>(<span class='ident'>ret</span>.<span class='ident'>original_ty</span>, <span class='string'>&quot;ret&quot;</span>);
-                            <span class='self'>self</span>.<span class='ident'>store_operand</span>(<span class='kw-2'>&amp;</span><span class='ident'>bcx</span>, <span class='ident'>llscratch</span>, <span class='ident'>op</span>);
+                            <span class='self'>self</span>.<span class='ident'>store_operand</span>(<span class='kw-2'>&amp;</span><span class='ident'>bcx</span>, <span class='ident'>llscratch</span>, <span class='ident'>op</span>, <span class='prelude-val'>None</span>);
                             <span class='ident'>llscratch</span>
                         }
                         <span class='ident'>Ref</span>(<span class='ident'>llval</span>) <span class='op'>=&gt;</span> <span class='ident'>llval</span>
@@ -1247,7 +1252,7 @@
 
             <span class='ident'>mir</span>::<span class='ident'>TerminatorKind</span>::<span class='ident'>Assert</span> { <span class='kw-2'>ref</span> <span class='ident'>cond</span>, <span class='ident'>expected</span>, <span class='kw-2'>ref</span> <span class='ident'>msg</span>, <span class='ident'>target</span>, <span class='ident'>cleanup</span> } <span class='op'>=&gt;</span> {
                 <span class='kw'>let</span> <span class='ident'>cond</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>trans_operand</span>(<span class='kw-2'>&amp;</span><span class='ident'>bcx</span>, <span class='ident'>cond</span>).<span class='ident'>immediate</span>();
-                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>const_cond</span> <span class='op'>=</span> <span class='ident'>common</span>::<span class='ident'>const_to_opt_uint</span>(<span class='ident'>cond</span>).<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>c</span><span class='op'>|</span> <span class='ident'>c</span> <span class='op'>==</span> <span class='number'>1</span>);
+                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>const_cond</span> <span class='op'>=</span> <span class='ident'>common</span>::<span class='ident'>const_to_opt_u128</span>(<span class='ident'>cond</span>, <span class='bool-val'>false</span>).<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>c</span><span class='op'>|</span> <span class='ident'>c</span> <span class='op'>==</span> <span class='number'>1</span>);
 
                 <span class='comment'>// This case can currently arise only from functions marked</span>
                 <span class='comment'>// with #[rustc_inherit_overflow_checks] and inlined from</span>
@@ -1300,14 +1305,12 @@
                         <span class='kw'>let</span> <span class='ident'>len</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>trans_operand</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>bcx</span>, <span class='ident'>len</span>).<span class='ident'>immediate</span>();
                         <span class='kw'>let</span> <span class='ident'>index</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>trans_operand</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>bcx</span>, <span class='ident'>index</span>).<span class='ident'>immediate</span>();
 
-                        <span class='kw'>let</span> <span class='ident'>const_err</span> <span class='op'>=</span> <span class='ident'>common</span>::<span class='ident'>const_to_opt_uint</span>(<span class='ident'>len</span>).<span class='ident'>and_then</span>(<span class='op'>|</span><span class='ident'>len</span><span class='op'>|</span> {
-                            <span class='ident'>common</span>::<span class='ident'>const_to_opt_uint</span>(<span class='ident'>index</span>).<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>index</span><span class='op'>|</span> {
-                                <span class='ident'>ErrKind</span>::<span class='ident'>IndexOutOfBounds</span> {
-                                    <span class='ident'>len</span>: <span class='ident'>len</span>,
-                                    <span class='ident'>index</span>: <span class='ident'>index</span>
-                                }
-                            })
-                        });
+                        <span class='kw'>let</span> <span class='ident'>const_err</span> <span class='op'>=</span> <span class='ident'>common</span>::<span class='ident'>const_to_opt_u128</span>(<span class='ident'>len</span>, <span class='bool-val'>false</span>)
+                            .<span class='ident'>and_then</span>(<span class='op'>|</span><span class='ident'>len</span><span class='op'>|</span> <span class='ident'>common</span>::<span class='ident'>const_to_opt_u128</span>(<span class='ident'>index</span>, <span class='bool-val'>false</span>)
+                                .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>index</span><span class='op'>|</span> <span class='ident'>ErrKind</span>::<span class='ident'>IndexOutOfBounds</span> {
+                                    <span class='ident'>len</span>: <span class='ident'>len</span> <span class='kw'>as</span> <span class='ident'>u64</span>,
+                                    <span class='ident'>index</span>: <span class='ident'>index</span> <span class='kw'>as</span> <span class='ident'>u64</span>
+                                }));
 
                         <span class='kw'>let</span> <span class='ident'>file_line</span> <span class='op'>=</span> <span class='ident'>C_struct</span>(<span class='ident'>bcx</span>.<span class='ident'>ccx</span>, <span class='kw-2'>&amp;</span>[<span class='ident'>filename</span>, <span class='ident'>line</span>], <span class='bool-val'>false</span>);
                         <span class='kw'>let</span> <span class='ident'>align</span> <span class='op'>=</span> <span class='ident'>llalign_of_min</span>(<span class='ident'>bcx</span>.<span class='ident'>ccx</span>, <span class='ident'>common</span>::<span class='ident'>val_ty</span>(<span class='ident'>file_line</span>));
@@ -1404,7 +1407,7 @@
                     <span class='comment'>// The first argument is a thin destination pointer.</span>
                     <span class='kw'>let</span> <span class='ident'>llptr</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>trans_operand</span>(<span class='kw-2'>&amp;</span><span class='ident'>bcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>args</span>[<span class='number'>0</span>]).<span class='ident'>immediate</span>();
                     <span class='kw'>let</span> <span class='ident'>val</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>trans_operand</span>(<span class='kw-2'>&amp;</span><span class='ident'>bcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>args</span>[<span class='number'>1</span>]);
-                    <span class='self'>self</span>.<span class='ident'>store_operand</span>(<span class='kw-2'>&amp;</span><span class='ident'>bcx</span>, <span class='ident'>llptr</span>, <span class='ident'>val</span>);
+                    <span class='self'>self</span>.<span class='ident'>store_operand</span>(<span class='kw-2'>&amp;</span><span class='ident'>bcx</span>, <span class='ident'>llptr</span>, <span class='ident'>val</span>, <span class='prelude-val'>None</span>);
                     <span class='ident'>funclet_br</span>(<span class='self'>self</span>, <span class='ident'>bcx</span>, <span class='ident'>target</span>);
                     <span class='kw'>return</span>;
                 }
@@ -1637,7 +1640,7 @@
             <span class='ident'>Immediate</span>(_) <span class='op'>|</span> <span class='ident'>Pair</span>(..) <span class='op'>=&gt;</span> {
                 <span class='kw'>if</span> <span class='ident'>arg</span>.<span class='ident'>is_indirect</span>() <span class='op'>||</span> <span class='ident'>arg</span>.<span class='ident'>cast</span>.<span class='ident'>is_some</span>() {
                     <span class='kw'>let</span> <span class='ident'>llscratch</span> <span class='op'>=</span> <span class='ident'>bcx</span>.<span class='ident'>fcx</span>().<span class='ident'>alloca</span>(<span class='ident'>arg</span>.<span class='ident'>original_ty</span>, <span class='string'>&quot;arg&quot;</span>);
-                    <span class='self'>self</span>.<span class='ident'>store_operand</span>(<span class='ident'>bcx</span>, <span class='ident'>llscratch</span>, <span class='ident'>op</span>);
+                    <span class='self'>self</span>.<span class='ident'>store_operand</span>(<span class='ident'>bcx</span>, <span class='ident'>llscratch</span>, <span class='ident'>op</span>, <span class='prelude-val'>None</span>);
                     (<span class='ident'>llscratch</span>, <span class='bool-val'>true</span>)
                 } <span class='kw'>else</span> {
                     (<span class='ident'>op</span>.<span class='ident'>pack_if_pair</span>(<span class='ident'>bcx</span>).<span class='ident'>immediate</span>(), <span class='bool-val'>false</span>)
@@ -1779,7 +1782,7 @@
         <span class='kw'>let</span> <span class='ident'>llretval</span> <span class='op'>=</span> <span class='ident'>bcx</span>.<span class='ident'>landing_pad</span>(<span class='ident'>llretty</span>, <span class='ident'>llpersonality</span>, <span class='number'>1</span>, <span class='self'>self</span>.<span class='ident'>fcx</span>.<span class='ident'>llfn</span>);
         <span class='ident'>bcx</span>.<span class='ident'>set_cleanup</span>(<span class='ident'>llretval</span>);
         <span class='kw'>let</span> <span class='ident'>slot</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>get_personality_slot</span>(<span class='kw-2'>&amp;</span><span class='ident'>bcx</span>);
-        <span class='ident'>bcx</span>.<span class='ident'>store</span>(<span class='ident'>llretval</span>, <span class='ident'>slot</span>);
+        <span class='ident'>bcx</span>.<span class='ident'>store</span>(<span class='ident'>llretval</span>, <span class='ident'>slot</span>, <span class='prelude-val'>None</span>);
         <span class='ident'>bcx</span>.<span class='ident'>br</span>(<span class='ident'>target</span>.<span class='ident'>llbb</span>());
         <span class='ident'>bcx</span>.<span class='ident'>llbb</span>()
     }
@@ -1864,7 +1867,10 @@
 
         <span class='kw'>let</span> <span class='ident'>llty</span> <span class='op'>=</span> <span class='ident'>type_of</span>::<span class='ident'>type_of</span>(<span class='ident'>bcx</span>.<span class='ident'>ccx</span>, <span class='ident'>val</span>.<span class='ident'>ty</span>);
         <span class='kw'>let</span> <span class='ident'>cast_ptr</span> <span class='op'>=</span> <span class='ident'>bcx</span>.<span class='ident'>pointercast</span>(<span class='ident'>dst</span>.<span class='ident'>llval</span>, <span class='ident'>llty</span>.<span class='ident'>ptr_to</span>());
-        <span class='self'>self</span>.<span class='ident'>store_operand</span>(<span class='ident'>bcx</span>, <span class='ident'>cast_ptr</span>, <span class='ident'>val</span>);
+        <span class='kw'>let</span> <span class='ident'>in_type</span> <span class='op'>=</span> <span class='ident'>val</span>.<span class='ident'>ty</span>;
+        <span class='kw'>let</span> <span class='ident'>out_type</span> <span class='op'>=</span> <span class='ident'>dst</span>.<span class='ident'>ty</span>.<span class='ident'>to_ty</span>(<span class='ident'>bcx</span>.<span class='ident'>tcx</span>());;
+        <span class='kw'>let</span> <span class='ident'>llalign</span> <span class='op'>=</span> <span class='ident'>cmp</span>::<span class='ident'>min</span>(<span class='ident'>align_of</span>(<span class='ident'>bcx</span>.<span class='ident'>ccx</span>, <span class='ident'>in_type</span>), <span class='ident'>align_of</span>(<span class='ident'>bcx</span>.<span class='ident'>ccx</span>, <span class='ident'>out_type</span>));
+        <span class='self'>self</span>.<span class='ident'>store_operand</span>(<span class='ident'>bcx</span>, <span class='ident'>cast_ptr</span>, <span class='ident'>val</span>, <span class='prelude-val'>Some</span>(<span class='ident'>llalign</span>));
     }
 
 
