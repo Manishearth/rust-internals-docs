@@ -472,19 +472,6 @@
 <span id="427">427</span>
 <span id="428">428</span>
 <span id="429">429</span>
-<span id="430">430</span>
-<span id="431">431</span>
-<span id="432">432</span>
-<span id="433">433</span>
-<span id="434">434</span>
-<span id="435">435</span>
-<span id="436">436</span>
-<span id="437">437</span>
-<span id="438">438</span>
-<span id="439">439</span>
-<span id="440">440</span>
-<span id="441">441</span>
-<span id="442">442</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2016 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -554,6 +541,7 @@
 <span class='doccomment'>/// A &quot;root candidate&quot; for promotion, which will become the</span>
 <span class='doccomment'>/// returned value in a promoted MIR, unless it&#39;s a subset</span>
 <span class='doccomment'>/// of a larger candidate.</span>
+<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Debug</span>)]</span>
 <span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>Candidate</span> {
     <span class='doccomment'>/// Borrow of a constant temporary.</span>
     <span class='ident'>Ref</span>(<span class='ident'>Location</span>),
@@ -584,11 +572,8 @@
             <span class='comment'>// Ignore drops, if the temp gets promoted,</span>
             <span class='comment'>// then it&#39;s constant and thus drop is noop.</span>
             <span class='comment'>// Storage live ranges are also irrelevant.</span>
-            <span class='kw'>match</span> <span class='ident'>context</span> {
-                <span class='ident'>LvalueContext</span>::<span class='ident'>Drop</span> <span class='op'>|</span>
-                <span class='ident'>LvalueContext</span>::<span class='ident'>StorageLive</span> <span class='op'>|</span>
-                <span class='ident'>LvalueContext</span>::<span class='ident'>StorageDead</span> <span class='op'>=&gt;</span> <span class='kw'>return</span>,
-                _ <span class='op'>=&gt;</span> {}
+            <span class='kw'>if</span> <span class='ident'>context</span>.<span class='ident'>is_drop</span>() <span class='op'>||</span> <span class='ident'>context</span>.<span class='ident'>is_storage_marker</span>() {
+                <span class='kw'>return</span>;
             }
 
             <span class='kw'>let</span> <span class='ident'>temp</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>.<span class='ident'>temps</span>[<span class='ident'>index</span>];
@@ -605,15 +590,17 @@
                     _ <span class='op'>=&gt;</span> { <span class='comment'>/* mark as unpromotable below */</span> }
                 }
             } <span class='kw'>else</span> <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>TempState</span>::<span class='ident'>Defined</span> { <span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>uses</span>, .. } <span class='op'>=</span> <span class='op'>*</span><span class='ident'>temp</span> {
-                <span class='kw'>match</span> <span class='ident'>context</span> {
-                    <span class='ident'>LvalueContext</span>::<span class='ident'>Borrow</span> {..} <span class='op'>|</span>
-                    <span class='ident'>LvalueContext</span>::<span class='ident'>Consume</span> <span class='op'>|</span>
-                    <span class='ident'>LvalueContext</span>::<span class='ident'>Inspect</span> <span class='op'>=&gt;</span> {
-                        <span class='op'>*</span><span class='ident'>uses</span> <span class='op'>+=</span> <span class='number'>1</span>;
-                        <span class='kw'>return</span>;
-                    }
-                    _ <span class='op'>=&gt;</span> { <span class='comment'>/* mark as unpromotable below */</span> }
+                <span class='comment'>// We always allow borrows, even mutable ones, as we need</span>
+                <span class='comment'>// to promote mutable borrows of some ZSTs e.g. `&amp;mut []`.</span>
+                <span class='kw'>let</span> <span class='ident'>allowed_use</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>context</span> {
+                    <span class='ident'>LvalueContext</span>::<span class='ident'>Borrow</span> {..} <span class='op'>=&gt;</span> <span class='bool-val'>true</span>,
+                    _ <span class='op'>=&gt;</span> <span class='ident'>context</span>.<span class='ident'>is_nonmutating_use</span>()
+                };
+                <span class='kw'>if</span> <span class='ident'>allowed_use</span> {
+                    <span class='op'>*</span><span class='ident'>uses</span> <span class='op'>+=</span> <span class='number'>1</span>;
+                    <span class='kw'>return</span>;
                 }
+                <span class='comment'>/* mark as unpromotable below */</span>
             }
             <span class='op'>*</span><span class='ident'>temp</span> <span class='op'>=</span> <span class='ident'>TempState</span>::<span class='ident'>Unpromotable</span>;
         }
@@ -678,15 +665,12 @@
     <span class='doccomment'>/// promoted MIR, recursing through temps.</span>
     <span class='kw'>fn</span> <span class='ident'>promote_temp</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>temp</span>: <span class='ident'>Local</span>) <span class='op'>-&gt;</span> <span class='ident'>Local</span> {
         <span class='kw'>let</span> <span class='ident'>old_keep_original</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>keep_original</span>;
-        <span class='kw'>let</span> (<span class='ident'>bb</span>, <span class='ident'>stmt_idx</span>) <span class='op'>=</span> <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>temps</span>[<span class='ident'>temp</span>] {
-            <span class='ident'>TempState</span>::<span class='ident'>Defined</span> {
-                <span class='ident'>location</span>: <span class='ident'>Location</span> { <span class='ident'>block</span>, <span class='ident'>statement_index</span> },
-                <span class='ident'>uses</span>
-            } <span class='kw'>if</span> <span class='ident'>uses</span> <span class='op'>&gt;</span> <span class='number'>0</span> <span class='op'>=&gt;</span> {
+        <span class='kw'>let</span> <span class='ident'>loc</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>temps</span>[<span class='ident'>temp</span>] {
+            <span class='ident'>TempState</span>::<span class='ident'>Defined</span> { <span class='ident'>location</span>, <span class='ident'>uses</span> } <span class='kw'>if</span> <span class='ident'>uses</span> <span class='op'>&gt;</span> <span class='number'>0</span> <span class='op'>=&gt;</span> {
                 <span class='kw'>if</span> <span class='ident'>uses</span> <span class='op'>&gt;</span> <span class='number'>1</span> {
                     <span class='self'>self</span>.<span class='ident'>keep_original</span> <span class='op'>=</span> <span class='bool-val'>true</span>;
                 }
-                (<span class='ident'>block</span>, <span class='ident'>statement_index</span>)
+                <span class='ident'>location</span>
             }
             <span class='ident'>state</span> <span class='op'>=&gt;</span>  {
                 <span class='macro'>span_bug</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>promoted</span>.<span class='ident'>span</span>, <span class='string'>&quot;{:?} not promotable: {:?}&quot;</span>,
@@ -697,91 +681,80 @@
             <span class='self'>self</span>.<span class='ident'>temps</span>[<span class='ident'>temp</span>] <span class='op'>=</span> <span class='ident'>TempState</span>::<span class='ident'>PromotedOut</span>;
         }
 
-        <span class='kw'>let</span> <span class='ident'>no_stmts</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>source</span>[<span class='ident'>bb</span>].<span class='ident'>statements</span>.<span class='ident'>len</span>();
+        <span class='kw'>let</span> <span class='ident'>no_stmts</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>source</span>[<span class='ident'>loc</span>.<span class='ident'>block</span>].<span class='ident'>statements</span>.<span class='ident'>len</span>();
+        <span class='kw'>let</span> <span class='ident'>new_temp</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>promoted</span>.<span class='ident'>local_decls</span>.<span class='ident'>push</span>(
+            <span class='ident'>LocalDecl</span>::<span class='ident'>new_temp</span>(<span class='self'>self</span>.<span class='ident'>source</span>.<span class='ident'>local_decls</span>[<span class='ident'>temp</span>].<span class='ident'>ty</span>));
+
+        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;promote({:?} @ {:?}/{:?}, {:?})&quot;</span>,
+               <span class='ident'>temp</span>, <span class='ident'>loc</span>, <span class='ident'>no_stmts</span>, <span class='self'>self</span>.<span class='ident'>keep_original</span>);
 
         <span class='comment'>// First, take the Rvalue or Call out of the source MIR,</span>
         <span class='comment'>// or duplicate it, depending on keep_original.</span>
-        <span class='kw'>let</span> (<span class='kw-2'>mut</span> <span class='ident'>rvalue</span>, <span class='kw-2'>mut</span> <span class='ident'>call</span>) <span class='op'>=</span> (<span class='prelude-val'>None</span>, <span class='prelude-val'>None</span>);
-        <span class='kw'>let</span> <span class='ident'>source_info</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='ident'>stmt_idx</span> <span class='op'>&lt;</span> <span class='ident'>no_stmts</span> {
-            <span class='kw'>let</span> <span class='ident'>statement</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>.<span class='ident'>source</span>[<span class='ident'>bb</span>].<span class='ident'>statements</span>[<span class='ident'>stmt_idx</span>];
-            <span class='kw'>let</span> <span class='ident'>rhs</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>statement</span>.<span class='ident'>kind</span> {
-                <span class='ident'>StatementKind</span>::<span class='ident'>Assign</span>(_, <span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>rhs</span>) <span class='op'>=&gt;</span> <span class='ident'>rhs</span>,
-                _ <span class='op'>=&gt;</span> {
-                    <span class='macro'>span_bug</span><span class='macro'>!</span>(<span class='ident'>statement</span>.<span class='ident'>source_info</span>.<span class='ident'>span</span>, <span class='string'>&quot;{:?} is not an assignment&quot;</span>,
-                              <span class='ident'>statement</span>);
+        <span class='kw'>if</span> <span class='ident'>loc</span>.<span class='ident'>statement_index</span> <span class='op'>&lt;</span> <span class='ident'>no_stmts</span> {
+            <span class='kw'>let</span> (<span class='kw-2'>mut</span> <span class='ident'>rvalue</span>, <span class='ident'>source_info</span>) <span class='op'>=</span> {
+                <span class='kw'>let</span> <span class='ident'>statement</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>.<span class='ident'>source</span>[<span class='ident'>loc</span>.<span class='ident'>block</span>].<span class='ident'>statements</span>[<span class='ident'>loc</span>.<span class='ident'>statement_index</span>];
+                <span class='kw'>let</span> <span class='ident'>rhs</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>statement</span>.<span class='ident'>kind</span> {
+                    <span class='ident'>StatementKind</span>::<span class='ident'>Assign</span>(_, <span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>rhs</span>) <span class='op'>=&gt;</span> <span class='ident'>rhs</span>,
+                    _ <span class='op'>=&gt;</span> {
+                        <span class='macro'>span_bug</span><span class='macro'>!</span>(<span class='ident'>statement</span>.<span class='ident'>source_info</span>.<span class='ident'>span</span>, <span class='string'>&quot;{:?} is not an assignment&quot;</span>,
+                                  <span class='ident'>statement</span>);
+                    }
+                };
+
+                (<span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>keep_original</span> {
+                    <span class='ident'>rhs</span>.<span class='ident'>clone</span>()
+                } <span class='kw'>else</span> {
+                    <span class='kw'>let</span> <span class='ident'>unit</span> <span class='op'>=</span> <span class='ident'>Rvalue</span>::<span class='ident'>Aggregate</span>(<span class='ident'>AggregateKind</span>::<span class='ident'>Tuple</span>, <span class='macro'>vec</span><span class='macro'>!</span>[]);
+                    <span class='ident'>mem</span>::<span class='ident'>replace</span>(<span class='ident'>rhs</span>, <span class='ident'>unit</span>)
+                }, <span class='ident'>statement</span>.<span class='ident'>source_info</span>)
+            };
+
+            <span class='self'>self</span>.<span class='ident'>visit_rvalue</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>rvalue</span>, <span class='ident'>loc</span>);
+            <span class='self'>self</span>.<span class='ident'>assign</span>(<span class='ident'>new_temp</span>, <span class='ident'>rvalue</span>, <span class='ident'>source_info</span>.<span class='ident'>span</span>);
+        } <span class='kw'>else</span> {
+            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>terminator</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>keep_original</span> {
+                <span class='self'>self</span>.<span class='ident'>source</span>[<span class='ident'>loc</span>.<span class='ident'>block</span>].<span class='ident'>terminator</span>().<span class='ident'>clone</span>()
+            } <span class='kw'>else</span> {
+                <span class='kw'>let</span> <span class='ident'>terminator</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>source</span>[<span class='ident'>loc</span>.<span class='ident'>block</span>].<span class='ident'>terminator_mut</span>();
+                <span class='kw'>let</span> <span class='ident'>target</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>terminator</span>.<span class='ident'>kind</span> {
+                    <span class='ident'>TerminatorKind</span>::<span class='ident'>Call</span> { <span class='ident'>destination</span>: <span class='prelude-val'>Some</span>((_, <span class='ident'>target</span>)), .. } <span class='op'>=&gt;</span> <span class='ident'>target</span>,
+                    <span class='kw-2'>ref</span> <span class='ident'>kind</span> <span class='op'>=&gt;</span> {
+                        <span class='macro'>span_bug</span><span class='macro'>!</span>(<span class='ident'>terminator</span>.<span class='ident'>source_info</span>.<span class='ident'>span</span>, <span class='string'>&quot;{:?} not promotable&quot;</span>, <span class='ident'>kind</span>);
+                    }
+                };
+                <span class='ident'>Terminator</span> {
+                    <span class='ident'>source_info</span>: <span class='ident'>terminator</span>.<span class='ident'>source_info</span>,
+                    <span class='ident'>kind</span>: <span class='ident'>mem</span>::<span class='ident'>replace</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>terminator</span>.<span class='ident'>kind</span>, <span class='ident'>TerminatorKind</span>::<span class='ident'>Goto</span> {
+                        <span class='ident'>target</span>: <span class='ident'>target</span>
+                    })
                 }
             };
-            <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>keep_original</span> {
-                <span class='ident'>rvalue</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='ident'>rhs</span>.<span class='ident'>clone</span>());
-            } <span class='kw'>else</span> {
-                <span class='kw'>let</span> <span class='ident'>unit</span> <span class='op'>=</span> <span class='ident'>Rvalue</span>::<span class='ident'>Aggregate</span>(<span class='ident'>AggregateKind</span>::<span class='ident'>Tuple</span>, <span class='macro'>vec</span><span class='macro'>!</span>[]);
-                <span class='ident'>rvalue</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='ident'>mem</span>::<span class='ident'>replace</span>(<span class='ident'>rhs</span>, <span class='ident'>unit</span>));
-            }
-            <span class='ident'>statement</span>.<span class='ident'>source_info</span>
-        } <span class='kw'>else</span> <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>keep_original</span> {
-            <span class='kw'>let</span> <span class='ident'>terminator</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>source</span>[<span class='ident'>bb</span>].<span class='ident'>terminator</span>().<span class='ident'>clone</span>();
-            <span class='ident'>call</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='ident'>terminator</span>.<span class='ident'>kind</span>);
-            <span class='ident'>terminator</span>.<span class='ident'>source_info</span>
-        } <span class='kw'>else</span> {
-            <span class='kw'>let</span> <span class='ident'>terminator</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>source</span>[<span class='ident'>bb</span>].<span class='ident'>terminator_mut</span>();
-            <span class='kw'>let</span> <span class='ident'>target</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>terminator</span>.<span class='ident'>kind</span> {
-                <span class='ident'>TerminatorKind</span>::<span class='ident'>Call</span> {
-                    <span class='ident'>destination</span>: <span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>dest</span> @ <span class='prelude-val'>Some</span>(_),
-                    <span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>cleanup</span>, ..
-                } <span class='op'>=&gt;</span> {
-                    <span class='comment'>// No cleanup necessary.</span>
-                    <span class='ident'>cleanup</span>.<span class='ident'>take</span>();
 
-                    <span class='comment'>// We&#39;ll put a new destination in later.</span>
-                    <span class='ident'>dest</span>.<span class='ident'>take</span>().<span class='ident'>unwrap</span>().<span class='number'>1</span>
+            <span class='kw'>let</span> <span class='ident'>last</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>promoted</span>.<span class='ident'>basic_blocks</span>().<span class='ident'>last</span>().<span class='ident'>unwrap</span>();
+            <span class='kw'>let</span> <span class='ident'>new_target</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>new_block</span>();
+
+            <span class='ident'>terminator</span>.<span class='ident'>kind</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>terminator</span>.<span class='ident'>kind</span> {
+                <span class='ident'>TerminatorKind</span>::<span class='ident'>Call</span> { <span class='kw-2'>mut</span> <span class='ident'>func</span>, <span class='kw-2'>mut</span> <span class='ident'>args</span>, .. } <span class='op'>=&gt;</span> {
+                    <span class='self'>self</span>.<span class='ident'>visit_operand</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>func</span>, <span class='ident'>loc</span>);
+                    <span class='kw'>for</span> <span class='ident'>arg</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>args</span> {
+                        <span class='self'>self</span>.<span class='ident'>visit_operand</span>(<span class='ident'>arg</span>, <span class='ident'>loc</span>);
+                    }
+                    <span class='ident'>TerminatorKind</span>::<span class='ident'>Call</span> {
+                        <span class='ident'>func</span>: <span class='ident'>func</span>,
+                        <span class='ident'>args</span>: <span class='ident'>args</span>,
+                        <span class='ident'>cleanup</span>: <span class='prelude-val'>None</span>,
+                        <span class='ident'>destination</span>: <span class='prelude-val'>Some</span>((<span class='ident'>Lvalue</span>::<span class='ident'>Local</span>(<span class='ident'>new_temp</span>), <span class='ident'>new_target</span>))
+                    }
                 }
                 <span class='kw-2'>ref</span> <span class='ident'>kind</span> <span class='op'>=&gt;</span> {
                     <span class='macro'>span_bug</span><span class='macro'>!</span>(<span class='ident'>terminator</span>.<span class='ident'>source_info</span>.<span class='ident'>span</span>, <span class='string'>&quot;{:?} not promotable&quot;</span>, <span class='ident'>kind</span>);
                 }
             };
-            <span class='ident'>call</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='ident'>mem</span>::<span class='ident'>replace</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>terminator</span>.<span class='ident'>kind</span>, <span class='ident'>TerminatorKind</span>::<span class='ident'>Goto</span> {
-                <span class='ident'>target</span>: <span class='ident'>target</span>
-            }));
-            <span class='ident'>terminator</span>.<span class='ident'>source_info</span>
+
+            <span class='op'>*</span><span class='self'>self</span>.<span class='ident'>promoted</span>[<span class='ident'>last</span>].<span class='ident'>terminator_mut</span>() <span class='op'>=</span> <span class='ident'>terminator</span>;
         };
 
-        <span class='comment'>// Then, recurse for components in the Rvalue or Call.</span>
-        <span class='kw'>if</span> <span class='ident'>stmt_idx</span> <span class='op'>&lt;</span> <span class='ident'>no_stmts</span> {
-            <span class='self'>self</span>.<span class='ident'>visit_rvalue</span>(<span class='ident'>rvalue</span>.<span class='ident'>as_mut</span>().<span class='ident'>unwrap</span>(), <span class='ident'>Location</span> {
-                <span class='ident'>block</span>: <span class='ident'>bb</span>,
-                <span class='ident'>statement_index</span>: <span class='ident'>stmt_idx</span>
-            });
-        } <span class='kw'>else</span> {
-            <span class='self'>self</span>.<span class='ident'>visit_terminator_kind</span>(<span class='ident'>bb</span>, <span class='ident'>call</span>.<span class='ident'>as_mut</span>().<span class='ident'>unwrap</span>(), <span class='ident'>Location</span> {
-                <span class='ident'>block</span>: <span class='ident'>bb</span>,
-                <span class='ident'>statement_index</span>: <span class='ident'>no_stmts</span>
-            });
-        }
-
-        <span class='kw'>let</span> <span class='ident'>new_temp</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>promoted</span>.<span class='ident'>local_decls</span>.<span class='ident'>push</span>(
-            <span class='ident'>LocalDecl</span>::<span class='ident'>new_temp</span>(<span class='self'>self</span>.<span class='ident'>source</span>.<span class='ident'>local_decls</span>[<span class='ident'>temp</span>].<span class='ident'>ty</span>));
-
-        <span class='comment'>// Inject the Rvalue or Call into the promoted MIR.</span>
-        <span class='kw'>if</span> <span class='ident'>stmt_idx</span> <span class='op'>&lt;</span> <span class='ident'>no_stmts</span> {
-            <span class='self'>self</span>.<span class='ident'>assign</span>(<span class='ident'>new_temp</span>, <span class='ident'>rvalue</span>.<span class='ident'>unwrap</span>(), <span class='ident'>source_info</span>.<span class='ident'>span</span>);
-        } <span class='kw'>else</span> {
-            <span class='kw'>let</span> <span class='ident'>last</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>promoted</span>.<span class='ident'>basic_blocks</span>().<span class='ident'>last</span>().<span class='ident'>unwrap</span>();
-            <span class='kw'>let</span> <span class='ident'>new_target</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>new_block</span>();
-            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>call</span> <span class='op'>=</span> <span class='ident'>call</span>.<span class='ident'>unwrap</span>();
-            <span class='kw'>match</span> <span class='ident'>call</span> {
-                <span class='ident'>TerminatorKind</span>::<span class='ident'>Call</span> { <span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>destination</span>, ..}  <span class='op'>=&gt;</span> {
-                    <span class='op'>*</span><span class='ident'>destination</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>((<span class='ident'>Lvalue</span>::<span class='ident'>Local</span>(<span class='ident'>new_temp</span>), <span class='ident'>new_target</span>));
-                }
-                _ <span class='op'>=&gt;</span> <span class='macro'>bug</span><span class='macro'>!</span>()
-            }
-            <span class='kw'>let</span> <span class='ident'>terminator</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>promoted</span>[<span class='ident'>last</span>].<span class='ident'>terminator_mut</span>();
-            <span class='ident'>terminator</span>.<span class='ident'>source_info</span>.<span class='ident'>span</span> <span class='op'>=</span> <span class='ident'>source_info</span>.<span class='ident'>span</span>;
-            <span class='ident'>terminator</span>.<span class='ident'>kind</span> <span class='op'>=</span> <span class='ident'>call</span>;
-        }
-
-        <span class='comment'>// Restore the old duplication state.</span>
         <span class='self'>self</span>.<span class='ident'>keep_original</span> <span class='op'>=</span> <span class='ident'>old_keep_original</span>;
-
         <span class='ident'>new_temp</span>
     }
 
@@ -843,6 +816,7 @@
                                     <span class='kw-2'>mut</span> <span class='ident'>temps</span>: <span class='ident'>IndexVec</span><span class='op'>&lt;</span><span class='ident'>Local</span>, <span class='ident'>TempState</span><span class='op'>&gt;</span>,
                                     <span class='ident'>candidates</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Candidate</span><span class='op'>&gt;</span>) {
     <span class='comment'>// Visit candidates in reverse, in case they&#39;re nested.</span>
+    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;promote_candidates({:?})&quot;</span>, <span class='ident'>candidates</span>);
     <span class='kw'>for</span> <span class='ident'>candidate</span> <span class='kw'>in</span> <span class='ident'>candidates</span>.<span class='ident'>into_iter</span>().<span class='ident'>rev</span>() {
         <span class='kw'>let</span> (<span class='ident'>span</span>, <span class='ident'>ty</span>) <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>candidate</span> {
             <span class='ident'>Candidate</span>::<span class='ident'>Ref</span>(<span class='ident'>Location</span> { <span class='ident'>block</span>: <span class='ident'>bb</span>, <span class='ident'>statement_index</span>: <span class='ident'>stmt_idx</span> }) <span class='op'>=&gt;</span> {

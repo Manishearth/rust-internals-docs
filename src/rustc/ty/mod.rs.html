@@ -2719,14 +2719,6 @@
 <span id="2674">2674</span>
 <span id="2675">2675</span>
 <span id="2676">2676</span>
-<span id="2677">2677</span>
-<span id="2678">2678</span>
-<span id="2679">2679</span>
-<span id="2680">2680</span>
-<span id="2681">2681</span>
-<span id="2682">2682</span>
-<span id="2683">2683</span>
-<span id="2684">2684</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -2759,7 +2751,7 @@
 <span class='kw'>use</span> <span class='ident'>ty</span>::<span class='ident'>subst</span>::{<span class='ident'>Subst</span>, <span class='ident'>Substs</span>};
 <span class='kw'>use</span> <span class='ident'>ty</span>::<span class='ident'>walk</span>::<span class='ident'>TypeWalker</span>;
 <span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>common</span>::<span class='ident'>MemoizationMap</span>;
-<span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>nodemap</span>::{<span class='ident'>NodeSet</span>, <span class='ident'>NodeMap</span>, <span class='ident'>FxHashMap</span>, <span class='ident'>FxHashSet</span>};
+<span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>nodemap</span>::{<span class='ident'>NodeSet</span>, <span class='ident'>NodeMap</span>, <span class='ident'>FxHashMap</span>};
 
 <span class='kw'>use</span> <span class='ident'>serialize</span>::{<span class='self'>self</span>, <span class='ident'>Encodable</span>, <span class='ident'>Encoder</span>};
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>borrow</span>::<span class='ident'>Cow</span>;
@@ -2808,6 +2800,7 @@
 <span class='kw'>pub</span> <span class='kw'>mod</span> <span class='ident'>error</span>;
 <span class='kw'>pub</span> <span class='kw'>mod</span> <span class='ident'>fast_reject</span>;
 <span class='kw'>pub</span> <span class='kw'>mod</span> <span class='ident'>fold</span>;
+<span class='kw'>pub</span> <span class='kw'>mod</span> <span class='ident'>inhabitedness</span>;
 <span class='kw'>pub</span> <span class='kw'>mod</span> <span class='ident'>item_path</span>;
 <span class='kw'>pub</span> <span class='kw'>mod</span> <span class='ident'>layout</span>;
 <span class='kw'>pub</span> <span class='kw'>mod</span> <span class='ident'>_match</span>;
@@ -2956,6 +2949,20 @@
 
 <span class='kw'>pub</span> <span class='kw'>trait</span> <span class='ident'>DefIdTree</span>: <span class='ident'>Copy</span> {
     <span class='kw'>fn</span> <span class='ident'>parent</span>(<span class='self'>self</span>, <span class='ident'>id</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>DefId</span><span class='op'>&gt;</span>;
+
+    <span class='kw'>fn</span> <span class='ident'>is_descendant_of</span>(<span class='self'>self</span>, <span class='kw-2'>mut</span> <span class='ident'>descendant</span>: <span class='ident'>DefId</span>, <span class='ident'>ancestor</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
+        <span class='kw'>if</span> <span class='ident'>descendant</span>.<span class='ident'>krate</span> <span class='op'>!=</span> <span class='ident'>ancestor</span>.<span class='ident'>krate</span> {
+            <span class='kw'>return</span> <span class='bool-val'>false</span>;
+        }
+
+        <span class='kw'>while</span> <span class='ident'>descendant</span> <span class='op'>!=</span> <span class='ident'>ancestor</span> {
+            <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>parent</span>(<span class='ident'>descendant</span>) {
+                <span class='prelude-val'>Some</span>(<span class='ident'>parent</span>) <span class='op'>=&gt;</span> <span class='ident'>descendant</span> <span class='op'>=</span> <span class='ident'>parent</span>,
+                <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='kw'>return</span> <span class='bool-val'>false</span>,
+            }
+        }
+        <span class='bool-val'>true</span>
+    }
 }
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>DefIdTree</span> <span class='kw'>for</span> <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
@@ -2982,7 +2989,7 @@
     }
 
     <span class='doccomment'>/// Returns true if an item with this visibility is accessible from the given block.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_accessible_from</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='ident'>DefIdTree</span><span class='op'>&gt;</span>(<span class='self'>self</span>, <span class='kw-2'>mut</span> <span class='ident'>module</span>: <span class='ident'>DefId</span>, <span class='ident'>tree</span>: <span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_accessible_from</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='ident'>DefIdTree</span><span class='op'>&gt;</span>(<span class='self'>self</span>, <span class='ident'>module</span>: <span class='ident'>DefId</span>, <span class='ident'>tree</span>: <span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
         <span class='kw'>let</span> <span class='ident'>restriction</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='self'>self</span> {
             <span class='comment'>// Public items are visible everywhere.</span>
             <span class='ident'>Visibility</span>::<span class='ident'>Public</span> <span class='op'>=&gt;</span> <span class='kw'>return</span> <span class='bool-val'>true</span>,
@@ -2993,14 +3000,7 @@
             <span class='ident'>Visibility</span>::<span class='ident'>Restricted</span>(<span class='ident'>module</span>) <span class='op'>=&gt;</span> <span class='ident'>module</span>,
         };
 
-        <span class='kw'>while</span> <span class='ident'>module</span> <span class='op'>!=</span> <span class='ident'>restriction</span> {
-            <span class='kw'>match</span> <span class='ident'>tree</span>.<span class='ident'>parent</span>(<span class='ident'>module</span>) {
-                <span class='prelude-val'>Some</span>(<span class='ident'>parent</span>) <span class='op'>=&gt;</span> <span class='ident'>module</span> <span class='op'>=</span> <span class='ident'>parent</span>,
-                <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='kw'>return</span> <span class='bool-val'>false</span>,
-            }
-        }
-
-        <span class='bool-val'>true</span>
+        <span class='ident'>tree</span>.<span class='ident'>is_descendant_of</span>(<span class='ident'>module</span>, <span class='ident'>restriction</span>)
     }
 
     <span class='doccomment'>/// Returns true if this visibility is at least as accessible as the given visibility</span>
@@ -3043,7 +3043,7 @@
 <span class='doccomment'>/// needed to add to the side tables. Thus to disambiguate</span>
 <span class='doccomment'>/// we also keep track of whether there&#39;s an adjustment in</span>
 <span class='doccomment'>/// our key.</span>
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Copy</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>, <span class='ident'>Hash</span>, <span class='ident'>Debug</span>)]</span>
+<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Copy</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>, <span class='ident'>Hash</span>, <span class='ident'>Debug</span>, <span class='ident'>RustcEncodable</span>, <span class='ident'>RustcDecodable</span>)]</span>
 <span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>MethodCall</span> {
     <span class='kw'>pub</span> <span class='ident'>expr_id</span>: <span class='ident'>NodeId</span>,
     <span class='kw'>pub</span> <span class='ident'>autoderef</span>: <span class='ident'>u32</span>
@@ -3223,7 +3223,7 @@
 <span class='doccomment'>/// Upvars do not get their own node-id. Instead, we use the pair of</span>
 <span class='doccomment'>/// the original var id (that is, the root variable that is referenced</span>
 <span class='doccomment'>/// by the upvar) and the id of the closure expression.</span>
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Copy</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>, <span class='ident'>Hash</span>)]</span>
+<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Copy</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>, <span class='ident'>Hash</span>, <span class='ident'>RustcEncodable</span>, <span class='ident'>RustcDecodable</span>)]</span>
 <span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>UpvarId</span> {
     <span class='kw'>pub</span> <span class='ident'>var_id</span>: <span class='ident'>NodeId</span>,
     <span class='kw'>pub</span> <span class='ident'>closure_expr_id</span>: <span class='ident'>NodeId</span>,
@@ -4137,20 +4137,6 @@
     }
 
     <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_uninhabited_recurse</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
-                                  <span class='ident'>visited</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>FxHashSet</span><span class='op'>&lt;</span>(<span class='ident'>DefId</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)<span class='op'>&gt;</span>,
-                                  <span class='ident'>block</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>NodeId</span><span class='op'>&gt;</span>,
-                                  <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                  <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-        <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>visited</span>.<span class='ident'>insert</span>((<span class='self'>self</span>.<span class='ident'>did</span>, <span class='ident'>substs</span>)) {
-            <span class='kw'>return</span> <span class='bool-val'>false</span>;
-        };
-        <span class='self'>self</span>.<span class='ident'>variants</span>.<span class='ident'>iter</span>().<span class='ident'>all</span>(<span class='op'>|</span><span class='ident'>v</span><span class='op'>|</span> {
-            <span class='ident'>v</span>.<span class='ident'>is_uninhabited_recurse</span>(<span class='ident'>visited</span>, <span class='ident'>block</span>, <span class='ident'>tcx</span>, <span class='ident'>substs</span>, <span class='self'>self</span>.<span class='ident'>is_union</span>())
-        })
-    }
-
-    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_struct</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
         <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>is_union</span>() <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>is_enum</span>()
     }
@@ -4484,35 +4470,11 @@
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>field_named</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>name</span>: <span class='ident'>ast</span>::<span class='ident'>Name</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='ident'>FieldDef</span> {
         <span class='self'>self</span>.<span class='ident'>find_field_named</span>(<span class='ident'>name</span>).<span class='ident'>unwrap</span>()
     }
-
-    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_uninhabited_recurse</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
-                                  <span class='ident'>visited</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>FxHashSet</span><span class='op'>&lt;</span>(<span class='ident'>DefId</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)<span class='op'>&gt;</span>,
-                                  <span class='ident'>block</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>NodeId</span><span class='op'>&gt;</span>,
-                                  <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                  <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                  <span class='ident'>is_union</span>: <span class='ident'>bool</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-        <span class='kw'>if</span> <span class='ident'>is_union</span> {
-            <span class='self'>self</span>.<span class='ident'>fields</span>.<span class='ident'>iter</span>().<span class='ident'>all</span>(<span class='op'>|</span><span class='ident'>f</span><span class='op'>|</span> <span class='ident'>f</span>.<span class='ident'>is_uninhabited_recurse</span>(<span class='ident'>visited</span>, <span class='ident'>block</span>, <span class='ident'>tcx</span>, <span class='ident'>substs</span>))
-        } <span class='kw'>else</span> {
-            <span class='self'>self</span>.<span class='ident'>fields</span>.<span class='ident'>iter</span>().<span class='ident'>any</span>(<span class='op'>|</span><span class='ident'>f</span><span class='op'>|</span> <span class='ident'>f</span>.<span class='ident'>is_uninhabited_recurse</span>(<span class='ident'>visited</span>, <span class='ident'>block</span>, <span class='ident'>tcx</span>, <span class='ident'>substs</span>))
-        }
-    }
 }
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>FieldDef</span> {
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>ty</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>subst</span>: <span class='kw-2'>&amp;</span><span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
         <span class='ident'>tcx</span>.<span class='ident'>item_type</span>(<span class='self'>self</span>.<span class='ident'>did</span>).<span class='ident'>subst</span>(<span class='ident'>tcx</span>, <span class='ident'>subst</span>)
-    }
-
-    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_uninhabited_recurse</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
-                                  <span class='ident'>visited</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>FxHashSet</span><span class='op'>&lt;</span>(<span class='ident'>DefId</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)<span class='op'>&gt;</span>,
-                                  <span class='ident'>block</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>NodeId</span><span class='op'>&gt;</span>,
-                                  <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                  <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-        <span class='ident'>block</span>.<span class='ident'>map_or</span>(<span class='bool-val'>true</span>, <span class='op'>|</span><span class='ident'>b</span><span class='op'>|</span> <span class='ident'>tcx</span>.<span class='ident'>vis_is_accessible_from</span>(<span class='self'>self</span>.<span class='ident'>vis</span>, <span class='ident'>b</span>)) <span class='op'>&amp;&amp;</span>
-        <span class='self'>self</span>.<span class='ident'>ty</span>(<span class='ident'>tcx</span>, <span class='ident'>substs</span>).<span class='ident'>is_uninhabited_recurse</span>(<span class='ident'>visited</span>, <span class='ident'>block</span>, <span class='ident'>tcx</span>)
     }
 }
 
@@ -4677,8 +4639,30 @@
 }
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>tables</span>(<span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Ref</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>Tables</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span><span class='op'>&gt;&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>tables</span>.<span class='ident'>borrow</span>()
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>body_tables</span>(<span class='self'>self</span>, <span class='ident'>body</span>: <span class='ident'>hir</span>::<span class='ident'>BodyId</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;gcx</span> <span class='ident'>Tables</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span><span class='op'>&gt;</span> {
+        <span class='self'>self</span>.<span class='ident'>item_tables</span>(<span class='self'>self</span>.<span class='ident'>map</span>.<span class='ident'>body_owner_def_id</span>(<span class='ident'>body</span>))
+    }
+
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>item_tables</span>(<span class='self'>self</span>, <span class='ident'>def_id</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;gcx</span> <span class='ident'>Tables</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span><span class='op'>&gt;</span> {
+        <span class='self'>self</span>.<span class='ident'>tables</span>.<span class='ident'>memoize</span>(<span class='ident'>def_id</span>, <span class='op'>||</span> {
+            <span class='kw'>if</span> <span class='ident'>def_id</span>.<span class='ident'>is_local</span>() {
+                <span class='comment'>// Closures&#39; tables come from their outermost function,</span>
+                <span class='comment'>// as they are part of the same &quot;inference environment&quot;.</span>
+                <span class='kw'>let</span> <span class='ident'>outer_def_id</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>closure_base_def_id</span>(<span class='ident'>def_id</span>);
+                <span class='kw'>if</span> <span class='ident'>outer_def_id</span> <span class='op'>!=</span> <span class='ident'>def_id</span> {
+                    <span class='kw'>return</span> <span class='self'>self</span>.<span class='ident'>item_tables</span>(<span class='ident'>outer_def_id</span>);
+                }
+
+                <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;No def&#39;n found for {:?} in tcx.tables&quot;</span>, <span class='ident'>def_id</span>);
+            }
+
+            <span class='comment'>// Cross-crate side-tables only exist alongside serialized HIR.</span>
+            <span class='self'>self</span>.<span class='ident'>sess</span>.<span class='ident'>cstore</span>.<span class='ident'>maybe_get_item_body</span>(<span class='self'>self</span>.<span class='ident'>global_tcx</span>(), <span class='ident'>def_id</span>).<span class='ident'>map</span>(<span class='op'>|</span>_<span class='op'>|</span> {
+                <span class='self'>self</span>.<span class='ident'>tables</span>.<span class='ident'>borrow</span>()[<span class='kw-2'>&amp;</span><span class='ident'>def_id</span>]
+            }).<span class='ident'>unwrap_or_else</span>(<span class='op'>||</span> {
+                <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;tcx.item_tables({:?}): missing from metadata&quot;</span>, <span class='ident'>def_id</span>)
+            })
+        })
     }
 
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>expr_span</span>(<span class='self'>self</span>, <span class='ident'>id</span>: <span class='ident'>NodeId</span>) <span class='op'>-&gt;</span> <span class='ident'>Span</span> {
@@ -5214,12 +5198,12 @@
         <span class='comment'>// If this is a local def-id, it should be inserted into the</span>
         <span class='comment'>// tables by typeck; else, it will be retreived from</span>
         <span class='comment'>// the external crate metadata.</span>
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>kind</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tables</span>.<span class='ident'>borrow</span>().<span class='ident'>closure_kinds</span>.<span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='ident'>def_id</span>) {
+        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>kind</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>closure_kinds</span>.<span class='ident'>borrow</span>().<span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='ident'>def_id</span>) {
             <span class='kw'>return</span> <span class='ident'>kind</span>;
         }
 
         <span class='kw'>let</span> <span class='ident'>kind</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>sess</span>.<span class='ident'>cstore</span>.<span class='ident'>closure_kind</span>(<span class='ident'>def_id</span>);
-        <span class='self'>self</span>.<span class='ident'>tables</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>closure_kinds</span>.<span class='ident'>insert</span>(<span class='ident'>def_id</span>, <span class='ident'>kind</span>);
+        <span class='self'>self</span>.<span class='ident'>closure_kinds</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>insert</span>(<span class='ident'>def_id</span>, <span class='ident'>kind</span>);
         <span class='ident'>kind</span>
     }
 
@@ -5231,12 +5215,12 @@
         <span class='comment'>// If this is a local def-id, it should be inserted into the</span>
         <span class='comment'>// tables by typeck; else, it will be retreived from</span>
         <span class='comment'>// the external crate metadata.</span>
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>ty</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tables</span>.<span class='ident'>borrow</span>().<span class='ident'>closure_tys</span>.<span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='ident'>def_id</span>) {
+        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>ty</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>closure_tys</span>.<span class='ident'>borrow</span>().<span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='ident'>def_id</span>) {
             <span class='kw'>return</span> <span class='ident'>ty</span>.<span class='ident'>subst</span>(<span class='self'>self</span>, <span class='ident'>substs</span>.<span class='ident'>substs</span>);
         }
 
         <span class='kw'>let</span> <span class='ident'>ty</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>sess</span>.<span class='ident'>cstore</span>.<span class='ident'>closure_ty</span>(<span class='self'>self</span>.<span class='ident'>global_tcx</span>(), <span class='ident'>def_id</span>);
-        <span class='self'>self</span>.<span class='ident'>tables</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>closure_tys</span>.<span class='ident'>insert</span>(<span class='ident'>def_id</span>, <span class='ident'>ty</span>.<span class='ident'>clone</span>());
+        <span class='self'>self</span>.<span class='ident'>closure_tys</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>insert</span>(<span class='ident'>def_id</span>, <span class='ident'>ty</span>.<span class='ident'>clone</span>());
         <span class='ident'>ty</span>.<span class='ident'>subst</span>(<span class='self'>self</span>, <span class='ident'>substs</span>.<span class='ident'>substs</span>)
     }
 
