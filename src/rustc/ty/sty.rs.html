@@ -1409,6 +1409,14 @@
 <span id="1364">1364</span>
 <span id="1365">1365</span>
 <span id="1366">1366</span>
+<span id="1367">1367</span>
+<span id="1368">1368</span>
+<span id="1369">1369</span>
+<span id="1370">1370</span>
+<span id="1371">1371</span>
+<span id="1372">1372</span>
+<span id="1373">1373</span>
+<span id="1374">1374</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -1436,7 +1444,7 @@
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>abi</span>;
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>::{<span class='self'>self</span>, <span class='ident'>Name</span>};
 <span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>symbol</span>::{<span class='ident'>keywords</span>, <span class='ident'>InternedString</span>};
-<span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>nodemap</span>::<span class='ident'>FxHashSet</span>;
+<span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>nodemap</span>::<span class='ident'>FxHashMap</span>;
 
 <span class='kw'>use</span> <span class='ident'>serialize</span>;
 
@@ -1470,7 +1478,7 @@
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// The def-id is needed to distinguish free regions in</span>
     <span class='doccomment'>/// the event of shadowing.</span>
-    <span class='ident'>BrNamed</span>(<span class='ident'>DefId</span>, <span class='ident'>Name</span>, <span class='ident'>Issue32330</span>),
+    <span class='ident'>BrNamed</span>(<span class='ident'>DefId</span>, <span class='ident'>Name</span>),
 
     <span class='doccomment'>/// Fresh bound identifiers created during GLB computations.</span>
     <span class='ident'>BrFresh</span>(<span class='ident'>u32</span>),
@@ -1480,23 +1488,18 @@
     <span class='ident'>BrEnv</span>
 }
 
-<span class='doccomment'>/// True if this late-bound region is unconstrained, and hence will</span>
-<span class='doccomment'>/// become early-bound once #32330 is fixed.</span>
+<span class='doccomment'>/// When a region changed from late-bound to early-bound when #32330</span>
+<span class='doccomment'>/// was fixed, its `RegionParameterDef` will have one of these</span>
+<span class='doccomment'>/// structures that we can use to give nicer errors.</span>
 <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Copy</span>, <span class='ident'>Clone</span>, <span class='ident'>Debug</span>, <span class='ident'>PartialEq</span>, <span class='ident'>PartialOrd</span>, <span class='ident'>Eq</span>, <span class='ident'>Ord</span>, <span class='ident'>Hash</span>,
          <span class='ident'>RustcEncodable</span>, <span class='ident'>RustcDecodable</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>Issue32330</span> {
-    <span class='ident'>WontChange</span>,
+<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>Issue32330</span> {
+    <span class='doccomment'>/// fn where is region declared</span>
+    <span class='kw'>pub</span> <span class='ident'>fn_def_id</span>: <span class='ident'>DefId</span>,
 
-    <span class='doccomment'>/// this region will change from late-bound to early-bound once</span>
-    <span class='doccomment'>/// #32330 is fixed.</span>
-    <span class='ident'>WillChange</span> {
-        <span class='doccomment'>/// fn where is region declared</span>
-        <span class='ident'>fn_def_id</span>: <span class='ident'>DefId</span>,
-
-        <span class='doccomment'>/// name of region; duplicates the info in BrNamed but convenient</span>
-        <span class='doccomment'>/// to have it here, and this code is only temporary</span>
-        <span class='ident'>region_name</span>: <span class='ident'>ast</span>::<span class='ident'>Name</span>,
-    }
+    <span class='doccomment'>/// name of region; duplicates the info in BrNamed but convenient</span>
+    <span class='doccomment'>/// to have it here, and this code is only temporary</span>
+    <span class='kw'>pub</span> <span class='ident'>region_name</span>: <span class='ident'>ast</span>::<span class='ident'>Name</span>,
 }
 
 <span class='comment'>// NB: If you change this, you&#39;ll probably want to change the corresponding</span>
@@ -1527,12 +1530,6 @@
     <span class='doccomment'>/// definition and not a concrete use of it.</span>
     <span class='ident'>TyAdt</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>AdtDef</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>),
 
-    <span class='doccomment'>/// `Box&lt;T&gt;`; this is nominally a struct in the documentation, but is</span>
-    <span class='doccomment'>/// special-cased internally. For example, it is possible to implicitly</span>
-    <span class='doccomment'>/// move the contents of a box out of that box, and methods of any type</span>
-    <span class='doccomment'>/// can have type `Box&lt;Self&gt;`.</span>
-    <span class='ident'>TyBox</span>(<span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>),
-
     <span class='doccomment'>/// The pointee of a string slice. Written as `str`.</span>
     <span class='ident'>TyStr</span>,
 
@@ -1546,7 +1543,7 @@
     <span class='ident'>TyRawPtr</span>(<span class='ident'>TypeAndMut</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>),
 
     <span class='doccomment'>/// A reference; a pointer with an associated lifetime. Written as</span>
-    <span class='doccomment'>/// `&amp;a mut T` or `&amp;&#39;a T`.</span>
+    <span class='doccomment'>/// `&amp;&#39;a mut T` or `&amp;&#39;a T`.</span>
     <span class='ident'>TyRef</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Region</span>, <span class='ident'>TypeAndMut</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>),
 
     <span class='doccomment'>/// The anonymous type of a function declaration/definition. Each</span>
@@ -1569,7 +1566,11 @@
     <span class='ident'>TyNever</span>,
 
     <span class='doccomment'>/// A tuple type.  For example, `(i32, bool)`.</span>
-    <span class='ident'>TyTuple</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Slice</span><span class='op'>&lt;</span><span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>),
+    <span class='doccomment'>/// The bool indicates whether this is a unit tuple and was created by</span>
+    <span class='doccomment'>/// defaulting a diverging type variable with feature(never_type) disabled.</span>
+    <span class='doccomment'>/// It&#39;s only purpose is for raising future-compatibility warnings for when</span>
+    <span class='doccomment'>/// diverging type variables start defaulting to ! instead of ().</span>
+    <span class='ident'>TyTuple</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Slice</span><span class='op'>&lt;</span><span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>, <span class='ident'>bool</span>),
 
     <span class='doccomment'>/// The projection of an associated type.  For example,</span>
     <span class='doccomment'>/// `&lt;T as Trait&lt;..&gt;&gt;::N`.</span>
@@ -2379,7 +2380,7 @@
 
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_nil</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
         <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>sty</span> {
-            <span class='ident'>TyTuple</span>(<span class='kw-2'>ref</span> <span class='ident'>tys</span>) <span class='op'>=&gt;</span> <span class='ident'>tys</span>.<span class='ident'>is_empty</span>(),
+            <span class='ident'>TyTuple</span>(<span class='kw-2'>ref</span> <span class='ident'>tys</span>, _) <span class='op'>=&gt;</span> <span class='ident'>tys</span>.<span class='ident'>is_empty</span>(),
             _ <span class='op'>=&gt;</span> <span class='bool-val'>false</span>
         }
     }
@@ -2387,6 +2388,15 @@
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_never</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
         <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>sty</span> {
             <span class='ident'>TyNever</span> <span class='op'>=&gt;</span> <span class='bool-val'>true</span>,
+            _ <span class='op'>=&gt;</span> <span class='bool-val'>false</span>,
+        }
+    }
+
+    <span class='comment'>// Test whether this is a `()` which was produced by defaulting a</span>
+    <span class='comment'>// diverging type variable with feature(never_type) disabled.</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_defaulted_unit</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
+        <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>sty</span> {
+            <span class='ident'>TyTuple</span>(_, <span class='bool-val'>true</span>) <span class='op'>=&gt;</span> <span class='bool-val'>true</span>,
             _ <span class='op'>=&gt;</span> <span class='bool-val'>false</span>,
         }
     }
@@ -2428,7 +2438,7 @@
     <span class='doccomment'>/// This code should only compile in modules where the uninhabitedness of Foo is</span>
     <span class='doccomment'>/// visible.</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_uninhabited_from</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>module</span>: <span class='ident'>DefId</span>, <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>visited</span> <span class='op'>=</span> <span class='ident'>FxHashSet</span>::<span class='ident'>default</span>();
+        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>visited</span> <span class='op'>=</span> <span class='ident'>FxHashMap</span>::<span class='ident'>default</span>();
         <span class='kw'>let</span> <span class='ident'>forest</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>uninhabited_from</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>visited</span>, <span class='ident'>tcx</span>);
 
         <span class='comment'>// To check whether this type is uninhabited at all (not just from the</span>
@@ -2551,10 +2561,17 @@
         }
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_unique</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_box</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
         <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>sty</span> {
-            <span class='ident'>TyBox</span>(_) <span class='op'>=&gt;</span> <span class='bool-val'>true</span>,
-            _ <span class='op'>=&gt;</span> <span class='bool-val'>false</span>
+            <span class='ident'>TyAdt</span>(<span class='ident'>def</span>, _) <span class='op'>=&gt;</span> <span class='ident'>def</span>.<span class='ident'>is_box</span>(),
+            _ <span class='op'>=&gt;</span> <span class='bool-val'>false</span>,
+        }
+    }
+
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>boxed_ty</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
+        <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>sty</span> {
+            <span class='ident'>TyAdt</span>(<span class='ident'>def</span>, <span class='ident'>substs</span>) <span class='kw'>if</span> <span class='ident'>def</span>.<span class='ident'>is_box</span>() <span class='op'>=&gt;</span> <span class='ident'>substs</span>.<span class='ident'>type_at</span>(<span class='number'>0</span>),
+            _ <span class='op'>=&gt;</span> <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;`boxed_ty` is called on non-box type {:?}&quot;</span>, <span class='self'>self</span>),
         }
     }
 
@@ -2659,9 +2676,9 @@
         <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>TypeAndMut</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>
     {
         <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>sty</span> {
-            <span class='ident'>TyBox</span>(<span class='ident'>ty</span>) <span class='op'>=&gt;</span> {
+            <span class='ident'>TyAdt</span>(<span class='ident'>def</span>, _) <span class='kw'>if</span> <span class='ident'>def</span>.<span class='ident'>is_box</span>() <span class='op'>=&gt;</span> {
                 <span class='prelude-val'>Some</span>(<span class='ident'>TypeAndMut</span> {
-                    <span class='ident'>ty</span>: <span class='ident'>ty</span>,
+                    <span class='ident'>ty</span>: <span class='self'>self</span>.<span class='ident'>boxed_ty</span>(),
                     <span class='ident'>mutbl</span>: <span class='kw'>if</span> <span class='ident'>pref</span> <span class='op'>==</span> <span class='ident'>ty</span>::<span class='ident'>PreferMutLvalue</span> {
                         <span class='ident'>hir</span>::<span class='ident'>MutMutable</span>
                     } <span class='kw'>else</span> {
@@ -2761,13 +2778,12 @@
             <span class='ident'>TyInt</span>(_) <span class='op'>|</span>
             <span class='ident'>TyUint</span>(_) <span class='op'>|</span>
             <span class='ident'>TyFloat</span>(_) <span class='op'>|</span>
-            <span class='ident'>TyBox</span>(_) <span class='op'>|</span>
             <span class='ident'>TyStr</span> <span class='op'>|</span>
             <span class='ident'>TyArray</span>(..) <span class='op'>|</span>
             <span class='ident'>TySlice</span>(_) <span class='op'>|</span>
             <span class='ident'>TyRawPtr</span>(_) <span class='op'>|</span>
             <span class='ident'>TyNever</span> <span class='op'>|</span>
-            <span class='ident'>TyTuple</span>(_) <span class='op'>|</span>
+            <span class='ident'>TyTuple</span>(..) <span class='op'>|</span>
             <span class='ident'>TyParam</span>(_) <span class='op'>|</span>
             <span class='ident'>TyInfer</span>(_) <span class='op'>|</span>
             <span class='ident'>TyError</span> <span class='op'>=&gt;</span> {

@@ -683,6 +683,17 @@
 <span id="638">638</span>
 <span id="639">639</span>
 <span id="640">640</span>
+<span id="641">641</span>
+<span id="642">642</span>
+<span id="643">643</span>
+<span id="644">644</span>
+<span id="645">645</span>
+<span id="646">646</span>
+<span id="647">647</span>
+<span id="648">648</span>
+<span id="649">649</span>
+<span id="650">650</span>
+<span id="651">651</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2012 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -746,11 +757,95 @@
 <span class='doccomment'>//! by two zero-length breaks. The algorithm will try its best to fit it on a</span>
 <span class='doccomment'>//! line (which it can&#39;t) and so naturally place the content on its own line to</span>
 <span class='doccomment'>//! avoid combining it with other lines and making matters even worse.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! # Explanation</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! In case you do not have the paper, here is an explanation of what&#39;s going</span>
+<span class='doccomment'>//! on.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! There is a stream of input tokens flowing through this printer.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! The printer buffers up to 3N tokens inside itself, where N is linewidth.</span>
+<span class='doccomment'>//! Yes, linewidth is chars and tokens are multi-char, but in the worst</span>
+<span class='doccomment'>//! case every token worth buffering is 1 char long, so it&#39;s ok.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! Tokens are String, Break, and Begin/End to delimit blocks.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! Begin tokens can carry an offset, saying &quot;how far to indent when you break</span>
+<span class='doccomment'>//! inside here&quot;, as well as a flag indicating &quot;consistent&quot; or &quot;inconsistent&quot;</span>
+<span class='doccomment'>//! breaking. Consistent breaking means that after the first break, no attempt</span>
+<span class='doccomment'>//! will be made to flow subsequent breaks together onto lines. Inconsistent</span>
+<span class='doccomment'>//! is the opposite. Inconsistent breaking example would be, say:</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! ```</span>
+<span class='doccomment'>//! foo(hello, there, good, friends)</span>
+<span class='doccomment'>//! ```</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! breaking inconsistently to become</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! ```</span>
+<span class='doccomment'>//! foo(hello, there</span>
+<span class='doccomment'>//!     good, friends);</span>
+<span class='doccomment'>//! ```</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! whereas a consistent breaking would yield:</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! ```</span>
+<span class='doccomment'>//! foo(hello,</span>
+<span class='doccomment'>//!     there</span>
+<span class='doccomment'>//!     good,</span>
+<span class='doccomment'>//!     friends);</span>
+<span class='doccomment'>//! ```</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! That is, in the consistent-break blocks we value vertical alignment</span>
+<span class='doccomment'>//! more than the ability to cram stuff onto a line. But in all cases if it</span>
+<span class='doccomment'>//! can make a block a one-liner, it&#39;ll do so.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! Carrying on with high-level logic:</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! The buffered tokens go through a ring-buffer, &#39;tokens&#39;. The &#39;left&#39; and</span>
+<span class='doccomment'>//! &#39;right&#39; indices denote the active portion of the ring buffer as well as</span>
+<span class='doccomment'>//! describing hypothetical points-in-the-infinite-stream at most 3N tokens</span>
+<span class='doccomment'>//! apart (i.e. &quot;not wrapped to ring-buffer boundaries&quot;). The paper will switch</span>
+<span class='doccomment'>//! between using &#39;left&#39; and &#39;right&#39; terms to denote the wrapped-to-ring-buffer</span>
+<span class='doccomment'>//! and point-in-infinite-stream senses freely.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! There is a parallel ring buffer, &#39;size&#39;, that holds the calculated size of</span>
+<span class='doccomment'>//! each token. Why calculated? Because for Begin/End pairs, the &quot;size&quot;</span>
+<span class='doccomment'>//! includes everything between the pair. That is, the &quot;size&quot; of Begin is</span>
+<span class='doccomment'>//! actually the sum of the sizes of everything between Begin and the paired</span>
+<span class='doccomment'>//! End that follows. Since that is arbitrarily far in the future, &#39;size&#39; is</span>
+<span class='doccomment'>//! being rewritten regularly while the printer runs; in fact most of the</span>
+<span class='doccomment'>//! machinery is here to work out &#39;size&#39; entries on the fly (and give up when</span>
+<span class='doccomment'>//! they&#39;re so obviously over-long that &quot;infinity&quot; is a good enough</span>
+<span class='doccomment'>//! approximation for purposes of line breaking).</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! The &quot;input side&quot; of the printer is managed as an abstract process called</span>
+<span class='doccomment'>//! SCAN, which uses &#39;scan_stack&#39;, to manage calculating &#39;size&#39;. SCAN is, in</span>
+<span class='doccomment'>//! other words, the process of calculating &#39;size&#39; entries.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! The &quot;output side&quot; of the printer is managed by an abstract process called</span>
+<span class='doccomment'>//! PRINT, which uses &#39;print_stack&#39;, &#39;margin&#39; and &#39;space&#39; to figure out what to</span>
+<span class='doccomment'>//! do with each token/size pair it consumes as it goes. It&#39;s trying to consume</span>
+<span class='doccomment'>//! the entire buffered window, but can&#39;t output anything until the size is &gt;=</span>
+<span class='doccomment'>//! 0 (sizes are set to negative while they&#39;re pending calculation).</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! So SCAN takes input and buffers tokens and pending calculations, while</span>
+<span class='doccomment'>//! PRINT gobbles up completed calculations and tokens from the buffer. The</span>
+<span class='doccomment'>//! theory is that the two can never get more than 3N tokens apart, because</span>
+<span class='doccomment'>//! once there&#39;s &quot;obviously&quot; too much data to fit on a line, in a size</span>
+<span class='doccomment'>//! calculation, SCAN will write &quot;infinity&quot; to the size and let PRINT consume</span>
+<span class='doccomment'>//! it.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! In this implementation (following the paper, again) the SCAN process is</span>
+<span class='doccomment'>//! the method called `Printer::pretty_print`, and the &#39;PRINT&#39; process is the method</span>
+<span class='doccomment'>//! called `Printer::print`.</span>
 
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>collections</span>::<span class='ident'>VecDeque</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>fmt</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>io</span>;
 
+<span class='doccomment'>/// How to break. Described in more detail in the module docs.</span>
 <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Copy</span>, <span class='ident'>PartialEq</span>)]</span>
 <span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>Breaks</span> {
     <span class='ident'>Consistent</span>,
@@ -863,81 +958,6 @@
     }
 }
 
-
-<span class='doccomment'>/// In case you do not have the paper, here is an explanation of what&#39;s going</span>
-<span class='doccomment'>/// on.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// There is a stream of input tokens flowing through this printer.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// The printer buffers up to 3N tokens inside itself, where N is linewidth.</span>
-<span class='doccomment'>/// Yes, linewidth is chars and tokens are multi-char, but in the worst</span>
-<span class='doccomment'>/// case every token worth buffering is 1 char long, so it&#39;s ok.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Tokens are String, Break, and Begin/End to delimit blocks.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Begin tokens can carry an offset, saying &quot;how far to indent when you break</span>
-<span class='doccomment'>/// inside here&quot;, as well as a flag indicating &quot;consistent&quot; or &quot;inconsistent&quot;</span>
-<span class='doccomment'>/// breaking. Consistent breaking means that after the first break, no attempt</span>
-<span class='doccomment'>/// will be made to flow subsequent breaks together onto lines. Inconsistent</span>
-<span class='doccomment'>/// is the opposite. Inconsistent breaking example would be, say:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>///  foo(hello, there, good, friends)</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// breaking inconsistently to become</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>///  foo(hello, there</span>
-<span class='doccomment'>///      good, friends);</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// whereas a consistent breaking would yield:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>///  foo(hello,</span>
-<span class='doccomment'>///      there</span>
-<span class='doccomment'>///      good,</span>
-<span class='doccomment'>///      friends);</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// That is, in the consistent-break blocks we value vertical alignment</span>
-<span class='doccomment'>/// more than the ability to cram stuff onto a line. But in all cases if it</span>
-<span class='doccomment'>/// can make a block a one-liner, it&#39;ll do so.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Carrying on with high-level logic:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// The buffered tokens go through a ring-buffer, &#39;tokens&#39;. The &#39;left&#39; and</span>
-<span class='doccomment'>/// &#39;right&#39; indices denote the active portion of the ring buffer as well as</span>
-<span class='doccomment'>/// describing hypothetical points-in-the-infinite-stream at most 3N tokens</span>
-<span class='doccomment'>/// apart (i.e. &quot;not wrapped to ring-buffer boundaries&quot;). The paper will switch</span>
-<span class='doccomment'>/// between using &#39;left&#39; and &#39;right&#39; terms to denote the wrapped-to-ring-buffer</span>
-<span class='doccomment'>/// and point-in-infinite-stream senses freely.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// There is a parallel ring buffer, &#39;size&#39;, that holds the calculated size of</span>
-<span class='doccomment'>/// each token. Why calculated? Because for Begin/End pairs, the &quot;size&quot;</span>
-<span class='doccomment'>/// includes everything between the pair. That is, the &quot;size&quot; of Begin is</span>
-<span class='doccomment'>/// actually the sum of the sizes of everything between Begin and the paired</span>
-<span class='doccomment'>/// End that follows. Since that is arbitrarily far in the future, &#39;size&#39; is</span>
-<span class='doccomment'>/// being rewritten regularly while the printer runs; in fact most of the</span>
-<span class='doccomment'>/// machinery is here to work out &#39;size&#39; entries on the fly (and give up when</span>
-<span class='doccomment'>/// they&#39;re so obviously over-long that &quot;infinity&quot; is a good enough</span>
-<span class='doccomment'>/// approximation for purposes of line breaking).</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// The &quot;input side&quot; of the printer is managed as an abstract process called</span>
-<span class='doccomment'>/// SCAN, which uses &#39;scan_stack&#39;, to manage calculating &#39;size&#39;. SCAN is, in</span>
-<span class='doccomment'>/// other words, the process of calculating &#39;size&#39; entries.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// The &quot;output side&quot; of the printer is managed by an abstract process called</span>
-<span class='doccomment'>/// PRINT, which uses &#39;print_stack&#39;, &#39;margin&#39; and &#39;space&#39; to figure out what to</span>
-<span class='doccomment'>/// do with each token/size pair it consumes as it goes. It&#39;s trying to consume</span>
-<span class='doccomment'>/// the entire buffered window, but can&#39;t output anything until the size is &gt;=</span>
-<span class='doccomment'>/// 0 (sizes are set to negative while they&#39;re pending calculation).</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// So SCAN takes input and buffers tokens and pending calculations, while</span>
-<span class='doccomment'>/// PRINT gobbles up completed calculations and tokens from the buffer. The</span>
-<span class='doccomment'>/// theory is that the two can never get more than 3N tokens apart, because</span>
-<span class='doccomment'>/// once there&#39;s &quot;obviously&quot; too much data to fit on a line, in a size</span>
-<span class='doccomment'>/// calculation, SCAN will write &quot;infinity&quot; to the size and let PRINT consume</span>
-<span class='doccomment'>/// it.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// In this implementation (following the paper, again) the SCAN process is</span>
-<span class='doccomment'>/// the method called &#39;pretty_print&#39;, and the &#39;PRINT&#39; process is the method</span>
-<span class='doccomment'>/// called &#39;print&#39;.</span>
 <span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>Printer</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
     <span class='kw'>pub</span> <span class='ident'>out</span>: <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>io</span>::<span class='ident'>Write</span><span class='op'>+</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>,
     <span class='ident'>buf_len</span>: <span class='ident'>usize</span>,
@@ -978,7 +998,7 @@
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>last_token</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Token</span> {
         <span class='self'>self</span>.<span class='ident'>buf</span>[<span class='self'>self</span>.<span class='ident'>right</span>].<span class='ident'>token</span>.<span class='ident'>clone</span>()
     }
-    <span class='comment'>// be very careful with this!</span>
+    <span class='doccomment'>/// be very careful with this!</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>replace_last_token</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>t</span>: <span class='ident'>Token</span>) {
         <span class='self'>self</span>.<span class='ident'>buf</span>[<span class='self'>self</span>.<span class='ident'>right</span>].<span class='ident'>token</span> <span class='op'>=</span> <span class='ident'>t</span>;
     }
@@ -1257,8 +1277,8 @@
 }
 
 <span class='comment'>// Convenience functions to talk to the printer.</span>
-<span class='comment'>//</span>
-<span class='comment'>// &quot;raw box&quot;</span>
+
+<span class='doccomment'>/// &quot;raw box&quot;</span>
 <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>rbox</span>(<span class='ident'>p</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Printer</span>, <span class='ident'>indent</span>: <span class='ident'>usize</span>, <span class='ident'>b</span>: <span class='ident'>Breaks</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
     <span class='ident'>p</span>.<span class='ident'>pretty_print</span>(<span class='ident'>Token</span>::<span class='ident'>Begin</span>(<span class='ident'>BeginToken</span> {
         <span class='ident'>offset</span>: <span class='ident'>indent</span> <span class='kw'>as</span> <span class='ident'>isize</span>,
@@ -1266,10 +1286,12 @@
     }))
 }
 
+<span class='doccomment'>/// Inconsistent breaking box</span>
 <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>ibox</span>(<span class='ident'>p</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Printer</span>, <span class='ident'>indent</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
     <span class='ident'>rbox</span>(<span class='ident'>p</span>, <span class='ident'>indent</span>, <span class='ident'>Breaks</span>::<span class='ident'>Inconsistent</span>)
 }
 
+<span class='doccomment'>/// Consistent breaking box</span>
 <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>cbox</span>(<span class='ident'>p</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Printer</span>, <span class='ident'>indent</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
     <span class='ident'>rbox</span>(<span class='ident'>p</span>, <span class='ident'>indent</span>, <span class='ident'>Breaks</span>::<span class='ident'>Consistent</span>)
 }

@@ -164,11 +164,6 @@
 <span id="119">119</span>
 <span id="120">120</span>
 <span id="121">121</span>
-<span id="122">122</span>
-<span id="123">123</span>
-<span id="124">124</span>
-<span id="125">125</span>
-<span id="126">126</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -185,7 +180,7 @@
 <span class='kw'>use</span> <span class='ident'>libc</span>::{<span class='self'>self</span>, <span class='ident'>c_int</span>};
 <span class='kw'>use</span> <span class='ident'>mem</span>;
 <span class='kw'>use</span> <span class='ident'>ptr</span>;
-<span class='kw'>use</span> <span class='ident'>sys</span>::<span class='ident'>cvt_r</span>;
+<span class='kw'>use</span> <span class='ident'>sys</span>::{<span class='ident'>cvt</span>, <span class='ident'>cvt_r</span>};
 <span class='kw'>use</span> <span class='ident'>sys</span>::<span class='ident'>fd</span>::<span class='ident'>FileDesc</span>;
 
 <span class='comment'>////////////////////////////////////////////////////////////////////////////////</span>
@@ -201,34 +196,29 @@
     <span class='comment'>// CLOEXEC flag is to use the `pipe2` syscall on Linux. This was added in</span>
     <span class='comment'>// 2.6.27, however, and because we support 2.6.18 we must detect this</span>
     <span class='comment'>// support dynamically.</span>
-    <span class='kw'>if</span> <span class='macro'>cfg</span><span class='macro'>!</span>(<span class='ident'>target_os</span> <span class='op'>=</span> <span class='string'>&quot;linux&quot;</span>) {
+    <span class='kw'>if</span> <span class='macro'>cfg</span><span class='macro'>!</span>(<span class='ident'>any</span>(<span class='ident'>target_os</span> <span class='op'>=</span> <span class='string'>&quot;dragonfly&quot;</span>,
+                <span class='ident'>target_os</span> <span class='op'>=</span> <span class='string'>&quot;freebsd&quot;</span>,
+                <span class='ident'>target_os</span> <span class='op'>=</span> <span class='string'>&quot;linux&quot;</span>,
+                <span class='ident'>target_os</span> <span class='op'>=</span> <span class='string'>&quot;netbsd&quot;</span>,
+                <span class='ident'>target_os</span> <span class='op'>=</span> <span class='string'>&quot;openbsd&quot;</span>))
+    {
         <span class='macro'>weak</span><span class='macro'>!</span> { <span class='kw'>fn</span> <span class='ident'>pipe2</span>(<span class='kw-2'>*</span><span class='kw-2'>mut</span> <span class='ident'>c_int</span>, <span class='ident'>c_int</span>) <span class='op'>-&gt;</span> <span class='ident'>c_int</span> }
         <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>pipe</span>) <span class='op'>=</span> <span class='ident'>pipe2</span>.<span class='ident'>get</span>() {
-            <span class='kw'>match</span> <span class='ident'>cvt_r</span>(<span class='op'>||</span> <span class='kw'>unsafe</span> { <span class='ident'>pipe</span>(<span class='ident'>fds</span>.<span class='ident'>as_mut_ptr</span>(), <span class='ident'>libc</span>::<span class='ident'>O_CLOEXEC</span>) }) {
-                <span class='prelude-val'>Ok</span>(_) <span class='op'>=&gt;</span> {
-                    <span class='kw'>return</span> <span class='prelude-val'>Ok</span>((<span class='ident'>AnonPipe</span>(<span class='ident'>FileDesc</span>::<span class='ident'>new</span>(<span class='ident'>fds</span>[<span class='number'>0</span>])),
-                               <span class='ident'>AnonPipe</span>(<span class='ident'>FileDesc</span>::<span class='ident'>new</span>(<span class='ident'>fds</span>[<span class='number'>1</span>]))))
-                }
-                <span class='prelude-val'>Err</span>(<span class='kw-2'>ref</span> <span class='ident'>e</span>) <span class='kw'>if</span> <span class='ident'>e</span>.<span class='ident'>raw_os_error</span>() <span class='op'>==</span> <span class='prelude-val'>Some</span>(<span class='ident'>libc</span>::<span class='ident'>ENOSYS</span>) <span class='op'>=&gt;</span> {}
-                <span class='prelude-val'>Err</span>(<span class='ident'>e</span>) <span class='op'>=&gt;</span> <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>e</span>),
-            }
+            <span class='ident'>cvt</span>(<span class='kw'>unsafe</span> { <span class='ident'>pipe</span>(<span class='ident'>fds</span>.<span class='ident'>as_mut_ptr</span>(), <span class='ident'>libc</span>::<span class='ident'>O_CLOEXEC</span>) })<span class='question-mark'>?</span>;
+            <span class='kw'>return</span> <span class='prelude-val'>Ok</span>((<span class='ident'>AnonPipe</span>(<span class='ident'>FileDesc</span>::<span class='ident'>new</span>(<span class='ident'>fds</span>[<span class='number'>0</span>])),
+                       <span class='ident'>AnonPipe</span>(<span class='ident'>FileDesc</span>::<span class='ident'>new</span>(<span class='ident'>fds</span>[<span class='number'>1</span>]))));
         }
     }
-    <span class='kw'>if</span> <span class='kw'>unsafe</span> { <span class='ident'>libc</span>::<span class='ident'>pipe</span>(<span class='ident'>fds</span>.<span class='ident'>as_mut_ptr</span>()) <span class='op'>==</span> <span class='number'>0</span> } {
-        <span class='kw'>let</span> <span class='ident'>fd0</span> <span class='op'>=</span> <span class='ident'>FileDesc</span>::<span class='ident'>new</span>(<span class='ident'>fds</span>[<span class='number'>0</span>]);
-        <span class='kw'>let</span> <span class='ident'>fd1</span> <span class='op'>=</span> <span class='ident'>FileDesc</span>::<span class='ident'>new</span>(<span class='ident'>fds</span>[<span class='number'>1</span>]);
-        <span class='prelude-val'>Ok</span>((<span class='ident'>AnonPipe</span>::<span class='ident'>from_fd</span>(<span class='ident'>fd0</span>)<span class='question-mark'>?</span>, <span class='ident'>AnonPipe</span>::<span class='ident'>from_fd</span>(<span class='ident'>fd1</span>)<span class='question-mark'>?</span>))
-    } <span class='kw'>else</span> {
-        <span class='prelude-val'>Err</span>(<span class='ident'>io</span>::<span class='ident'>Error</span>::<span class='ident'>last_os_error</span>())
-    }
+    <span class='ident'>cvt</span>(<span class='kw'>unsafe</span> { <span class='ident'>libc</span>::<span class='ident'>pipe</span>(<span class='ident'>fds</span>.<span class='ident'>as_mut_ptr</span>()) })<span class='question-mark'>?</span>;
+
+    <span class='kw'>let</span> <span class='ident'>fd0</span> <span class='op'>=</span> <span class='ident'>FileDesc</span>::<span class='ident'>new</span>(<span class='ident'>fds</span>[<span class='number'>0</span>]);
+    <span class='kw'>let</span> <span class='ident'>fd1</span> <span class='op'>=</span> <span class='ident'>FileDesc</span>::<span class='ident'>new</span>(<span class='ident'>fds</span>[<span class='number'>1</span>]);
+    <span class='ident'>fd0</span>.<span class='ident'>set_cloexec</span>()<span class='question-mark'>?</span>;
+    <span class='ident'>fd1</span>.<span class='ident'>set_cloexec</span>()<span class='question-mark'>?</span>;
+    <span class='prelude-val'>Ok</span>((<span class='ident'>AnonPipe</span>(<span class='ident'>fd0</span>), <span class='ident'>AnonPipe</span>(<span class='ident'>fd1</span>)))
 }
 
 <span class='kw'>impl</span> <span class='ident'>AnonPipe</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>from_fd</span>(<span class='ident'>fd</span>: <span class='ident'>FileDesc</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>AnonPipe</span><span class='op'>&gt;</span> {
-        <span class='ident'>fd</span>.<span class='ident'>set_cloexec</span>()<span class='question-mark'>?</span>;
-        <span class='prelude-val'>Ok</span>(<span class='ident'>AnonPipe</span>(<span class='ident'>fd</span>))
-    }
-
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>read</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>buf</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> [<span class='ident'>u8</span>]) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>usize</span><span class='op'>&gt;</span> {
         <span class='self'>self</span>.<span class='number'>0</span>.<span class='ident'>read</span>(<span class='ident'>buf</span>)
     }

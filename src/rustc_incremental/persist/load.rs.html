@@ -423,6 +423,70 @@
 <span id="378">378</span>
 <span id="379">379</span>
 <span id="380">380</span>
+<span id="381">381</span>
+<span id="382">382</span>
+<span id="383">383</span>
+<span id="384">384</span>
+<span id="385">385</span>
+<span id="386">386</span>
+<span id="387">387</span>
+<span id="388">388</span>
+<span id="389">389</span>
+<span id="390">390</span>
+<span id="391">391</span>
+<span id="392">392</span>
+<span id="393">393</span>
+<span id="394">394</span>
+<span id="395">395</span>
+<span id="396">396</span>
+<span id="397">397</span>
+<span id="398">398</span>
+<span id="399">399</span>
+<span id="400">400</span>
+<span id="401">401</span>
+<span id="402">402</span>
+<span id="403">403</span>
+<span id="404">404</span>
+<span id="405">405</span>
+<span id="406">406</span>
+<span id="407">407</span>
+<span id="408">408</span>
+<span id="409">409</span>
+<span id="410">410</span>
+<span id="411">411</span>
+<span id="412">412</span>
+<span id="413">413</span>
+<span id="414">414</span>
+<span id="415">415</span>
+<span id="416">416</span>
+<span id="417">417</span>
+<span id="418">418</span>
+<span id="419">419</span>
+<span id="420">420</span>
+<span id="421">421</span>
+<span id="422">422</span>
+<span id="423">423</span>
+<span id="424">424</span>
+<span id="425">425</span>
+<span id="426">426</span>
+<span id="427">427</span>
+<span id="428">428</span>
+<span id="429">429</span>
+<span id="430">430</span>
+<span id="431">431</span>
+<span id="432">432</span>
+<span id="433">433</span>
+<span id="434">434</span>
+<span id="435">435</span>
+<span id="436">436</span>
+<span id="437">437</span>
+<span id="438">438</span>
+<span id="439">439</span>
+<span id="440">440</span>
+<span id="441">441</span>
+<span id="442">442</span>
+<span id="443">443</span>
+<span id="444">444</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -436,7 +500,7 @@
 
 <span class='doccomment'>//! Code to save/load the dep-graph from files.</span>
 
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>dep_graph</span>::<span class='ident'>DepNode</span>;
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>dep_graph</span>::{<span class='ident'>DepNode</span>, <span class='ident'>WorkProductId</span>};
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>::<span class='ident'>def_id</span>::<span class='ident'>DefId</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>::<span class='ident'>svh</span>::<span class='ident'>Svh</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>session</span>::<span class='ident'>Session</span>;
@@ -445,6 +509,7 @@
 <span class='kw'>use</span> <span class='ident'>rustc_serialize</span>::<span class='ident'>Decodable</span> <span class='kw'>as</span> <span class='ident'>RustcDecodable</span>;
 <span class='kw'>use</span> <span class='ident'>rustc_serialize</span>::<span class='ident'>opaque</span>::<span class='ident'>Decoder</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>path</span>::{<span class='ident'>Path</span>};
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>sync</span>::<span class='ident'>Arc</span>;
 
 <span class='kw'>use</span> <span class='ident'>IncrementalHashesMap</span>;
 <span class='kw'>use</span> <span class='ident'>ich</span>::<span class='ident'>Fingerprint</span>;
@@ -456,7 +521,9 @@
 <span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>file_format</span>;
 <span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>work_product</span>;
 
-<span class='kw'>pub</span> <span class='kw'>type</span> <span class='ident'>DirtyNodes</span> <span class='op'>=</span> <span class='ident'>FxHashSet</span><span class='op'>&lt;</span><span class='ident'>DepNode</span><span class='op'>&lt;</span><span class='ident'>DefPathIndex</span><span class='op'>&gt;&gt;</span>;
+<span class='comment'>// The key is a dirty node. The value is **some** base-input that we</span>
+<span class='comment'>// can blame it on.</span>
+<span class='kw'>pub</span> <span class='kw'>type</span> <span class='ident'>DirtyNodes</span> <span class='op'>=</span> <span class='ident'>FxHashMap</span><span class='op'>&lt;</span><span class='ident'>DepNode</span><span class='op'>&lt;</span><span class='ident'>DefPathIndex</span><span class='op'>&gt;</span>, <span class='ident'>DepNode</span><span class='op'>&lt;</span><span class='ident'>DefPathIndex</span><span class='op'>&gt;&gt;</span>;
 
 <span class='doccomment'>/// If we are in incremental mode, and a previous dep-graph exists,</span>
 <span class='doccomment'>/// then load up those nodes/edges that are still valid into the</span>
@@ -575,86 +642,61 @@
     <span class='kw'>let</span> <span class='ident'>directory</span> <span class='op'>=</span> <span class='ident'>DefIdDirectory</span>::<span class='ident'>decode</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>dep_graph_decoder</span>)<span class='question-mark'>?</span>;
     <span class='kw'>let</span> <span class='ident'>serialized_dep_graph</span> <span class='op'>=</span> <span class='ident'>SerializedDepGraph</span>::<span class='ident'>decode</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>dep_graph_decoder</span>)<span class='question-mark'>?</span>;
 
+    <span class='kw'>let</span> <span class='ident'>edge_map</span>: <span class='ident'>FxHashMap</span><span class='op'>&lt;</span>_, _<span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>serialized_dep_graph</span>.<span class='ident'>edges</span>
+                                                        .<span class='ident'>into_iter</span>()
+                                                        .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>s</span><span class='op'>|</span> (<span class='ident'>s</span>.<span class='ident'>source</span>, <span class='ident'>s</span>.<span class='ident'>targets</span>))
+                                                        .<span class='ident'>collect</span>();
+
     <span class='comment'>// Retrace the paths in the directory to find their current location (if any).</span>
     <span class='kw'>let</span> <span class='ident'>retraced</span> <span class='op'>=</span> <span class='ident'>directory</span>.<span class='ident'>retrace</span>(<span class='ident'>tcx</span>);
 
-    <span class='comment'>// Compute the set of Hir nodes whose data has changed or which</span>
-    <span class='comment'>// have been removed.  These are &quot;raw&quot; source nodes, which means</span>
-    <span class='comment'>// that they still use the original `DefPathIndex` values from the</span>
-    <span class='comment'>// encoding, rather than having been retraced to a `DefId`. The</span>
-    <span class='comment'>// reason for this is that this way we can include nodes that have</span>
-    <span class='comment'>// been removed (which no longer have a `DefId` in the current</span>
-    <span class='comment'>// compilation).</span>
-    <span class='kw'>let</span> <span class='ident'>dirty_raw_source_nodes</span> <span class='op'>=</span> <span class='ident'>dirty_nodes</span>(<span class='ident'>tcx</span>,
-                                             <span class='ident'>incremental_hashes_map</span>,
-                                             <span class='kw-2'>&amp;</span><span class='ident'>serialized_dep_graph</span>.<span class='ident'>hashes</span>,
-                                             <span class='kw-2'>&amp;</span><span class='ident'>retraced</span>);
+    <span class='comment'>// Compute the set of nodes from the old graph where some input</span>
+    <span class='comment'>// has changed or been removed. These are &quot;raw&quot; source nodes,</span>
+    <span class='comment'>// which means that they still use the original `DefPathIndex`</span>
+    <span class='comment'>// values from the encoding, rather than having been retraced to a</span>
+    <span class='comment'>// `DefId`. The reason for this is that this way we can include</span>
+    <span class='comment'>// nodes that have been removed (which no longer have a `DefId` in</span>
+    <span class='comment'>// the current compilation).</span>
+    <span class='kw'>let</span> <span class='ident'>dirty_raw_nodes</span> <span class='op'>=</span> <span class='ident'>initial_dirty_nodes</span>(<span class='ident'>tcx</span>,
+                                              <span class='ident'>incremental_hashes_map</span>,
+                                              <span class='kw-2'>&amp;</span><span class='ident'>serialized_dep_graph</span>.<span class='ident'>hashes</span>,
+                                              <span class='kw-2'>&amp;</span><span class='ident'>retraced</span>);
+    <span class='kw'>let</span> <span class='ident'>dirty_raw_nodes</span> <span class='op'>=</span> <span class='ident'>transitive_dirty_nodes</span>(<span class='kw-2'>&amp;</span><span class='ident'>edge_map</span>, <span class='ident'>dirty_raw_nodes</span>);
 
-    <span class='comment'>// Create a list of (raw-source-node -&gt;</span>
-    <span class='comment'>// retracted-target-node) edges. In the process of retracing the</span>
-    <span class='comment'>// target nodes, we may discover some of them def-paths no longer exist,</span>
-    <span class='comment'>// in which case there is no need to mark the corresopnding nodes as dirty</span>
-    <span class='comment'>// (they are just not present). So this list may be smaller than the original.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// Note though that in the common case the target nodes are</span>
-    <span class='comment'>// `DepNode::WorkProduct` instances, and those don&#39;t have a</span>
-    <span class='comment'>// def-id, so they will never be considered to not exist. Instead,</span>
-    <span class='comment'>// we do a secondary hashing step (later, in trans) when we know</span>
-    <span class='comment'>// the set of symbols that go into a work-product: if any symbols</span>
-    <span class='comment'>// have been removed (or added) the hash will be different and</span>
-    <span class='comment'>// we&#39;ll ignore the work-product then.</span>
-    <span class='kw'>let</span> <span class='ident'>retraced_edges</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span>_<span class='op'>&gt;</span> <span class='op'>=</span>
-        <span class='ident'>serialized_dep_graph</span>.<span class='ident'>edges</span>.<span class='ident'>iter</span>()
-                                  .<span class='ident'>filter_map</span>(<span class='op'>|</span><span class='kw-2'>&amp;</span>(<span class='kw-2'>ref</span> <span class='ident'>raw_source_node</span>, <span class='kw-2'>ref</span> <span class='ident'>raw_target_node</span>)<span class='op'>|</span> {
-                                      <span class='ident'>retraced</span>.<span class='ident'>map</span>(<span class='ident'>raw_target_node</span>)
-                                              .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>target_node</span><span class='op'>|</span> (<span class='ident'>raw_source_node</span>, <span class='ident'>target_node</span>))
-                                  })
-                                  .<span class='ident'>collect</span>();
-
-    <span class='comment'>// Compute which work-products have an input that has changed or</span>
-    <span class='comment'>// been removed. Put the dirty ones into a set.</span>
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>dirty_target_nodes</span> <span class='op'>=</span> <span class='ident'>FxHashSet</span>();
-    <span class='kw'>for</span> <span class='kw-2'>&amp;</span>(<span class='ident'>raw_source_node</span>, <span class='kw-2'>ref</span> <span class='ident'>target_node</span>) <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>retraced_edges</span> {
-        <span class='kw'>if</span> <span class='ident'>dirty_raw_source_nodes</span>.<span class='ident'>contains</span>(<span class='ident'>raw_source_node</span>) {
-            <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>dirty_target_nodes</span>.<span class='ident'>contains</span>(<span class='ident'>target_node</span>) {
-                <span class='ident'>dirty_target_nodes</span>.<span class='ident'>insert</span>(<span class='ident'>target_node</span>.<span class='ident'>clone</span>());
-
-                <span class='kw'>if</span> <span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>debugging_opts</span>.<span class='ident'>incremental_info</span> {
-                    <span class='comment'>// It&#39;d be nice to pretty-print these paths better than just</span>
-                    <span class='comment'>// using the `Debug` impls, but wev.</span>
-                    <span class='macro'>println</span><span class='macro'>!</span>(<span class='string'>&quot;incremental: module {:?} is dirty because {:?} \
-                              changed or was removed&quot;</span>,
-                             <span class='ident'>target_node</span>,
-                             <span class='ident'>raw_source_node</span>.<span class='ident'>map_def</span>(<span class='op'>|</span><span class='kw-2'>&amp;</span><span class='ident'>index</span><span class='op'>|</span> {
-                                 <span class='prelude-val'>Some</span>(<span class='ident'>directory</span>.<span class='ident'>def_path_string</span>(<span class='ident'>tcx</span>, <span class='ident'>index</span>))
-                             }).<span class='ident'>unwrap</span>());
-                }
-            }
+    <span class='comment'>// Recreate the edges in the graph that are still clean.</span>
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>clean_work_products</span> <span class='op'>=</span> <span class='ident'>FxHashSet</span>();
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>dirty_work_products</span> <span class='op'>=</span> <span class='ident'>FxHashSet</span>(); <span class='comment'>// incomplete; just used to suppress debug output</span>
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>extra_edges</span> <span class='op'>=</span> <span class='macro'>vec</span><span class='macro'>!</span>[];
+    <span class='kw'>for</span> (<span class='ident'>source</span>, <span class='ident'>targets</span>) <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>edge_map</span> {
+        <span class='kw'>for</span> <span class='ident'>target</span> <span class='kw'>in</span> <span class='ident'>targets</span> {
+            <span class='ident'>process_edges</span>(<span class='ident'>tcx</span>, <span class='ident'>source</span>, <span class='ident'>target</span>, <span class='kw-2'>&amp;</span><span class='ident'>edge_map</span>, <span class='kw-2'>&amp;</span><span class='ident'>directory</span>, <span class='kw-2'>&amp;</span><span class='ident'>retraced</span>, <span class='kw-2'>&amp;</span><span class='ident'>dirty_raw_nodes</span>,
+                          <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>clean_work_products</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>dirty_work_products</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>extra_edges</span>);
         }
     }
 
-    <span class='comment'>// For work-products that are still clean, add their deps into the</span>
-    <span class='comment'>// graph. This is needed because later we will have to save this</span>
-    <span class='comment'>// back out again!</span>
-    <span class='kw'>let</span> <span class='ident'>dep_graph</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>dep_graph</span>.<span class='ident'>clone</span>();
-    <span class='kw'>for</span> (<span class='ident'>raw_source_node</span>, <span class='ident'>target_node</span>) <span class='kw'>in</span> <span class='ident'>retraced_edges</span> {
-        <span class='kw'>if</span> <span class='ident'>dirty_target_nodes</span>.<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>target_node</span>) {
-            <span class='kw'>continue</span>;
-        }
-
-        <span class='kw'>let</span> <span class='ident'>source_node</span> <span class='op'>=</span> <span class='ident'>retraced</span>.<span class='ident'>map</span>(<span class='ident'>raw_source_node</span>).<span class='ident'>unwrap</span>();
-
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;decode_dep_graph: clean edge: {:?} -&gt; {:?}&quot;</span>, <span class='ident'>source_node</span>, <span class='ident'>target_node</span>);
-
-        <span class='kw'>let</span> <span class='ident'>_task</span> <span class='op'>=</span> <span class='ident'>dep_graph</span>.<span class='ident'>in_task</span>(<span class='ident'>target_node</span>);
-        <span class='ident'>dep_graph</span>.<span class='ident'>read</span>(<span class='ident'>source_node</span>);
+    <span class='comment'>// Subtle. Sometimes we have intermediate nodes that we can&#39;t recreate in the new graph.</span>
+    <span class='comment'>// This is pretty unusual but it arises in a scenario like this:</span>
+    <span class='comment'>//</span>
+    <span class='comment'>//     Hir(X) -&gt; Foo(Y) -&gt; Bar</span>
+    <span class='comment'>//</span>
+    <span class='comment'>// Note that the `Hir(Y)` is not an input to `Foo(Y)` -- this</span>
+    <span class='comment'>// almost never happens, but can happen in some obscure</span>
+    <span class='comment'>// scenarios. In that case, if `Y` is removed, then we can&#39;t</span>
+    <span class='comment'>// recreate `Foo(Y)` (the def-id `Y` no longer exists); what we do</span>
+    <span class='comment'>// then is to push the edge `Hir(X) -&gt; Bar` onto `extra_edges`</span>
+    <span class='comment'>// (along with any other targets of `Foo(Y)`). We will then add</span>
+    <span class='comment'>// the edge from `Hir(X)` to `Bar` (or, if `Bar` itself cannot be</span>
+    <span class='comment'>// recreated, to the targets of `Bar`).</span>
+    <span class='kw'>while</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>((<span class='ident'>source</span>, <span class='ident'>target</span>)) <span class='op'>=</span> <span class='ident'>extra_edges</span>.<span class='ident'>pop</span>() {
+        <span class='ident'>process_edges</span>(<span class='ident'>tcx</span>, <span class='ident'>source</span>, <span class='ident'>target</span>, <span class='kw-2'>&amp;</span><span class='ident'>edge_map</span>, <span class='kw-2'>&amp;</span><span class='ident'>directory</span>, <span class='kw-2'>&amp;</span><span class='ident'>retraced</span>, <span class='kw-2'>&amp;</span><span class='ident'>dirty_raw_nodes</span>,
+                      <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>clean_work_products</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>dirty_work_products</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>extra_edges</span>);
     }
 
     <span class='comment'>// Add in work-products that are still clean, and delete those that are</span>
     <span class='comment'>// dirty.</span>
-    <span class='ident'>reconcile_work_products</span>(<span class='ident'>tcx</span>, <span class='ident'>work_products</span>, <span class='kw-2'>&amp;</span><span class='ident'>dirty_target_nodes</span>);
+    <span class='ident'>reconcile_work_products</span>(<span class='ident'>tcx</span>, <span class='ident'>work_products</span>, <span class='kw-2'>&amp;</span><span class='ident'>clean_work_products</span>);
 
-    <span class='ident'>dirty_clean</span>::<span class='ident'>check_dirty_clean_annotations</span>(<span class='ident'>tcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>dirty_raw_source_nodes</span>, <span class='kw-2'>&amp;</span><span class='ident'>retraced</span>);
+    <span class='ident'>dirty_clean</span>::<span class='ident'>check_dirty_clean_annotations</span>(<span class='ident'>tcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>dirty_raw_nodes</span>, <span class='kw-2'>&amp;</span><span class='ident'>retraced</span>);
 
     <span class='ident'>load_prev_metadata_hashes</span>(<span class='ident'>tcx</span>,
                               <span class='kw-2'>&amp;</span><span class='ident'>retraced</span>,
@@ -664,13 +706,13 @@
 
 <span class='doccomment'>/// Computes which of the original set of def-ids are dirty. Stored in</span>
 <span class='doccomment'>/// a bit vector where the index is the DefPathIndex.</span>
-<span class='kw'>fn</span> <span class='ident'>dirty_nodes</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                         <span class='ident'>incremental_hashes_map</span>: <span class='kw-2'>&amp;</span><span class='ident'>IncrementalHashesMap</span>,
-                         <span class='ident'>serialized_hashes</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>SerializedHash</span>],
-                         <span class='ident'>retraced</span>: <span class='kw-2'>&amp;</span><span class='ident'>RetracedDefIdDirectory</span>)
-                         <span class='op'>-&gt;</span> <span class='ident'>DirtyNodes</span> {
+<span class='kw'>fn</span> <span class='ident'>initial_dirty_nodes</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+                                 <span class='ident'>incremental_hashes_map</span>: <span class='kw-2'>&amp;</span><span class='ident'>IncrementalHashesMap</span>,
+                                 <span class='ident'>serialized_hashes</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>SerializedHash</span>],
+                                 <span class='ident'>retraced</span>: <span class='kw-2'>&amp;</span><span class='ident'>RetracedDefIdDirectory</span>)
+                                 <span class='op'>-&gt;</span> <span class='ident'>DirtyNodes</span> {
     <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>hcx</span> <span class='op'>=</span> <span class='ident'>HashContext</span>::<span class='ident'>new</span>(<span class='ident'>tcx</span>, <span class='ident'>incremental_hashes_map</span>);
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>dirty_nodes</span> <span class='op'>=</span> <span class='ident'>FxHashSet</span>();
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>dirty_nodes</span> <span class='op'>=</span> <span class='ident'>FxHashMap</span>();
 
     <span class='kw'>for</span> <span class='ident'>hash</span> <span class='kw'>in</span> <span class='ident'>serialized_hashes</span> {
         <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>dep_node</span>) <span class='op'>=</span> <span class='ident'>retraced</span>.<span class='ident'>map</span>(<span class='kw-2'>&amp;</span><span class='ident'>hash</span>.<span class='ident'>dep_node</span>) {
@@ -703,9 +745,32 @@
                    <span class='ident'>hash</span>.<span class='ident'>dep_node</span>);
         }
 
-        <span class='ident'>dirty_nodes</span>.<span class='ident'>insert</span>(<span class='ident'>hash</span>.<span class='ident'>dep_node</span>.<span class='ident'>clone</span>());
+        <span class='ident'>dirty_nodes</span>.<span class='ident'>insert</span>(<span class='ident'>hash</span>.<span class='ident'>dep_node</span>.<span class='ident'>clone</span>(), <span class='ident'>hash</span>.<span class='ident'>dep_node</span>.<span class='ident'>clone</span>());
     }
 
+    <span class='ident'>dirty_nodes</span>
+}
+
+<span class='kw'>fn</span> <span class='ident'>transitive_dirty_nodes</span>(<span class='ident'>edge_map</span>: <span class='kw-2'>&amp;</span><span class='ident'>FxHashMap</span><span class='op'>&lt;</span><span class='ident'>DepNode</span><span class='op'>&lt;</span><span class='ident'>DefPathIndex</span><span class='op'>&gt;</span>, <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>DepNode</span><span class='op'>&lt;</span><span class='ident'>DefPathIndex</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span>,
+                          <span class='kw-2'>mut</span> <span class='ident'>dirty_nodes</span>: <span class='ident'>DirtyNodes</span>)
+                          <span class='op'>-&gt;</span> <span class='ident'>DirtyNodes</span>
+{
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>stack</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span>(<span class='ident'>DepNode</span><span class='op'>&lt;</span><span class='ident'>DefPathIndex</span><span class='op'>&gt;</span>, <span class='ident'>DepNode</span><span class='op'>&lt;</span><span class='ident'>DefPathIndex</span><span class='op'>&gt;</span>)<span class='op'>&gt;</span> <span class='op'>=</span> <span class='macro'>vec</span><span class='macro'>!</span>[];
+    <span class='ident'>stack</span>.<span class='ident'>extend</span>(<span class='ident'>dirty_nodes</span>.<span class='ident'>iter</span>().<span class='ident'>map</span>(<span class='op'>|</span>(<span class='ident'>s</span>, <span class='ident'>b</span>)<span class='op'>|</span> (<span class='ident'>s</span>.<span class='ident'>clone</span>(), <span class='ident'>b</span>.<span class='ident'>clone</span>())));
+    <span class='kw'>while</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>((<span class='ident'>source</span>, <span class='ident'>blame</span>)) <span class='op'>=</span> <span class='ident'>stack</span>.<span class='ident'>pop</span>() {
+        <span class='comment'>// we know the source is dirty (because of the node `blame`)...</span>
+        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>dirty_nodes</span>.<span class='ident'>contains_key</span>(<span class='kw-2'>&amp;</span><span class='ident'>source</span>));
+
+        <span class='comment'>// ...so we dirty all the targets (with the same blame)</span>
+        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>targets</span>) <span class='op'>=</span> <span class='ident'>edge_map</span>.<span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='ident'>source</span>) {
+            <span class='kw'>for</span> <span class='ident'>target</span> <span class='kw'>in</span> <span class='ident'>targets</span> {
+                <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>dirty_nodes</span>.<span class='ident'>contains_key</span>(<span class='ident'>target</span>) {
+                    <span class='ident'>dirty_nodes</span>.<span class='ident'>insert</span>(<span class='ident'>target</span>.<span class='ident'>clone</span>(), <span class='ident'>blame</span>.<span class='ident'>clone</span>());
+                    <span class='ident'>stack</span>.<span class='ident'>push</span>((<span class='ident'>target</span>.<span class='ident'>clone</span>(), <span class='ident'>blame</span>.<span class='ident'>clone</span>()));
+                }
+            }
+        }
+    }
     <span class='ident'>dirty_nodes</span>
 }
 
@@ -714,10 +779,10 @@
 <span class='doccomment'>/// otherwise no longer applicable.</span>
 <span class='kw'>fn</span> <span class='ident'>reconcile_work_products</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
                                      <span class='ident'>work_products</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>SerializedWorkProduct</span><span class='op'>&gt;</span>,
-                                     <span class='ident'>dirty_target_nodes</span>: <span class='kw-2'>&amp;</span><span class='ident'>FxHashSet</span><span class='op'>&lt;</span><span class='ident'>DepNode</span><span class='op'>&lt;</span><span class='ident'>DefId</span><span class='op'>&gt;&gt;</span>) {
+                                     <span class='ident'>clean_work_products</span>: <span class='kw-2'>&amp;</span><span class='ident'>FxHashSet</span><span class='op'>&lt;</span><span class='ident'>Arc</span><span class='op'>&lt;</span><span class='ident'>WorkProductId</span><span class='op'>&gt;&gt;</span>) {
     <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;reconcile_work_products({:?})&quot;</span>, <span class='ident'>work_products</span>);
     <span class='kw'>for</span> <span class='ident'>swp</span> <span class='kw'>in</span> <span class='ident'>work_products</span> {
-        <span class='kw'>if</span> <span class='ident'>dirty_target_nodes</span>.<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>DepNode</span>::<span class='ident'>WorkProduct</span>(<span class='ident'>swp</span>.<span class='ident'>id</span>.<span class='ident'>clone</span>())) {
+        <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>clean_work_products</span>.<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>swp</span>.<span class='ident'>id</span>) {
             <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;reconcile_work_products: dep-node for {:?} is dirty&quot;</span>, <span class='ident'>swp</span>);
             <span class='ident'>delete_dirty_work_product</span>(<span class='ident'>tcx</span>, <span class='ident'>swp</span>);
         } <span class='kw'>else</span> {
@@ -802,6 +867,69 @@
 
     <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;load_prev_metadata_hashes() - successfully loaded {} hashes&quot;</span>,
            <span class='ident'>serialized_hashes</span>.<span class='ident'>index_map</span>.<span class='ident'>len</span>());
+}
+
+<span class='kw'>fn</span> <span class='ident'>process_edges</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;edges</span><span class='op'>&gt;</span>(
+    <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+    <span class='ident'>source</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;edges</span> <span class='ident'>DepNode</span><span class='op'>&lt;</span><span class='ident'>DefPathIndex</span><span class='op'>&gt;</span>,
+    <span class='ident'>target</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;edges</span> <span class='ident'>DepNode</span><span class='op'>&lt;</span><span class='ident'>DefPathIndex</span><span class='op'>&gt;</span>,
+    <span class='ident'>edges</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;edges</span> <span class='ident'>FxHashMap</span><span class='op'>&lt;</span><span class='ident'>DepNode</span><span class='op'>&lt;</span><span class='ident'>DefPathIndex</span><span class='op'>&gt;</span>, <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>DepNode</span><span class='op'>&lt;</span><span class='ident'>DefPathIndex</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span>,
+    <span class='ident'>directory</span>: <span class='kw-2'>&amp;</span><span class='ident'>DefIdDirectory</span>,
+    <span class='ident'>retraced</span>: <span class='kw-2'>&amp;</span><span class='ident'>RetracedDefIdDirectory</span>,
+    <span class='ident'>dirty_raw_nodes</span>: <span class='kw-2'>&amp;</span><span class='ident'>DirtyNodes</span>,
+    <span class='ident'>clean_work_products</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>FxHashSet</span><span class='op'>&lt;</span><span class='ident'>Arc</span><span class='op'>&lt;</span><span class='ident'>WorkProductId</span><span class='op'>&gt;&gt;</span>,
+    <span class='ident'>dirty_work_products</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>FxHashSet</span><span class='op'>&lt;</span><span class='ident'>Arc</span><span class='op'>&lt;</span><span class='ident'>WorkProductId</span><span class='op'>&gt;&gt;</span>,
+    <span class='ident'>extra_edges</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Vec</span><span class='op'>&lt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;edges</span> <span class='ident'>DepNode</span><span class='op'>&lt;</span><span class='ident'>DefPathIndex</span><span class='op'>&gt;</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;edges</span> <span class='ident'>DepNode</span><span class='op'>&lt;</span><span class='ident'>DefPathIndex</span><span class='op'>&gt;</span>)<span class='op'>&gt;</span>)
+{
+    <span class='comment'>// If the target is dirty, skip the edge. If this is an edge</span>
+    <span class='comment'>// that targets a work-product, we can print the blame</span>
+    <span class='comment'>// information now.</span>
+    <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>blame</span>) <span class='op'>=</span> <span class='ident'>dirty_raw_nodes</span>.<span class='ident'>get</span>(<span class='ident'>target</span>) {
+        <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>DepNode</span>::<span class='ident'>WorkProduct</span>(<span class='kw-2'>ref</span> <span class='ident'>wp</span>) <span class='op'>=</span> <span class='kw-2'>*</span><span class='ident'>target</span> {
+            <span class='kw'>if</span> <span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>opts</span>.<span class='ident'>debugging_opts</span>.<span class='ident'>incremental_info</span> {
+                <span class='kw'>if</span> <span class='ident'>dirty_work_products</span>.<span class='ident'>insert</span>(<span class='ident'>wp</span>.<span class='ident'>clone</span>()) {
+                    <span class='comment'>// It&#39;d be nice to pretty-print these paths better than just</span>
+                    <span class='comment'>// using the `Debug` impls, but wev.</span>
+                    <span class='macro'>println</span><span class='macro'>!</span>(<span class='string'>&quot;incremental: module {:?} is dirty because {:?} \
+                              changed or was removed&quot;</span>,
+                             <span class='ident'>wp</span>,
+                             <span class='ident'>blame</span>.<span class='ident'>map_def</span>(<span class='op'>|</span><span class='kw-2'>&amp;</span><span class='ident'>index</span><span class='op'>|</span> {
+                                 <span class='prelude-val'>Some</span>(<span class='ident'>directory</span>.<span class='ident'>def_path_string</span>(<span class='ident'>tcx</span>, <span class='ident'>index</span>))
+                             }).<span class='ident'>unwrap</span>());
+                }
+            }
+        }
+        <span class='kw'>return</span>;
+    }
+
+    <span class='comment'>// If the source is dirty, the target will be dirty.</span>
+    <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>dirty_raw_nodes</span>.<span class='ident'>contains_key</span>(<span class='ident'>source</span>));
+
+    <span class='comment'>// Retrace the source -&gt; target edges to def-ids and then create</span>
+    <span class='comment'>// an edge in the graph. Retracing may yield none if some of the</span>
+    <span class='comment'>// data happens to have been removed.</span>
+    <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>source_node</span>) <span class='op'>=</span> <span class='ident'>retraced</span>.<span class='ident'>map</span>(<span class='ident'>source</span>) {
+        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>target_node</span>) <span class='op'>=</span> <span class='ident'>retraced</span>.<span class='ident'>map</span>(<span class='ident'>target</span>) {
+            <span class='kw'>let</span> <span class='ident'>_task</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>dep_graph</span>.<span class='ident'>in_task</span>(<span class='ident'>target_node</span>);
+            <span class='ident'>tcx</span>.<span class='ident'>dep_graph</span>.<span class='ident'>read</span>(<span class='ident'>source_node</span>);
+            <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>DepNode</span>::<span class='ident'>WorkProduct</span>(<span class='kw-2'>ref</span> <span class='ident'>wp</span>) <span class='op'>=</span> <span class='kw-2'>*</span><span class='ident'>target</span> {
+                <span class='ident'>clean_work_products</span>.<span class='ident'>insert</span>(<span class='ident'>wp</span>.<span class='ident'>clone</span>());
+            }
+        } <span class='kw'>else</span> {
+            <span class='comment'>// As discussed in `decode_dep_graph` above, sometimes the</span>
+            <span class='comment'>// target cannot be recreated again, in which case we add</span>
+            <span class='comment'>// edges to go from `source` to the targets of `target`.</span>
+            <span class='ident'>extra_edges</span>.<span class='ident'>extend</span>(
+                <span class='ident'>edges</span>[<span class='ident'>target</span>].<span class='ident'>iter</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>t</span><span class='op'>|</span> (<span class='ident'>source</span>, <span class='ident'>t</span>)));
+        }
+    } <span class='kw'>else</span> {
+        <span class='comment'>// It&#39;s also possible that the source can&#39;t be created! But we</span>
+        <span class='comment'>// can ignore such cases, because (a) if `source` is a HIR</span>
+        <span class='comment'>// node, it would be considered dirty; and (b) in other cases,</span>
+        <span class='comment'>// there must be some input to this node that is clean, and so</span>
+        <span class='comment'>// we&#39;ll re-create the edges over in the case where target is</span>
+        <span class='comment'>// undefined.</span>
+    }
 }
 
 </pre>

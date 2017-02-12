@@ -729,6 +729,8 @@
 
 <span class='kw'>use</span> <span class='ident'>syntax_pos</span>::<span class='ident'>DUMMY_SP</span>;
 
+<span class='kw'>use</span> <span class='ident'>mir</span>::<span class='ident'>lvalue</span>::<span class='ident'>Alignment</span>;
+
 <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Debug</span>)]</span>
 <span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>CalleeData</span> {
     <span class='doccomment'>/// Constructor for enum variant/tuple-like-struct.</span>
@@ -1046,29 +1048,27 @@
     <span class='kw'>let</span> <span class='ident'>fn_ty</span> <span class='op'>=</span> <span class='ident'>callee</span>.<span class='ident'>direct_fn_type</span>(<span class='ident'>bcx</span>.<span class='ident'>ccx</span>, <span class='kw-2'>&amp;</span>[]);
     <span class='kw'>let</span> <span class='ident'>self_idx</span> <span class='op'>=</span> <span class='ident'>fn_ty</span>.<span class='ident'>ret</span>.<span class='ident'>is_indirect</span>() <span class='kw'>as</span> <span class='ident'>usize</span>;
     <span class='kw'>let</span> <span class='ident'>env_arg</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='ident'>orig_fn_ty</span>.<span class='ident'>args</span>[<span class='number'>0</span>];
-    <span class='kw'>let</span> <span class='ident'>llenv</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='ident'>env_arg</span>.<span class='ident'>is_indirect</span>() {
-        <span class='ident'>llargs</span>[<span class='ident'>self_idx</span>]
+    <span class='kw'>let</span> <span class='ident'>env</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='ident'>env_arg</span>.<span class='ident'>is_indirect</span>() {
+        <span class='ident'>LvalueRef</span>::<span class='ident'>new_sized_ty</span>(<span class='ident'>llargs</span>[<span class='ident'>self_idx</span>], <span class='ident'>closure_ty</span>, <span class='ident'>Alignment</span>::<span class='ident'>AbiAligned</span>)
     } <span class='kw'>else</span> {
-        <span class='kw'>let</span> <span class='ident'>scratch</span> <span class='op'>=</span> <span class='ident'>bcx</span>.<span class='ident'>alloca_ty</span>(<span class='ident'>closure_ty</span>, <span class='string'>&quot;self&quot;</span>);
+        <span class='kw'>let</span> <span class='ident'>scratch</span> <span class='op'>=</span> <span class='ident'>LvalueRef</span>::<span class='ident'>alloca</span>(<span class='kw-2'>&amp;</span><span class='ident'>bcx</span>, <span class='ident'>closure_ty</span>, <span class='string'>&quot;self&quot;</span>);
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>llarg_idx</span> <span class='op'>=</span> <span class='ident'>self_idx</span>;
-        <span class='ident'>env_arg</span>.<span class='ident'>store_fn_arg</span>(<span class='kw-2'>&amp;</span><span class='ident'>bcx</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>llarg_idx</span>, <span class='ident'>scratch</span>);
+        <span class='ident'>env_arg</span>.<span class='ident'>store_fn_arg</span>(<span class='kw-2'>&amp;</span><span class='ident'>bcx</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>llarg_idx</span>, <span class='ident'>scratch</span>.<span class='ident'>llval</span>);
         <span class='ident'>scratch</span>
     };
 
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;trans_fn_once_adapter_shim: env={:?}&quot;</span>, <span class='ident'>Value</span>(<span class='ident'>llenv</span>));
+    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;trans_fn_once_adapter_shim: env={:?}&quot;</span>, <span class='ident'>env</span>);
     <span class='comment'>// Adjust llargs such that llargs[self_idx..] has the call arguments.</span>
     <span class='comment'>// For zero-sized closures that means sneaking in a new argument.</span>
     <span class='kw'>if</span> <span class='ident'>env_arg</span>.<span class='ident'>is_ignore</span>() {
-        <span class='ident'>llargs</span>.<span class='ident'>insert</span>(<span class='ident'>self_idx</span>, <span class='ident'>llenv</span>);
+        <span class='ident'>llargs</span>.<span class='ident'>insert</span>(<span class='ident'>self_idx</span>, <span class='ident'>env</span>.<span class='ident'>llval</span>);
     } <span class='kw'>else</span> {
-        <span class='ident'>llargs</span>[<span class='ident'>self_idx</span>] <span class='op'>=</span> <span class='ident'>llenv</span>;
+        <span class='ident'>llargs</span>[<span class='ident'>self_idx</span>] <span class='op'>=</span> <span class='ident'>env</span>.<span class='ident'>llval</span>;
     }
 
     <span class='comment'>// Call the by-ref closure body with `self` in a cleanup scope,</span>
     <span class='comment'>// to drop `self` when the body returns, or in case it unwinds.</span>
-    <span class='kw'>let</span> <span class='ident'>self_scope</span> <span class='op'>=</span> <span class='ident'>CleanupScope</span>::<span class='ident'>schedule_drop_mem</span>(
-        <span class='kw-2'>&amp;</span><span class='ident'>bcx</span>, <span class='ident'>LvalueRef</span>::<span class='ident'>new_sized_ty</span>(<span class='ident'>llenv</span>, <span class='ident'>closure_ty</span>)
-    );
+    <span class='kw'>let</span> <span class='ident'>self_scope</span> <span class='op'>=</span> <span class='ident'>CleanupScope</span>::<span class='ident'>schedule_drop_mem</span>(<span class='kw-2'>&amp;</span><span class='ident'>bcx</span>, <span class='ident'>env</span>);
 
     <span class='kw'>let</span> <span class='ident'>llfn</span> <span class='op'>=</span> <span class='ident'>callee</span>.<span class='ident'>reify</span>(<span class='ident'>bcx</span>.<span class='ident'>ccx</span>);
     <span class='kw'>let</span> <span class='ident'>llret</span>;
@@ -1173,7 +1173,7 @@
         }
     };
     <span class='kw'>let</span> <span class='ident'>sig</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>erase_late_bound_regions_and_normalize</span>(<span class='ident'>sig</span>);
-    <span class='kw'>let</span> <span class='ident'>tuple_input_ty</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>intern_tup</span>(<span class='ident'>sig</span>.<span class='ident'>inputs</span>());
+    <span class='kw'>let</span> <span class='ident'>tuple_input_ty</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>intern_tup</span>(<span class='ident'>sig</span>.<span class='ident'>inputs</span>(), <span class='bool-val'>false</span>);
     <span class='kw'>let</span> <span class='ident'>sig</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>mk_fn_sig</span>(
         [<span class='ident'>bare_fn_ty_maybe_ref</span>, <span class='ident'>tuple_input_ty</span>].<span class='ident'>iter</span>().<span class='ident'>cloned</span>(),
         <span class='ident'>sig</span>.<span class='ident'>output</span>(),
@@ -1200,7 +1200,7 @@
     <span class='kw'>let</span> <span class='ident'>llfnpointer</span> <span class='op'>=</span> <span class='ident'>llfnpointer</span>.<span class='ident'>unwrap_or_else</span>(<span class='op'>||</span> {
         <span class='comment'>// the first argument (`self`) will be ptr to the fn pointer</span>
         <span class='kw'>if</span> <span class='ident'>is_by_ref</span> {
-            <span class='ident'>bcx</span>.<span class='ident'>load</span>(<span class='ident'>self_arg</span>)
+            <span class='ident'>bcx</span>.<span class='ident'>load</span>(<span class='ident'>self_arg</span>, <span class='prelude-val'>None</span>)
         } <span class='kw'>else</span> {
             <span class='ident'>self_arg</span>
         }

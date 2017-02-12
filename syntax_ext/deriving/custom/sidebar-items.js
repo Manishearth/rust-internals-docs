@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["CustomDerive",""]]});
+initSidebarItems({"struct":[["ProcMacroDerive",""]]});
