@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["DeriveType",""]],"fn":[["add_derived_markers",""],["derive_attr_trait",""],["find_derive_attr",""],["get_derive_attr",""],["verify_derive_attrs",""]]});
+initSidebarItems({"fn":[["add_derived_markers",""],["collect_derives",""]]});

@@ -1076,6 +1076,12 @@
 <span id="1031">1031</span>
 <span id="1032">1032</span>
 <span id="1033">1033</span>
+<span id="1034">1034</span>
+<span id="1035">1035</span>
+<span id="1036">1036</span>
+<span id="1037">1037</span>
+<span id="1038">1038</span>
+<span id="1039">1039</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2016 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -1096,9 +1102,10 @@
 <span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>patch</span>::<span class='ident'>MirPatch</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>Ty</span>, <span class='ident'>TyCtxt</span>};
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::<span class='ident'>subst</span>::{<span class='ident'>Kind</span>, <span class='ident'>Subst</span>, <span class='ident'>Substs</span>};
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::<span class='ident'>util</span>::<span class='ident'>IntTypeExt</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>mir</span>::<span class='kw-2'>*</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>mir</span>::<span class='ident'>transform</span>::{<span class='ident'>Pass</span>, <span class='ident'>MirPass</span>, <span class='ident'>MirSource</span>};
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>middle</span>::<span class='ident'>const_val</span>::<span class='ident'>ConstVal</span>;
+<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>middle</span>::<span class='ident'>const_val</span>::{<span class='ident'>ConstVal</span>, <span class='ident'>ConstInt</span>};
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>middle</span>::<span class='ident'>lang_items</span>;
 <span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>util</span>::<span class='ident'>nodemap</span>::<span class='ident'>FxHashMap</span>;
 <span class='kw'>use</span> <span class='ident'>rustc_data_structures</span>::<span class='ident'>indexed_set</span>::<span class='ident'>IdxSetBuf</span>;
@@ -1698,47 +1705,10 @@
         <span class='self'>self</span>.<span class='ident'>elaborated_drop_block</span>(<span class='kw-2'>&amp;</span><span class='ident'>inner_c</span>)
     }
 
-    <span class='kw'>fn</span> <span class='ident'>open_drop_for_variant</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                                 <span class='ident'>c</span>: <span class='kw-2'>&amp;</span><span class='ident'>DropCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                 <span class='ident'>drop_block</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>BasicBlock</span><span class='op'>&gt;</span>,
-                                 <span class='ident'>adt</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>AdtDef</span>,
-                                 <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                 <span class='ident'>variant_index</span>: <span class='ident'>usize</span>)
-                                 <span class='op'>-&gt;</span> <span class='ident'>BasicBlock</span>
-    {
-        <span class='kw'>let</span> <span class='ident'>subpath</span> <span class='op'>=</span> <span class='kw'>super</span>::<span class='ident'>move_path_children_matching</span>(
-            <span class='self'>self</span>.<span class='ident'>move_data</span>(), <span class='ident'>c</span>.<span class='ident'>path</span>, <span class='op'>|</span><span class='ident'>proj</span><span class='op'>|</span> <span class='kw'>match</span> <span class='ident'>proj</span> {
-                <span class='kw-2'>&amp;</span><span class='ident'>Projection</span> {
-                    <span class='ident'>elem</span>: <span class='ident'>ProjectionElem</span>::<span class='ident'>Downcast</span>(_, <span class='ident'>idx</span>), ..
-                } <span class='op'>=&gt;</span> <span class='ident'>idx</span> <span class='op'>==</span> <span class='ident'>variant_index</span>,
-                _ <span class='op'>=&gt;</span> <span class='bool-val'>false</span>
-            });
-
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>variant_path</span>) <span class='op'>=</span> <span class='ident'>subpath</span> {
-            <span class='kw'>let</span> <span class='ident'>base_lv</span> <span class='op'>=</span> <span class='ident'>c</span>.<span class='ident'>lvalue</span>.<span class='ident'>clone</span>().<span class='ident'>elem</span>(
-                <span class='ident'>ProjectionElem</span>::<span class='ident'>Downcast</span>(<span class='ident'>adt</span>, <span class='ident'>variant_index</span>)
-            );
-            <span class='kw'>let</span> <span class='ident'>fields</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>move_paths_for_fields</span>(
-                <span class='kw-2'>&amp;</span><span class='ident'>base_lv</span>,
-                <span class='ident'>variant_path</span>,
-                <span class='kw-2'>&amp;</span><span class='ident'>adt</span>.<span class='ident'>variants</span>[<span class='ident'>variant_index</span>],
-                <span class='ident'>substs</span>);
-            <span class='self'>self</span>.<span class='ident'>drop_ladder</span>(<span class='ident'>c</span>, <span class='ident'>fields</span>)
-        } <span class='kw'>else</span> {
-            <span class='comment'>// variant not found - drop the entire enum</span>
-            <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>None</span> <span class='op'>=</span> <span class='kw-2'>*</span><span class='ident'>drop_block</span> {
-                <span class='kw-2'>*</span><span class='ident'>drop_block</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='self'>self</span>.<span class='ident'>complete_drop</span>(<span class='ident'>c</span>, <span class='bool-val'>true</span>));
-            }
-            <span class='kw'>return</span> <span class='ident'>drop_block</span>.<span class='ident'>unwrap</span>();
-        }
-    }
-
     <span class='kw'>fn</span> <span class='ident'>open_drop_for_adt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>c</span>: <span class='kw-2'>&amp;</span><span class='ident'>DropCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
                              <span class='ident'>adt</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>AdtDef</span>, <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
                              <span class='op'>-&gt;</span> <span class='ident'>BasicBlock</span> {
         <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;open_drop_for_adt({:?}, {:?}, {:?})&quot;</span>, <span class='ident'>c</span>, <span class='ident'>adt</span>, <span class='ident'>substs</span>);
-
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>drop_block</span> <span class='op'>=</span> <span class='prelude-val'>None</span>;
 
         <span class='kw'>match</span> <span class='ident'>adt</span>.<span class='ident'>variants</span>.<span class='ident'>len</span>() {
             <span class='number'>1</span> <span class='op'>=&gt;</span> {
@@ -1751,12 +1721,43 @@
                 <span class='self'>self</span>.<span class='ident'>drop_ladder</span>(<span class='ident'>c</span>, <span class='ident'>fields</span>)
             }
             _ <span class='op'>=&gt;</span> {
-                <span class='kw'>let</span> <span class='ident'>variant_drops</span> : <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>BasicBlock</span><span class='op'>&gt;</span> <span class='op'>=</span>
-                    (<span class='number'>0</span>..<span class='ident'>adt</span>.<span class='ident'>variants</span>.<span class='ident'>len</span>()).<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>i</span><span class='op'>|</span> {
-                        <span class='self'>self</span>.<span class='ident'>open_drop_for_variant</span>(<span class='ident'>c</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>drop_block</span>,
-                                                   <span class='ident'>adt</span>, <span class='ident'>substs</span>, <span class='ident'>i</span>)
-                    }).<span class='ident'>collect</span>();
-
+                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>values</span> <span class='op'>=</span> <span class='ident'>Vec</span>::<span class='ident'>with_capacity</span>(<span class='ident'>adt</span>.<span class='ident'>variants</span>.<span class='ident'>len</span>());
+                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>blocks</span> <span class='op'>=</span> <span class='ident'>Vec</span>::<span class='ident'>with_capacity</span>(<span class='ident'>adt</span>.<span class='ident'>variants</span>.<span class='ident'>len</span>());
+                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>otherwise</span> <span class='op'>=</span> <span class='prelude-val'>None</span>;
+                <span class='kw'>for</span> (<span class='ident'>variant_index</span>, <span class='ident'>variant</span>) <span class='kw'>in</span> <span class='ident'>adt</span>.<span class='ident'>variants</span>.<span class='ident'>iter</span>().<span class='ident'>enumerate</span>() {
+                    <span class='kw'>let</span> <span class='ident'>discr</span> <span class='op'>=</span> <span class='ident'>ConstInt</span>::<span class='ident'>new_inttype</span>(<span class='ident'>variant</span>.<span class='ident'>disr_val</span>, <span class='ident'>adt</span>.<span class='ident'>discr_ty</span>,
+                                                      <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>target</span>.<span class='ident'>uint_type</span>,
+                                                      <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>target</span>.<span class='ident'>int_type</span>).<span class='ident'>unwrap</span>();
+                    <span class='kw'>let</span> <span class='ident'>subpath</span> <span class='op'>=</span> <span class='kw'>super</span>::<span class='ident'>move_path_children_matching</span>(
+                        <span class='self'>self</span>.<span class='ident'>move_data</span>(), <span class='ident'>c</span>.<span class='ident'>path</span>, <span class='op'>|</span><span class='ident'>proj</span><span class='op'>|</span> <span class='kw'>match</span> <span class='ident'>proj</span> {
+                            <span class='kw-2'>&amp;</span><span class='ident'>Projection</span> {
+                                <span class='ident'>elem</span>: <span class='ident'>ProjectionElem</span>::<span class='ident'>Downcast</span>(_, <span class='ident'>idx</span>), ..
+                            } <span class='op'>=&gt;</span> <span class='ident'>idx</span> <span class='op'>==</span> <span class='ident'>variant_index</span>,
+                            _ <span class='op'>=&gt;</span> <span class='bool-val'>false</span>
+                        });
+                    <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>variant_path</span>) <span class='op'>=</span> <span class='ident'>subpath</span> {
+                        <span class='kw'>let</span> <span class='ident'>base_lv</span> <span class='op'>=</span> <span class='ident'>c</span>.<span class='ident'>lvalue</span>.<span class='ident'>clone</span>().<span class='ident'>elem</span>(
+                            <span class='ident'>ProjectionElem</span>::<span class='ident'>Downcast</span>(<span class='ident'>adt</span>, <span class='ident'>variant_index</span>)
+                        );
+                        <span class='kw'>let</span> <span class='ident'>fields</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>move_paths_for_fields</span>(
+                            <span class='kw-2'>&amp;</span><span class='ident'>base_lv</span>,
+                            <span class='ident'>variant_path</span>,
+                            <span class='kw-2'>&amp;</span><span class='ident'>adt</span>.<span class='ident'>variants</span>[<span class='ident'>variant_index</span>],
+                            <span class='ident'>substs</span>);
+                        <span class='ident'>values</span>.<span class='ident'>push</span>(<span class='ident'>discr</span>);
+                        <span class='ident'>blocks</span>.<span class='ident'>push</span>(<span class='self'>self</span>.<span class='ident'>drop_ladder</span>(<span class='ident'>c</span>, <span class='ident'>fields</span>));
+                    } <span class='kw'>else</span> {
+                        <span class='comment'>// variant not found - drop the entire enum</span>
+                        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>None</span> <span class='op'>=</span> <span class='ident'>otherwise</span> {
+                            <span class='ident'>otherwise</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='self'>self</span>.<span class='ident'>complete_drop</span>(<span class='ident'>c</span>, <span class='bool-val'>true</span>));
+                        }
+                    }
+                }
+                <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>block</span>) <span class='op'>=</span> <span class='ident'>otherwise</span> {
+                    <span class='ident'>blocks</span>.<span class='ident'>push</span>(<span class='ident'>block</span>);
+                } <span class='kw'>else</span> {
+                    <span class='ident'>values</span>.<span class='ident'>pop</span>();
+                }
                 <span class='comment'>// If there are multiple variants, then if something</span>
                 <span class='comment'>// is present within the enum the discriminant, tracked</span>
                 <span class='comment'>// by the rest path, must be initialized.</span>
@@ -1764,14 +1765,27 @@
                 <span class='comment'>// Additionally, we do not want to switch on the</span>
                 <span class='comment'>// discriminant after it is free-ed, because that</span>
                 <span class='comment'>// way lies only trouble.</span>
-
-                <span class='kw'>let</span> <span class='ident'>switch_block</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>new_block</span>(
-                    <span class='ident'>c</span>, <span class='ident'>c</span>.<span class='ident'>is_cleanup</span>, <span class='ident'>TerminatorKind</span>::<span class='ident'>Switch</span> {
-                        <span class='ident'>discr</span>: <span class='ident'>c</span>.<span class='ident'>lvalue</span>.<span class='ident'>clone</span>(),
-                        <span class='ident'>adt_def</span>: <span class='ident'>adt</span>,
-                        <span class='ident'>targets</span>: <span class='ident'>variant_drops</span>
-                    });
-
+                <span class='kw'>let</span> <span class='ident'>discr_ty</span> <span class='op'>=</span> <span class='ident'>adt</span>.<span class='ident'>discr_ty</span>.<span class='ident'>to_ty</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>);
+                <span class='kw'>let</span> <span class='ident'>discr</span> <span class='op'>=</span> <span class='ident'>Lvalue</span>::<span class='ident'>Local</span>(<span class='self'>self</span>.<span class='ident'>patch</span>.<span class='ident'>new_temp</span>(<span class='ident'>discr_ty</span>));
+                <span class='kw'>let</span> <span class='ident'>switch_block</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>patch</span>.<span class='ident'>new_block</span>(<span class='ident'>BasicBlockData</span> {
+                    <span class='ident'>statements</span>: <span class='macro'>vec</span><span class='macro'>!</span>[
+                        <span class='ident'>Statement</span> {
+                            <span class='ident'>source_info</span>: <span class='ident'>c</span>.<span class='ident'>source_info</span>,
+                            <span class='ident'>kind</span>: <span class='ident'>StatementKind</span>::<span class='ident'>Assign</span>(<span class='ident'>discr</span>.<span class='ident'>clone</span>(),
+                                                        <span class='ident'>Rvalue</span>::<span class='ident'>Discriminant</span>(<span class='ident'>c</span>.<span class='ident'>lvalue</span>.<span class='ident'>clone</span>()))
+                        }
+                    ],
+                    <span class='ident'>terminator</span>: <span class='prelude-val'>Some</span>(<span class='ident'>Terminator</span> {
+                        <span class='ident'>source_info</span>: <span class='ident'>c</span>.<span class='ident'>source_info</span>,
+                        <span class='ident'>kind</span>: <span class='ident'>TerminatorKind</span>::<span class='ident'>SwitchInt</span> {
+                            <span class='ident'>discr</span>: <span class='ident'>Operand</span>::<span class='ident'>Consume</span>(<span class='ident'>discr</span>),
+                            <span class='ident'>switch_ty</span>: <span class='ident'>discr_ty</span>,
+                            <span class='ident'>values</span>: <span class='ident'>From</span>::<span class='ident'>from</span>(<span class='ident'>values</span>),
+                            <span class='ident'>targets</span>: <span class='ident'>blocks</span>,
+                        }
+                    }),
+                    <span class='ident'>is_cleanup</span>: <span class='ident'>c</span>.<span class='ident'>is_cleanup</span>,
+                });
                 <span class='self'>self</span>.<span class='ident'>drop_flag_test_block</span>(<span class='ident'>c</span>, <span class='ident'>switch_block</span>)
             }
         }
@@ -1892,10 +1906,8 @@
             (<span class='bool-val'>true</span>, <span class='bool-val'>false</span>) <span class='op'>=&gt;</span> <span class='ident'>on_set</span>,
             (<span class='bool-val'>true</span>, <span class='bool-val'>true</span>) <span class='op'>=&gt;</span> {
                 <span class='kw'>let</span> <span class='ident'>flag</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>drop_flag</span>(<span class='ident'>c</span>.<span class='ident'>path</span>).<span class='ident'>unwrap</span>();
-                <span class='self'>self</span>.<span class='ident'>new_block</span>(<span class='ident'>c</span>, <span class='ident'>is_cleanup</span>, <span class='ident'>TerminatorKind</span>::<span class='ident'>If</span> {
-                    <span class='ident'>cond</span>: <span class='ident'>Operand</span>::<span class='ident'>Consume</span>(<span class='ident'>flag</span>),
-                    <span class='ident'>targets</span>: (<span class='ident'>on_set</span>, <span class='ident'>on_unset</span>)
-                })
+                <span class='kw'>let</span> <span class='ident'>term</span> <span class='op'>=</span> <span class='ident'>TerminatorKind</span>::<span class='ident'>if_</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>, <span class='ident'>Operand</span>::<span class='ident'>Consume</span>(<span class='ident'>flag</span>), <span class='ident'>on_set</span>, <span class='ident'>on_unset</span>);
+                <span class='self'>self</span>.<span class='ident'>new_block</span>(<span class='ident'>c</span>, <span class='ident'>is_cleanup</span>, <span class='ident'>term</span>)
             }
         }
     }

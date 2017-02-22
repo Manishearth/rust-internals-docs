@@ -297,6 +297,44 @@
 <span id="252">252</span>
 <span id="253">253</span>
 <span id="254">254</span>
+<span id="255">255</span>
+<span id="256">256</span>
+<span id="257">257</span>
+<span id="258">258</span>
+<span id="259">259</span>
+<span id="260">260</span>
+<span id="261">261</span>
+<span id="262">262</span>
+<span id="263">263</span>
+<span id="264">264</span>
+<span id="265">265</span>
+<span id="266">266</span>
+<span id="267">267</span>
+<span id="268">268</span>
+<span id="269">269</span>
+<span id="270">270</span>
+<span id="271">271</span>
+<span id="272">272</span>
+<span id="273">273</span>
+<span id="274">274</span>
+<span id="275">275</span>
+<span id="276">276</span>
+<span id="277">277</span>
+<span id="278">278</span>
+<span id="279">279</span>
+<span id="280">280</span>
+<span id="281">281</span>
+<span id="282">282</span>
+<span id="283">283</span>
+<span id="284">284</span>
+<span id="285">285</span>
+<span id="286">286</span>
+<span id="287">287</span>
+<span id="288">288</span>
+<span id="289">289</span>
+<span id="290">290</span>
+<span id="291">291</span>
+<span id="292">292</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -431,7 +469,37 @@
     <span class='comment'>// which would yield an overly conservative dep-graph.</span>
     <span class='ident'>TraitItems</span>(<span class='ident'>D</span>),
     <span class='ident'>ReprHints</span>(<span class='ident'>D</span>),
-    <span class='ident'>TraitSelect</span>(<span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>D</span><span class='op'>&gt;</span>),
+
+    <span class='comment'>// Trait selection cache is a little funny. Given a trait</span>
+    <span class='comment'>// reference like `Foo: SomeTrait&lt;Bar&gt;`, there could be</span>
+    <span class='comment'>// arbitrarily many def-ids to map on in there (e.g., `Foo`,</span>
+    <span class='comment'>// `SomeTrait`, `Bar`). We could have a vector of them, but it</span>
+    <span class='comment'>// requires heap-allocation, and trait sel in general can be a</span>
+    <span class='comment'>// surprisingly hot path. So instead we pick two def-ids: the</span>
+    <span class='comment'>// trait def-id, and the first def-id in the input types. If there</span>
+    <span class='comment'>// is no def-id in the input types, then we use the trait def-id</span>
+    <span class='comment'>// again. So for example:</span>
+    <span class='comment'>//</span>
+    <span class='comment'>// - `i32: Clone` -&gt; `TraitSelect { trait_def_id: Clone, self_def_id: Clone }`</span>
+    <span class='comment'>// - `u32: Clone` -&gt; `TraitSelect { trait_def_id: Clone, self_def_id: Clone }`</span>
+    <span class='comment'>// - `Clone: Clone` -&gt; `TraitSelect { trait_def_id: Clone, self_def_id: Clone }`</span>
+    <span class='comment'>// - `Vec&lt;i32&gt;: Clone` -&gt; `TraitSelect { trait_def_id: Clone, self_def_id: Vec }`</span>
+    <span class='comment'>// - `String: Clone` -&gt; `TraitSelect { trait_def_id: Clone, self_def_id: String }`</span>
+    <span class='comment'>// - `Foo: Trait&lt;Bar&gt;` -&gt; `TraitSelect { trait_def_id: Trait, self_def_id: Foo }`</span>
+    <span class='comment'>// - `Foo: Trait&lt;i32&gt;` -&gt; `TraitSelect { trait_def_id: Trait, self_def_id: Foo }`</span>
+    <span class='comment'>// - `(Foo, Bar): Trait` -&gt; `TraitSelect { trait_def_id: Trait, self_def_id: Foo }`</span>
+    <span class='comment'>// - `i32: Trait&lt;Foo&gt;` -&gt; `TraitSelect { trait_def_id: Trait, self_def_id: Foo }`</span>
+    <span class='comment'>//</span>
+    <span class='comment'>// You can see that we map many trait refs to the same</span>
+    <span class='comment'>// trait-select node.  This is not a problem, it just means</span>
+    <span class='comment'>// imprecision in our dep-graph tracking.  The important thing is</span>
+    <span class='comment'>// that for any given trait-ref, we always map to the **same**</span>
+    <span class='comment'>// trait-select node.</span>
+    <span class='ident'>TraitSelect</span> { <span class='ident'>trait_def_id</span>: <span class='ident'>D</span>, <span class='ident'>input_def_id</span>: <span class='ident'>D</span> },
+
+    <span class='comment'>// For proj. cache, we just keep a list of all def-ids, since it is</span>
+    <span class='comment'>// not a hotspot.</span>
+    <span class='ident'>ProjectionCache</span> { <span class='ident'>def_ids</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>D</span><span class='op'>&gt;</span> },
 }
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>D</span>: <span class='ident'>Clone</span> <span class='op'>+</span> <span class='ident'>Debug</span><span class='op'>&gt;</span> <span class='ident'>DepNode</span><span class='op'>&lt;</span><span class='ident'>D</span><span class='op'>&gt;</span> {
@@ -536,9 +604,17 @@
             <span class='ident'>TraitImpls</span>(<span class='kw-2'>ref</span> <span class='ident'>d</span>) <span class='op'>=&gt;</span> <span class='ident'>op</span>(<span class='ident'>d</span>).<span class='ident'>map</span>(<span class='ident'>TraitImpls</span>),
             <span class='ident'>TraitItems</span>(<span class='kw-2'>ref</span> <span class='ident'>d</span>) <span class='op'>=&gt;</span> <span class='ident'>op</span>(<span class='ident'>d</span>).<span class='ident'>map</span>(<span class='ident'>TraitItems</span>),
             <span class='ident'>ReprHints</span>(<span class='kw-2'>ref</span> <span class='ident'>d</span>) <span class='op'>=&gt;</span> <span class='ident'>op</span>(<span class='ident'>d</span>).<span class='ident'>map</span>(<span class='ident'>ReprHints</span>),
-            <span class='ident'>TraitSelect</span>(<span class='kw-2'>ref</span> <span class='ident'>type_ds</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>let</span> <span class='ident'>type_ds</span> <span class='op'>=</span> <span class='macro'>try_opt</span><span class='macro'>!</span>(<span class='ident'>type_ds</span>.<span class='ident'>iter</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>d</span><span class='op'>|</span> <span class='ident'>op</span>(<span class='ident'>d</span>)).<span class='ident'>collect</span>());
-                <span class='prelude-val'>Some</span>(<span class='ident'>TraitSelect</span>(<span class='ident'>type_ds</span>))
+            <span class='ident'>TraitSelect</span> { <span class='kw-2'>ref</span> <span class='ident'>trait_def_id</span>, <span class='kw-2'>ref</span> <span class='ident'>input_def_id</span> } <span class='op'>=&gt;</span> {
+                <span class='ident'>op</span>(<span class='ident'>trait_def_id</span>).<span class='ident'>and_then</span>(<span class='op'>|</span><span class='ident'>trait_def_id</span><span class='op'>|</span> {
+                    <span class='ident'>op</span>(<span class='ident'>input_def_id</span>).<span class='ident'>and_then</span>(<span class='op'>|</span><span class='ident'>input_def_id</span><span class='op'>|</span> {
+                        <span class='prelude-val'>Some</span>(<span class='ident'>TraitSelect</span> { <span class='ident'>trait_def_id</span>: <span class='ident'>trait_def_id</span>,
+                                           <span class='ident'>input_def_id</span>: <span class='ident'>input_def_id</span> })
+                    })
+                })
+            }
+            <span class='ident'>ProjectionCache</span> { <span class='kw-2'>ref</span> <span class='ident'>def_ids</span> } <span class='op'>=&gt;</span> {
+                <span class='kw'>let</span> <span class='ident'>def_ids</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>E</span><span class='op'>&gt;&gt;</span> <span class='op'>=</span> <span class='ident'>def_ids</span>.<span class='ident'>iter</span>().<span class='ident'>map</span>(<span class='ident'>op</span>).<span class='ident'>collect</span>();
+                <span class='ident'>def_ids</span>.<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>d</span><span class='op'>|</span> <span class='ident'>ProjectionCache</span> { <span class='ident'>def_ids</span>: <span class='ident'>d</span> })
             }
         }
     }

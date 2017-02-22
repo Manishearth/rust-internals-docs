@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["ConstVal",""]]});
+initSidebarItems({"enum":[["ConstInt",""],["ConstVal",""]]});

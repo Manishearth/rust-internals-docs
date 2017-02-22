@@ -1379,8 +1379,6 @@
 <span id="1334">1334</span>
 <span id="1335">1335</span>
 <span id="1336">1336</span>
-<span id="1337">1337</span>
-<span id="1338">1338</span>
 </pre><pre class='rust '>
 <span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class='comment'>// file at the top-level directory of this distribution and at</span>
@@ -1837,36 +1835,30 @@
         <span class='ident'>target</span>: <span class='ident'>BasicBlock</span>,
     },
 
-    <span class='doccomment'>/// jump to branch 0 if this lvalue evaluates to true</span>
-    <span class='ident'>If</span> {
-        <span class='ident'>cond</span>: <span class='ident'>Operand</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-        <span class='ident'>targets</span>: (<span class='ident'>BasicBlock</span>, <span class='ident'>BasicBlock</span>),
-    },
-
-    <span class='doccomment'>/// lvalue evaluates to some enum; jump depending on the branch</span>
-    <span class='ident'>Switch</span> {
-        <span class='ident'>discr</span>: <span class='ident'>Lvalue</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-        <span class='ident'>adt_def</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>AdtDef</span>,
-        <span class='ident'>targets</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>BasicBlock</span><span class='op'>&gt;</span>,
-    },
-
     <span class='doccomment'>/// operand evaluates to an integer; jump depending on its value</span>
     <span class='doccomment'>/// to one of the targets, and otherwise fallback to `otherwise`</span>
     <span class='ident'>SwitchInt</span> {
         <span class='doccomment'>/// discriminant value being tested</span>
-        <span class='ident'>discr</span>: <span class='ident'>Lvalue</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+        <span class='ident'>discr</span>: <span class='ident'>Operand</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
 
         <span class='doccomment'>/// type of value being tested</span>
         <span class='ident'>switch_ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
 
         <span class='doccomment'>/// Possible values. The locations to branch to in each case</span>
         <span class='doccomment'>/// are found in the corresponding indices from the `targets` vector.</span>
-        <span class='ident'>values</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ConstVal</span><span class='op'>&gt;</span>,
+        <span class='ident'>values</span>: <span class='ident'>Cow</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, [<span class='ident'>ConstInt</span>]<span class='op'>&gt;</span>,
 
-        <span class='doccomment'>/// Possible branch sites. The length of this vector should be</span>
-        <span class='doccomment'>/// equal to the length of the `values` vector plus 1 -- the</span>
-        <span class='doccomment'>/// extra item is the block to branch to if none of the values</span>
-        <span class='doccomment'>/// fit.</span>
+        <span class='doccomment'>/// Possible branch sites. The last element of this vector is used</span>
+        <span class='doccomment'>/// for the otherwise branch, so values.len() == targets.len() + 1</span>
+        <span class='doccomment'>/// should hold.</span>
+        <span class='comment'>// This invariant is quite non-obvious and also could be improved.</span>
+        <span class='comment'>// One way to make this invariant is to have something like this instead:</span>
+        <span class='comment'>//</span>
+        <span class='comment'>// branches: Vec&lt;(ConstInt, BasicBlock)&gt;,</span>
+        <span class='comment'>// otherwise: Option&lt;BasicBlock&gt; // exhaustive if None</span>
+        <span class='comment'>//</span>
+        <span class='comment'>// However we’ve decided to keep this as-is until we figure a case</span>
+        <span class='comment'>// where some other approach seems to be strictly better than other.</span>
         <span class='ident'>targets</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>BasicBlock</span><span class='op'>&gt;</span>,
     },
 
@@ -1930,12 +1922,21 @@
 }
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>TerminatorKind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>if_</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='ident'>ty</span>::<span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>cond</span>: <span class='ident'>Operand</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+                         <span class='ident'>t</span>: <span class='ident'>BasicBlock</span>, <span class='ident'>f</span>: <span class='ident'>BasicBlock</span>) <span class='op'>-&gt;</span> <span class='ident'>TerminatorKind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
+        <span class='kw'>static</span> <span class='ident'>BOOL_SWITCH_FALSE</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;static</span> [<span class='ident'>ConstInt</span>] <span class='op'>=</span> <span class='kw-2'>&amp;</span>[<span class='ident'>ConstInt</span>::<span class='ident'>Infer</span>(<span class='number'>0</span>)];
+        <span class='ident'>TerminatorKind</span>::<span class='ident'>SwitchInt</span> {
+            <span class='ident'>discr</span>: <span class='ident'>cond</span>,
+            <span class='ident'>switch_ty</span>: <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>bool</span>,
+            <span class='ident'>values</span>: <span class='ident'>From</span>::<span class='ident'>from</span>(<span class='ident'>BOOL_SWITCH_FALSE</span>),
+            <span class='ident'>targets</span>: <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>f</span>, <span class='ident'>t</span>],
+        }
+    }
+
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>successors</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Cow</span><span class='op'>&lt;</span>[<span class='ident'>BasicBlock</span>]<span class='op'>&gt;</span> {
         <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>TerminatorKind</span>::<span class='kw-2'>*</span>;
         <span class='kw'>match</span> <span class='kw-2'>*</span><span class='self'>self</span> {
             <span class='ident'>Goto</span> { <span class='ident'>target</span>: <span class='kw-2'>ref</span> <span class='ident'>b</span> } <span class='op'>=&gt;</span> <span class='ident'>slice</span>::<span class='ident'>ref_slice</span>(<span class='ident'>b</span>).<span class='ident'>into_cow</span>(),
-            <span class='ident'>If</span> { <span class='ident'>targets</span>: (<span class='ident'>b1</span>, <span class='ident'>b2</span>), .. } <span class='op'>=&gt;</span> <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>b1</span>, <span class='ident'>b2</span>].<span class='ident'>into_cow</span>(),
-            <span class='ident'>Switch</span> { <span class='ident'>targets</span>: <span class='kw-2'>ref</span> <span class='ident'>b</span>, .. } <span class='op'>=&gt;</span> <span class='ident'>b</span>[..].<span class='ident'>into_cow</span>(),
             <span class='ident'>SwitchInt</span> { <span class='ident'>targets</span>: <span class='kw-2'>ref</span> <span class='ident'>b</span>, .. } <span class='op'>=&gt;</span> <span class='ident'>b</span>[..].<span class='ident'>into_cow</span>(),
             <span class='ident'>Resume</span> <span class='op'>=&gt;</span> (<span class='kw-2'>&amp;</span>[]).<span class='ident'>into_cow</span>(),
             <span class='ident'>Return</span> <span class='op'>=&gt;</span> (<span class='kw-2'>&amp;</span>[]).<span class='ident'>into_cow</span>(),
@@ -1964,8 +1965,6 @@
         <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>TerminatorKind</span>::<span class='kw-2'>*</span>;
         <span class='kw'>match</span> <span class='kw-2'>*</span><span class='self'>self</span> {
             <span class='ident'>Goto</span> { <span class='ident'>target</span>: <span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>b</span> } <span class='op'>=&gt;</span> <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>b</span>],
-            <span class='ident'>If</span> { <span class='ident'>targets</span>: (<span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>b1</span>, <span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>b2</span>), .. } <span class='op'>=&gt;</span> <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>b1</span>, <span class='ident'>b2</span>],
-            <span class='ident'>Switch</span> { <span class='ident'>targets</span>: <span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>b</span>, .. } <span class='op'>=&gt;</span> <span class='ident'>b</span>.<span class='ident'>iter_mut</span>().<span class='ident'>collect</span>(),
             <span class='ident'>SwitchInt</span> { <span class='ident'>targets</span>: <span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>b</span>, .. } <span class='op'>=&gt;</span> <span class='ident'>b</span>.<span class='ident'>iter_mut</span>().<span class='ident'>collect</span>(),
             <span class='ident'>Resume</span> <span class='op'>=&gt;</span> <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
             <span class='ident'>Return</span> <span class='op'>=&gt;</span> <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
@@ -2043,8 +2042,6 @@
         <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>TerminatorKind</span>::<span class='kw-2'>*</span>;
         <span class='kw'>match</span> <span class='kw-2'>*</span><span class='self'>self</span> {
             <span class='ident'>Goto</span> { .. } <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;goto&quot;</span>),
-            <span class='ident'>If</span> { <span class='ident'>cond</span>: <span class='kw-2'>ref</span> <span class='ident'>lv</span>, .. } <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;if({:?})&quot;</span>, <span class='ident'>lv</span>),
-            <span class='ident'>Switch</span> { <span class='ident'>discr</span>: <span class='kw-2'>ref</span> <span class='ident'>lv</span>, .. } <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;switch({:?})&quot;</span>, <span class='ident'>lv</span>),
             <span class='ident'>SwitchInt</span> { <span class='ident'>discr</span>: <span class='kw-2'>ref</span> <span class='ident'>lv</span>, .. } <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;switchInt({:?})&quot;</span>, <span class='ident'>lv</span>),
             <span class='ident'>Return</span> <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;return&quot;</span>),
             <span class='ident'>Resume</span> <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;resume&quot;</span>),
@@ -2094,18 +2091,11 @@
         <span class='kw'>match</span> <span class='kw-2'>*</span><span class='self'>self</span> {
             <span class='ident'>Return</span> <span class='op'>|</span> <span class='ident'>Resume</span> <span class='op'>|</span> <span class='ident'>Unreachable</span> <span class='op'>=&gt;</span> <span class='macro'>vec</span><span class='macro'>!</span>[],
             <span class='ident'>Goto</span> { .. } <span class='op'>=&gt;</span> <span class='macro'>vec</span><span class='macro'>!</span>[<span class='string'>&quot;&quot;</span>.<span class='ident'>into</span>()],
-            <span class='ident'>If</span> { .. } <span class='op'>=&gt;</span> <span class='macro'>vec</span><span class='macro'>!</span>[<span class='string'>&quot;true&quot;</span>.<span class='ident'>into</span>(), <span class='string'>&quot;false&quot;</span>.<span class='ident'>into</span>()],
-            <span class='ident'>Switch</span> { <span class='kw-2'>ref</span> <span class='ident'>adt_def</span>, .. } <span class='op'>=&gt;</span> {
-                <span class='ident'>adt_def</span>.<span class='ident'>variants</span>
-                       .<span class='ident'>iter</span>()
-                       .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>variant</span><span class='op'>|</span> <span class='ident'>variant</span>.<span class='ident'>name</span>.<span class='ident'>to_string</span>().<span class='ident'>into</span>())
-                       .<span class='ident'>collect</span>()
-            }
             <span class='ident'>SwitchInt</span> { <span class='kw-2'>ref</span> <span class='ident'>values</span>, .. } <span class='op'>=&gt;</span> {
                 <span class='ident'>values</span>.<span class='ident'>iter</span>()
                       .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>const_val</span><span class='op'>|</span> {
                           <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>buf</span> <span class='op'>=</span> <span class='ident'>String</span>::<span class='ident'>new</span>();
-                          <span class='ident'>fmt_const_val</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>buf</span>, <span class='ident'>const_val</span>).<span class='ident'>unwrap</span>();
+                          <span class='ident'>fmt_const_val</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>buf</span>, <span class='kw-2'>&amp;</span><span class='ident'>ConstVal</span>::<span class='ident'>Integral</span>(<span class='kw-2'>*</span><span class='ident'>const_val</span>)).<span class='ident'>unwrap</span>();
                           <span class='ident'>buf</span>.<span class='ident'>into</span>()
                       })
                       .<span class='ident'>chain</span>(<span class='ident'>iter</span>::<span class='ident'>once</span>(<span class='ident'>String</span>::<span class='ident'>from</span>(<span class='string'>&quot;otherwise&quot;</span>).<span class='ident'>into</span>()))
@@ -2169,6 +2159,12 @@
     <span class='doccomment'>/// End the current live range for the storage of the local.</span>
     <span class='ident'>StorageDead</span>(<span class='ident'>Lvalue</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>),
 
+    <span class='ident'>InlineAsm</span> {
+        <span class='ident'>asm</span>: <span class='ident'>InlineAsm</span>,
+        <span class='ident'>outputs</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Lvalue</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
+        <span class='ident'>inputs</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Operand</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>
+    },
+
     <span class='doccomment'>/// No-op. Useful for deleting instructions without affecting statement indices.</span>
     <span class='ident'>Nop</span>,
 }
@@ -2182,7 +2178,10 @@
             <span class='ident'>StorageDead</span>(<span class='kw-2'>ref</span> <span class='ident'>lv</span>) <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;StorageDead({:?})&quot;</span>, <span class='ident'>lv</span>),
             <span class='ident'>SetDiscriminant</span>{<span class='ident'>lvalue</span>: <span class='kw-2'>ref</span> <span class='ident'>lv</span>, <span class='ident'>variant_index</span>: <span class='ident'>index</span>} <span class='op'>=&gt;</span> {
                 <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;discriminant({:?}) = {:?}&quot;</span>, <span class='ident'>lv</span>, <span class='ident'>index</span>)
-            }
+            },
+            <span class='ident'>InlineAsm</span> { <span class='kw-2'>ref</span> <span class='ident'>asm</span>, <span class='kw-2'>ref</span> <span class='ident'>outputs</span>, <span class='kw-2'>ref</span> <span class='ident'>inputs</span> } <span class='op'>=&gt;</span> {
+                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;asm!({:?} : {:?} : {:?})&quot;</span>, <span class='ident'>asm</span>, <span class='ident'>outputs</span>, <span class='ident'>inputs</span>)
+            },
             <span class='ident'>Nop</span> <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;nop&quot;</span>),
         }
     }
@@ -2381,6 +2380,12 @@
 
     <span class='ident'>UnaryOp</span>(<span class='ident'>UnOp</span>, <span class='ident'>Operand</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>),
 
+    <span class='doccomment'>/// Read the discriminant of an ADT.</span>
+    <span class='doccomment'>///</span>
+    <span class='doccomment'>/// Undefined (i.e. no effort is made to make it defined, but there’s no reason why it cannot</span>
+    <span class='doccomment'>/// be defined to return, say, a 0) if ADT is not an enum.</span>
+    <span class='ident'>Discriminant</span>(<span class='ident'>Lvalue</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>),
+
     <span class='doccomment'>/// Creates an *uninitialized* Box</span>
     <span class='ident'>Box</span>(<span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>),
 
@@ -2390,12 +2395,6 @@
     <span class='doccomment'>/// that `Foo` has a destructor. These rvalues can be optimized</span>
     <span class='doccomment'>/// away after type-checking and before lowering.</span>
     <span class='ident'>Aggregate</span>(<span class='ident'>AggregateKind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Operand</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>),
-
-    <span class='ident'>InlineAsm</span> {
-        <span class='ident'>asm</span>: <span class='ident'>InlineAsm</span>,
-        <span class='ident'>outputs</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Lvalue</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
-        <span class='ident'>inputs</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Operand</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>
-    }
 }
 
 <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Copy</span>, <span class='ident'>Debug</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>, <span class='ident'>RustcEncodable</span>, <span class='ident'>RustcDecodable</span>)]</span>
@@ -2495,11 +2494,8 @@
                 <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;Checked{:?}({:?}, {:?})&quot;</span>, <span class='ident'>op</span>, <span class='ident'>a</span>, <span class='ident'>b</span>)
             }
             <span class='ident'>UnaryOp</span>(<span class='kw-2'>ref</span> <span class='ident'>op</span>, <span class='kw-2'>ref</span> <span class='ident'>a</span>) <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;{:?}({:?})&quot;</span>, <span class='ident'>op</span>, <span class='ident'>a</span>),
+            <span class='ident'>Discriminant</span>(<span class='kw-2'>ref</span> <span class='ident'>lval</span>) <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;discriminant({:?})&quot;</span>, <span class='ident'>lval</span>),
             <span class='ident'>Box</span>(<span class='kw-2'>ref</span> <span class='ident'>t</span>) <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;Box({:?})&quot;</span>, <span class='ident'>t</span>),
-            <span class='ident'>InlineAsm</span> { <span class='kw-2'>ref</span> <span class='ident'>asm</span>, <span class='kw-2'>ref</span> <span class='ident'>outputs</span>, <span class='kw-2'>ref</span> <span class='ident'>inputs</span> } <span class='op'>=&gt;</span> {
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>fmt</span>, <span class='string'>&quot;asm!({:?} : {:?} : {:?})&quot;</span>, <span class='ident'>asm</span>, <span class='ident'>outputs</span>, <span class='ident'>inputs</span>)
-            }
-
             <span class='ident'>Ref</span>(_, <span class='ident'>borrow_kind</span>, <span class='kw-2'>ref</span> <span class='ident'>lv</span>) <span class='op'>=&gt;</span> {
                 <span class='kw'>let</span> <span class='ident'>kind_str</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>borrow_kind</span> {
                     <span class='ident'>BorrowKind</span>::<span class='ident'>Shared</span> <span class='op'>=&gt;</span> <span class='string'>&quot;&quot;</span>,
