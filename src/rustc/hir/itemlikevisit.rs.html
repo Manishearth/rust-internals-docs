@@ -134,96 +134,96 @@
 <span id="89">89</span>
 <span id="90">90</span>
 <span id="91">91</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='kw'>use</span> <span class='kw'>super</span>::{<span class='ident'>Item</span>, <span class='ident'>ImplItem</span>, <span class='ident'>TraitItem</span>};
-<span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>intravisit</span>::<span class='ident'>Visitor</span>;
+<span class="kw">use</span> <span class="kw">super</span>::{<span class="ident">Item</span>, <span class="ident">ImplItem</span>, <span class="ident">TraitItem</span>};
+<span class="kw">use</span> <span class="kw">super</span>::<span class="ident">intravisit</span>::<span class="ident">Visitor</span>;
 
-<span class='doccomment'>/// The &quot;item-like visitor&quot; visitor defines only the top-level methods</span>
-<span class='doccomment'>/// that can be invoked by `Crate::visit_all_item_likes()`. Whether</span>
-<span class='doccomment'>/// this trait is the right one to implement will depend on the</span>
-<span class='doccomment'>/// overall pattern you need. Here are the three available patterns,</span>
-<span class='doccomment'>/// in roughly the order of desirability:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// 1. **Shallow visit**: Get a simple callback for every item (or item-like thing) in the HIR.</span>
-<span class='doccomment'>///    - Example: find all items with a `#[foo]` attribute on them.</span>
-<span class='doccomment'>///    - How: Implement `ItemLikeVisitor` and call `tcx.visit_all_item_likes_in_krate()`.</span>
-<span class='doccomment'>///    - Pro: Efficient; just walks the lists of item-like things, not the nodes themselves.</span>
-<span class='doccomment'>///    - Pro: Integrates well into dependency tracking.</span>
-<span class='doccomment'>///    - Con: Don&#39;t get information about nesting</span>
-<span class='doccomment'>///    - Con: Don&#39;t have methods for specific bits of HIR, like &quot;on</span>
-<span class='doccomment'>///      every expr, do this&quot;.</span>
-<span class='doccomment'>/// 2. **Deep visit**: Want to scan for specific kinds of HIR nodes within</span>
-<span class='doccomment'>///    an item, but don&#39;t care about how item-like things are nested</span>
-<span class='doccomment'>///    within one another.</span>
-<span class='doccomment'>///    - Example: Examine each expression to look for its type and do some check or other.</span>
-<span class='doccomment'>///    - How: Implement `intravisit::Visitor` and use</span>
-<span class='doccomment'>///      `tcx.visit_all_item_likes_in_krate(visitor.as_deep_visitor())`. Within</span>
-<span class='doccomment'>///      your `intravisit::Visitor` impl, implement methods like</span>
-<span class='doccomment'>///      `visit_expr()`; don&#39;t forget to invoke</span>
-<span class='doccomment'>///      `intravisit::walk_visit_expr()` to keep walking the subparts.</span>
-<span class='doccomment'>///    - Pro: Visitor methods for any kind of HIR node, not just item-like things.</span>
-<span class='doccomment'>///    - Pro: Integrates well into dependency tracking.</span>
-<span class='doccomment'>///    - Con: Don&#39;t get information about nesting between items</span>
-<span class='doccomment'>/// 3. **Nested visit**: Want to visit the whole HIR and you care about the nesting between</span>
-<span class='doccomment'>///    item-like things.</span>
-<span class='doccomment'>///    - Example: Lifetime resolution, which wants to bring lifetimes declared on the</span>
-<span class='doccomment'>///      impl into scope while visiting the impl-items, and then back out again.</span>
-<span class='doccomment'>///    - How: Implement `intravisit::Visitor` and override the</span>
-<span class='doccomment'>///      `visit_nested_map()` methods to return</span>
-<span class='doccomment'>///      `NestedVisitorMap::All`. Walk your crate with</span>
-<span class='doccomment'>///      `intravisit::walk_crate()` invoked on `tcx.hir.krate()`.</span>
-<span class='doccomment'>///    - Pro: Visitor methods for any kind of HIR node, not just item-like things.</span>
-<span class='doccomment'>///    - Pro: Preserves nesting information</span>
-<span class='doccomment'>///    - Con: Does not integrate well into dependency tracking.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Note: the methods of `ItemLikeVisitor` intentionally have no</span>
-<span class='doccomment'>/// defaults, so that as we expand the list of item-like things, we</span>
-<span class='doccomment'>/// revisit the various visitors to see if they need to change. This</span>
-<span class='doccomment'>/// is harder to do with `intravisit::Visitor`, so when you add a new</span>
-<span class='doccomment'>/// `visit_nested_foo()` method, it is recommended that you search for</span>
-<span class='doccomment'>/// existing `fn visit_nested` methods to see where changes are</span>
-<span class='doccomment'>/// needed.</span>
-<span class='kw'>pub</span> <span class='kw'>trait</span> <span class='ident'>ItemLikeVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;hir</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>visit_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>item</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;hir</span> <span class='ident'>Item</span>);
-    <span class='kw'>fn</span> <span class='ident'>visit_trait_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>trait_item</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;hir</span> <span class='ident'>TraitItem</span>);
-    <span class='kw'>fn</span> <span class='ident'>visit_impl_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>impl_item</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;hir</span> <span class='ident'>ImplItem</span>);
+<span class="doccomment">/// The &quot;item-like visitor&quot; visitor defines only the top-level methods</span>
+<span class="doccomment">/// that can be invoked by `Crate::visit_all_item_likes()`. Whether</span>
+<span class="doccomment">/// this trait is the right one to implement will depend on the</span>
+<span class="doccomment">/// overall pattern you need. Here are the three available patterns,</span>
+<span class="doccomment">/// in roughly the order of desirability:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// 1. **Shallow visit**: Get a simple callback for every item (or item-like thing) in the HIR.</span>
+<span class="doccomment">///    - Example: find all items with a `#[foo]` attribute on them.</span>
+<span class="doccomment">///    - How: Implement `ItemLikeVisitor` and call `tcx.visit_all_item_likes_in_krate()`.</span>
+<span class="doccomment">///    - Pro: Efficient; just walks the lists of item-like things, not the nodes themselves.</span>
+<span class="doccomment">///    - Pro: Integrates well into dependency tracking.</span>
+<span class="doccomment">///    - Con: Don&#39;t get information about nesting</span>
+<span class="doccomment">///    - Con: Don&#39;t have methods for specific bits of HIR, like &quot;on</span>
+<span class="doccomment">///      every expr, do this&quot;.</span>
+<span class="doccomment">/// 2. **Deep visit**: Want to scan for specific kinds of HIR nodes within</span>
+<span class="doccomment">///    an item, but don&#39;t care about how item-like things are nested</span>
+<span class="doccomment">///    within one another.</span>
+<span class="doccomment">///    - Example: Examine each expression to look for its type and do some check or other.</span>
+<span class="doccomment">///    - How: Implement `intravisit::Visitor` and use</span>
+<span class="doccomment">///      `tcx.visit_all_item_likes_in_krate(visitor.as_deep_visitor())`. Within</span>
+<span class="doccomment">///      your `intravisit::Visitor` impl, implement methods like</span>
+<span class="doccomment">///      `visit_expr()`; don&#39;t forget to invoke</span>
+<span class="doccomment">///      `intravisit::walk_visit_expr()` to keep walking the subparts.</span>
+<span class="doccomment">///    - Pro: Visitor methods for any kind of HIR node, not just item-like things.</span>
+<span class="doccomment">///    - Pro: Integrates well into dependency tracking.</span>
+<span class="doccomment">///    - Con: Don&#39;t get information about nesting between items</span>
+<span class="doccomment">/// 3. **Nested visit**: Want to visit the whole HIR and you care about the nesting between</span>
+<span class="doccomment">///    item-like things.</span>
+<span class="doccomment">///    - Example: Lifetime resolution, which wants to bring lifetimes declared on the</span>
+<span class="doccomment">///      impl into scope while visiting the impl-items, and then back out again.</span>
+<span class="doccomment">///    - How: Implement `intravisit::Visitor` and override the</span>
+<span class="doccomment">///      `visit_nested_map()` methods to return</span>
+<span class="doccomment">///      `NestedVisitorMap::All`. Walk your crate with</span>
+<span class="doccomment">///      `intravisit::walk_crate()` invoked on `tcx.hir.krate()`.</span>
+<span class="doccomment">///    - Pro: Visitor methods for any kind of HIR node, not just item-like things.</span>
+<span class="doccomment">///    - Pro: Preserves nesting information</span>
+<span class="doccomment">///    - Con: Does not integrate well into dependency tracking.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Note: the methods of `ItemLikeVisitor` intentionally have no</span>
+<span class="doccomment">/// defaults, so that as we expand the list of item-like things, we</span>
+<span class="doccomment">/// revisit the various visitors to see if they need to change. This</span>
+<span class="doccomment">/// is harder to do with `intravisit::Visitor`, so when you add a new</span>
+<span class="doccomment">/// `visit_nested_foo()` method, it is recommended that you search for</span>
+<span class="doccomment">/// existing `fn visit_nested` methods to see where changes are</span>
+<span class="doccomment">/// needed.</span>
+<span class="kw">pub</span> <span class="kw">trait</span> <span class="ident">ItemLikeVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;hir</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">visit_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">item</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;hir</span> <span class="ident">Item</span>);
+    <span class="kw">fn</span> <span class="ident">visit_trait_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">trait_item</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;hir</span> <span class="ident">TraitItem</span>);
+    <span class="kw">fn</span> <span class="ident">visit_impl_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">impl_item</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;hir</span> <span class="ident">ImplItem</span>);
 }
 
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>DeepVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;v</span>, <span class='ident'>V</span>: <span class='lifetime'>&#39;v</span><span class='op'>&gt;</span> {
-    <span class='ident'>visitor</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;v</span> <span class='kw-2'>mut</span> <span class='ident'>V</span>,
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">DeepVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;v</span>, <span class="ident">V</span>: <span class="lifetime">&#39;v</span><span class="op">&gt;</span> {
+    <span class="ident">visitor</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;v</span> <span class="kw-2">mut</span> <span class="ident">V</span>,
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;v</span>, <span class='lifetime'>&#39;hir</span>, <span class='ident'>V</span><span class='op'>&gt;</span> <span class='ident'>DeepVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;v</span>, <span class='ident'>V</span><span class='op'>&gt;</span>
-    <span class='kw'>where</span> <span class='ident'>V</span>: <span class='ident'>Visitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;hir</span><span class='op'>&gt;</span> <span class='op'>+</span> <span class='lifetime'>&#39;v</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;v</span>, <span class="lifetime">&#39;hir</span>, <span class="ident">V</span><span class="op">&gt;</span> <span class="ident">DeepVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;v</span>, <span class="ident">V</span><span class="op">&gt;</span>
+    <span class="kw">where</span> <span class="ident">V</span>: <span class="ident">Visitor</span><span class="op">&lt;</span><span class="lifetime">&#39;hir</span><span class="op">&gt;</span> <span class="op">+</span> <span class="lifetime">&#39;v</span>
 {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>base</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;v</span> <span class='kw-2'>mut</span> <span class='ident'>V</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
-        <span class='ident'>DeepVisitor</span> { <span class='ident'>visitor</span>: <span class='ident'>base</span> }
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">new</span>(<span class="ident">base</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;v</span> <span class="kw-2">mut</span> <span class="ident">V</span>) <span class="op">-&gt;</span> <span class="self">Self</span> {
+        <span class="ident">DeepVisitor</span> { <span class="ident">visitor</span>: <span class="ident">base</span> }
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;v</span>, <span class='lifetime'>&#39;hir</span>, <span class='ident'>V</span><span class='op'>&gt;</span> <span class='ident'>ItemLikeVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;hir</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>DeepVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;v</span>, <span class='ident'>V</span><span class='op'>&gt;</span>
-    <span class='kw'>where</span> <span class='ident'>V</span>: <span class='ident'>Visitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;hir</span><span class='op'>&gt;</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;v</span>, <span class="lifetime">&#39;hir</span>, <span class="ident">V</span><span class="op">&gt;</span> <span class="ident">ItemLikeVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;hir</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">DeepVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;v</span>, <span class="ident">V</span><span class="op">&gt;</span>
+    <span class="kw">where</span> <span class="ident">V</span>: <span class="ident">Visitor</span><span class="op">&lt;</span><span class="lifetime">&#39;hir</span><span class="op">&gt;</span>
 {
-    <span class='kw'>fn</span> <span class='ident'>visit_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>item</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;hir</span> <span class='ident'>Item</span>) {
-        <span class='self'>self</span>.<span class='ident'>visitor</span>.<span class='ident'>visit_item</span>(<span class='ident'>item</span>);
+    <span class="kw">fn</span> <span class="ident">visit_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">item</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;hir</span> <span class="ident">Item</span>) {
+        <span class="self">self</span>.<span class="ident">visitor</span>.<span class="ident">visit_item</span>(<span class="ident">item</span>);
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_trait_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>trait_item</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;hir</span> <span class='ident'>TraitItem</span>) {
-        <span class='self'>self</span>.<span class='ident'>visitor</span>.<span class='ident'>visit_trait_item</span>(<span class='ident'>trait_item</span>);
+    <span class="kw">fn</span> <span class="ident">visit_trait_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">trait_item</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;hir</span> <span class="ident">TraitItem</span>) {
+        <span class="self">self</span>.<span class="ident">visitor</span>.<span class="ident">visit_trait_item</span>(<span class="ident">trait_item</span>);
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_impl_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>impl_item</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;hir</span> <span class='ident'>ImplItem</span>) {
-        <span class='self'>self</span>.<span class='ident'>visitor</span>.<span class='ident'>visit_impl_item</span>(<span class='ident'>impl_item</span>);
+    <span class="kw">fn</span> <span class="ident">visit_impl_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">impl_item</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;hir</span> <span class="ident">ImplItem</span>) {
+        <span class="self">self</span>.<span class="ident">visitor</span>.<span class="ident">visit_impl_item</span>(<span class="ident">impl_item</span>);
     }
 }
 </pre>

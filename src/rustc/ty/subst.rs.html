@@ -638,598 +638,598 @@
 <span id="593">593</span>
 <span id="594">594</span>
 <span id="595">595</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2012 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2012 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='comment'>// Type substitutions.</span>
+<span class="comment">// Type substitutions.</span>
 
-<span class='kw'>use</span> <span class='ident'>hir</span>::<span class='ident'>def_id</span>::<span class='ident'>DefId</span>;
-<span class='kw'>use</span> <span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>Slice</span>, <span class='ident'>Ty</span>, <span class='ident'>TyCtxt</span>};
-<span class='kw'>use</span> <span class='ident'>ty</span>::<span class='ident'>fold</span>::{<span class='ident'>TypeFoldable</span>, <span class='ident'>TypeFolder</span>, <span class='ident'>TypeVisitor</span>};
+<span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">def_id</span>::<span class="ident">DefId</span>;
+<span class="kw">use</span> <span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">Slice</span>, <span class="ident">Ty</span>, <span class="ident">TyCtxt</span>};
+<span class="kw">use</span> <span class="ident">ty</span>::<span class="ident">fold</span>::{<span class="ident">TypeFoldable</span>, <span class="ident">TypeFolder</span>, <span class="ident">TypeVisitor</span>};
 
-<span class='kw'>use</span> <span class='ident'>serialize</span>::{<span class='self'>self</span>, <span class='ident'>Encodable</span>, <span class='ident'>Encoder</span>, <span class='ident'>Decodable</span>, <span class='ident'>Decoder</span>};
-<span class='kw'>use</span> <span class='ident'>syntax_pos</span>::{<span class='ident'>Span</span>, <span class='ident'>DUMMY_SP</span>};
-<span class='kw'>use</span> <span class='ident'>rustc_data_structures</span>::<span class='ident'>accumulate_vec</span>::<span class='ident'>AccumulateVec</span>;
+<span class="kw">use</span> <span class="ident">serialize</span>::{<span class="self">self</span>, <span class="ident">Encodable</span>, <span class="ident">Encoder</span>, <span class="ident">Decodable</span>, <span class="ident">Decoder</span>};
+<span class="kw">use</span> <span class="ident">syntax_pos</span>::{<span class="ident">Span</span>, <span class="ident">DUMMY_SP</span>};
+<span class="kw">use</span> <span class="ident">rustc_data_structures</span>::<span class="ident">accumulate_vec</span>::<span class="ident">AccumulateVec</span>;
 
-<span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>nonzero</span>::<span class='ident'>NonZero</span>;
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>fmt</span>;
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>iter</span>;
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>marker</span>::<span class='ident'>PhantomData</span>;
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>mem</span>;
+<span class="kw">use</span> <span class="ident">core</span>::<span class="ident">nonzero</span>::<span class="ident">NonZero</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">fmt</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">iter</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">marker</span>::<span class="ident">PhantomData</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">mem</span>;
 
-<span class='doccomment'>/// An entity in the Rust typesystem, which can be one of</span>
-<span class='doccomment'>/// several kinds (only types and lifetimes for now).</span>
-<span class='doccomment'>/// To reduce memory usage, a `Kind` is a interned pointer,</span>
-<span class='doccomment'>/// with the lowest 2 bits being reserved for a tag to</span>
-<span class='doccomment'>/// indicate the type (`Ty` or `Region`) it points to.</span>
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Copy</span>, <span class='ident'>Clone</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>, <span class='ident'>Hash</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='ident'>ptr</span>: <span class='ident'>NonZero</span><span class='op'>&lt;</span><span class='ident'>usize</span><span class='op'>&gt;</span>,
-    <span class='ident'>marker</span>: <span class='ident'>PhantomData</span><span class='op'>&lt;</span>(<span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span>)<span class='op'>&gt;</span>
+<span class="doccomment">/// An entity in the Rust typesystem, which can be one of</span>
+<span class="doccomment">/// several kinds (only types and lifetimes for now).</span>
+<span class="doccomment">/// To reduce memory usage, a `Kind` is a interned pointer,</span>
+<span class="doccomment">/// with the lowest 2 bits being reserved for a tag to</span>
+<span class="doccomment">/// indicate the type (`Ty` or `Region`) it points to.</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Copy</span>, <span class="ident">Clone</span>, <span class="ident">PartialEq</span>, <span class="ident">Eq</span>, <span class="ident">Hash</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="ident">ptr</span>: <span class="ident">NonZero</span><span class="op">&lt;</span><span class="ident">usize</span><span class="op">&gt;</span>,
+    <span class="ident">marker</span>: <span class="ident">PhantomData</span><span class="op">&lt;</span>(<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span>)<span class="op">&gt;</span>
 }
 
-<span class='kw'>const</span> <span class='ident'>TAG_MASK</span>: <span class='ident'>usize</span> <span class='op'>=</span> <span class='number'>0b11</span>;
-<span class='kw'>const</span> <span class='ident'>TYPE_TAG</span>: <span class='ident'>usize</span> <span class='op'>=</span> <span class='number'>0b00</span>;
-<span class='kw'>const</span> <span class='ident'>REGION_TAG</span>: <span class='ident'>usize</span> <span class='op'>=</span> <span class='number'>0b01</span>;
+<span class="kw">const</span> <span class="ident">TAG_MASK</span>: <span class="ident">usize</span> <span class="op">=</span> <span class="number">0b11</span>;
+<span class="kw">const</span> <span class="ident">TYPE_TAG</span>: <span class="ident">usize</span> <span class="op">=</span> <span class="number">0b00</span>;
+<span class="kw">const</span> <span class="ident">REGION_TAG</span>: <span class="ident">usize</span> <span class="op">=</span> <span class="number">0b01</span>;
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>From</span><span class='op'>&lt;</span><span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span> <span class='kw'>for</span> <span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>from</span>(<span class='ident'>ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='comment'>// Ensure we can use the tag bits.</span>
-        <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>mem</span>::<span class='ident'>align_of_val</span>(<span class='ident'>ty</span>) <span class='op'>&amp;</span> <span class='ident'>TAG_MASK</span>, <span class='number'>0</span>);
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">From</span><span class="op">&lt;</span><span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span> <span class="kw">for</span> <span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">from</span>(<span class="ident">ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="comment">// Ensure we can use the tag bits.</span>
+        <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">mem</span>::<span class="ident">align_of_val</span>(<span class="ident">ty</span>) <span class="op">&amp;</span> <span class="ident">TAG_MASK</span>, <span class="number">0</span>);
 
-        <span class='kw'>let</span> <span class='ident'>ptr</span> <span class='op'>=</span> <span class='ident'>ty</span> <span class='kw'>as</span> <span class='kw-2'>*</span><span class='kw'>const</span> _ <span class='kw'>as</span> <span class='ident'>usize</span>;
-        <span class='ident'>Kind</span> {
-            <span class='ident'>ptr</span>: <span class='kw'>unsafe</span> {
-                <span class='ident'>NonZero</span>::<span class='ident'>new</span>(<span class='ident'>ptr</span> <span class='op'>|</span> <span class='ident'>TYPE_TAG</span>)
+        <span class="kw">let</span> <span class="ident">ptr</span> <span class="op">=</span> <span class="ident">ty</span> <span class="kw">as</span> <span class="kw-2">*</span><span class="kw">const</span> _ <span class="kw">as</span> <span class="ident">usize</span>;
+        <span class="ident">Kind</span> {
+            <span class="ident">ptr</span>: <span class="kw">unsafe</span> {
+                <span class="ident">NonZero</span>::<span class="ident">new</span>(<span class="ident">ptr</span> <span class="op">|</span> <span class="ident">TYPE_TAG</span>)
             },
-            <span class='ident'>marker</span>: <span class='ident'>PhantomData</span>
+            <span class="ident">marker</span>: <span class="ident">PhantomData</span>
         }
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>From</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>from</span>(<span class='ident'>r</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span>) <span class='op'>-&gt;</span> <span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='comment'>// Ensure we can use the tag bits.</span>
-        <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>mem</span>::<span class='ident'>align_of_val</span>(<span class='ident'>r</span>) <span class='op'>&amp;</span> <span class='ident'>TAG_MASK</span>, <span class='number'>0</span>);
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">From</span><span class="op">&lt;</span><span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">from</span>(<span class="ident">r</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span>) <span class="op">-&gt;</span> <span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="comment">// Ensure we can use the tag bits.</span>
+        <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">mem</span>::<span class="ident">align_of_val</span>(<span class="ident">r</span>) <span class="op">&amp;</span> <span class="ident">TAG_MASK</span>, <span class="number">0</span>);
 
-        <span class='kw'>let</span> <span class='ident'>ptr</span> <span class='op'>=</span> <span class='ident'>r</span> <span class='kw'>as</span> <span class='kw-2'>*</span><span class='kw'>const</span> _ <span class='kw'>as</span> <span class='ident'>usize</span>;
-        <span class='ident'>Kind</span> {
-            <span class='ident'>ptr</span>: <span class='kw'>unsafe</span> {
-                <span class='ident'>NonZero</span>::<span class='ident'>new</span>(<span class='ident'>ptr</span> <span class='op'>|</span> <span class='ident'>REGION_TAG</span>)
+        <span class="kw">let</span> <span class="ident">ptr</span> <span class="op">=</span> <span class="ident">r</span> <span class="kw">as</span> <span class="kw-2">*</span><span class="kw">const</span> _ <span class="kw">as</span> <span class="ident">usize</span>;
+        <span class="ident">Kind</span> {
+            <span class="ident">ptr</span>: <span class="kw">unsafe</span> {
+                <span class="ident">NonZero</span>::<span class="ident">new</span>(<span class="ident">ptr</span> <span class="op">|</span> <span class="ident">REGION_TAG</span>)
             },
-            <span class='ident'>marker</span>: <span class='ident'>PhantomData</span>
+            <span class="ident">marker</span>: <span class="ident">PhantomData</span>
         }
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='kw'>unsafe</span> <span class='kw'>fn</span> <span class='ident'>downcast</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>(<span class='self'>self</span>, <span class='ident'>tag</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>T</span><span class='op'>&gt;</span> {
-        <span class='kw'>let</span> <span class='ident'>ptr</span> <span class='op'>=</span> <span class='kw-2'>*</span><span class='self'>self</span>.<span class='ident'>ptr</span>;
-        <span class='kw'>if</span> <span class='ident'>ptr</span> <span class='op'>&amp;</span> <span class='ident'>TAG_MASK</span> <span class='op'>==</span> <span class='ident'>tag</span> {
-            <span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>*</span>((<span class='ident'>ptr</span> <span class='op'>&amp;</span> <span class='op'>!</span><span class='ident'>TAG_MASK</span>) <span class='kw'>as</span> <span class='kw-2'>*</span><span class='kw'>const</span> _))
-        } <span class='kw'>else</span> {
-            <span class='prelude-val'>None</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="attribute">#[<span class="ident">inline</span>]</span>
+    <span class="kw">unsafe</span> <span class="kw">fn</span> <span class="ident">downcast</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">tag</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">T</span><span class="op">&gt;</span> {
+        <span class="kw">let</span> <span class="ident">ptr</span> <span class="op">=</span> <span class="kw-2">*</span><span class="self">self</span>.<span class="ident">ptr</span>;
+        <span class="kw">if</span> <span class="ident">ptr</span> <span class="op">&amp;</span> <span class="ident">TAG_MASK</span> <span class="op">==</span> <span class="ident">tag</span> {
+            <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="kw-2">*</span>((<span class="ident">ptr</span> <span class="op">&amp;</span> <span class="op">!</span><span class="ident">TAG_MASK</span>) <span class="kw">as</span> <span class="kw-2">*</span><span class="kw">const</span> _))
+        } <span class="kw">else</span> {
+            <span class="prelude-val">None</span>
         }
     }
 
-    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>as_type</span>(<span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span> {
-        <span class='kw'>unsafe</span> {
-            <span class='self'>self</span>.<span class='ident'>downcast</span>(<span class='ident'>TYPE_TAG</span>)
+    <span class="attribute">#[<span class="ident">inline</span>]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">as_type</span>(<span class="self">self</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span> {
+        <span class="kw">unsafe</span> {
+            <span class="self">self</span>.<span class="ident">downcast</span>(<span class="ident">TYPE_TAG</span>)
         }
     }
 
-    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>as_region</span>(<span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span><span class='op'>&gt;</span> {
-        <span class='kw'>unsafe</span> {
-            <span class='self'>self</span>.<span class='ident'>downcast</span>(<span class='ident'>REGION_TAG</span>)
-        }
-    }
-}
-
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>fmt</span>::<span class='ident'>Debug</span> <span class='kw'>for</span> <span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>fmt</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>f</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>fmt</span>::<span class='ident'>Formatter</span>) <span class='op'>-&gt;</span> <span class='ident'>fmt</span>::<span class='prelude-ty'>Result</span> {
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>ty</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>as_type</span>() {
-            <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;{:?}&quot;</span>, <span class='ident'>ty</span>)
-        } <span class='kw'>else</span> <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>r</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>as_region</span>() {
-            <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;{:?}&quot;</span>, <span class='ident'>r</span>)
-        } <span class='kw'>else</span> {
-            <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;&lt;unknwon @ {:p}&gt;&quot;</span>, <span class='kw-2'>*</span><span class='self'>self</span>.<span class='ident'>ptr</span> <span class='kw'>as</span> <span class='kw-2'>*</span><span class='kw'>const</span> ())
+    <span class="attribute">#[<span class="ident">inline</span>]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">as_region</span>(<span class="self">self</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span><span class="op">&gt;</span> {
+        <span class="kw">unsafe</span> {
+            <span class="self">self</span>.<span class="ident">downcast</span>(<span class="ident">REGION_TAG</span>)
         }
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>TypeFoldable</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>super_fold_with</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span>: <span class='lifetime'>&#39;tcx</span>, <span class='ident'>F</span>: <span class='ident'>TypeFolder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>folder</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>F</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>ty</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>as_type</span>() {
-            <span class='ident'>Kind</span>::<span class='ident'>from</span>(<span class='ident'>ty</span>.<span class='ident'>fold_with</span>(<span class='ident'>folder</span>))
-        } <span class='kw'>else</span> <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>r</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>as_region</span>() {
-            <span class='ident'>Kind</span>::<span class='ident'>from</span>(<span class='ident'>r</span>.<span class='ident'>fold_with</span>(<span class='ident'>folder</span>))
-        } <span class='kw'>else</span> {
-            <span class='macro'>bug</span><span class='macro'>!</span>()
-        }
-    }
-
-    <span class='kw'>fn</span> <span class='ident'>super_visit_with</span><span class='op'>&lt;</span><span class='ident'>V</span>: <span class='ident'>TypeVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>visitor</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>V</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>ty</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>as_type</span>() {
-            <span class='ident'>ty</span>.<span class='ident'>visit_with</span>(<span class='ident'>visitor</span>)
-        } <span class='kw'>else</span> <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>r</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>as_region</span>() {
-            <span class='ident'>r</span>.<span class='ident'>visit_with</span>(<span class='ident'>visitor</span>)
-        } <span class='kw'>else</span> {
-            <span class='macro'>bug</span><span class='macro'>!</span>()
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">fmt</span>::<span class="ident">Debug</span> <span class="kw">for</span> <span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">fmt</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">f</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">fmt</span>::<span class="ident">Formatter</span>) <span class="op">-&gt;</span> <span class="ident">fmt</span>::<span class="prelude-ty">Result</span> {
+        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">ty</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">as_type</span>() {
+            <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;{:?}&quot;</span>, <span class="ident">ty</span>)
+        } <span class="kw">else</span> <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">r</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">as_region</span>() {
+            <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;{:?}&quot;</span>, <span class="ident">r</span>)
+        } <span class="kw">else</span> {
+            <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;&lt;unknwon @ {:p}&gt;&quot;</span>, <span class="kw-2">*</span><span class="self">self</span>.<span class="ident">ptr</span> <span class="kw">as</span> <span class="kw-2">*</span><span class="kw">const</span> ())
         }
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>Encodable</span> <span class='kw'>for</span> <span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>encode</span><span class='op'>&lt;</span><span class='ident'>E</span>: <span class='ident'>Encoder</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>e</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>E</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(), <span class='ident'>E</span>::<span class='ident'>Error</span><span class='op'>&gt;</span> {
-        <span class='ident'>e</span>.<span class='ident'>emit_enum</span>(<span class='string'>&quot;Kind&quot;</span>, <span class='op'>|</span><span class='ident'>e</span><span class='op'>|</span> {
-            <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>ty</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>as_type</span>() {
-                <span class='ident'>e</span>.<span class='ident'>emit_enum_variant</span>(<span class='string'>&quot;Ty&quot;</span>, <span class='ident'>TYPE_TAG</span>, <span class='number'>1</span>, <span class='op'>|</span><span class='ident'>e</span><span class='op'>|</span> {
-                    <span class='ident'>e</span>.<span class='ident'>emit_enum_variant_arg</span>(<span class='number'>0</span>, <span class='op'>|</span><span class='ident'>e</span><span class='op'>|</span> <span class='ident'>ty</span>.<span class='ident'>encode</span>(<span class='ident'>e</span>))
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">TypeFoldable</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">super_fold_with</span><span class="op">&lt;</span><span class="lifetime">&#39;gcx</span>: <span class="lifetime">&#39;tcx</span>, <span class="ident">F</span>: <span class="ident">TypeFolder</span><span class="op">&lt;</span><span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">folder</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">F</span>) <span class="op">-&gt;</span> <span class="self">Self</span> {
+        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">ty</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">as_type</span>() {
+            <span class="ident">Kind</span>::<span class="ident">from</span>(<span class="ident">ty</span>.<span class="ident">fold_with</span>(<span class="ident">folder</span>))
+        } <span class="kw">else</span> <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">r</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">as_region</span>() {
+            <span class="ident">Kind</span>::<span class="ident">from</span>(<span class="ident">r</span>.<span class="ident">fold_with</span>(<span class="ident">folder</span>))
+        } <span class="kw">else</span> {
+            <span class="macro">bug</span><span class="macro">!</span>()
+        }
+    }
+
+    <span class="kw">fn</span> <span class="ident">super_visit_with</span><span class="op">&lt;</span><span class="ident">V</span>: <span class="ident">TypeVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">visitor</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">V</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">ty</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">as_type</span>() {
+            <span class="ident">ty</span>.<span class="ident">visit_with</span>(<span class="ident">visitor</span>)
+        } <span class="kw">else</span> <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">r</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">as_region</span>() {
+            <span class="ident">r</span>.<span class="ident">visit_with</span>(<span class="ident">visitor</span>)
+        } <span class="kw">else</span> {
+            <span class="macro">bug</span><span class="macro">!</span>()
+        }
+    }
+}
+
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">Encodable</span> <span class="kw">for</span> <span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">encode</span><span class="op">&lt;</span><span class="ident">E</span>: <span class="ident">Encoder</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">e</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">E</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">E</span>::<span class="ident">Error</span><span class="op">&gt;</span> {
+        <span class="ident">e</span>.<span class="ident">emit_enum</span>(<span class="string">&quot;Kind&quot;</span>, <span class="op">|</span><span class="ident">e</span><span class="op">|</span> {
+            <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">ty</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">as_type</span>() {
+                <span class="ident">e</span>.<span class="ident">emit_enum_variant</span>(<span class="string">&quot;Ty&quot;</span>, <span class="ident">TYPE_TAG</span>, <span class="number">1</span>, <span class="op">|</span><span class="ident">e</span><span class="op">|</span> {
+                    <span class="ident">e</span>.<span class="ident">emit_enum_variant_arg</span>(<span class="number">0</span>, <span class="op">|</span><span class="ident">e</span><span class="op">|</span> <span class="ident">ty</span>.<span class="ident">encode</span>(<span class="ident">e</span>))
                 })
-            } <span class='kw'>else</span> <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>r</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>as_region</span>() {
-                <span class='ident'>e</span>.<span class='ident'>emit_enum_variant</span>(<span class='string'>&quot;Region&quot;</span>, <span class='ident'>REGION_TAG</span>, <span class='number'>1</span>, <span class='op'>|</span><span class='ident'>e</span><span class='op'>|</span> {
-                    <span class='ident'>e</span>.<span class='ident'>emit_enum_variant_arg</span>(<span class='number'>0</span>, <span class='op'>|</span><span class='ident'>e</span><span class='op'>|</span> <span class='ident'>r</span>.<span class='ident'>encode</span>(<span class='ident'>e</span>))
+            } <span class="kw">else</span> <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">r</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">as_region</span>() {
+                <span class="ident">e</span>.<span class="ident">emit_enum_variant</span>(<span class="string">&quot;Region&quot;</span>, <span class="ident">REGION_TAG</span>, <span class="number">1</span>, <span class="op">|</span><span class="ident">e</span><span class="op">|</span> {
+                    <span class="ident">e</span>.<span class="ident">emit_enum_variant_arg</span>(<span class="number">0</span>, <span class="op">|</span><span class="ident">e</span><span class="op">|</span> <span class="ident">r</span>.<span class="ident">encode</span>(<span class="ident">e</span>))
                 })
-            } <span class='kw'>else</span> {
-                <span class='macro'>bug</span><span class='macro'>!</span>()
+            } <span class="kw">else</span> {
+                <span class="macro">bug</span><span class="macro">!</span>()
             }
         })
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>Decodable</span> <span class='kw'>for</span> <span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>decode</span><span class='op'>&lt;</span><span class='ident'>D</span>: <span class='ident'>Decoder</span><span class='op'>&gt;</span>(<span class='ident'>d</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>D</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>D</span>::<span class='ident'>Error</span><span class='op'>&gt;</span> {
-        <span class='ident'>d</span>.<span class='ident'>read_enum</span>(<span class='string'>&quot;Kind&quot;</span>, <span class='op'>|</span><span class='ident'>d</span><span class='op'>|</span> {
-            <span class='ident'>d</span>.<span class='ident'>read_enum_variant</span>(<span class='kw-2'>&amp;</span>[<span class='string'>&quot;Ty&quot;</span>, <span class='string'>&quot;Region&quot;</span>], <span class='op'>|</span><span class='ident'>d</span>, <span class='ident'>tag</span><span class='op'>|</span> {
-                <span class='kw'>match</span> <span class='ident'>tag</span> {
-                    <span class='ident'>TYPE_TAG</span> <span class='op'>=&gt;</span> <span class='ident'>Ty</span>::<span class='ident'>decode</span>(<span class='ident'>d</span>).<span class='ident'>map</span>(<span class='ident'>Kind</span>::<span class='ident'>from</span>),
-                    <span class='ident'>REGION_TAG</span> <span class='op'>=&gt;</span> <span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>Region</span><span class='op'>&gt;</span>::<span class='ident'>decode</span>(<span class='ident'>d</span>).<span class='ident'>map</span>(<span class='ident'>Kind</span>::<span class='ident'>from</span>),
-                    _ <span class='op'>=&gt;</span> <span class='prelude-val'>Err</span>(<span class='ident'>d</span>.<span class='ident'>error</span>(<span class='string'>&quot;invalid Kind tag&quot;</span>))
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">Decodable</span> <span class="kw">for</span> <span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">decode</span><span class="op">&lt;</span><span class="ident">D</span>: <span class="ident">Decoder</span><span class="op">&gt;</span>(<span class="ident">d</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">D</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">D</span>::<span class="ident">Error</span><span class="op">&gt;</span> {
+        <span class="ident">d</span>.<span class="ident">read_enum</span>(<span class="string">&quot;Kind&quot;</span>, <span class="op">|</span><span class="ident">d</span><span class="op">|</span> {
+            <span class="ident">d</span>.<span class="ident">read_enum_variant</span>(<span class="kw-2">&amp;</span>[<span class="string">&quot;Ty&quot;</span>, <span class="string">&quot;Region&quot;</span>], <span class="op">|</span><span class="ident">d</span>, <span class="ident">tag</span><span class="op">|</span> {
+                <span class="kw">match</span> <span class="ident">tag</span> {
+                    <span class="ident">TYPE_TAG</span> <span class="op">=&gt;</span> <span class="ident">Ty</span>::<span class="ident">decode</span>(<span class="ident">d</span>).<span class="ident">map</span>(<span class="ident">Kind</span>::<span class="ident">from</span>),
+                    <span class="ident">REGION_TAG</span> <span class="op">=&gt;</span> <span class="op">&lt;</span><span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">Region</span><span class="op">&gt;</span>::<span class="ident">decode</span>(<span class="ident">d</span>).<span class="ident">map</span>(<span class="ident">Kind</span>::<span class="ident">from</span>),
+                    _ <span class="op">=&gt;</span> <span class="prelude-val">Err</span>(<span class="ident">d</span>.<span class="ident">error</span>(<span class="string">&quot;invalid Kind tag&quot;</span>))
                 }
             })
         })
     }
 }
 
-<span class='doccomment'>/// A substitution mapping type/region parameters to new values.</span>
-<span class='kw'>pub</span> <span class='kw'>type</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>Slice</span><span class='op'>&lt;</span><span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>;
+<span class="doccomment">/// A substitution mapping type/region parameters to new values.</span>
+<span class="kw">pub</span> <span class="kw">type</span> <span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">Slice</span><span class="op">&lt;</span><span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>;
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='doccomment'>/// Creates a Substs that maps each generic parameter to itself.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>identity_for_item</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>def_id</span>: <span class='ident'>DefId</span>)
-                             <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='ident'>Substs</span>::<span class='ident'>for_item</span>(<span class='ident'>tcx</span>, <span class='ident'>def_id</span>, <span class='op'>|</span><span class='ident'>def</span>, _<span class='op'>|</span> {
-            <span class='ident'>tcx</span>.<span class='ident'>mk_region</span>(<span class='ident'>ty</span>::<span class='ident'>ReEarlyBound</span>(<span class='ident'>def</span>.<span class='ident'>to_early_bound_region_data</span>()))
-        }, <span class='op'>|</span><span class='ident'>def</span>, _<span class='op'>|</span> <span class='ident'>tcx</span>.<span class='ident'>mk_param_from_def</span>(<span class='ident'>def</span>))
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// Creates a Substs that maps each generic parameter to itself.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">identity_for_item</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">def_id</span>: <span class="ident">DefId</span>)
+                             <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="ident">Substs</span>::<span class="ident">for_item</span>(<span class="ident">tcx</span>, <span class="ident">def_id</span>, <span class="op">|</span><span class="ident">def</span>, _<span class="op">|</span> {
+            <span class="ident">tcx</span>.<span class="ident">mk_region</span>(<span class="ident">ty</span>::<span class="ident">ReEarlyBound</span>(<span class="ident">def</span>.<span class="ident">to_early_bound_region_data</span>()))
+        }, <span class="op">|</span><span class="ident">def</span>, _<span class="op">|</span> <span class="ident">tcx</span>.<span class="ident">mk_param_from_def</span>(<span class="ident">def</span>))
     }
 
-    <span class='doccomment'>/// Creates a Substs for generic parameter definitions,</span>
-    <span class='doccomment'>/// by calling closures to obtain each region and type.</span>
-    <span class='doccomment'>/// The closures get to observe the Substs as they&#39;re</span>
-    <span class='doccomment'>/// being built, which can be used to correctly</span>
-    <span class='doccomment'>/// substitute defaults of type parameters.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>for_item</span><span class='op'>&lt;</span><span class='ident'>FR</span>, <span class='ident'>FT</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                            <span class='ident'>def_id</span>: <span class='ident'>DefId</span>,
-                            <span class='kw-2'>mut</span> <span class='ident'>mk_region</span>: <span class='ident'>FR</span>,
-                            <span class='kw-2'>mut</span> <span class='ident'>mk_type</span>: <span class='ident'>FT</span>)
-                            <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
-    <span class='kw'>where</span> <span class='ident'>FR</span>: <span class='ident'>FnMut</span>(<span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>RegionParameterDef</span>, <span class='kw-2'>&amp;</span>[<span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>]) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span>,
-          <span class='ident'>FT</span>: <span class='ident'>FnMut</span>(<span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>TypeParameterDef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='kw-2'>&amp;</span>[<span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>]) <span class='op'>-&gt;</span> <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='kw'>let</span> <span class='ident'>defs</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>item_generics</span>(<span class='ident'>def_id</span>);
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>substs</span> <span class='op'>=</span> <span class='ident'>Vec</span>::<span class='ident'>with_capacity</span>(<span class='ident'>defs</span>.<span class='ident'>count</span>());
-        <span class='ident'>Substs</span>::<span class='ident'>fill_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>substs</span>, <span class='ident'>tcx</span>, <span class='ident'>defs</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>mk_region</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>mk_type</span>);
-        <span class='ident'>tcx</span>.<span class='ident'>intern_substs</span>(<span class='kw-2'>&amp;</span><span class='ident'>substs</span>)
+    <span class="doccomment">/// Creates a Substs for generic parameter definitions,</span>
+    <span class="doccomment">/// by calling closures to obtain each region and type.</span>
+    <span class="doccomment">/// The closures get to observe the Substs as they&#39;re</span>
+    <span class="doccomment">/// being built, which can be used to correctly</span>
+    <span class="doccomment">/// substitute defaults of type parameters.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">for_item</span><span class="op">&lt;</span><span class="ident">FR</span>, <span class="ident">FT</span><span class="op">&gt;</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                            <span class="ident">def_id</span>: <span class="ident">DefId</span>,
+                            <span class="kw-2">mut</span> <span class="ident">mk_region</span>: <span class="ident">FR</span>,
+                            <span class="kw-2">mut</span> <span class="ident">mk_type</span>: <span class="ident">FT</span>)
+                            <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>
+    <span class="kw">where</span> <span class="ident">FR</span>: <span class="ident">FnMut</span>(<span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">RegionParameterDef</span>, <span class="kw-2">&amp;</span>[<span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>]) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span>,
+          <span class="ident">FT</span>: <span class="ident">FnMut</span>(<span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TypeParameterDef</span>, <span class="kw-2">&amp;</span>[<span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>]) <span class="op">-&gt;</span> <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="kw">let</span> <span class="ident">defs</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">item_generics</span>(<span class="ident">def_id</span>);
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">substs</span> <span class="op">=</span> <span class="ident">Vec</span>::<span class="ident">with_capacity</span>(<span class="ident">defs</span>.<span class="ident">count</span>());
+        <span class="ident">Substs</span>::<span class="ident">fill_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">substs</span>, <span class="ident">tcx</span>, <span class="ident">defs</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">mk_region</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">mk_type</span>);
+        <span class="ident">tcx</span>.<span class="ident">intern_substs</span>(<span class="kw-2">&amp;</span><span class="ident">substs</span>)
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>extend_to</span><span class='op'>&lt;</span><span class='ident'>FR</span>, <span class='ident'>FT</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
-                             <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                             <span class='ident'>def_id</span>: <span class='ident'>DefId</span>,
-                             <span class='kw-2'>mut</span> <span class='ident'>mk_region</span>: <span class='ident'>FR</span>,
-                             <span class='kw-2'>mut</span> <span class='ident'>mk_type</span>: <span class='ident'>FT</span>)
-                             <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
-    <span class='kw'>where</span> <span class='ident'>FR</span>: <span class='ident'>FnMut</span>(<span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>RegionParameterDef</span>, <span class='kw-2'>&amp;</span>[<span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>]) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span>,
-          <span class='ident'>FT</span>: <span class='ident'>FnMut</span>(<span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>TypeParameterDef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='kw-2'>&amp;</span>[<span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>]) <span class='op'>-&gt;</span> <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">extend_to</span><span class="op">&lt;</span><span class="ident">FR</span>, <span class="ident">FT</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="self">self</span>,
+                             <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                             <span class="ident">def_id</span>: <span class="ident">DefId</span>,
+                             <span class="kw-2">mut</span> <span class="ident">mk_region</span>: <span class="ident">FR</span>,
+                             <span class="kw-2">mut</span> <span class="ident">mk_type</span>: <span class="ident">FT</span>)
+                             <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>
+    <span class="kw">where</span> <span class="ident">FR</span>: <span class="ident">FnMut</span>(<span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">RegionParameterDef</span>, <span class="kw-2">&amp;</span>[<span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>]) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span>,
+          <span class="ident">FT</span>: <span class="ident">FnMut</span>(<span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TypeParameterDef</span>, <span class="kw-2">&amp;</span>[<span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>]) <span class="op">-&gt;</span> <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>
     {
-        <span class='kw'>let</span> <span class='ident'>defs</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>item_generics</span>(<span class='ident'>def_id</span>);
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>result</span> <span class='op'>=</span> <span class='ident'>Vec</span>::<span class='ident'>with_capacity</span>(<span class='ident'>defs</span>.<span class='ident'>count</span>());
-        <span class='ident'>result</span>.<span class='ident'>extend</span>(<span class='self'>self</span>[..].<span class='ident'>iter</span>().<span class='ident'>cloned</span>());
-        <span class='ident'>Substs</span>::<span class='ident'>fill_single</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>result</span>, <span class='ident'>defs</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>mk_region</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>mk_type</span>);
-        <span class='ident'>tcx</span>.<span class='ident'>intern_substs</span>(<span class='kw-2'>&amp;</span><span class='ident'>result</span>)
+        <span class="kw">let</span> <span class="ident">defs</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">item_generics</span>(<span class="ident">def_id</span>);
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">result</span> <span class="op">=</span> <span class="ident">Vec</span>::<span class="ident">with_capacity</span>(<span class="ident">defs</span>.<span class="ident">count</span>());
+        <span class="ident">result</span>.<span class="ident">extend</span>(<span class="self">self</span>[..].<span class="ident">iter</span>().<span class="ident">cloned</span>());
+        <span class="ident">Substs</span>::<span class="ident">fill_single</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">result</span>, <span class="ident">defs</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">mk_region</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">mk_type</span>);
+        <span class="ident">tcx</span>.<span class="ident">intern_substs</span>(<span class="kw-2">&amp;</span><span class="ident">result</span>)
     }
 
-    <span class='kw'>fn</span> <span class='ident'>fill_item</span><span class='op'>&lt;</span><span class='ident'>FR</span>, <span class='ident'>FT</span><span class='op'>&gt;</span>(<span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
-                         <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                         <span class='ident'>defs</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>Generics</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                         <span class='ident'>mk_region</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>FR</span>,
-                         <span class='ident'>mk_type</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>FT</span>)
-    <span class='kw'>where</span> <span class='ident'>FR</span>: <span class='ident'>FnMut</span>(<span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>RegionParameterDef</span>, <span class='kw-2'>&amp;</span>[<span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>]) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span>,
-          <span class='ident'>FT</span>: <span class='ident'>FnMut</span>(<span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>TypeParameterDef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='kw-2'>&amp;</span>[<span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>]) <span class='op'>-&gt;</span> <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">fill_item</span><span class="op">&lt;</span><span class="ident">FR</span>, <span class="ident">FT</span><span class="op">&gt;</span>(<span class="ident">substs</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,
+                         <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                         <span class="ident">defs</span>: <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">Generics</span>,
+                         <span class="ident">mk_region</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">FR</span>,
+                         <span class="ident">mk_type</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">FT</span>)
+    <span class="kw">where</span> <span class="ident">FR</span>: <span class="ident">FnMut</span>(<span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">RegionParameterDef</span>, <span class="kw-2">&amp;</span>[<span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>]) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span>,
+          <span class="ident">FT</span>: <span class="ident">FnMut</span>(<span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TypeParameterDef</span>, <span class="kw-2">&amp;</span>[<span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>]) <span class="op">-&gt;</span> <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
 
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>def_id</span>) <span class='op'>=</span> <span class='ident'>defs</span>.<span class='ident'>parent</span> {
-            <span class='kw'>let</span> <span class='ident'>parent_defs</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>item_generics</span>(<span class='ident'>def_id</span>);
-            <span class='ident'>Substs</span>::<span class='ident'>fill_item</span>(<span class='ident'>substs</span>, <span class='ident'>tcx</span>, <span class='ident'>parent_defs</span>, <span class='ident'>mk_region</span>, <span class='ident'>mk_type</span>);
+        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">def_id</span>) <span class="op">=</span> <span class="ident">defs</span>.<span class="ident">parent</span> {
+            <span class="kw">let</span> <span class="ident">parent_defs</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">item_generics</span>(<span class="ident">def_id</span>);
+            <span class="ident">Substs</span>::<span class="ident">fill_item</span>(<span class="ident">substs</span>, <span class="ident">tcx</span>, <span class="ident">parent_defs</span>, <span class="ident">mk_region</span>, <span class="ident">mk_type</span>);
         }
-        <span class='ident'>Substs</span>::<span class='ident'>fill_single</span>(<span class='ident'>substs</span>, <span class='ident'>defs</span>, <span class='ident'>mk_region</span>, <span class='ident'>mk_type</span>)
+        <span class="ident">Substs</span>::<span class="ident">fill_single</span>(<span class="ident">substs</span>, <span class="ident">defs</span>, <span class="ident">mk_region</span>, <span class="ident">mk_type</span>)
     }
 
-    <span class='kw'>fn</span> <span class='ident'>fill_single</span><span class='op'>&lt;</span><span class='ident'>FR</span>, <span class='ident'>FT</span><span class='op'>&gt;</span>(<span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
-                           <span class='ident'>defs</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>Generics</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                           <span class='ident'>mk_region</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>FR</span>,
-                           <span class='ident'>mk_type</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>FT</span>)
-    <span class='kw'>where</span> <span class='ident'>FR</span>: <span class='ident'>FnMut</span>(<span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>RegionParameterDef</span>, <span class='kw-2'>&amp;</span>[<span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>]) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span>,
-          <span class='ident'>FT</span>: <span class='ident'>FnMut</span>(<span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>TypeParameterDef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='kw-2'>&amp;</span>[<span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>]) <span class='op'>-&gt;</span> <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='comment'>// Handle Self first, before all regions.</span>
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>types</span> <span class='op'>=</span> <span class='ident'>defs</span>.<span class='ident'>types</span>.<span class='ident'>iter</span>();
-        <span class='kw'>if</span> <span class='ident'>defs</span>.<span class='ident'>parent</span>.<span class='ident'>is_none</span>() <span class='op'>&amp;&amp;</span> <span class='ident'>defs</span>.<span class='ident'>has_self</span> {
-            <span class='kw'>let</span> <span class='ident'>def</span> <span class='op'>=</span> <span class='ident'>types</span>.<span class='ident'>next</span>().<span class='ident'>unwrap</span>();
-            <span class='kw'>let</span> <span class='ident'>ty</span> <span class='op'>=</span> <span class='ident'>mk_type</span>(<span class='ident'>def</span>, <span class='ident'>substs</span>);
-            <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>def</span>.<span class='ident'>index</span> <span class='kw'>as</span> <span class='ident'>usize</span>, <span class='ident'>substs</span>.<span class='ident'>len</span>());
-            <span class='ident'>substs</span>.<span class='ident'>push</span>(<span class='ident'>Kind</span>::<span class='ident'>from</span>(<span class='ident'>ty</span>));
-        }
-
-        <span class='kw'>for</span> <span class='ident'>def</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>defs</span>.<span class='ident'>regions</span> {
-            <span class='kw'>let</span> <span class='ident'>region</span> <span class='op'>=</span> <span class='ident'>mk_region</span>(<span class='ident'>def</span>, <span class='ident'>substs</span>);
-            <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>def</span>.<span class='ident'>index</span> <span class='kw'>as</span> <span class='ident'>usize</span>, <span class='ident'>substs</span>.<span class='ident'>len</span>());
-            <span class='ident'>substs</span>.<span class='ident'>push</span>(<span class='ident'>Kind</span>::<span class='ident'>from</span>(<span class='ident'>region</span>));
+    <span class="kw">fn</span> <span class="ident">fill_single</span><span class="op">&lt;</span><span class="ident">FR</span>, <span class="ident">FT</span><span class="op">&gt;</span>(<span class="ident">substs</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,
+                           <span class="ident">defs</span>: <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">Generics</span>,
+                           <span class="ident">mk_region</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">FR</span>,
+                           <span class="ident">mk_type</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">FT</span>)
+    <span class="kw">where</span> <span class="ident">FR</span>: <span class="ident">FnMut</span>(<span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">RegionParameterDef</span>, <span class="kw-2">&amp;</span>[<span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>]) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span>,
+          <span class="ident">FT</span>: <span class="ident">FnMut</span>(<span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TypeParameterDef</span>, <span class="kw-2">&amp;</span>[<span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>]) <span class="op">-&gt;</span> <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="comment">// Handle Self first, before all regions.</span>
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">types</span> <span class="op">=</span> <span class="ident">defs</span>.<span class="ident">types</span>.<span class="ident">iter</span>();
+        <span class="kw">if</span> <span class="ident">defs</span>.<span class="ident">parent</span>.<span class="ident">is_none</span>() <span class="op">&amp;&amp;</span> <span class="ident">defs</span>.<span class="ident">has_self</span> {
+            <span class="kw">let</span> <span class="ident">def</span> <span class="op">=</span> <span class="ident">types</span>.<span class="ident">next</span>().<span class="ident">unwrap</span>();
+            <span class="kw">let</span> <span class="ident">ty</span> <span class="op">=</span> <span class="ident">mk_type</span>(<span class="ident">def</span>, <span class="ident">substs</span>);
+            <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">def</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>, <span class="ident">substs</span>.<span class="ident">len</span>());
+            <span class="ident">substs</span>.<span class="ident">push</span>(<span class="ident">Kind</span>::<span class="ident">from</span>(<span class="ident">ty</span>));
         }
 
-        <span class='kw'>for</span> <span class='ident'>def</span> <span class='kw'>in</span> <span class='ident'>types</span> {
-            <span class='kw'>let</span> <span class='ident'>ty</span> <span class='op'>=</span> <span class='ident'>mk_type</span>(<span class='ident'>def</span>, <span class='ident'>substs</span>);
-            <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>def</span>.<span class='ident'>index</span> <span class='kw'>as</span> <span class='ident'>usize</span>, <span class='ident'>substs</span>.<span class='ident'>len</span>());
-            <span class='ident'>substs</span>.<span class='ident'>push</span>(<span class='ident'>Kind</span>::<span class='ident'>from</span>(<span class='ident'>ty</span>));
+        <span class="kw">for</span> <span class="ident">def</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="ident">defs</span>.<span class="ident">regions</span> {
+            <span class="kw">let</span> <span class="ident">region</span> <span class="op">=</span> <span class="ident">mk_region</span>(<span class="ident">def</span>, <span class="ident">substs</span>);
+            <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">def</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>, <span class="ident">substs</span>.<span class="ident">len</span>());
+            <span class="ident">substs</span>.<span class="ident">push</span>(<span class="ident">Kind</span>::<span class="ident">from</span>(<span class="ident">region</span>));
+        }
+
+        <span class="kw">for</span> <span class="ident">def</span> <span class="kw">in</span> <span class="ident">types</span> {
+            <span class="kw">let</span> <span class="ident">ty</span> <span class="op">=</span> <span class="ident">mk_type</span>(<span class="ident">def</span>, <span class="ident">substs</span>);
+            <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">def</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>, <span class="ident">substs</span>.<span class="ident">len</span>());
+            <span class="ident">substs</span>.<span class="ident">push</span>(<span class="ident">Kind</span>::<span class="ident">from</span>(<span class="ident">ty</span>));
         }
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_noop</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-        <span class='self'>self</span>.<span class='ident'>is_empty</span>()
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">is_noop</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+        <span class="self">self</span>.<span class="ident">is_empty</span>()
     }
 
-    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>types</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw'>impl</span> <span class='ident'>DoubleEndedIterator</span><span class='op'>&lt;</span><span class='ident'>Item</span><span class='op'>=</span><span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span> <span class='op'>+</span> <span class='lifetime'>&#39;a</span> {
-        <span class='self'>self</span>.<span class='ident'>iter</span>().<span class='ident'>filter_map</span>(<span class='op'>|</span><span class='ident'>k</span><span class='op'>|</span> <span class='ident'>k</span>.<span class='ident'>as_type</span>())
+    <span class="attribute">#[<span class="ident">inline</span>]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">types</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="kw">impl</span> <span class="ident">DoubleEndedIterator</span><span class="op">&lt;</span><span class="ident">Item</span><span class="op">=</span><span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span> <span class="op">+</span> <span class="lifetime">&#39;a</span> {
+        <span class="self">self</span>.<span class="ident">iter</span>().<span class="ident">filter_map</span>(<span class="op">|</span><span class="ident">k</span><span class="op">|</span> <span class="ident">k</span>.<span class="ident">as_type</span>())
     }
 
-    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>regions</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw'>impl</span> <span class='ident'>DoubleEndedIterator</span><span class='op'>&lt;</span><span class='ident'>Item</span><span class='op'>=</span><span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span><span class='op'>&gt;</span> <span class='op'>+</span> <span class='lifetime'>&#39;a</span> {
-        <span class='self'>self</span>.<span class='ident'>iter</span>().<span class='ident'>filter_map</span>(<span class='op'>|</span><span class='ident'>k</span><span class='op'>|</span> <span class='ident'>k</span>.<span class='ident'>as_region</span>())
+    <span class="attribute">#[<span class="ident">inline</span>]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">regions</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="kw">impl</span> <span class="ident">DoubleEndedIterator</span><span class="op">&lt;</span><span class="ident">Item</span><span class="op">=</span><span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span><span class="op">&gt;</span> <span class="op">+</span> <span class="lifetime">&#39;a</span> {
+        <span class="self">self</span>.<span class="ident">iter</span>().<span class="ident">filter_map</span>(<span class="op">|</span><span class="ident">k</span><span class="op">|</span> <span class="ident">k</span>.<span class="ident">as_region</span>())
     }
 
-    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>type_at</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>i</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>[<span class='ident'>i</span>].<span class='ident'>as_type</span>().<span class='ident'>unwrap_or_else</span>(<span class='op'>||</span> {
-            <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;expected type for param #{} in {:?}&quot;</span>, <span class='ident'>i</span>, <span class='self'>self</span>);
+    <span class="attribute">#[<span class="ident">inline</span>]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">type_at</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">i</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="self">self</span>[<span class="ident">i</span>].<span class="ident">as_type</span>().<span class="ident">unwrap_or_else</span>(<span class="op">||</span> {
+            <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;expected type for param #{} in {:?}&quot;</span>, <span class="ident">i</span>, <span class="self">self</span>);
         })
     }
 
-    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>region_at</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>i</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span> {
-        <span class='self'>self</span>[<span class='ident'>i</span>].<span class='ident'>as_region</span>().<span class='ident'>unwrap_or_else</span>(<span class='op'>||</span> {
-            <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;expected region for param #{} in {:?}&quot;</span>, <span class='ident'>i</span>, <span class='self'>self</span>);
+    <span class="attribute">#[<span class="ident">inline</span>]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">region_at</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">i</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span> {
+        <span class="self">self</span>[<span class="ident">i</span>].<span class="ident">as_region</span>().<span class="ident">unwrap_or_else</span>(<span class="op">||</span> {
+            <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;expected region for param #{} in {:?}&quot;</span>, <span class="ident">i</span>, <span class="self">self</span>);
         })
     }
 
-    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>type_for_def</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>ty_param_def</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>TypeParameterDef</span>) <span class='op'>-&gt;</span> <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>type_at</span>(<span class='ident'>ty_param_def</span>.<span class='ident'>index</span> <span class='kw'>as</span> <span class='ident'>usize</span>)
+    <span class="attribute">#[<span class="ident">inline</span>]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">type_for_def</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">ty_param_def</span>: <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TypeParameterDef</span>) <span class="op">-&gt;</span> <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="self">self</span>.<span class="ident">type_at</span>(<span class="ident">ty_param_def</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>)
     }
 
-    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>region_for_def</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>def</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>RegionParameterDef</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span> {
-        <span class='self'>self</span>.<span class='ident'>region_at</span>(<span class='ident'>def</span>.<span class='ident'>index</span> <span class='kw'>as</span> <span class='ident'>usize</span>)
+    <span class="attribute">#[<span class="ident">inline</span>]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">region_for_def</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">RegionParameterDef</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span> {
+        <span class="self">self</span>.<span class="ident">region_at</span>(<span class="ident">def</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>)
     }
 
-    <span class='doccomment'>/// Transform from substitutions for a child of `source_ancestor`</span>
-    <span class='doccomment'>/// (e.g. a trait or impl) to substitutions for the same child</span>
-    <span class='doccomment'>/// in a different item, with `target_substs` as the base for</span>
-    <span class='doccomment'>/// the target impl/trait, with the source child-specific</span>
-    <span class='doccomment'>/// parameters (e.g. method parameters) on top of that base.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>rebase_onto</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                       <span class='ident'>source_ancestor</span>: <span class='ident'>DefId</span>,
-                       <span class='ident'>target_substs</span>: <span class='kw-2'>&amp;</span><span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-                       <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='kw'>let</span> <span class='ident'>defs</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>item_generics</span>(<span class='ident'>source_ancestor</span>);
-        <span class='ident'>tcx</span>.<span class='ident'>mk_substs</span>(<span class='ident'>target_substs</span>.<span class='ident'>iter</span>().<span class='ident'>chain</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>[<span class='ident'>defs</span>.<span class='ident'>own_count</span>()..]).<span class='ident'>cloned</span>())
+    <span class="doccomment">/// Transform from substitutions for a child of `source_ancestor`</span>
+    <span class="doccomment">/// (e.g. a trait or impl) to substitutions for the same child</span>
+    <span class="doccomment">/// in a different item, with `target_substs` as the base for</span>
+    <span class="doccomment">/// the target impl/trait, with the source child-specific</span>
+    <span class="doccomment">/// parameters (e.g. method parameters) on top of that base.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">rebase_onto</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                       <span class="ident">source_ancestor</span>: <span class="ident">DefId</span>,
+                       <span class="ident">target_substs</span>: <span class="kw-2">&amp;</span><span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+                       <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="kw">let</span> <span class="ident">defs</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">item_generics</span>(<span class="ident">source_ancestor</span>);
+        <span class="ident">tcx</span>.<span class="ident">mk_substs</span>(<span class="ident">target_substs</span>.<span class="ident">iter</span>().<span class="ident">chain</span>(<span class="kw-2">&amp;</span><span class="self">self</span>[<span class="ident">defs</span>.<span class="ident">own_count</span>()..]).<span class="ident">cloned</span>())
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>truncate_to</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>generics</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>Generics</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-                       <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='ident'>tcx</span>.<span class='ident'>mk_substs</span>(<span class='self'>self</span>.<span class='ident'>iter</span>().<span class='ident'>take</span>(<span class='ident'>generics</span>.<span class='ident'>count</span>()).<span class='ident'>cloned</span>())
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">truncate_to</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">generics</span>: <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">Generics</span>)
+                       <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="ident">tcx</span>.<span class="ident">mk_substs</span>(<span class="self">self</span>.<span class="ident">iter</span>().<span class="ident">take</span>(<span class="ident">generics</span>.<span class="ident">count</span>()).<span class="ident">cloned</span>())
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>TypeFoldable</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>super_fold_with</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span>: <span class='lifetime'>&#39;tcx</span>, <span class='ident'>F</span>: <span class='ident'>TypeFolder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>folder</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>F</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
-        <span class='kw'>let</span> <span class='ident'>params</span>: <span class='ident'>AccumulateVec</span><span class='op'>&lt;</span>[_; <span class='number'>8</span>]<span class='op'>&gt;</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>iter</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>k</span><span class='op'>|</span> <span class='ident'>k</span>.<span class='ident'>fold_with</span>(<span class='ident'>folder</span>)).<span class='ident'>collect</span>();
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">TypeFoldable</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">super_fold_with</span><span class="op">&lt;</span><span class="lifetime">&#39;gcx</span>: <span class="lifetime">&#39;tcx</span>, <span class="ident">F</span>: <span class="ident">TypeFolder</span><span class="op">&lt;</span><span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">folder</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">F</span>) <span class="op">-&gt;</span> <span class="self">Self</span> {
+        <span class="kw">let</span> <span class="ident">params</span>: <span class="ident">AccumulateVec</span><span class="op">&lt;</span>[_; <span class="number">8</span>]<span class="op">&gt;</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">iter</span>().<span class="ident">map</span>(<span class="op">|</span><span class="ident">k</span><span class="op">|</span> <span class="ident">k</span>.<span class="ident">fold_with</span>(<span class="ident">folder</span>)).<span class="ident">collect</span>();
 
-        <span class='comment'>// If folding doesn&#39;t change the substs, it&#39;s faster to avoid</span>
-        <span class='comment'>// calling `mk_substs` and instead reuse the existing substs.</span>
-        <span class='kw'>if</span> <span class='ident'>params</span>[..] <span class='op'>==</span> <span class='self'>self</span>[..] {
-            <span class='self'>self</span>
-        } <span class='kw'>else</span> {
-            <span class='ident'>folder</span>.<span class='ident'>tcx</span>().<span class='ident'>intern_substs</span>(<span class='kw-2'>&amp;</span><span class='ident'>params</span>)
+        <span class="comment">// If folding doesn&#39;t change the substs, it&#39;s faster to avoid</span>
+        <span class="comment">// calling `mk_substs` and instead reuse the existing substs.</span>
+        <span class="kw">if</span> <span class="ident">params</span>[..] <span class="op">==</span> <span class="self">self</span>[..] {
+            <span class="self">self</span>
+        } <span class="kw">else</span> {
+            <span class="ident">folder</span>.<span class="ident">tcx</span>().<span class="ident">intern_substs</span>(<span class="kw-2">&amp;</span><span class="ident">params</span>)
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>fold_with</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span>: <span class='lifetime'>&#39;tcx</span>, <span class='ident'>F</span>: <span class='ident'>TypeFolder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>folder</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>F</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
-        <span class='ident'>folder</span>.<span class='ident'>fold_substs</span>(<span class='self'>self</span>)
+    <span class="kw">fn</span> <span class="ident">fold_with</span><span class="op">&lt;</span><span class="lifetime">&#39;gcx</span>: <span class="lifetime">&#39;tcx</span>, <span class="ident">F</span>: <span class="ident">TypeFolder</span><span class="op">&lt;</span><span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">folder</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">F</span>) <span class="op">-&gt;</span> <span class="self">Self</span> {
+        <span class="ident">folder</span>.<span class="ident">fold_substs</span>(<span class="self">self</span>)
     }
 
-    <span class='kw'>fn</span> <span class='ident'>super_visit_with</span><span class='op'>&lt;</span><span class='ident'>V</span>: <span class='ident'>TypeVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>visitor</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>V</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-        <span class='self'>self</span>.<span class='ident'>iter</span>().<span class='ident'>any</span>(<span class='op'>|</span><span class='ident'>t</span><span class='op'>|</span> <span class='ident'>t</span>.<span class='ident'>visit_with</span>(<span class='ident'>visitor</span>))
+    <span class="kw">fn</span> <span class="ident">super_visit_with</span><span class="op">&lt;</span><span class="ident">V</span>: <span class="ident">TypeVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">visitor</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">V</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+        <span class="self">self</span>.<span class="ident">iter</span>().<span class="ident">any</span>(<span class="op">|</span><span class="ident">t</span><span class="op">|</span> <span class="ident">t</span>.<span class="ident">visit_with</span>(<span class="ident">visitor</span>))
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>serialize</span>::<span class='ident'>UseSpecializedDecodable</span> <span class='kw'>for</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {}
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">serialize</span>::<span class="ident">UseSpecializedDecodable</span> <span class="kw">for</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {}
 
-<span class='comment'>///////////////////////////////////////////////////////////////////////////</span>
-<span class='comment'>// Public trait `Subst`</span>
-<span class='comment'>//</span>
-<span class='comment'>// Just call `foo.subst(tcx, substs)` to perform a substitution across</span>
-<span class='comment'>// `foo`. Or use `foo.subst_spanned(tcx, substs, Some(span))` when</span>
-<span class='comment'>// there is more information available (for better errors).</span>
+<span class="comment">///////////////////////////////////////////////////////////////////////////</span>
+<span class="comment">// Public trait `Subst`</span>
+<span class="comment">//</span>
+<span class="comment">// Just call `foo.subst(tcx, substs)` to perform a substitution across</span>
+<span class="comment">// `foo`. Or use `foo.subst_spanned(tcx, substs, Some(span))` when</span>
+<span class="comment">// there is more information available (for better errors).</span>
 
-<span class='kw'>pub</span> <span class='kw'>trait</span> <span class='ident'>Subst</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> : <span class='ident'>Sized</span> {
-    <span class='kw'>fn</span> <span class='ident'>subst</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                      <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>]) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
-        <span class='self'>self</span>.<span class='ident'>subst_spanned</span>(<span class='ident'>tcx</span>, <span class='ident'>substs</span>, <span class='prelude-val'>None</span>)
+<span class="kw">pub</span> <span class="kw">trait</span> <span class="ident">Subst</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> : <span class="ident">Sized</span> {
+    <span class="kw">fn</span> <span class="ident">subst</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                      <span class="ident">substs</span>: <span class="kw-2">&amp;</span>[<span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>]) <span class="op">-&gt;</span> <span class="self">Self</span> {
+        <span class="self">self</span>.<span class="ident">subst_spanned</span>(<span class="ident">tcx</span>, <span class="ident">substs</span>, <span class="prelude-val">None</span>)
     }
 
-    <span class='kw'>fn</span> <span class='ident'>subst_spanned</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                               <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>],
-                               <span class='ident'>span</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Span</span><span class='op'>&gt;</span>)
-                               <span class='op'>-&gt;</span> <span class='self'>Self</span>;
+    <span class="kw">fn</span> <span class="ident">subst_spanned</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                               <span class="ident">substs</span>: <span class="kw-2">&amp;</span>[<span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>],
+                               <span class="ident">span</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Span</span><span class="op">&gt;</span>)
+                               <span class="op">-&gt;</span> <span class="self">Self</span>;
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>T</span>:<span class='ident'>TypeFoldable</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span> <span class='ident'>Subst</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>T</span> {
-    <span class='kw'>fn</span> <span class='ident'>subst_spanned</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                               <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>],
-                               <span class='ident'>span</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Span</span><span class='op'>&gt;</span>)
-                               <span class='op'>-&gt;</span> <span class='ident'>T</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">T</span>:<span class="ident">TypeFoldable</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span> <span class="ident">Subst</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">T</span> {
+    <span class="kw">fn</span> <span class="ident">subst_spanned</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                               <span class="ident">substs</span>: <span class="kw-2">&amp;</span>[<span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>],
+                               <span class="ident">span</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Span</span><span class="op">&gt;</span>)
+                               <span class="op">-&gt;</span> <span class="ident">T</span>
     {
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>folder</span> <span class='op'>=</span> <span class='ident'>SubstFolder</span> { <span class='ident'>tcx</span>: <span class='ident'>tcx</span>,
-                                       <span class='ident'>substs</span>: <span class='ident'>substs</span>,
-                                       <span class='ident'>span</span>: <span class='ident'>span</span>,
-                                       <span class='ident'>root_ty</span>: <span class='prelude-val'>None</span>,
-                                       <span class='ident'>ty_stack_depth</span>: <span class='number'>0</span>,
-                                       <span class='ident'>region_binders_passed</span>: <span class='number'>0</span> };
-        (<span class='kw-2'>*</span><span class='self'>self</span>).<span class='ident'>fold_with</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>folder</span>)
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">folder</span> <span class="op">=</span> <span class="ident">SubstFolder</span> { <span class="ident">tcx</span>: <span class="ident">tcx</span>,
+                                       <span class="ident">substs</span>: <span class="ident">substs</span>,
+                                       <span class="ident">span</span>: <span class="ident">span</span>,
+                                       <span class="ident">root_ty</span>: <span class="prelude-val">None</span>,
+                                       <span class="ident">ty_stack_depth</span>: <span class="number">0</span>,
+                                       <span class="ident">region_binders_passed</span>: <span class="number">0</span> };
+        (<span class="kw-2">*</span><span class="self">self</span>).<span class="ident">fold_with</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">folder</span>)
     }
 }
 
-<span class='comment'>///////////////////////////////////////////////////////////////////////////</span>
-<span class='comment'>// The actual substitution engine itself is a type folder.</span>
+<span class="comment">///////////////////////////////////////////////////////////////////////////</span>
+<span class="comment">// The actual substitution engine itself is a type folder.</span>
 
-<span class='kw'>struct</span> <span class='ident'>SubstFolder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>: <span class='lifetime'>&#39;a</span><span class='op'>+</span><span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span>: <span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-    <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> [<span class='ident'>Kind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>],
+<span class="kw">struct</span> <span class="ident">SubstFolder</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>: <span class="lifetime">&#39;a</span><span class="op">+</span><span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span>: <span class="lifetime">&#39;a</span><span class="op">&gt;</span> {
+    <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">substs</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> [<span class="ident">Kind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>],
 
-    <span class='comment'>// The location for which the substitution is performed, if available.</span>
-    <span class='ident'>span</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Span</span><span class='op'>&gt;</span>,
+    <span class="comment">// The location for which the substitution is performed, if available.</span>
+    <span class="ident">span</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Span</span><span class="op">&gt;</span>,
 
-    <span class='comment'>// The root type that is being substituted, if available.</span>
-    <span class='ident'>root_ty</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
+    <span class="comment">// The root type that is being substituted, if available.</span>
+    <span class="ident">root_ty</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,
 
-    <span class='comment'>// Depth of type stack</span>
-    <span class='ident'>ty_stack_depth</span>: <span class='ident'>usize</span>,
+    <span class="comment">// Depth of type stack</span>
+    <span class="ident">ty_stack_depth</span>: <span class="ident">usize</span>,
 
-    <span class='comment'>// Number of region binders we have passed through while doing the substitution</span>
-    <span class='ident'>region_binders_passed</span>: <span class='ident'>u32</span>,
+    <span class="comment">// Number of region binders we have passed through while doing the substitution</span>
+    <span class="ident">region_binders_passed</span>: <span class="ident">u32</span>,
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>TypeFolder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>SubstFolder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>tcx</span><span class='op'>&lt;</span><span class='lifetime'>&#39;b</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;b</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;b</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> { <span class='self'>self</span>.<span class='ident'>tcx</span> }
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">TypeFolder</span><span class="op">&lt;</span><span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">SubstFolder</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">tcx</span><span class="op">&lt;</span><span class="lifetime">&#39;b</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;b</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;b</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> { <span class="self">self</span>.<span class="ident">tcx</span> }
 
-    <span class='kw'>fn</span> <span class='ident'>fold_binder</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='ident'>TypeFoldable</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>t</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>Binder</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>ty</span>::<span class='ident'>Binder</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>region_binders_passed</span> <span class='op'>+=</span> <span class='number'>1</span>;
-        <span class='kw'>let</span> <span class='ident'>t</span> <span class='op'>=</span> <span class='ident'>t</span>.<span class='ident'>super_fold_with</span>(<span class='self'>self</span>);
-        <span class='self'>self</span>.<span class='ident'>region_binders_passed</span> <span class='op'>-=</span> <span class='number'>1</span>;
-        <span class='ident'>t</span>
+    <span class="kw">fn</span> <span class="ident">fold_binder</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="ident">TypeFoldable</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">t</span>: <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">Binder</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">Binder</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+        <span class="self">self</span>.<span class="ident">region_binders_passed</span> <span class="op">+=</span> <span class="number">1</span>;
+        <span class="kw">let</span> <span class="ident">t</span> <span class="op">=</span> <span class="ident">t</span>.<span class="ident">super_fold_with</span>(<span class="self">self</span>);
+        <span class="self">self</span>.<span class="ident">region_binders_passed</span> <span class="op">-=</span> <span class="number">1</span>;
+        <span class="ident">t</span>
     }
 
-    <span class='kw'>fn</span> <span class='ident'>fold_region</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>r</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span> {
-        <span class='comment'>// Note: This routine only handles regions that are bound on</span>
-        <span class='comment'>// type declarations and other outer declarations, not those</span>
-        <span class='comment'>// bound in *fn types*. Region substitution of the bound</span>
-        <span class='comment'>// regions that appear in a function signature is done using</span>
-        <span class='comment'>// the specialized routine `ty::replace_late_regions()`.</span>
-        <span class='kw'>match</span> <span class='kw-2'>*</span><span class='ident'>r</span> {
-            <span class='ident'>ty</span>::<span class='ident'>ReEarlyBound</span>(<span class='ident'>data</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>substs</span>.<span class='ident'>get</span>(<span class='ident'>data</span>.<span class='ident'>index</span> <span class='kw'>as</span> <span class='ident'>usize</span>)
-                            .<span class='ident'>and_then</span>(<span class='op'>|</span><span class='ident'>k</span><span class='op'>|</span> <span class='ident'>k</span>.<span class='ident'>as_region</span>());
-                <span class='kw'>match</span> <span class='ident'>r</span> {
-                    <span class='prelude-val'>Some</span>(<span class='ident'>r</span>) <span class='op'>=&gt;</span> {
-                        <span class='self'>self</span>.<span class='ident'>shift_region_through_binders</span>(<span class='ident'>r</span>)
+    <span class="kw">fn</span> <span class="ident">fold_region</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">r</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span> {
+        <span class="comment">// Note: This routine only handles regions that are bound on</span>
+        <span class="comment">// type declarations and other outer declarations, not those</span>
+        <span class="comment">// bound in *fn types*. Region substitution of the bound</span>
+        <span class="comment">// regions that appear in a function signature is done using</span>
+        <span class="comment">// the specialized routine `ty::replace_late_regions()`.</span>
+        <span class="kw">match</span> <span class="kw-2">*</span><span class="ident">r</span> {
+            <span class="ident">ty</span>::<span class="ident">ReEarlyBound</span>(<span class="ident">data</span>) <span class="op">=&gt;</span> {
+                <span class="kw">let</span> <span class="ident">r</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">substs</span>.<span class="ident">get</span>(<span class="ident">data</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>)
+                            .<span class="ident">and_then</span>(<span class="op">|</span><span class="ident">k</span><span class="op">|</span> <span class="ident">k</span>.<span class="ident">as_region</span>());
+                <span class="kw">match</span> <span class="ident">r</span> {
+                    <span class="prelude-val">Some</span>(<span class="ident">r</span>) <span class="op">=&gt;</span> {
+                        <span class="self">self</span>.<span class="ident">shift_region_through_binders</span>(<span class="ident">r</span>)
                     }
-                    <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> {
-                        <span class='kw'>let</span> <span class='ident'>span</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>span</span>.<span class='ident'>unwrap_or</span>(<span class='ident'>DUMMY_SP</span>);
-                        <span class='macro'>span_bug</span><span class='macro'>!</span>(
-                            <span class='ident'>span</span>,
-                            <span class='string'>&quot;Region parameter out of range \
+                    <span class="prelude-val">None</span> <span class="op">=&gt;</span> {
+                        <span class="kw">let</span> <span class="ident">span</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">span</span>.<span class="ident">unwrap_or</span>(<span class="ident">DUMMY_SP</span>);
+                        <span class="macro">span_bug</span><span class="macro">!</span>(
+                            <span class="ident">span</span>,
+                            <span class="string">&quot;Region parameter out of range \
                              when substituting in region {} (root type={:?}) \
                              (index={})&quot;</span>,
-                            <span class='ident'>data</span>.<span class='ident'>name</span>,
-                            <span class='self'>self</span>.<span class='ident'>root_ty</span>,
-                            <span class='ident'>data</span>.<span class='ident'>index</span>);
+                            <span class="ident">data</span>.<span class="ident">name</span>,
+                            <span class="self">self</span>.<span class="ident">root_ty</span>,
+                            <span class="ident">data</span>.<span class="ident">index</span>);
                     }
                 }
             }
-            _ <span class='op'>=&gt;</span> <span class='ident'>r</span>
+            _ <span class="op">=&gt;</span> <span class="ident">r</span>
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>fold_ty</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>t</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>t</span>.<span class='ident'>needs_subst</span>() {
-            <span class='kw'>return</span> <span class='ident'>t</span>;
+    <span class="kw">fn</span> <span class="ident">fold_ty</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">t</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="kw">if</span> <span class="op">!</span><span class="ident">t</span>.<span class="ident">needs_subst</span>() {
+            <span class="kw">return</span> <span class="ident">t</span>;
         }
 
-        <span class='comment'>// track the root type we were asked to substitute</span>
-        <span class='kw'>let</span> <span class='ident'>depth</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>ty_stack_depth</span>;
-        <span class='kw'>if</span> <span class='ident'>depth</span> <span class='op'>==</span> <span class='number'>0</span> {
-            <span class='self'>self</span>.<span class='ident'>root_ty</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='ident'>t</span>);
+        <span class="comment">// track the root type we were asked to substitute</span>
+        <span class="kw">let</span> <span class="ident">depth</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">ty_stack_depth</span>;
+        <span class="kw">if</span> <span class="ident">depth</span> <span class="op">==</span> <span class="number">0</span> {
+            <span class="self">self</span>.<span class="ident">root_ty</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="ident">t</span>);
         }
-        <span class='self'>self</span>.<span class='ident'>ty_stack_depth</span> <span class='op'>+=</span> <span class='number'>1</span>;
+        <span class="self">self</span>.<span class="ident">ty_stack_depth</span> <span class="op">+=</span> <span class="number">1</span>;
 
-        <span class='kw'>let</span> <span class='ident'>t1</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>t</span>.<span class='ident'>sty</span> {
-            <span class='ident'>ty</span>::<span class='ident'>TyParam</span>(<span class='ident'>p</span>) <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>ty_for_param</span>(<span class='ident'>p</span>, <span class='ident'>t</span>)
+        <span class="kw">let</span> <span class="ident">t1</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">t</span>.<span class="ident">sty</span> {
+            <span class="ident">ty</span>::<span class="ident">TyParam</span>(<span class="ident">p</span>) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">ty_for_param</span>(<span class="ident">p</span>, <span class="ident">t</span>)
             }
-            _ <span class='op'>=&gt;</span> {
-                <span class='ident'>t</span>.<span class='ident'>super_fold_with</span>(<span class='self'>self</span>)
+            _ <span class="op">=&gt;</span> {
+                <span class="ident">t</span>.<span class="ident">super_fold_with</span>(<span class="self">self</span>)
             }
         };
 
-        <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>depth</span> <span class='op'>+</span> <span class='number'>1</span>, <span class='self'>self</span>.<span class='ident'>ty_stack_depth</span>);
-        <span class='self'>self</span>.<span class='ident'>ty_stack_depth</span> <span class='op'>-=</span> <span class='number'>1</span>;
-        <span class='kw'>if</span> <span class='ident'>depth</span> <span class='op'>==</span> <span class='number'>0</span> {
-            <span class='self'>self</span>.<span class='ident'>root_ty</span> <span class='op'>=</span> <span class='prelude-val'>None</span>;
+        <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">depth</span> <span class="op">+</span> <span class="number">1</span>, <span class="self">self</span>.<span class="ident">ty_stack_depth</span>);
+        <span class="self">self</span>.<span class="ident">ty_stack_depth</span> <span class="op">-=</span> <span class="number">1</span>;
+        <span class="kw">if</span> <span class="ident">depth</span> <span class="op">==</span> <span class="number">0</span> {
+            <span class="self">self</span>.<span class="ident">root_ty</span> <span class="op">=</span> <span class="prelude-val">None</span>;
         }
 
-        <span class='kw'>return</span> <span class='ident'>t1</span>;
+        <span class="kw">return</span> <span class="ident">t1</span>;
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>SubstFolder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>ty_for_param</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>p</span>: <span class='ident'>ty</span>::<span class='ident'>ParamTy</span>, <span class='ident'>source_ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='comment'>// Look up the type in the substitutions. It really should be in there.</span>
-        <span class='kw'>let</span> <span class='ident'>opt_ty</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>substs</span>.<span class='ident'>get</span>(<span class='ident'>p</span>.<span class='ident'>idx</span> <span class='kw'>as</span> <span class='ident'>usize</span>)
-                         .<span class='ident'>and_then</span>(<span class='op'>|</span><span class='ident'>k</span><span class='op'>|</span> <span class='ident'>k</span>.<span class='ident'>as_type</span>());
-        <span class='kw'>let</span> <span class='ident'>ty</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>opt_ty</span> {
-            <span class='prelude-val'>Some</span>(<span class='ident'>t</span>) <span class='op'>=&gt;</span> <span class='ident'>t</span>,
-            <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> {
-                <span class='kw'>let</span> <span class='ident'>span</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>span</span>.<span class='ident'>unwrap_or</span>(<span class='ident'>DUMMY_SP</span>);
-                <span class='macro'>span_bug</span><span class='macro'>!</span>(
-                    <span class='ident'>span</span>,
-                    <span class='string'>&quot;Type parameter `{:?}` ({:?}/{}) out of range \
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">SubstFolder</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">ty_for_param</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">p</span>: <span class="ident">ty</span>::<span class="ident">ParamTy</span>, <span class="ident">source_ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="comment">// Look up the type in the substitutions. It really should be in there.</span>
+        <span class="kw">let</span> <span class="ident">opt_ty</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">substs</span>.<span class="ident">get</span>(<span class="ident">p</span>.<span class="ident">idx</span> <span class="kw">as</span> <span class="ident">usize</span>)
+                         .<span class="ident">and_then</span>(<span class="op">|</span><span class="ident">k</span><span class="op">|</span> <span class="ident">k</span>.<span class="ident">as_type</span>());
+        <span class="kw">let</span> <span class="ident">ty</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">opt_ty</span> {
+            <span class="prelude-val">Some</span>(<span class="ident">t</span>) <span class="op">=&gt;</span> <span class="ident">t</span>,
+            <span class="prelude-val">None</span> <span class="op">=&gt;</span> {
+                <span class="kw">let</span> <span class="ident">span</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">span</span>.<span class="ident">unwrap_or</span>(<span class="ident">DUMMY_SP</span>);
+                <span class="macro">span_bug</span><span class="macro">!</span>(
+                    <span class="ident">span</span>,
+                    <span class="string">&quot;Type parameter `{:?}` ({:?}/{}) out of range \
                          when substituting (root type={:?}) substs={:?}&quot;</span>,
-                    <span class='ident'>p</span>,
-                    <span class='ident'>source_ty</span>,
-                    <span class='ident'>p</span>.<span class='ident'>idx</span>,
-                    <span class='self'>self</span>.<span class='ident'>root_ty</span>,
-                    <span class='self'>self</span>.<span class='ident'>substs</span>);
+                    <span class="ident">p</span>,
+                    <span class="ident">source_ty</span>,
+                    <span class="ident">p</span>.<span class="ident">idx</span>,
+                    <span class="self">self</span>.<span class="ident">root_ty</span>,
+                    <span class="self">self</span>.<span class="ident">substs</span>);
             }
         };
 
-        <span class='self'>self</span>.<span class='ident'>shift_regions_through_binders</span>(<span class='ident'>ty</span>)
+        <span class="self">self</span>.<span class="ident">shift_regions_through_binders</span>(<span class="ident">ty</span>)
     }
 
-    <span class='doccomment'>/// It is sometimes necessary to adjust the debruijn indices during substitution. This occurs</span>
-    <span class='doccomment'>/// when we are substituting a type with escaping regions into a context where we have passed</span>
-    <span class='doccomment'>/// through region binders. That&#39;s quite a mouthful. Let&#39;s see an example:</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// ```</span>
-    <span class='doccomment'>/// type Func&lt;A&gt; = fn(A);</span>
-    <span class='doccomment'>/// type MetaFunc = for&lt;&#39;a&gt; fn(Func&lt;&amp;&#39;a int&gt;)</span>
-    <span class='doccomment'>/// ```</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// The type `MetaFunc`, when fully expanded, will be</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>///     for&lt;&#39;a&gt; fn(fn(&amp;&#39;a int))</span>
-    <span class='doccomment'>///             ^~ ^~ ^~~</span>
-    <span class='doccomment'>///             |  |  |</span>
-    <span class='doccomment'>///             |  |  DebruijnIndex of 2</span>
-    <span class='doccomment'>///             Binders</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// Here the `&#39;a` lifetime is bound in the outer function, but appears as an argument of the</span>
-    <span class='doccomment'>/// inner one. Therefore, that appearance will have a DebruijnIndex of 2, because we must skip</span>
-    <span class='doccomment'>/// over the inner binder (remember that we count Debruijn indices from 1). However, in the</span>
-    <span class='doccomment'>/// definition of `MetaFunc`, the binder is not visible, so the type `&amp;&#39;a int` will have a</span>
-    <span class='doccomment'>/// debruijn index of 1. It&#39;s only during the substitution that we can see we must increase the</span>
-    <span class='doccomment'>/// depth by 1 to account for the binder that we passed through.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// As a second example, consider this twist:</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// ```</span>
-    <span class='doccomment'>/// type FuncTuple&lt;A&gt; = (A,fn(A));</span>
-    <span class='doccomment'>/// type MetaFuncTuple = for&lt;&#39;a&gt; fn(FuncTuple&lt;&amp;&#39;a int&gt;)</span>
-    <span class='doccomment'>/// ```</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// Here the final type will be:</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>///     for&lt;&#39;a&gt; fn((&amp;&#39;a int, fn(&amp;&#39;a int)))</span>
-    <span class='doccomment'>///                 ^~~         ^~~</span>
-    <span class='doccomment'>///                 |           |</span>
-    <span class='doccomment'>///          DebruijnIndex of 1 |</span>
-    <span class='doccomment'>///                      DebruijnIndex of 2</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// As indicated in the diagram, here the same type `&amp;&#39;a int` is substituted once, but in the</span>
-    <span class='doccomment'>/// first case we do not increase the Debruijn index and in the second case we do. The reason</span>
-    <span class='doccomment'>/// is that only in the second case have we passed through a fn binder.</span>
-    <span class='kw'>fn</span> <span class='ident'>shift_regions_through_binders</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;shift_regions(ty={:?}, region_binders_passed={:?}, has_escaping_regions={:?})&quot;</span>,
-               <span class='ident'>ty</span>, <span class='self'>self</span>.<span class='ident'>region_binders_passed</span>, <span class='ident'>ty</span>.<span class='ident'>has_escaping_regions</span>());
+    <span class="doccomment">/// It is sometimes necessary to adjust the debruijn indices during substitution. This occurs</span>
+    <span class="doccomment">/// when we are substituting a type with escaping regions into a context where we have passed</span>
+    <span class="doccomment">/// through region binders. That&#39;s quite a mouthful. Let&#39;s see an example:</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// ```</span>
+    <span class="doccomment">/// type Func&lt;A&gt; = fn(A);</span>
+    <span class="doccomment">/// type MetaFunc = for&lt;&#39;a&gt; fn(Func&lt;&amp;&#39;a int&gt;)</span>
+    <span class="doccomment">/// ```</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// The type `MetaFunc`, when fully expanded, will be</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">///     for&lt;&#39;a&gt; fn(fn(&amp;&#39;a int))</span>
+    <span class="doccomment">///             ^~ ^~ ^~~</span>
+    <span class="doccomment">///             |  |  |</span>
+    <span class="doccomment">///             |  |  DebruijnIndex of 2</span>
+    <span class="doccomment">///             Binders</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Here the `&#39;a` lifetime is bound in the outer function, but appears as an argument of the</span>
+    <span class="doccomment">/// inner one. Therefore, that appearance will have a DebruijnIndex of 2, because we must skip</span>
+    <span class="doccomment">/// over the inner binder (remember that we count Debruijn indices from 1). However, in the</span>
+    <span class="doccomment">/// definition of `MetaFunc`, the binder is not visible, so the type `&amp;&#39;a int` will have a</span>
+    <span class="doccomment">/// debruijn index of 1. It&#39;s only during the substitution that we can see we must increase the</span>
+    <span class="doccomment">/// depth by 1 to account for the binder that we passed through.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// As a second example, consider this twist:</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// ```</span>
+    <span class="doccomment">/// type FuncTuple&lt;A&gt; = (A,fn(A));</span>
+    <span class="doccomment">/// type MetaFuncTuple = for&lt;&#39;a&gt; fn(FuncTuple&lt;&amp;&#39;a int&gt;)</span>
+    <span class="doccomment">/// ```</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Here the final type will be:</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">///     for&lt;&#39;a&gt; fn((&amp;&#39;a int, fn(&amp;&#39;a int)))</span>
+    <span class="doccomment">///                 ^~~         ^~~</span>
+    <span class="doccomment">///                 |           |</span>
+    <span class="doccomment">///          DebruijnIndex of 1 |</span>
+    <span class="doccomment">///                      DebruijnIndex of 2</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// As indicated in the diagram, here the same type `&amp;&#39;a int` is substituted once, but in the</span>
+    <span class="doccomment">/// first case we do not increase the Debruijn index and in the second case we do. The reason</span>
+    <span class="doccomment">/// is that only in the second case have we passed through a fn binder.</span>
+    <span class="kw">fn</span> <span class="ident">shift_regions_through_binders</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;shift_regions(ty={:?}, region_binders_passed={:?}, has_escaping_regions={:?})&quot;</span>,
+               <span class="ident">ty</span>, <span class="self">self</span>.<span class="ident">region_binders_passed</span>, <span class="ident">ty</span>.<span class="ident">has_escaping_regions</span>());
 
-        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>region_binders_passed</span> <span class='op'>==</span> <span class='number'>0</span> <span class='op'>||</span> <span class='op'>!</span><span class='ident'>ty</span>.<span class='ident'>has_escaping_regions</span>() {
-            <span class='kw'>return</span> <span class='ident'>ty</span>;
+        <span class="kw">if</span> <span class="self">self</span>.<span class="ident">region_binders_passed</span> <span class="op">==</span> <span class="number">0</span> <span class="op">||</span> <span class="op">!</span><span class="ident">ty</span>.<span class="ident">has_escaping_regions</span>() {
+            <span class="kw">return</span> <span class="ident">ty</span>;
         }
 
-        <span class='kw'>let</span> <span class='ident'>result</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>fold</span>::<span class='ident'>shift_regions</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>(), <span class='self'>self</span>.<span class='ident'>region_binders_passed</span>, <span class='kw-2'>&amp;</span><span class='ident'>ty</span>);
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;shift_regions: shifted result = {:?}&quot;</span>, <span class='ident'>result</span>);
+        <span class="kw">let</span> <span class="ident">result</span> <span class="op">=</span> <span class="ident">ty</span>::<span class="ident">fold</span>::<span class="ident">shift_regions</span>(<span class="self">self</span>.<span class="ident">tcx</span>(), <span class="self">self</span>.<span class="ident">region_binders_passed</span>, <span class="kw-2">&amp;</span><span class="ident">ty</span>);
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;shift_regions: shifted result = {:?}&quot;</span>, <span class="ident">result</span>);
 
-        <span class='ident'>result</span>
+        <span class="ident">result</span>
     }
 
-    <span class='kw'>fn</span> <span class='ident'>shift_region_through_binders</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>region</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span> {
-        <span class='self'>self</span>.<span class='ident'>tcx</span>().<span class='ident'>mk_region</span>(<span class='ident'>ty</span>::<span class='ident'>fold</span>::<span class='ident'>shift_region</span>(<span class='kw-2'>*</span><span class='ident'>region</span>, <span class='self'>self</span>.<span class='ident'>region_binders_passed</span>))
+    <span class="kw">fn</span> <span class="ident">shift_region_through_binders</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">region</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span> {
+        <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">mk_region</span>(<span class="ident">ty</span>::<span class="ident">fold</span>::<span class="ident">shift_region</span>(<span class="kw-2">*</span><span class="ident">region</span>, <span class="self">self</span>.<span class="ident">region_binders_passed</span>))
     }
 }
 
-<span class='comment'>// Helper methods that modify substitutions.</span>
+<span class="comment">// Helper methods that modify substitutions.</span>
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>ty</span>::<span class='ident'>TraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>from_method</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                       <span class='ident'>trait_id</span>: <span class='ident'>DefId</span>,
-                       <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-                       <span class='op'>-&gt;</span> <span class='ident'>ty</span>::<span class='ident'>TraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='kw'>let</span> <span class='ident'>defs</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>item_generics</span>(<span class='ident'>trait_id</span>);
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">ty</span>::<span class="ident">TraitRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">from_method</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                       <span class="ident">trait_id</span>: <span class="ident">DefId</span>,
+                       <span class="ident">substs</span>: <span class="kw-2">&amp;</span><span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+                       <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">TraitRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="kw">let</span> <span class="ident">defs</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">item_generics</span>(<span class="ident">trait_id</span>);
 
-        <span class='ident'>ty</span>::<span class='ident'>TraitRef</span> {
-            <span class='ident'>def_id</span>: <span class='ident'>trait_id</span>,
-            <span class='ident'>substs</span>: <span class='ident'>tcx</span>.<span class='ident'>intern_substs</span>(<span class='kw-2'>&amp;</span><span class='ident'>substs</span>[..<span class='ident'>defs</span>.<span class='ident'>own_count</span>()])
-        }
-    }
-}
-
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>ty</span>::<span class='ident'>ExistentialTraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>erase_self_ty</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                         <span class='ident'>trait_ref</span>: <span class='ident'>ty</span>::<span class='ident'>TraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-                         <span class='op'>-&gt;</span> <span class='ident'>ty</span>::<span class='ident'>ExistentialTraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='comment'>// Assert there is a Self.</span>
-        <span class='ident'>trait_ref</span>.<span class='ident'>substs</span>.<span class='ident'>type_at</span>(<span class='number'>0</span>);
-
-        <span class='ident'>ty</span>::<span class='ident'>ExistentialTraitRef</span> {
-            <span class='ident'>def_id</span>: <span class='ident'>trait_ref</span>.<span class='ident'>def_id</span>,
-            <span class='ident'>substs</span>: <span class='ident'>tcx</span>.<span class='ident'>intern_substs</span>(<span class='kw-2'>&amp;</span><span class='ident'>trait_ref</span>.<span class='ident'>substs</span>[<span class='number'>1</span>..])
+        <span class="ident">ty</span>::<span class="ident">TraitRef</span> {
+            <span class="ident">def_id</span>: <span class="ident">trait_id</span>,
+            <span class="ident">substs</span>: <span class="ident">tcx</span>.<span class="ident">intern_substs</span>(<span class="kw-2">&amp;</span><span class="ident">substs</span>[..<span class="ident">defs</span>.<span class="ident">own_count</span>()])
         }
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>ty</span>::<span class='ident'>PolyExistentialTraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='doccomment'>/// Object types don&#39;t have a self-type specified. Therefore, when</span>
-    <span class='doccomment'>/// we convert the principal trait-ref into a normal trait-ref,</span>
-    <span class='doccomment'>/// you must give *some* self-type. A common choice is `mk_err()`</span>
-    <span class='doccomment'>/// or some skolemized type.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>with_self_ty</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                        <span class='ident'>self_ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-                        <span class='op'>-&gt;</span> <span class='ident'>ty</span>::<span class='ident'>PolyTraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>  {
-        <span class='comment'>// otherwise the escaping regions would be captured by the binder</span>
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>self_ty</span>.<span class='ident'>has_escaping_regions</span>());
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">ty</span>::<span class="ident">ExistentialTraitRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">erase_self_ty</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                         <span class="ident">trait_ref</span>: <span class="ident">ty</span>::<span class="ident">TraitRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+                         <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">ExistentialTraitRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="comment">// Assert there is a Self.</span>
+        <span class="ident">trait_ref</span>.<span class="ident">substs</span>.<span class="ident">type_at</span>(<span class="number">0</span>);
 
-        <span class='self'>self</span>.<span class='ident'>map_bound</span>(<span class='op'>|</span><span class='ident'>trait_ref</span><span class='op'>|</span> {
-            <span class='ident'>ty</span>::<span class='ident'>TraitRef</span> {
-                <span class='ident'>def_id</span>: <span class='ident'>trait_ref</span>.<span class='ident'>def_id</span>,
-                <span class='ident'>substs</span>: <span class='ident'>tcx</span>.<span class='ident'>mk_substs</span>(
-                    <span class='ident'>iter</span>::<span class='ident'>once</span>(<span class='ident'>Kind</span>::<span class='ident'>from</span>(<span class='ident'>self_ty</span>)).<span class='ident'>chain</span>(<span class='ident'>trait_ref</span>.<span class='ident'>substs</span>.<span class='ident'>iter</span>().<span class='ident'>cloned</span>()))
+        <span class="ident">ty</span>::<span class="ident">ExistentialTraitRef</span> {
+            <span class="ident">def_id</span>: <span class="ident">trait_ref</span>.<span class="ident">def_id</span>,
+            <span class="ident">substs</span>: <span class="ident">tcx</span>.<span class="ident">intern_substs</span>(<span class="kw-2">&amp;</span><span class="ident">trait_ref</span>.<span class="ident">substs</span>[<span class="number">1</span>..])
+        }
+    }
+}
+
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">ty</span>::<span class="ident">PolyExistentialTraitRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// Object types don&#39;t have a self-type specified. Therefore, when</span>
+    <span class="doccomment">/// we convert the principal trait-ref into a normal trait-ref,</span>
+    <span class="doccomment">/// you must give *some* self-type. A common choice is `mk_err()`</span>
+    <span class="doccomment">/// or some skolemized type.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">with_self_ty</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                        <span class="ident">self_ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+                        <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">PolyTraitRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>  {
+        <span class="comment">// otherwise the escaping regions would be captured by the binder</span>
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="op">!</span><span class="ident">self_ty</span>.<span class="ident">has_escaping_regions</span>());
+
+        <span class="self">self</span>.<span class="ident">map_bound</span>(<span class="op">|</span><span class="ident">trait_ref</span><span class="op">|</span> {
+            <span class="ident">ty</span>::<span class="ident">TraitRef</span> {
+                <span class="ident">def_id</span>: <span class="ident">trait_ref</span>.<span class="ident">def_id</span>,
+                <span class="ident">substs</span>: <span class="ident">tcx</span>.<span class="ident">mk_substs</span>(
+                    <span class="ident">iter</span>::<span class="ident">once</span>(<span class="ident">Kind</span>::<span class="ident">from</span>(<span class="ident">self_ty</span>)).<span class="ident">chain</span>(<span class="ident">trait_ref</span>.<span class="ident">substs</span>.<span class="ident">iter</span>().<span class="ident">cloned</span>()))
             }
         })
     }

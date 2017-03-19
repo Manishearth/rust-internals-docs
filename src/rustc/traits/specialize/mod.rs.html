@@ -337,299 +337,299 @@
 <span id="292">292</span>
 <span id="293">293</span>
 <span id="294">294</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2015 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2015 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='comment'>// Logic and data structures related to impl specialization, explained in</span>
-<span class='comment'>// greater detail below.</span>
-<span class='comment'>//</span>
-<span class='comment'>// At the moment, this implementation support only the simple &quot;chain&quot; rule:</span>
-<span class='comment'>// If any two impls overlap, one must be a strict subset of the other.</span>
-<span class='comment'>//</span>
-<span class='comment'>// See traits/README.md for a bit more detail on how specialization</span>
-<span class='comment'>// fits together with the rest of the trait machinery.</span>
+<span class="comment">// Logic and data structures related to impl specialization, explained in</span>
+<span class="comment">// greater detail below.</span>
+<span class="comment">//</span>
+<span class="comment">// At the moment, this implementation support only the simple &quot;chain&quot; rule:</span>
+<span class="comment">// If any two impls overlap, one must be a strict subset of the other.</span>
+<span class="comment">//</span>
+<span class="comment">// See traits/README.md for a bit more detail on how specialization</span>
+<span class="comment">// fits together with the rest of the trait machinery.</span>
 
-<span class='kw'>use</span> <span class='kw'>super</span>::{<span class='ident'>SelectionContext</span>, <span class='ident'>FulfillmentContext</span>};
-<span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>util</span>::<span class='ident'>impl_trait_ref_and_oblig</span>;
+<span class="kw">use</span> <span class="kw">super</span>::{<span class="ident">SelectionContext</span>, <span class="ident">FulfillmentContext</span>};
+<span class="kw">use</span> <span class="kw">super</span>::<span class="ident">util</span>::<span class="ident">impl_trait_ref_and_oblig</span>;
 
-<span class='kw'>use</span> <span class='ident'>rustc_data_structures</span>::<span class='ident'>fx</span>::<span class='ident'>FxHashMap</span>;
-<span class='kw'>use</span> <span class='ident'>hir</span>::<span class='ident'>def_id</span>::<span class='ident'>DefId</span>;
-<span class='kw'>use</span> <span class='ident'>infer</span>::{<span class='ident'>InferCtxt</span>, <span class='ident'>InferOk</span>};
-<span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>region</span>;
-<span class='kw'>use</span> <span class='ident'>ty</span>::<span class='ident'>subst</span>::{<span class='ident'>Subst</span>, <span class='ident'>Substs</span>};
-<span class='kw'>use</span> <span class='ident'>traits</span>::{<span class='self'>self</span>, <span class='ident'>Reveal</span>, <span class='ident'>ObligationCause</span>};
-<span class='kw'>use</span> <span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>TyCtxt</span>, <span class='ident'>TypeFoldable</span>};
-<span class='kw'>use</span> <span class='ident'>syntax_pos</span>::<span class='ident'>DUMMY_SP</span>;
+<span class="kw">use</span> <span class="ident">rustc_data_structures</span>::<span class="ident">fx</span>::<span class="ident">FxHashMap</span>;
+<span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">def_id</span>::<span class="ident">DefId</span>;
+<span class="kw">use</span> <span class="ident">infer</span>::{<span class="ident">InferCtxt</span>, <span class="ident">InferOk</span>};
+<span class="kw">use</span> <span class="ident">middle</span>::<span class="ident">region</span>;
+<span class="kw">use</span> <span class="ident">ty</span>::<span class="ident">subst</span>::{<span class="ident">Subst</span>, <span class="ident">Substs</span>};
+<span class="kw">use</span> <span class="ident">traits</span>::{<span class="self">self</span>, <span class="ident">Reveal</span>, <span class="ident">ObligationCause</span>};
+<span class="kw">use</span> <span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">TyCtxt</span>, <span class="ident">TypeFoldable</span>};
+<span class="kw">use</span> <span class="ident">syntax_pos</span>::<span class="ident">DUMMY_SP</span>;
 
-<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>;
+<span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">ast</span>;
 
-<span class='kw'>pub</span> <span class='kw'>mod</span> <span class='ident'>specialization_graph</span>;
+<span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">specialization_graph</span>;
 
-<span class='doccomment'>/// Information pertinent to an overlapping impl error.</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>OverlapError</span> {
-    <span class='kw'>pub</span> <span class='ident'>with_impl</span>: <span class='ident'>DefId</span>,
-    <span class='kw'>pub</span> <span class='ident'>trait_desc</span>: <span class='ident'>String</span>,
-    <span class='kw'>pub</span> <span class='ident'>self_desc</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>String</span><span class='op'>&gt;</span>
+<span class="doccomment">/// Information pertinent to an overlapping impl error.</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">OverlapError</span> {
+    <span class="kw">pub</span> <span class="ident">with_impl</span>: <span class="ident">DefId</span>,
+    <span class="kw">pub</span> <span class="ident">trait_desc</span>: <span class="ident">String</span>,
+    <span class="kw">pub</span> <span class="ident">self_desc</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">String</span><span class="op">&gt;</span>,
 }
 
-<span class='doccomment'>/// Given a subst for the requested impl, translate it to a subst</span>
-<span class='doccomment'>/// appropriate for the actual item definition (whether it be in that impl,</span>
-<span class='doccomment'>/// a parent impl, or the trait).</span>
-<span class='doccomment'>/// When we have selected one impl, but are actually using item definitions from</span>
-<span class='doccomment'>/// a parent impl providing a default, we need a way to translate between the</span>
-<span class='doccomment'>/// type parameters of the two impls. Here the `source_impl` is the one we&#39;ve</span>
-<span class='doccomment'>/// selected, and `source_substs` is a substitution of its generics.</span>
-<span class='doccomment'>/// And `target_node` is the impl/trait we&#39;re actually going to get the</span>
-<span class='doccomment'>/// definition from. The resulting substitution will map from `target_node`&#39;s</span>
-<span class='doccomment'>/// generics to `source_impl`&#39;s generics as instantiated by `source_subst`.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// For example, consider the following scenario:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```rust</span>
-<span class='doccomment'>/// trait Foo { ... }</span>
-<span class='doccomment'>/// impl&lt;T, U&gt; Foo for (T, U) { ... }  // target impl</span>
-<span class='doccomment'>/// impl&lt;V&gt; Foo for (V, V) { ... }     // source impl</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Suppose we have selected &quot;source impl&quot; with `V` instantiated with `u32`.</span>
-<span class='doccomment'>/// This function will produce a substitution with `T` and `U` both mapping to `u32`.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Where clauses add some trickiness here, because they can be used to &quot;define&quot;</span>
-<span class='doccomment'>/// an argument indirectly:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```rust</span>
-<span class='doccomment'>/// impl&lt;&#39;a, I, T: &#39;a&gt; Iterator for Cloned&lt;I&gt;</span>
-<span class='doccomment'>///    where I: Iterator&lt;Item=&amp;&#39;a T&gt;, T: Clone</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// In a case like this, the substitution for `T` is determined indirectly,</span>
-<span class='doccomment'>/// through associated type projection. We deal with such cases by using</span>
-<span class='doccomment'>/// *fulfillment* to relate the two impls, requiring that all projections are</span>
-<span class='doccomment'>/// resolved.</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>translate_substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>infcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>InferCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                        <span class='ident'>source_impl</span>: <span class='ident'>DefId</span>,
-                                        <span class='ident'>source_substs</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                        <span class='ident'>target_node</span>: <span class='ident'>specialization_graph</span>::<span class='ident'>Node</span>)
-                                        <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>let</span> <span class='ident'>source_trait_ref</span> <span class='op'>=</span> <span class='ident'>infcx</span>.<span class='ident'>tcx</span>
-                                .<span class='ident'>impl_trait_ref</span>(<span class='ident'>source_impl</span>)
-                                .<span class='ident'>unwrap</span>()
-                                .<span class='ident'>subst</span>(<span class='ident'>infcx</span>.<span class='ident'>tcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>source_substs</span>);
+<span class="doccomment">/// Given a subst for the requested impl, translate it to a subst</span>
+<span class="doccomment">/// appropriate for the actual item definition (whether it be in that impl,</span>
+<span class="doccomment">/// a parent impl, or the trait).</span>
+<span class="doccomment">/// When we have selected one impl, but are actually using item definitions from</span>
+<span class="doccomment">/// a parent impl providing a default, we need a way to translate between the</span>
+<span class="doccomment">/// type parameters of the two impls. Here the `source_impl` is the one we&#39;ve</span>
+<span class="doccomment">/// selected, and `source_substs` is a substitution of its generics.</span>
+<span class="doccomment">/// And `target_node` is the impl/trait we&#39;re actually going to get the</span>
+<span class="doccomment">/// definition from. The resulting substitution will map from `target_node`&#39;s</span>
+<span class="doccomment">/// generics to `source_impl`&#39;s generics as instantiated by `source_subst`.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// For example, consider the following scenario:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```rust</span>
+<span class="doccomment">/// trait Foo { ... }</span>
+<span class="doccomment">/// impl&lt;T, U&gt; Foo for (T, U) { ... }  // target impl</span>
+<span class="doccomment">/// impl&lt;V&gt; Foo for (V, V) { ... }     // source impl</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Suppose we have selected &quot;source impl&quot; with `V` instantiated with `u32`.</span>
+<span class="doccomment">/// This function will produce a substitution with `T` and `U` both mapping to `u32`.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Where clauses add some trickiness here, because they can be used to &quot;define&quot;</span>
+<span class="doccomment">/// an argument indirectly:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```rust</span>
+<span class="doccomment">/// impl&lt;&#39;a, I, T: &#39;a&gt; Iterator for Cloned&lt;I&gt;</span>
+<span class="doccomment">///    where I: Iterator&lt;Item=&amp;&#39;a T&gt;, T: Clone</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// In a case like this, the substitution for `T` is determined indirectly,</span>
+<span class="doccomment">/// through associated type projection. We deal with such cases by using</span>
+<span class="doccomment">/// *fulfillment* to relate the two impls, requiring that all projections are</span>
+<span class="doccomment">/// resolved.</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">translate_substs</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">infcx</span>: <span class="kw-2">&amp;</span><span class="ident">InferCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                        <span class="ident">source_impl</span>: <span class="ident">DefId</span>,
+                                        <span class="ident">source_substs</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                        <span class="ident">target_node</span>: <span class="ident">specialization_graph</span>::<span class="ident">Node</span>)
+                                        <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">let</span> <span class="ident">source_trait_ref</span> <span class="op">=</span> <span class="ident">infcx</span>.<span class="ident">tcx</span>
+                                .<span class="ident">impl_trait_ref</span>(<span class="ident">source_impl</span>)
+                                .<span class="ident">unwrap</span>()
+                                .<span class="ident">subst</span>(<span class="ident">infcx</span>.<span class="ident">tcx</span>, <span class="kw-2">&amp;</span><span class="ident">source_substs</span>);
 
-    <span class='comment'>// translate the Self and TyParam parts of the substitution, since those</span>
-    <span class='comment'>// vary across impls</span>
-    <span class='kw'>let</span> <span class='ident'>target_substs</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>target_node</span> {
-        <span class='ident'>specialization_graph</span>::<span class='ident'>Node</span>::<span class='ident'>Impl</span>(<span class='ident'>target_impl</span>) <span class='op'>=&gt;</span> {
-            <span class='comment'>// no need to translate if we&#39;re targetting the impl we started with</span>
-            <span class='kw'>if</span> <span class='ident'>source_impl</span> <span class='op'>==</span> <span class='ident'>target_impl</span> {
-                <span class='kw'>return</span> <span class='ident'>source_substs</span>;
+    <span class="comment">// translate the Self and TyParam parts of the substitution, since those</span>
+    <span class="comment">// vary across impls</span>
+    <span class="kw">let</span> <span class="ident">target_substs</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">target_node</span> {
+        <span class="ident">specialization_graph</span>::<span class="ident">Node</span>::<span class="ident">Impl</span>(<span class="ident">target_impl</span>) <span class="op">=&gt;</span> {
+            <span class="comment">// no need to translate if we&#39;re targetting the impl we started with</span>
+            <span class="kw">if</span> <span class="ident">source_impl</span> <span class="op">==</span> <span class="ident">target_impl</span> {
+                <span class="kw">return</span> <span class="ident">source_substs</span>;
             }
 
-            <span class='ident'>fulfill_implication</span>(<span class='ident'>infcx</span>, <span class='ident'>source_trait_ref</span>, <span class='ident'>target_impl</span>).<span class='ident'>unwrap_or_else</span>(<span class='op'>|</span>_<span class='op'>|</span> {
-                <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;When translating substitutions for specialization, the expected \
+            <span class="ident">fulfill_implication</span>(<span class="ident">infcx</span>, <span class="ident">source_trait_ref</span>, <span class="ident">target_impl</span>).<span class="ident">unwrap_or_else</span>(<span class="op">|</span>_<span class="op">|</span> {
+                <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;When translating substitutions for specialization, the expected \
                       specializaiton failed to hold&quot;</span>)
             })
         }
-        <span class='ident'>specialization_graph</span>::<span class='ident'>Node</span>::<span class='ident'>Trait</span>(..) <span class='op'>=&gt;</span> <span class='ident'>source_trait_ref</span>.<span class='ident'>substs</span>,
+        <span class="ident">specialization_graph</span>::<span class="ident">Node</span>::<span class="ident">Trait</span>(..) <span class="op">=&gt;</span> <span class="ident">source_trait_ref</span>.<span class="ident">substs</span>,
     };
 
-    <span class='comment'>// directly inherent the method generics, since those do not vary across impls</span>
-    <span class='ident'>source_substs</span>.<span class='ident'>rebase_onto</span>(<span class='ident'>infcx</span>.<span class='ident'>tcx</span>, <span class='ident'>source_impl</span>, <span class='ident'>target_substs</span>)
+    <span class="comment">// directly inherent the method generics, since those do not vary across impls</span>
+    <span class="ident">source_substs</span>.<span class="ident">rebase_onto</span>(<span class="ident">infcx</span>.<span class="ident">tcx</span>, <span class="ident">source_impl</span>, <span class="ident">target_substs</span>)
 }
 
-<span class='doccomment'>/// Given a selected impl described by `impl_data`, returns the</span>
-<span class='doccomment'>/// definition and substitions for the method with the name `name`,</span>
-<span class='doccomment'>/// and trait method substitutions `substs`, in that impl, a less</span>
-<span class='doccomment'>/// specialized impl, or the trait default, whichever applies.</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>find_method</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                             <span class='ident'>name</span>: <span class='ident'>ast</span>::<span class='ident'>Name</span>,
-                             <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                             <span class='ident'>impl_data</span>: <span class='kw-2'>&amp;</span><span class='kw'>super</span>::<span class='ident'>VtableImplData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, ()<span class='op'>&gt;</span>)
-                             <span class='op'>-&gt;</span> (<span class='ident'>DefId</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
+<span class="doccomment">/// Given a selected impl described by `impl_data`, returns the</span>
+<span class="doccomment">/// definition and substitions for the method with the name `name`,</span>
+<span class="doccomment">/// and trait method substitutions `substs`, in that impl, a less</span>
+<span class="doccomment">/// specialized impl, or the trait default, whichever applies.</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">find_method</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                             <span class="ident">name</span>: <span class="ident">ast</span>::<span class="ident">Name</span>,
+                             <span class="ident">substs</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                             <span class="ident">impl_data</span>: <span class="kw-2">&amp;</span><span class="kw">super</span>::<span class="ident">VtableImplData</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, ()<span class="op">&gt;</span>)
+                             <span class="op">-&gt;</span> (<span class="ident">DefId</span>, <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
 {
-    <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>substs</span>.<span class='ident'>needs_infer</span>());
+    <span class="macro">assert</span><span class="macro">!</span>(<span class="op">!</span><span class="ident">substs</span>.<span class="ident">needs_infer</span>());
 
-    <span class='kw'>let</span> <span class='ident'>trait_def_id</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>trait_id_of_impl</span>(<span class='ident'>impl_data</span>.<span class='ident'>impl_def_id</span>).<span class='ident'>unwrap</span>();
-    <span class='kw'>let</span> <span class='ident'>trait_def</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>lookup_trait_def</span>(<span class='ident'>trait_def_id</span>);
+    <span class="kw">let</span> <span class="ident">trait_def_id</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">trait_id_of_impl</span>(<span class="ident">impl_data</span>.<span class="ident">impl_def_id</span>).<span class="ident">unwrap</span>();
+    <span class="kw">let</span> <span class="ident">trait_def</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">lookup_trait_def</span>(<span class="ident">trait_def_id</span>);
 
-    <span class='kw'>let</span> <span class='ident'>ancestors</span> <span class='op'>=</span> <span class='ident'>trait_def</span>.<span class='ident'>ancestors</span>(<span class='ident'>impl_data</span>.<span class='ident'>impl_def_id</span>);
-    <span class='kw'>match</span> <span class='ident'>ancestors</span>.<span class='ident'>defs</span>(<span class='ident'>tcx</span>, <span class='ident'>name</span>, <span class='ident'>ty</span>::<span class='ident'>AssociatedKind</span>::<span class='ident'>Method</span>).<span class='ident'>next</span>() {
-        <span class='prelude-val'>Some</span>(<span class='ident'>node_item</span>) <span class='op'>=&gt;</span> {
-            <span class='kw'>let</span> <span class='ident'>substs</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>infer_ctxt</span>((), <span class='ident'>Reveal</span>::<span class='ident'>All</span>).<span class='ident'>enter</span>(<span class='op'>|</span><span class='ident'>infcx</span><span class='op'>|</span> {
-                <span class='kw'>let</span> <span class='ident'>substs</span> <span class='op'>=</span> <span class='ident'>substs</span>.<span class='ident'>rebase_onto</span>(<span class='ident'>tcx</span>, <span class='ident'>trait_def_id</span>, <span class='ident'>impl_data</span>.<span class='ident'>substs</span>);
-                <span class='kw'>let</span> <span class='ident'>substs</span> <span class='op'>=</span> <span class='ident'>translate_substs</span>(<span class='kw-2'>&amp;</span><span class='ident'>infcx</span>, <span class='ident'>impl_data</span>.<span class='ident'>impl_def_id</span>,
-                                              <span class='ident'>substs</span>, <span class='ident'>node_item</span>.<span class='ident'>node</span>);
-                <span class='kw'>let</span> <span class='ident'>substs</span> <span class='op'>=</span> <span class='ident'>infcx</span>.<span class='ident'>tcx</span>.<span class='ident'>erase_regions</span>(<span class='kw-2'>&amp;</span><span class='ident'>substs</span>);
-                <span class='ident'>tcx</span>.<span class='ident'>lift</span>(<span class='kw-2'>&amp;</span><span class='ident'>substs</span>).<span class='ident'>unwrap_or_else</span>(<span class='op'>||</span> {
-                    <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;find_method: translate_substs \
+    <span class="kw">let</span> <span class="ident">ancestors</span> <span class="op">=</span> <span class="ident">trait_def</span>.<span class="ident">ancestors</span>(<span class="ident">impl_data</span>.<span class="ident">impl_def_id</span>);
+    <span class="kw">match</span> <span class="ident">ancestors</span>.<span class="ident">defs</span>(<span class="ident">tcx</span>, <span class="ident">name</span>, <span class="ident">ty</span>::<span class="ident">AssociatedKind</span>::<span class="ident">Method</span>).<span class="ident">next</span>() {
+        <span class="prelude-val">Some</span>(<span class="ident">node_item</span>) <span class="op">=&gt;</span> {
+            <span class="kw">let</span> <span class="ident">substs</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">infer_ctxt</span>((), <span class="ident">Reveal</span>::<span class="ident">All</span>).<span class="ident">enter</span>(<span class="op">|</span><span class="ident">infcx</span><span class="op">|</span> {
+                <span class="kw">let</span> <span class="ident">substs</span> <span class="op">=</span> <span class="ident">substs</span>.<span class="ident">rebase_onto</span>(<span class="ident">tcx</span>, <span class="ident">trait_def_id</span>, <span class="ident">impl_data</span>.<span class="ident">substs</span>);
+                <span class="kw">let</span> <span class="ident">substs</span> <span class="op">=</span> <span class="ident">translate_substs</span>(<span class="kw-2">&amp;</span><span class="ident">infcx</span>, <span class="ident">impl_data</span>.<span class="ident">impl_def_id</span>,
+                                              <span class="ident">substs</span>, <span class="ident">node_item</span>.<span class="ident">node</span>);
+                <span class="kw">let</span> <span class="ident">substs</span> <span class="op">=</span> <span class="ident">infcx</span>.<span class="ident">tcx</span>.<span class="ident">erase_regions</span>(<span class="kw-2">&amp;</span><span class="ident">substs</span>);
+                <span class="ident">tcx</span>.<span class="ident">lift</span>(<span class="kw-2">&amp;</span><span class="ident">substs</span>).<span class="ident">unwrap_or_else</span>(<span class="op">||</span> {
+                    <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;find_method: translate_substs \
                           returned {:?} which contains inference types/regions&quot;</span>,
-                         <span class='ident'>substs</span>);
+                         <span class="ident">substs</span>);
                 })
             });
-            (<span class='ident'>node_item</span>.<span class='ident'>item</span>.<span class='ident'>def_id</span>, <span class='ident'>substs</span>)
+            (<span class="ident">node_item</span>.<span class="ident">item</span>.<span class="ident">def_id</span>, <span class="ident">substs</span>)
         }
-        <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> {
-            <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;method {:?} not found in {:?}&quot;</span>, <span class='ident'>name</span>, <span class='ident'>impl_data</span>.<span class='ident'>impl_def_id</span>)
+        <span class="prelude-val">None</span> <span class="op">=&gt;</span> {
+            <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;method {:?} not found in {:?}&quot;</span>, <span class="ident">name</span>, <span class="ident">impl_data</span>.<span class="ident">impl_def_id</span>)
         }
     }
 }
 
-<span class='doccomment'>/// Is impl1 a specialization of impl2?</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Specialization is determined by the sets of types to which the impls apply;</span>
-<span class='doccomment'>/// impl1 specializes impl2 if it applies to a subset of the types impl2 applies</span>
-<span class='doccomment'>/// to.</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>specializes</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                             <span class='ident'>impl1_def_id</span>: <span class='ident'>DefId</span>,
-                             <span class='ident'>impl2_def_id</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;specializes({:?}, {:?})&quot;</span>, <span class='ident'>impl1_def_id</span>, <span class='ident'>impl2_def_id</span>);
+<span class="doccomment">/// Is impl1 a specialization of impl2?</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Specialization is determined by the sets of types to which the impls apply;</span>
+<span class="doccomment">/// impl1 specializes impl2 if it applies to a subset of the types impl2 applies</span>
+<span class="doccomment">/// to.</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">specializes</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                             <span class="ident">impl1_def_id</span>: <span class="ident">DefId</span>,
+                             <span class="ident">impl2_def_id</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;specializes({:?}, {:?})&quot;</span>, <span class="ident">impl1_def_id</span>, <span class="ident">impl2_def_id</span>);
 
-    <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>r</span>) <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>specializes_cache</span>.<span class='ident'>borrow</span>().<span class='ident'>check</span>(<span class='ident'>impl1_def_id</span>, <span class='ident'>impl2_def_id</span>) {
-        <span class='kw'>return</span> <span class='ident'>r</span>;
+    <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">r</span>) <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">specializes_cache</span>.<span class="ident">borrow</span>().<span class="ident">check</span>(<span class="ident">impl1_def_id</span>, <span class="ident">impl2_def_id</span>) {
+        <span class="kw">return</span> <span class="ident">r</span>;
     }
 
-    <span class='comment'>// The feature gate should prevent introducing new specializations, but not</span>
-    <span class='comment'>// taking advantage of upstream ones.</span>
-    <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>features</span>.<span class='ident'>borrow</span>().<span class='ident'>specialization</span> <span class='op'>&amp;&amp;</span>
-        (<span class='ident'>impl1_def_id</span>.<span class='ident'>is_local</span>() <span class='op'>||</span> <span class='ident'>impl2_def_id</span>.<span class='ident'>is_local</span>()) {
-        <span class='kw'>return</span> <span class='bool-val'>false</span>;
+    <span class="comment">// The feature gate should prevent introducing new specializations, but not</span>
+    <span class="comment">// taking advantage of upstream ones.</span>
+    <span class="kw">if</span> <span class="op">!</span><span class="ident">tcx</span>.<span class="ident">sess</span>.<span class="ident">features</span>.<span class="ident">borrow</span>().<span class="ident">specialization</span> <span class="op">&amp;&amp;</span>
+        (<span class="ident">impl1_def_id</span>.<span class="ident">is_local</span>() <span class="op">||</span> <span class="ident">impl2_def_id</span>.<span class="ident">is_local</span>()) {
+        <span class="kw">return</span> <span class="bool-val">false</span>;
     }
 
-    <span class='comment'>// We determine whether there&#39;s a subset relationship by:</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// - skolemizing impl1,</span>
-    <span class='comment'>// - assuming the where clauses for impl1,</span>
-    <span class='comment'>// - instantiating impl2 with fresh inference variables,</span>
-    <span class='comment'>// - unifying,</span>
-    <span class='comment'>// - attempting to prove the where clauses for impl2</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// The last three steps are encapsulated in `fulfill_implication`.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// See RFC 1210 for more details and justification.</span>
+    <span class="comment">// We determine whether there&#39;s a subset relationship by:</span>
+    <span class="comment">//</span>
+    <span class="comment">// - skolemizing impl1,</span>
+    <span class="comment">// - assuming the where clauses for impl1,</span>
+    <span class="comment">// - instantiating impl2 with fresh inference variables,</span>
+    <span class="comment">// - unifying,</span>
+    <span class="comment">// - attempting to prove the where clauses for impl2</span>
+    <span class="comment">//</span>
+    <span class="comment">// The last three steps are encapsulated in `fulfill_implication`.</span>
+    <span class="comment">//</span>
+    <span class="comment">// See RFC 1210 for more details and justification.</span>
 
-    <span class='comment'>// Currently we do not allow e.g. a negative impl to specialize a positive one</span>
-    <span class='kw'>if</span> <span class='ident'>tcx</span>.<span class='ident'>trait_impl_polarity</span>(<span class='ident'>impl1_def_id</span>) <span class='op'>!=</span> <span class='ident'>tcx</span>.<span class='ident'>trait_impl_polarity</span>(<span class='ident'>impl2_def_id</span>) {
-        <span class='kw'>return</span> <span class='bool-val'>false</span>;
+    <span class="comment">// Currently we do not allow e.g. a negative impl to specialize a positive one</span>
+    <span class="kw">if</span> <span class="ident">tcx</span>.<span class="ident">trait_impl_polarity</span>(<span class="ident">impl1_def_id</span>) <span class="op">!=</span> <span class="ident">tcx</span>.<span class="ident">trait_impl_polarity</span>(<span class="ident">impl2_def_id</span>) {
+        <span class="kw">return</span> <span class="bool-val">false</span>;
     }
 
-    <span class='comment'>// create a parameter environment corresponding to a (skolemized) instantiation of impl1</span>
-    <span class='kw'>let</span> <span class='ident'>penv</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>construct_parameter_environment</span>(<span class='ident'>DUMMY_SP</span>,
-                                                   <span class='ident'>impl1_def_id</span>,
-                                                   <span class='ident'>region</span>::<span class='ident'>DUMMY_CODE_EXTENT</span>);
-    <span class='kw'>let</span> <span class='ident'>impl1_trait_ref</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>impl_trait_ref</span>(<span class='ident'>impl1_def_id</span>)
-                             .<span class='ident'>unwrap</span>()
-                             .<span class='ident'>subst</span>(<span class='ident'>tcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>penv</span>.<span class='ident'>free_substs</span>);
+    <span class="comment">// create a parameter environment corresponding to a (skolemized) instantiation of impl1</span>
+    <span class="kw">let</span> <span class="ident">penv</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">construct_parameter_environment</span>(<span class="ident">DUMMY_SP</span>,
+                                                   <span class="ident">impl1_def_id</span>,
+                                                   <span class="ident">region</span>::<span class="ident">DUMMY_CODE_EXTENT</span>);
+    <span class="kw">let</span> <span class="ident">impl1_trait_ref</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">impl_trait_ref</span>(<span class="ident">impl1_def_id</span>)
+                             .<span class="ident">unwrap</span>()
+                             .<span class="ident">subst</span>(<span class="ident">tcx</span>, <span class="kw-2">&amp;</span><span class="ident">penv</span>.<span class="ident">free_substs</span>);
 
-    <span class='comment'>// Create a infcx, taking the predicates of impl1 as assumptions:</span>
-    <span class='kw'>let</span> <span class='ident'>result</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>infer_ctxt</span>(<span class='ident'>penv</span>, <span class='ident'>Reveal</span>::<span class='ident'>ExactMatch</span>).<span class='ident'>enter</span>(<span class='op'>|</span><span class='ident'>infcx</span><span class='op'>|</span> {
-        <span class='comment'>// Normalize the trait reference. The WF rules ought to ensure</span>
-        <span class='comment'>// that this always succeeds.</span>
-        <span class='kw'>let</span> <span class='ident'>impl1_trait_ref</span> <span class='op'>=</span>
-            <span class='kw'>match</span> <span class='ident'>traits</span>::<span class='ident'>fully_normalize</span>(<span class='kw-2'>&amp;</span><span class='ident'>infcx</span>, <span class='ident'>ObligationCause</span>::<span class='ident'>dummy</span>(), <span class='kw-2'>&amp;</span><span class='ident'>impl1_trait_ref</span>) {
-                <span class='prelude-val'>Ok</span>(<span class='ident'>impl1_trait_ref</span>) <span class='op'>=&gt;</span> <span class='ident'>impl1_trait_ref</span>,
-                <span class='prelude-val'>Err</span>(<span class='ident'>err</span>) <span class='op'>=&gt;</span> {
-                    <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;failed to fully normalize {:?}: {:?}&quot;</span>, <span class='ident'>impl1_trait_ref</span>, <span class='ident'>err</span>);
+    <span class="comment">// Create a infcx, taking the predicates of impl1 as assumptions:</span>
+    <span class="kw">let</span> <span class="ident">result</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">infer_ctxt</span>(<span class="ident">penv</span>, <span class="ident">Reveal</span>::<span class="ident">UserFacing</span>).<span class="ident">enter</span>(<span class="op">|</span><span class="ident">infcx</span><span class="op">|</span> {
+        <span class="comment">// Normalize the trait reference. The WF rules ought to ensure</span>
+        <span class="comment">// that this always succeeds.</span>
+        <span class="kw">let</span> <span class="ident">impl1_trait_ref</span> <span class="op">=</span>
+            <span class="kw">match</span> <span class="ident">traits</span>::<span class="ident">fully_normalize</span>(<span class="kw-2">&amp;</span><span class="ident">infcx</span>, <span class="ident">ObligationCause</span>::<span class="ident">dummy</span>(), <span class="kw-2">&amp;</span><span class="ident">impl1_trait_ref</span>) {
+                <span class="prelude-val">Ok</span>(<span class="ident">impl1_trait_ref</span>) <span class="op">=&gt;</span> <span class="ident">impl1_trait_ref</span>,
+                <span class="prelude-val">Err</span>(<span class="ident">err</span>) <span class="op">=&gt;</span> {
+                    <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;failed to fully normalize {:?}: {:?}&quot;</span>, <span class="ident">impl1_trait_ref</span>, <span class="ident">err</span>);
                 }
             };
 
-        <span class='comment'>// Attempt to prove that impl2 applies, given all of the above.</span>
-        <span class='ident'>fulfill_implication</span>(<span class='kw-2'>&amp;</span><span class='ident'>infcx</span>, <span class='ident'>impl1_trait_ref</span>, <span class='ident'>impl2_def_id</span>).<span class='ident'>is_ok</span>()
+        <span class="comment">// Attempt to prove that impl2 applies, given all of the above.</span>
+        <span class="ident">fulfill_implication</span>(<span class="kw-2">&amp;</span><span class="ident">infcx</span>, <span class="ident">impl1_trait_ref</span>, <span class="ident">impl2_def_id</span>).<span class="ident">is_ok</span>()
     });
 
-    <span class='ident'>tcx</span>.<span class='ident'>specializes_cache</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>insert</span>(<span class='ident'>impl1_def_id</span>, <span class='ident'>impl2_def_id</span>, <span class='ident'>result</span>);
-    <span class='ident'>result</span>
+    <span class="ident">tcx</span>.<span class="ident">specializes_cache</span>.<span class="ident">borrow_mut</span>().<span class="ident">insert</span>(<span class="ident">impl1_def_id</span>, <span class="ident">impl2_def_id</span>, <span class="ident">result</span>);
+    <span class="ident">result</span>
 }
 
-<span class='doccomment'>/// Attempt to fulfill all obligations of `target_impl` after unification with</span>
-<span class='doccomment'>/// `source_trait_ref`. If successful, returns a substitution for *all* the</span>
-<span class='doccomment'>/// generics of `target_impl`, including both those needed to unify with</span>
-<span class='doccomment'>/// `source_trait_ref` and those whose identity is determined via a where</span>
-<span class='doccomment'>/// clause in the impl.</span>
-<span class='kw'>fn</span> <span class='ident'>fulfill_implication</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>infcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>InferCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                       <span class='ident'>source_trait_ref</span>: <span class='ident'>ty</span>::<span class='ident'>TraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                       <span class='ident'>target_impl</span>: <span class='ident'>DefId</span>)
-                                       <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, ()<span class='op'>&gt;</span> {
-    <span class='kw'>let</span> <span class='ident'>selcx</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>SelectionContext</span>::<span class='ident'>new</span>(<span class='kw-2'>&amp;</span><span class='ident'>infcx</span>);
-    <span class='kw'>let</span> <span class='ident'>target_substs</span> <span class='op'>=</span> <span class='ident'>infcx</span>.<span class='ident'>fresh_substs_for_item</span>(<span class='ident'>DUMMY_SP</span>, <span class='ident'>target_impl</span>);
-    <span class='kw'>let</span> (<span class='ident'>target_trait_ref</span>, <span class='ident'>obligations</span>) <span class='op'>=</span> <span class='ident'>impl_trait_ref_and_oblig</span>(<span class='ident'>selcx</span>,
-                                                                   <span class='ident'>target_impl</span>,
-                                                                   <span class='ident'>target_substs</span>);
+<span class="doccomment">/// Attempt to fulfill all obligations of `target_impl` after unification with</span>
+<span class="doccomment">/// `source_trait_ref`. If successful, returns a substitution for *all* the</span>
+<span class="doccomment">/// generics of `target_impl`, including both those needed to unify with</span>
+<span class="doccomment">/// `source_trait_ref` and those whose identity is determined via a where</span>
+<span class="doccomment">/// clause in the impl.</span>
+<span class="kw">fn</span> <span class="ident">fulfill_implication</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">infcx</span>: <span class="kw-2">&amp;</span><span class="ident">InferCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                       <span class="ident">source_trait_ref</span>: <span class="ident">ty</span>::<span class="ident">TraitRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                       <span class="ident">target_impl</span>: <span class="ident">DefId</span>)
+                                       <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, ()<span class="op">&gt;</span> {
+    <span class="kw">let</span> <span class="ident">selcx</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">SelectionContext</span>::<span class="ident">new</span>(<span class="kw-2">&amp;</span><span class="ident">infcx</span>);
+    <span class="kw">let</span> <span class="ident">target_substs</span> <span class="op">=</span> <span class="ident">infcx</span>.<span class="ident">fresh_substs_for_item</span>(<span class="ident">DUMMY_SP</span>, <span class="ident">target_impl</span>);
+    <span class="kw">let</span> (<span class="ident">target_trait_ref</span>, <span class="ident">obligations</span>) <span class="op">=</span> <span class="ident">impl_trait_ref_and_oblig</span>(<span class="ident">selcx</span>,
+                                                                   <span class="ident">target_impl</span>,
+                                                                   <span class="ident">target_substs</span>);
 
-    <span class='comment'>// do the impls unify? If not, no specialization.</span>
-    <span class='kw'>match</span> <span class='ident'>infcx</span>.<span class='ident'>eq_trait_refs</span>(<span class='bool-val'>true</span>,
-                              <span class='kw-2'>&amp;</span><span class='ident'>ObligationCause</span>::<span class='ident'>dummy</span>(),
-                              <span class='ident'>source_trait_ref</span>,
-                              <span class='ident'>target_trait_ref</span>) {
-        <span class='prelude-val'>Ok</span>(<span class='ident'>InferOk</span> { <span class='ident'>obligations</span>, .. }) <span class='op'>=&gt;</span> {
-            <span class='comment'>// FIXME(#32730) propagate obligations</span>
-            <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>obligations</span>.<span class='ident'>is_empty</span>())
+    <span class="comment">// do the impls unify? If not, no specialization.</span>
+    <span class="kw">match</span> <span class="ident">infcx</span>.<span class="ident">eq_trait_refs</span>(<span class="bool-val">true</span>,
+                              <span class="kw-2">&amp;</span><span class="ident">ObligationCause</span>::<span class="ident">dummy</span>(),
+                              <span class="ident">source_trait_ref</span>,
+                              <span class="ident">target_trait_ref</span>) {
+        <span class="prelude-val">Ok</span>(<span class="ident">InferOk</span> { <span class="ident">obligations</span>, .. }) <span class="op">=&gt;</span> {
+            <span class="comment">// FIXME(#32730) propagate obligations</span>
+            <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">obligations</span>.<span class="ident">is_empty</span>())
         }
-        <span class='prelude-val'>Err</span>(_) <span class='op'>=&gt;</span> {
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;fulfill_implication: {:?} does not unify with {:?}&quot;</span>,
-                   <span class='ident'>source_trait_ref</span>,
-                   <span class='ident'>target_trait_ref</span>);
-            <span class='kw'>return</span> <span class='prelude-val'>Err</span>(());
+        <span class="prelude-val">Err</span>(_) <span class="op">=&gt;</span> {
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;fulfill_implication: {:?} does not unify with {:?}&quot;</span>,
+                   <span class="ident">source_trait_ref</span>,
+                   <span class="ident">target_trait_ref</span>);
+            <span class="kw">return</span> <span class="prelude-val">Err</span>(());
         }
     }
 
-    <span class='comment'>// attempt to prove all of the predicates for impl2 given those for impl1</span>
-    <span class='comment'>// (which are packed up in penv)</span>
+    <span class="comment">// attempt to prove all of the predicates for impl2 given those for impl1</span>
+    <span class="comment">// (which are packed up in penv)</span>
 
-    <span class='ident'>infcx</span>.<span class='ident'>save_and_restore_obligations_in_snapshot_flag</span>(<span class='op'>|</span><span class='ident'>infcx</span><span class='op'>|</span> {
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>fulfill_cx</span> <span class='op'>=</span> <span class='ident'>FulfillmentContext</span>::<span class='ident'>new</span>();
-        <span class='kw'>for</span> <span class='ident'>oblig</span> <span class='kw'>in</span> <span class='ident'>obligations</span>.<span class='ident'>into_iter</span>() {
-            <span class='ident'>fulfill_cx</span>.<span class='ident'>register_predicate_obligation</span>(<span class='kw-2'>&amp;</span><span class='ident'>infcx</span>, <span class='ident'>oblig</span>);
+    <span class="ident">infcx</span>.<span class="ident">save_and_restore_obligations_in_snapshot_flag</span>(<span class="op">|</span><span class="ident">infcx</span><span class="op">|</span> {
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">fulfill_cx</span> <span class="op">=</span> <span class="ident">FulfillmentContext</span>::<span class="ident">new</span>();
+        <span class="kw">for</span> <span class="ident">oblig</span> <span class="kw">in</span> <span class="ident">obligations</span>.<span class="ident">into_iter</span>() {
+            <span class="ident">fulfill_cx</span>.<span class="ident">register_predicate_obligation</span>(<span class="kw-2">&amp;</span><span class="ident">infcx</span>, <span class="ident">oblig</span>);
         }
-        <span class='kw'>match</span> <span class='ident'>fulfill_cx</span>.<span class='ident'>select_all_or_error</span>(<span class='ident'>infcx</span>) {
-            <span class='prelude-val'>Err</span>(<span class='ident'>errors</span>) <span class='op'>=&gt;</span> {
-                <span class='comment'>// no dice!</span>
-                <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;fulfill_implication: for impls on {:?} and {:?}, \
+        <span class="kw">match</span> <span class="ident">fulfill_cx</span>.<span class="ident">select_all_or_error</span>(<span class="ident">infcx</span>) {
+            <span class="prelude-val">Err</span>(<span class="ident">errors</span>) <span class="op">=&gt;</span> {
+                <span class="comment">// no dice!</span>
+                <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;fulfill_implication: for impls on {:?} and {:?}, \
                         could not fulfill: {:?} given {:?}&quot;</span>,
-                       <span class='ident'>source_trait_ref</span>,
-                       <span class='ident'>target_trait_ref</span>,
-                       <span class='ident'>errors</span>,
-                       <span class='ident'>infcx</span>.<span class='ident'>parameter_environment</span>.<span class='ident'>caller_bounds</span>);
-                <span class='prelude-val'>Err</span>(())
+                       <span class="ident">source_trait_ref</span>,
+                       <span class="ident">target_trait_ref</span>,
+                       <span class="ident">errors</span>,
+                       <span class="ident">infcx</span>.<span class="ident">parameter_environment</span>.<span class="ident">caller_bounds</span>);
+                <span class="prelude-val">Err</span>(())
             }
 
-            <span class='prelude-val'>Ok</span>(()) <span class='op'>=&gt;</span> {
-                <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;fulfill_implication: an impl for {:?} specializes {:?}&quot;</span>,
-                       <span class='ident'>source_trait_ref</span>,
-                       <span class='ident'>target_trait_ref</span>);
+            <span class="prelude-val">Ok</span>(()) <span class="op">=&gt;</span> {
+                <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;fulfill_implication: an impl for {:?} specializes {:?}&quot;</span>,
+                       <span class="ident">source_trait_ref</span>,
+                       <span class="ident">target_trait_ref</span>);
 
-                <span class='comment'>// Now resolve the *substitution* we built for the target earlier, replacing</span>
-                <span class='comment'>// the inference variables inside with whatever we got from fulfillment.</span>
-                <span class='prelude-val'>Ok</span>(<span class='ident'>infcx</span>.<span class='ident'>resolve_type_vars_if_possible</span>(<span class='kw-2'>&amp;</span><span class='ident'>target_substs</span>))
+                <span class="comment">// Now resolve the *substitution* we built for the target earlier, replacing</span>
+                <span class="comment">// the inference variables inside with whatever we got from fulfillment.</span>
+                <span class="prelude-val">Ok</span>(<span class="ident">infcx</span>.<span class="ident">resolve_type_vars_if_possible</span>(<span class="kw-2">&amp;</span><span class="ident">target_substs</span>))
             }
         }
     })
 }
 
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>SpecializesCache</span> {
-    <span class='ident'>map</span>: <span class='ident'>FxHashMap</span><span class='op'>&lt;</span>(<span class='ident'>DefId</span>, <span class='ident'>DefId</span>), <span class='ident'>bool</span><span class='op'>&gt;</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">SpecializesCache</span> {
+    <span class="ident">map</span>: <span class="ident">FxHashMap</span><span class="op">&lt;</span>(<span class="ident">DefId</span>, <span class="ident">DefId</span>), <span class="ident">bool</span><span class="op">&gt;</span>,
 }
 
-<span class='kw'>impl</span> <span class='ident'>SpecializesCache</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>() <span class='op'>-&gt;</span> <span class='self'>Self</span> {
-        <span class='ident'>SpecializesCache</span> {
-            <span class='ident'>map</span>: <span class='ident'>FxHashMap</span>()
+<span class="kw">impl</span> <span class="ident">SpecializesCache</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">new</span>() <span class="op">-&gt;</span> <span class="self">Self</span> {
+        <span class="ident">SpecializesCache</span> {
+            <span class="ident">map</span>: <span class="ident">FxHashMap</span>()
         }
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>check</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>a</span>: <span class='ident'>DefId</span>, <span class='ident'>b</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>bool</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>map</span>.<span class='ident'>get</span>(<span class='kw-2'>&amp;</span>(<span class='ident'>a</span>, <span class='ident'>b</span>)).<span class='ident'>cloned</span>()
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">check</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">a</span>: <span class="ident">DefId</span>, <span class="ident">b</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">bool</span><span class="op">&gt;</span> {
+        <span class="self">self</span>.<span class="ident">map</span>.<span class="ident">get</span>(<span class="kw-2">&amp;</span>(<span class="ident">a</span>, <span class="ident">b</span>)).<span class="ident">cloned</span>()
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>insert</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>a</span>: <span class='ident'>DefId</span>, <span class='ident'>b</span>: <span class='ident'>DefId</span>, <span class='ident'>result</span>: <span class='ident'>bool</span>) {
-        <span class='self'>self</span>.<span class='ident'>map</span>.<span class='ident'>insert</span>((<span class='ident'>a</span>, <span class='ident'>b</span>), <span class='ident'>result</span>);
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">insert</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">a</span>: <span class="ident">DefId</span>, <span class="ident">b</span>: <span class="ident">DefId</span>, <span class="ident">result</span>: <span class="ident">bool</span>) {
+        <span class="self">self</span>.<span class="ident">map</span>.<span class="ident">insert</span>((<span class="ident">a</span>, <span class="ident">b</span>), <span class="ident">result</span>);
     }
 }
 </pre>

@@ -574,536 +574,548 @@
 <span id="529">529</span>
 <span id="530">530</span>
 <span id="531">531</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+<span id="532">532</span>
+<span id="533">533</span>
+<span id="534">534</span>
+<span id="535">535</span>
+<span id="536">536</span>
+<span id="537">537</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='doccomment'>//! This is an Earley-like parser, without support for in-grammar nonterminals,</span>
-<span class='doccomment'>//! only by calling out to the main rust parser for named nonterminals (which it</span>
-<span class='doccomment'>//! commits to fully when it hits one in a grammar). This means that there are no</span>
-<span class='doccomment'>//! completer or predictor rules, and therefore no need to store one column per</span>
-<span class='doccomment'>//! token: instead, there&#39;s a set of current Earley items and a set of next</span>
-<span class='doccomment'>//! ones. Instead of NTs, we have a special case for Kleene star. The big-O, in</span>
-<span class='doccomment'>//! pathological cases, is worse than traditional Earley parsing, but it&#39;s an</span>
-<span class='doccomment'>//! easier fit for Macro-by-Example-style rules, and I think the overhead is</span>
-<span class='doccomment'>//! lower. (In order to prevent the pathological case, we&#39;d need to lazily</span>
-<span class='doccomment'>//! construct the resulting `NamedMatch`es at the very end. It&#39;d be a pain,</span>
-<span class='doccomment'>//! and require more memory to keep around old items, but it would also save</span>
-<span class='doccomment'>//! overhead)</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! Quick intro to how the parser works:</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! A &#39;position&#39; is a dot in the middle of a matcher, usually represented as a</span>
-<span class='doccomment'>//! dot. For example `· a $( a )* a b` is a position, as is `a $( · a )* a b`.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! The parser walks through the input a character at a time, maintaining a list</span>
-<span class='doccomment'>//! of items consistent with the current position in the input string: `cur_eis`.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! As it processes them, it fills up `eof_eis` with items that would be valid if</span>
-<span class='doccomment'>//! the macro invocation is now over, `bb_eis` with items that are waiting on</span>
-<span class='doccomment'>//! a Rust nonterminal like `$e:expr`, and `next_eis` with items that are waiting</span>
-<span class='doccomment'>//! on a particular token. Most of the logic concerns moving the · through the</span>
-<span class='doccomment'>//! repetitions indicated by Kleene stars. It only advances or calls out to the</span>
-<span class='doccomment'>//! real Rust parser when no `cur_eis` items remain</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! Example: Start parsing `a a a a b` against [· a $( a )* a b].</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! Remaining input: `a a a a b`</span>
-<span class='doccomment'>//! next_eis: [· a $( a )* a b]</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! - - - Advance over an `a`. - - -</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! Remaining input: `a a a b`</span>
-<span class='doccomment'>//! cur: [a · $( a )* a b]</span>
-<span class='doccomment'>//! Descend/Skip (first item).</span>
-<span class='doccomment'>//! next: [a $( · a )* a b]  [a $( a )* · a b].</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! - - - Advance over an `a`. - - -</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! Remaining input: `a a b`</span>
-<span class='doccomment'>//! cur: [a $( a · )* a b]  next: [a $( a )* a · b]</span>
-<span class='doccomment'>//! Finish/Repeat (first item)</span>
-<span class='doccomment'>//! next: [a $( a )* · a b]  [a $( · a )* a b]  [a $( a )* a · b]</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! - - - Advance over an `a`. - - - (this looks exactly like the last step)</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! Remaining input: `a b`</span>
-<span class='doccomment'>//! cur: [a $( a · )* a b]  next: [a $( a )* a · b]</span>
-<span class='doccomment'>//! Finish/Repeat (first item)</span>
-<span class='doccomment'>//! next: [a $( a )* · a b]  [a $( · a )* a b]  [a $( a )* a · b]</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! - - - Advance over an `a`. - - - (this looks exactly like the last step)</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! Remaining input: `b`</span>
-<span class='doccomment'>//! cur: [a $( a · )* a b]  next: [a $( a )* a · b]</span>
-<span class='doccomment'>//! Finish/Repeat (first item)</span>
-<span class='doccomment'>//! next: [a $( a )* · a b]  [a $( · a )* a b]</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! - - - Advance over a `b`. - - -</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! Remaining input: ``</span>
-<span class='doccomment'>//! eof: [a $( a )* a b ·]</span>
+<span class="doccomment">//! This is an Earley-like parser, without support for in-grammar nonterminals,</span>
+<span class="doccomment">//! only by calling out to the main rust parser for named nonterminals (which it</span>
+<span class="doccomment">//! commits to fully when it hits one in a grammar). This means that there are no</span>
+<span class="doccomment">//! completer or predictor rules, and therefore no need to store one column per</span>
+<span class="doccomment">//! token: instead, there&#39;s a set of current Earley items and a set of next</span>
+<span class="doccomment">//! ones. Instead of NTs, we have a special case for Kleene star. The big-O, in</span>
+<span class="doccomment">//! pathological cases, is worse than traditional Earley parsing, but it&#39;s an</span>
+<span class="doccomment">//! easier fit for Macro-by-Example-style rules, and I think the overhead is</span>
+<span class="doccomment">//! lower. (In order to prevent the pathological case, we&#39;d need to lazily</span>
+<span class="doccomment">//! construct the resulting `NamedMatch`es at the very end. It&#39;d be a pain,</span>
+<span class="doccomment">//! and require more memory to keep around old items, but it would also save</span>
+<span class="doccomment">//! overhead)</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Quick intro to how the parser works:</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! A &#39;position&#39; is a dot in the middle of a matcher, usually represented as a</span>
+<span class="doccomment">//! dot. For example `· a $( a )* a b` is a position, as is `a $( · a )* a b`.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! The parser walks through the input a character at a time, maintaining a list</span>
+<span class="doccomment">//! of items consistent with the current position in the input string: `cur_eis`.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! As it processes them, it fills up `eof_eis` with items that would be valid if</span>
+<span class="doccomment">//! the macro invocation is now over, `bb_eis` with items that are waiting on</span>
+<span class="doccomment">//! a Rust nonterminal like `$e:expr`, and `next_eis` with items that are waiting</span>
+<span class="doccomment">//! on a particular token. Most of the logic concerns moving the · through the</span>
+<span class="doccomment">//! repetitions indicated by Kleene stars. It only advances or calls out to the</span>
+<span class="doccomment">//! real Rust parser when no `cur_eis` items remain</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Example: Start parsing `a a a a b` against [· a $( a )* a b].</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Remaining input: `a a a a b`</span>
+<span class="doccomment">//! next_eis: [· a $( a )* a b]</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! - - - Advance over an `a`. - - -</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Remaining input: `a a a b`</span>
+<span class="doccomment">//! cur: [a · $( a )* a b]</span>
+<span class="doccomment">//! Descend/Skip (first item).</span>
+<span class="doccomment">//! next: [a $( · a )* a b]  [a $( a )* · a b].</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! - - - Advance over an `a`. - - -</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Remaining input: `a a b`</span>
+<span class="doccomment">//! cur: [a $( a · )* a b]  next: [a $( a )* a · b]</span>
+<span class="doccomment">//! Finish/Repeat (first item)</span>
+<span class="doccomment">//! next: [a $( a )* · a b]  [a $( · a )* a b]  [a $( a )* a · b]</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! - - - Advance over an `a`. - - - (this looks exactly like the last step)</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Remaining input: `a b`</span>
+<span class="doccomment">//! cur: [a $( a · )* a b]  next: [a $( a )* a · b]</span>
+<span class="doccomment">//! Finish/Repeat (first item)</span>
+<span class="doccomment">//! next: [a $( a )* · a b]  [a $( · a )* a b]  [a $( a )* a · b]</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! - - - Advance over an `a`. - - - (this looks exactly like the last step)</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Remaining input: `b`</span>
+<span class="doccomment">//! cur: [a $( a · )* a b]  next: [a $( a )* a · b]</span>
+<span class="doccomment">//! Finish/Repeat (first item)</span>
+<span class="doccomment">//! next: [a $( a )* · a b]  [a $( · a )* a b]</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! - - - Advance over a `b`. - - -</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Remaining input: ``</span>
+<span class="doccomment">//! eof: [a $( a )* a b ·]</span>
 
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>NamedMatch</span>::<span class='kw-2'>*</span>;
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>ParseResult</span>::<span class='kw-2'>*</span>;
-<span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>TokenTreeOrTokenTreeVec</span>::<span class='kw-2'>*</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">NamedMatch</span>::<span class="kw-2">*</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">ParseResult</span>::<span class="kw-2">*</span>;
+<span class="kw">use</span> <span class="self">self</span>::<span class="ident">TokenTreeOrTokenTreeVec</span>::<span class="kw-2">*</span>;
 
-<span class='kw'>use</span> <span class='ident'>ast</span>::<span class='ident'>Ident</span>;
-<span class='kw'>use</span> <span class='ident'>syntax_pos</span>::{<span class='self'>self</span>, <span class='ident'>BytePos</span>, <span class='ident'>mk_sp</span>, <span class='ident'>Span</span>};
-<span class='kw'>use</span> <span class='ident'>codemap</span>::<span class='ident'>Spanned</span>;
-<span class='kw'>use</span> <span class='ident'>errors</span>::<span class='ident'>FatalError</span>;
-<span class='kw'>use</span> <span class='ident'>parse</span>::{<span class='ident'>Directory</span>, <span class='ident'>ParseSess</span>};
-<span class='kw'>use</span> <span class='ident'>parse</span>::<span class='ident'>parser</span>::{<span class='ident'>PathStyle</span>, <span class='ident'>Parser</span>};
-<span class='kw'>use</span> <span class='ident'>parse</span>::<span class='ident'>token</span>::{<span class='ident'>DocComment</span>, <span class='ident'>MatchNt</span>, <span class='ident'>SubstNt</span>};
-<span class='kw'>use</span> <span class='ident'>parse</span>::<span class='ident'>token</span>::{<span class='ident'>Token</span>, <span class='ident'>Nonterminal</span>};
-<span class='kw'>use</span> <span class='ident'>parse</span>::<span class='ident'>token</span>;
-<span class='kw'>use</span> <span class='ident'>print</span>::<span class='ident'>pprust</span>;
-<span class='kw'>use</span> <span class='ident'>tokenstream</span>::{<span class='self'>self</span>, <span class='ident'>TokenTree</span>};
-<span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>small_vector</span>::<span class='ident'>SmallVector</span>;
+<span class="kw">use</span> <span class="ident">ast</span>::<span class="ident">Ident</span>;
+<span class="kw">use</span> <span class="ident">syntax_pos</span>::{<span class="self">self</span>, <span class="ident">BytePos</span>, <span class="ident">mk_sp</span>, <span class="ident">Span</span>};
+<span class="kw">use</span> <span class="ident">codemap</span>::<span class="ident">Spanned</span>;
+<span class="kw">use</span> <span class="ident">errors</span>::<span class="ident">FatalError</span>;
+<span class="kw">use</span> <span class="ident">ext</span>::<span class="ident">tt</span>::<span class="ident">quoted</span>::{<span class="self">self</span>, <span class="ident">TokenTree</span>};
+<span class="kw">use</span> <span class="ident">parse</span>::{<span class="ident">Directory</span>, <span class="ident">ParseSess</span>};
+<span class="kw">use</span> <span class="ident">parse</span>::<span class="ident">parser</span>::{<span class="ident">PathStyle</span>, <span class="ident">Parser</span>};
+<span class="kw">use</span> <span class="ident">parse</span>::<span class="ident">token</span>::{<span class="self">self</span>, <span class="ident">DocComment</span>, <span class="ident">Token</span>, <span class="ident">Nonterminal</span>};
+<span class="kw">use</span> <span class="ident">print</span>::<span class="ident">pprust</span>;
+<span class="kw">use</span> <span class="ident">symbol</span>::<span class="ident">keywords</span>;
+<span class="kw">use</span> <span class="ident">tokenstream</span>::<span class="ident">TokenStream</span>;
+<span class="kw">use</span> <span class="ident">util</span>::<span class="ident">small_vector</span>::<span class="ident">SmallVector</span>;
 
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>mem</span>;
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>rc</span>::<span class='ident'>Rc</span>;
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>collections</span>::<span class='ident'>HashMap</span>;
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>collections</span>::<span class='ident'>hash_map</span>::<span class='ident'>Entry</span>::{<span class='ident'>Vacant</span>, <span class='ident'>Occupied</span>};
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">mem</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">rc</span>::<span class="ident">Rc</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">collections</span>::<span class="ident">HashMap</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">collections</span>::<span class="ident">hash_map</span>::<span class="ident">Entry</span>::{<span class="ident">Vacant</span>, <span class="ident">Occupied</span>};
 
-<span class='comment'>// To avoid costly uniqueness checks, we require that `MatchSeq` always has</span>
-<span class='comment'>// a nonempty body.</span>
+<span class="comment">// To avoid costly uniqueness checks, we require that `MatchSeq` always has</span>
+<span class="comment">// a nonempty body.</span>
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>)]</span>
-<span class='kw'>enum</span> <span class='ident'>TokenTreeOrTokenTreeVec</span> {
-    <span class='ident'>Tt</span>(<span class='ident'>tokenstream</span>::<span class='ident'>TokenTree</span>),
-    <span class='ident'>TtSeq</span>(<span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>tokenstream</span>::<span class='ident'>TokenTree</span><span class='op'>&gt;</span>),
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>)]</span>
+<span class="kw">enum</span> <span class="ident">TokenTreeOrTokenTreeVec</span> {
+    <span class="ident">Tt</span>(<span class="ident">TokenTree</span>),
+    <span class="ident">TtSeq</span>(<span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">TokenTree</span><span class="op">&gt;</span>),
 }
 
-<span class='kw'>impl</span> <span class='ident'>TokenTreeOrTokenTreeVec</span> {
-    <span class='kw'>fn</span> <span class='ident'>len</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
-        <span class='kw'>match</span> <span class='kw-2'>*</span><span class='self'>self</span> {
-            <span class='ident'>TtSeq</span>(<span class='kw-2'>ref</span> <span class='ident'>v</span>) <span class='op'>=&gt;</span> <span class='ident'>v</span>.<span class='ident'>len</span>(),
-            <span class='ident'>Tt</span>(<span class='kw-2'>ref</span> <span class='ident'>tt</span>) <span class='op'>=&gt;</span> <span class='ident'>tt</span>.<span class='ident'>len</span>(),
+<span class="kw">impl</span> <span class="ident">TokenTreeOrTokenTreeVec</span> {
+    <span class="kw">fn</span> <span class="ident">len</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">usize</span> {
+        <span class="kw">match</span> <span class="kw-2">*</span><span class="self">self</span> {
+            <span class="ident">TtSeq</span>(<span class="kw-2">ref</span> <span class="ident">v</span>) <span class="op">=&gt;</span> <span class="ident">v</span>.<span class="ident">len</span>(),
+            <span class="ident">Tt</span>(<span class="kw-2">ref</span> <span class="ident">tt</span>) <span class="op">=&gt;</span> <span class="ident">tt</span>.<span class="ident">len</span>(),
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>get_tt</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>index</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='ident'>TokenTree</span> {
-        <span class='kw'>match</span> <span class='kw-2'>*</span><span class='self'>self</span> {
-            <span class='ident'>TtSeq</span>(<span class='kw-2'>ref</span> <span class='ident'>v</span>) <span class='op'>=&gt;</span> <span class='ident'>v</span>[<span class='ident'>index</span>].<span class='ident'>clone</span>(),
-            <span class='ident'>Tt</span>(<span class='kw-2'>ref</span> <span class='ident'>tt</span>) <span class='op'>=&gt;</span> <span class='ident'>tt</span>.<span class='ident'>get_tt</span>(<span class='ident'>index</span>),
+    <span class="kw">fn</span> <span class="ident">get_tt</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">index</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">TokenTree</span> {
+        <span class="kw">match</span> <span class="kw-2">*</span><span class="self">self</span> {
+            <span class="ident">TtSeq</span>(<span class="kw-2">ref</span> <span class="ident">v</span>) <span class="op">=&gt;</span> <span class="ident">v</span>[<span class="ident">index</span>].<span class="ident">clone</span>(),
+            <span class="ident">Tt</span>(<span class="kw-2">ref</span> <span class="ident">tt</span>) <span class="op">=&gt;</span> <span class="ident">tt</span>.<span class="ident">get_tt</span>(<span class="ident">index</span>),
         }
     }
 }
 
-<span class='doccomment'>/// an unzipping of `TokenTree`s</span>
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>)]</span>
-<span class='kw'>struct</span> <span class='ident'>MatcherTtFrame</span> {
-    <span class='ident'>elts</span>: <span class='ident'>TokenTreeOrTokenTreeVec</span>,
-    <span class='ident'>idx</span>: <span class='ident'>usize</span>,
+<span class="doccomment">/// an unzipping of `TokenTree`s</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>)]</span>
+<span class="kw">struct</span> <span class="ident">MatcherTtFrame</span> {
+    <span class="ident">elts</span>: <span class="ident">TokenTreeOrTokenTreeVec</span>,
+    <span class="ident">idx</span>: <span class="ident">usize</span>,
 }
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>)]</span>
-<span class='kw'>struct</span> <span class='ident'>MatcherPos</span> {
-    <span class='ident'>stack</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>MatcherTtFrame</span><span class='op'>&gt;</span>,
-    <span class='ident'>top_elts</span>: <span class='ident'>TokenTreeOrTokenTreeVec</span>,
-    <span class='ident'>sep</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Token</span><span class='op'>&gt;</span>,
-    <span class='ident'>idx</span>: <span class='ident'>usize</span>,
-    <span class='ident'>up</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>MatcherPos</span><span class='op'>&gt;&gt;</span>,
-    <span class='ident'>matches</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>NamedMatch</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span>,
-    <span class='ident'>match_lo</span>: <span class='ident'>usize</span>,
-    <span class='ident'>match_cur</span>: <span class='ident'>usize</span>,
-    <span class='ident'>match_hi</span>: <span class='ident'>usize</span>,
-    <span class='ident'>sp_lo</span>: <span class='ident'>BytePos</span>,
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>)]</span>
+<span class="kw">struct</span> <span class="ident">MatcherPos</span> {
+    <span class="ident">stack</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">MatcherTtFrame</span><span class="op">&gt;</span>,
+    <span class="ident">top_elts</span>: <span class="ident">TokenTreeOrTokenTreeVec</span>,
+    <span class="ident">sep</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Token</span><span class="op">&gt;</span>,
+    <span class="ident">idx</span>: <span class="ident">usize</span>,
+    <span class="ident">up</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Box</span><span class="op">&lt;</span><span class="ident">MatcherPos</span><span class="op">&gt;&gt;</span>,
+    <span class="ident">matches</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Rc</span><span class="op">&lt;</span><span class="ident">NamedMatch</span><span class="op">&gt;&gt;</span><span class="op">&gt;</span>,
+    <span class="ident">match_lo</span>: <span class="ident">usize</span>,
+    <span class="ident">match_cur</span>: <span class="ident">usize</span>,
+    <span class="ident">match_hi</span>: <span class="ident">usize</span>,
+    <span class="ident">sp_lo</span>: <span class="ident">BytePos</span>,
 }
 
-<span class='kw'>pub</span> <span class='kw'>type</span> <span class='ident'>NamedParseResult</span> <span class='op'>=</span> <span class='ident'>ParseResult</span><span class='op'>&lt;</span><span class='ident'>HashMap</span><span class='op'>&lt;</span><span class='ident'>Ident</span>, <span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>NamedMatch</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span>;
+<span class="kw">pub</span> <span class="kw">type</span> <span class="ident">NamedParseResult</span> <span class="op">=</span> <span class="ident">ParseResult</span><span class="op">&lt;</span><span class="ident">HashMap</span><span class="op">&lt;</span><span class="ident">Ident</span>, <span class="ident">Rc</span><span class="op">&lt;</span><span class="ident">NamedMatch</span><span class="op">&gt;&gt;</span><span class="op">&gt;</span>;
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>count_names</span>(<span class='ident'>ms</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>TokenTree</span>]) <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
-    <span class='ident'>ms</span>.<span class='ident'>iter</span>().<span class='ident'>fold</span>(<span class='number'>0</span>, <span class='op'>|</span><span class='ident'>count</span>, <span class='ident'>elt</span><span class='op'>|</span> {
-        <span class='ident'>count</span> <span class='op'>+</span> <span class='kw'>match</span> <span class='kw-2'>*</span><span class='ident'>elt</span> {
-            <span class='ident'>TokenTree</span>::<span class='ident'>Sequence</span>(_, <span class='kw-2'>ref</span> <span class='ident'>seq</span>) <span class='op'>=&gt;</span> {
-                <span class='ident'>seq</span>.<span class='ident'>num_captures</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">count_names</span>(<span class="ident">ms</span>: <span class="kw-2">&amp;</span>[<span class="ident">TokenTree</span>]) <span class="op">-&gt;</span> <span class="ident">usize</span> {
+    <span class="ident">ms</span>.<span class="ident">iter</span>().<span class="ident">fold</span>(<span class="number">0</span>, <span class="op">|</span><span class="ident">count</span>, <span class="ident">elt</span><span class="op">|</span> {
+        <span class="ident">count</span> <span class="op">+</span> <span class="kw">match</span> <span class="kw-2">*</span><span class="ident">elt</span> {
+            <span class="ident">TokenTree</span>::<span class="ident">Sequence</span>(_, <span class="kw-2">ref</span> <span class="ident">seq</span>) <span class="op">=&gt;</span> {
+                <span class="ident">seq</span>.<span class="ident">num_captures</span>
             }
-            <span class='ident'>TokenTree</span>::<span class='ident'>Delimited</span>(_, <span class='kw-2'>ref</span> <span class='ident'>delim</span>) <span class='op'>=&gt;</span> {
-                <span class='ident'>count_names</span>(<span class='kw-2'>&amp;</span><span class='ident'>delim</span>.<span class='ident'>tts</span>)
+            <span class="ident">TokenTree</span>::<span class="ident">Delimited</span>(_, <span class="kw-2">ref</span> <span class="ident">delim</span>) <span class="op">=&gt;</span> {
+                <span class="ident">count_names</span>(<span class="kw-2">&amp;</span><span class="ident">delim</span>.<span class="ident">tts</span>)
             }
-            <span class='ident'>TokenTree</span>::<span class='ident'>Token</span>(_, <span class='ident'>MatchNt</span>(..)) <span class='op'>=&gt;</span> {
-                <span class='number'>1</span>
+            <span class="ident">TokenTree</span>::<span class="ident">MetaVarDecl</span>(..) <span class="op">=&gt;</span> {
+                <span class="number">1</span>
             }
-            <span class='ident'>TokenTree</span>::<span class='ident'>Token</span>(..) <span class='op'>=&gt;</span> <span class='number'>0</span>,
+            <span class="ident">TokenTree</span>::<span class="ident">Token</span>(..) <span class="op">=&gt;</span> <span class="number">0</span>,
         }
     })
 }
 
-<span class='kw'>fn</span> <span class='ident'>initial_matcher_pos</span>(<span class='ident'>ms</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>TokenTree</span><span class='op'>&gt;</span>, <span class='ident'>lo</span>: <span class='ident'>BytePos</span>) <span class='op'>-&gt;</span> <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>MatcherPos</span><span class='op'>&gt;</span> {
-    <span class='kw'>let</span> <span class='ident'>match_idx_hi</span> <span class='op'>=</span> <span class='ident'>count_names</span>(<span class='kw-2'>&amp;</span><span class='ident'>ms</span>[..]);
-    <span class='kw'>let</span> <span class='ident'>matches</span> <span class='op'>=</span> <span class='ident'>create_matches</span>(<span class='ident'>match_idx_hi</span>);
-    <span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='ident'>MatcherPos</span> {
-        <span class='ident'>stack</span>: <span class='macro'>vec</span><span class='macro'>!</span>[],
-        <span class='ident'>top_elts</span>: <span class='ident'>TtSeq</span>(<span class='ident'>ms</span>),
-        <span class='ident'>sep</span>: <span class='prelude-val'>None</span>,
-        <span class='ident'>idx</span>: <span class='number'>0</span>,
-        <span class='ident'>up</span>: <span class='prelude-val'>None</span>,
-        <span class='ident'>matches</span>: <span class='ident'>matches</span>,
-        <span class='ident'>match_lo</span>: <span class='number'>0</span>,
-        <span class='ident'>match_cur</span>: <span class='number'>0</span>,
-        <span class='ident'>match_hi</span>: <span class='ident'>match_idx_hi</span>,
-        <span class='ident'>sp_lo</span>: <span class='ident'>lo</span>
+<span class="kw">fn</span> <span class="ident">initial_matcher_pos</span>(<span class="ident">ms</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">TokenTree</span><span class="op">&gt;</span>, <span class="ident">lo</span>: <span class="ident">BytePos</span>) <span class="op">-&gt;</span> <span class="ident">Box</span><span class="op">&lt;</span><span class="ident">MatcherPos</span><span class="op">&gt;</span> {
+    <span class="kw">let</span> <span class="ident">match_idx_hi</span> <span class="op">=</span> <span class="ident">count_names</span>(<span class="kw-2">&amp;</span><span class="ident">ms</span>[..]);
+    <span class="kw">let</span> <span class="ident">matches</span> <span class="op">=</span> <span class="ident">create_matches</span>(<span class="ident">match_idx_hi</span>);
+    <span class="ident">Box</span>::<span class="ident">new</span>(<span class="ident">MatcherPos</span> {
+        <span class="ident">stack</span>: <span class="macro">vec</span><span class="macro">!</span>[],
+        <span class="ident">top_elts</span>: <span class="ident">TtSeq</span>(<span class="ident">ms</span>),
+        <span class="ident">sep</span>: <span class="prelude-val">None</span>,
+        <span class="ident">idx</span>: <span class="number">0</span>,
+        <span class="ident">up</span>: <span class="prelude-val">None</span>,
+        <span class="ident">matches</span>: <span class="ident">matches</span>,
+        <span class="ident">match_lo</span>: <span class="number">0</span>,
+        <span class="ident">match_cur</span>: <span class="number">0</span>,
+        <span class="ident">match_hi</span>: <span class="ident">match_idx_hi</span>,
+        <span class="ident">sp_lo</span>: <span class="ident">lo</span>
     })
 }
 
-<span class='doccomment'>/// NamedMatch is a pattern-match result for a single token::MATCH_NONTERMINAL:</span>
-<span class='doccomment'>/// so it is associated with a single ident in a parse, and all</span>
-<span class='doccomment'>/// `MatchedNonterminal`s in the NamedMatch have the same nonterminal type</span>
-<span class='doccomment'>/// (expr, item, etc). Each leaf in a single NamedMatch corresponds to a</span>
-<span class='doccomment'>/// single token::MATCH_NONTERMINAL in the TokenTree that produced it.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// The in-memory structure of a particular NamedMatch represents the match</span>
-<span class='doccomment'>/// that occurred when a particular subset of a matcher was applied to a</span>
-<span class='doccomment'>/// particular token tree.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// The width of each MatchedSeq in the NamedMatch, and the identity of the</span>
-<span class='doccomment'>/// `MatchedNonterminal`s, will depend on the token tree it was applied to:</span>
-<span class='doccomment'>/// each MatchedSeq corresponds to a single TTSeq in the originating</span>
-<span class='doccomment'>/// token tree. The depth of the NamedMatch structure will therefore depend</span>
-<span class='doccomment'>/// only on the nesting depth of `ast::TTSeq`s in the originating</span>
-<span class='doccomment'>/// token tree it was derived from.</span>
+<span class="doccomment">/// NamedMatch is a pattern-match result for a single token::MATCH_NONTERMINAL:</span>
+<span class="doccomment">/// so it is associated with a single ident in a parse, and all</span>
+<span class="doccomment">/// `MatchedNonterminal`s in the NamedMatch have the same nonterminal type</span>
+<span class="doccomment">/// (expr, item, etc). Each leaf in a single NamedMatch corresponds to a</span>
+<span class="doccomment">/// single token::MATCH_NONTERMINAL in the TokenTree that produced it.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// The in-memory structure of a particular NamedMatch represents the match</span>
+<span class="doccomment">/// that occurred when a particular subset of a matcher was applied to a</span>
+<span class="doccomment">/// particular token tree.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// The width of each MatchedSeq in the NamedMatch, and the identity of the</span>
+<span class="doccomment">/// `MatchedNonterminal`s, will depend on the token tree it was applied to:</span>
+<span class="doccomment">/// each MatchedSeq corresponds to a single TTSeq in the originating</span>
+<span class="doccomment">/// token tree. The depth of the NamedMatch structure will therefore depend</span>
+<span class="doccomment">/// only on the nesting depth of `ast::TTSeq`s in the originating</span>
+<span class="doccomment">/// token tree it was derived from.</span>
 
-<span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>NamedMatch</span> {
-    <span class='ident'>MatchedSeq</span>(<span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>NamedMatch</span><span class='op'>&gt;&gt;</span>, <span class='ident'>syntax_pos</span>::<span class='ident'>Span</span>),
-    <span class='ident'>MatchedNonterminal</span>(<span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>Nonterminal</span><span class='op'>&gt;</span>)
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">NamedMatch</span> {
+    <span class="ident">MatchedSeq</span>(<span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Rc</span><span class="op">&lt;</span><span class="ident">NamedMatch</span><span class="op">&gt;&gt;</span>, <span class="ident">syntax_pos</span>::<span class="ident">Span</span>),
+    <span class="ident">MatchedNonterminal</span>(<span class="ident">Rc</span><span class="op">&lt;</span><span class="ident">Nonterminal</span><span class="op">&gt;</span>)
 }
 
-<span class='kw'>fn</span> <span class='ident'>nameize</span><span class='op'>&lt;</span><span class='ident'>I</span>: <span class='ident'>Iterator</span><span class='op'>&lt;</span><span class='ident'>Item</span><span class='op'>=</span><span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>NamedMatch</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span>(<span class='ident'>ms</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>TokenTree</span>], <span class='kw-2'>mut</span> <span class='ident'>res</span>: <span class='ident'>I</span>) <span class='op'>-&gt;</span> <span class='ident'>NamedParseResult</span> {
-    <span class='kw'>fn</span> <span class='ident'>n_rec</span><span class='op'>&lt;</span><span class='ident'>I</span>: <span class='ident'>Iterator</span><span class='op'>&lt;</span><span class='ident'>Item</span><span class='op'>=</span><span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>NamedMatch</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span>(<span class='ident'>m</span>: <span class='kw-2'>&amp;</span><span class='ident'>TokenTree</span>, <span class='kw-2'>mut</span> <span class='ident'>res</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>I</span>,
-             <span class='ident'>ret_val</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>HashMap</span><span class='op'>&lt;</span><span class='ident'>Ident</span>, <span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>NamedMatch</span><span class='op'>&gt;&gt;</span>)
-             <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(), (<span class='ident'>syntax_pos</span>::<span class='ident'>Span</span>, <span class='ident'>String</span>)<span class='op'>&gt;</span> {
-        <span class='kw'>match</span> <span class='kw-2'>*</span><span class='ident'>m</span> {
-            <span class='ident'>TokenTree</span>::<span class='ident'>Sequence</span>(_, <span class='kw-2'>ref</span> <span class='ident'>seq</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>for</span> <span class='ident'>next_m</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>seq</span>.<span class='ident'>tts</span> {
-                    <span class='ident'>n_rec</span>(<span class='ident'>next_m</span>, <span class='ident'>res</span>.<span class='ident'>by_ref</span>(), <span class='ident'>ret_val</span>)<span class='question-mark'>?</span>
+<span class="kw">fn</span> <span class="ident">nameize</span><span class="op">&lt;</span><span class="ident">I</span>: <span class="ident">Iterator</span><span class="op">&lt;</span><span class="ident">Item</span><span class="op">=</span><span class="ident">Rc</span><span class="op">&lt;</span><span class="ident">NamedMatch</span><span class="op">&gt;&gt;</span><span class="op">&gt;</span>(<span class="ident">sess</span>: <span class="kw-2">&amp;</span><span class="ident">ParseSess</span>, <span class="ident">ms</span>: <span class="kw-2">&amp;</span>[<span class="ident">TokenTree</span>], <span class="kw-2">mut</span> <span class="ident">res</span>: <span class="ident">I</span>)
+                                             <span class="op">-&gt;</span> <span class="ident">NamedParseResult</span> {
+    <span class="kw">fn</span> <span class="ident">n_rec</span><span class="op">&lt;</span><span class="ident">I</span>: <span class="ident">Iterator</span><span class="op">&lt;</span><span class="ident">Item</span><span class="op">=</span><span class="ident">Rc</span><span class="op">&lt;</span><span class="ident">NamedMatch</span><span class="op">&gt;&gt;</span><span class="op">&gt;</span>(<span class="ident">sess</span>: <span class="kw-2">&amp;</span><span class="ident">ParseSess</span>, <span class="ident">m</span>: <span class="kw-2">&amp;</span><span class="ident">TokenTree</span>, <span class="kw-2">mut</span> <span class="ident">res</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">I</span>,
+             <span class="ident">ret_val</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">HashMap</span><span class="op">&lt;</span><span class="ident">Ident</span>, <span class="ident">Rc</span><span class="op">&lt;</span><span class="ident">NamedMatch</span><span class="op">&gt;&gt;</span>)
+             <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), (<span class="ident">syntax_pos</span>::<span class="ident">Span</span>, <span class="ident">String</span>)<span class="op">&gt;</span> {
+        <span class="kw">match</span> <span class="kw-2">*</span><span class="ident">m</span> {
+            <span class="ident">TokenTree</span>::<span class="ident">Sequence</span>(_, <span class="kw-2">ref</span> <span class="ident">seq</span>) <span class="op">=&gt;</span> {
+                <span class="kw">for</span> <span class="ident">next_m</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="ident">seq</span>.<span class="ident">tts</span> {
+                    <span class="ident">n_rec</span>(<span class="ident">sess</span>, <span class="ident">next_m</span>, <span class="ident">res</span>.<span class="ident">by_ref</span>(), <span class="ident">ret_val</span>)<span class="question-mark">?</span>
                 }
             }
-            <span class='ident'>TokenTree</span>::<span class='ident'>Delimited</span>(_, <span class='kw-2'>ref</span> <span class='ident'>delim</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>for</span> <span class='ident'>next_m</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>delim</span>.<span class='ident'>tts</span> {
-                    <span class='ident'>n_rec</span>(<span class='ident'>next_m</span>, <span class='ident'>res</span>.<span class='ident'>by_ref</span>(), <span class='ident'>ret_val</span>)<span class='question-mark'>?</span>;
+            <span class="ident">TokenTree</span>::<span class="ident">Delimited</span>(_, <span class="kw-2">ref</span> <span class="ident">delim</span>) <span class="op">=&gt;</span> {
+                <span class="kw">for</span> <span class="ident">next_m</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="ident">delim</span>.<span class="ident">tts</span> {
+                    <span class="ident">n_rec</span>(<span class="ident">sess</span>, <span class="ident">next_m</span>, <span class="ident">res</span>.<span class="ident">by_ref</span>(), <span class="ident">ret_val</span>)<span class="question-mark">?</span>;
                 }
             }
-            <span class='ident'>TokenTree</span>::<span class='ident'>Token</span>(<span class='ident'>sp</span>, <span class='ident'>MatchNt</span>(<span class='ident'>bind_name</span>, _)) <span class='op'>=&gt;</span> {
-                <span class='kw'>match</span> <span class='ident'>ret_val</span>.<span class='ident'>entry</span>(<span class='ident'>bind_name</span>) {
-                    <span class='ident'>Vacant</span>(<span class='ident'>spot</span>) <span class='op'>=&gt;</span> {
-                        <span class='ident'>spot</span>.<span class='ident'>insert</span>(<span class='ident'>res</span>.<span class='ident'>next</span>().<span class='ident'>unwrap</span>());
+            <span class="ident">TokenTree</span>::<span class="ident">MetaVarDecl</span>(<span class="ident">span</span>, _, <span class="ident">id</span>) <span class="kw">if</span> <span class="ident">id</span>.<span class="ident">name</span> <span class="op">==</span> <span class="ident">keywords</span>::<span class="ident">Invalid</span>.<span class="ident">name</span>() <span class="op">=&gt;</span> {
+                <span class="kw">if</span> <span class="ident">sess</span>.<span class="ident">missing_fragment_specifiers</span>.<span class="ident">borrow_mut</span>().<span class="ident">remove</span>(<span class="kw-2">&amp;</span><span class="ident">span</span>) {
+                    <span class="kw">return</span> <span class="prelude-val">Err</span>((<span class="ident">span</span>, <span class="string">&quot;missing fragment specifier&quot;</span>.<span class="ident">to_string</span>()));
+                }
+            }
+            <span class="ident">TokenTree</span>::<span class="ident">MetaVarDecl</span>(<span class="ident">sp</span>, <span class="ident">bind_name</span>, _) <span class="op">=&gt;</span> {
+                <span class="kw">match</span> <span class="ident">ret_val</span>.<span class="ident">entry</span>(<span class="ident">bind_name</span>) {
+                    <span class="ident">Vacant</span>(<span class="ident">spot</span>) <span class="op">=&gt;</span> {
+                        <span class="ident">spot</span>.<span class="ident">insert</span>(<span class="ident">res</span>.<span class="ident">next</span>().<span class="ident">unwrap</span>());
                     }
-                    <span class='ident'>Occupied</span>(..) <span class='op'>=&gt;</span> {
-                        <span class='kw'>return</span> <span class='prelude-val'>Err</span>((<span class='ident'>sp</span>, <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;duplicated bind name: {}&quot;</span>, <span class='ident'>bind_name</span>)))
+                    <span class="ident">Occupied</span>(..) <span class="op">=&gt;</span> {
+                        <span class="kw">return</span> <span class="prelude-val">Err</span>((<span class="ident">sp</span>, <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;duplicated bind name: {}&quot;</span>, <span class="ident">bind_name</span>)))
                     }
                 }
             }
-            <span class='ident'>TokenTree</span>::<span class='ident'>Token</span>(<span class='ident'>sp</span>, <span class='ident'>SubstNt</span>(..)) <span class='op'>=&gt;</span> {
-                <span class='kw'>return</span> <span class='prelude-val'>Err</span>((<span class='ident'>sp</span>, <span class='string'>&quot;missing fragment specifier&quot;</span>.<span class='ident'>to_string</span>()))
-            }
-            <span class='ident'>TokenTree</span>::<span class='ident'>Token</span>(..) <span class='op'>=&gt;</span> (),
+            <span class="ident">TokenTree</span>::<span class="ident">Token</span>(..) <span class="op">=&gt;</span> (),
         }
 
-        <span class='prelude-val'>Ok</span>(())
+        <span class="prelude-val">Ok</span>(())
     }
 
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>ret_val</span> <span class='op'>=</span> <span class='ident'>HashMap</span>::<span class='ident'>new</span>();
-    <span class='kw'>for</span> <span class='ident'>m</span> <span class='kw'>in</span> <span class='ident'>ms</span> {
-        <span class='kw'>match</span> <span class='ident'>n_rec</span>(<span class='ident'>m</span>, <span class='ident'>res</span>.<span class='ident'>by_ref</span>(), <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>ret_val</span>) {
-            <span class='prelude-val'>Ok</span>(_) <span class='op'>=&gt;</span> {},
-            <span class='prelude-val'>Err</span>((<span class='ident'>sp</span>, <span class='ident'>msg</span>)) <span class='op'>=&gt;</span> <span class='kw'>return</span> <span class='ident'>Error</span>(<span class='ident'>sp</span>, <span class='ident'>msg</span>),
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">ret_val</span> <span class="op">=</span> <span class="ident">HashMap</span>::<span class="ident">new</span>();
+    <span class="kw">for</span> <span class="ident">m</span> <span class="kw">in</span> <span class="ident">ms</span> {
+        <span class="kw">match</span> <span class="ident">n_rec</span>(<span class="ident">sess</span>, <span class="ident">m</span>, <span class="ident">res</span>.<span class="ident">by_ref</span>(), <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">ret_val</span>) {
+            <span class="prelude-val">Ok</span>(_) <span class="op">=&gt;</span> {},
+            <span class="prelude-val">Err</span>((<span class="ident">sp</span>, <span class="ident">msg</span>)) <span class="op">=&gt;</span> <span class="kw">return</span> <span class="ident">Error</span>(<span class="ident">sp</span>, <span class="ident">msg</span>),
         }
     }
 
-    <span class='ident'>Success</span>(<span class='ident'>ret_val</span>)
+    <span class="ident">Success</span>(<span class="ident">ret_val</span>)
 }
 
-<span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>ParseResult</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='ident'>Success</span>(<span class='ident'>T</span>),
-    <span class='doccomment'>/// Arm failed to match. If the second parameter is `token::Eof`, it</span>
-    <span class='doccomment'>/// indicates an unexpected end of macro invocation. Otherwise, it</span>
-    <span class='doccomment'>/// indicates that no rules expected the given token.</span>
-    <span class='ident'>Failure</span>(<span class='ident'>syntax_pos</span>::<span class='ident'>Span</span>, <span class='ident'>Token</span>),
-    <span class='doccomment'>/// Fatal error (malformed macro?). Abort compilation.</span>
-    <span class='ident'>Error</span>(<span class='ident'>syntax_pos</span>::<span class='ident'>Span</span>, <span class='ident'>String</span>)
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">ParseResult</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="ident">Success</span>(<span class="ident">T</span>),
+    <span class="doccomment">/// Arm failed to match. If the second parameter is `token::Eof`, it</span>
+    <span class="doccomment">/// indicates an unexpected end of macro invocation. Otherwise, it</span>
+    <span class="doccomment">/// indicates that no rules expected the given token.</span>
+    <span class="ident">Failure</span>(<span class="ident">syntax_pos</span>::<span class="ident">Span</span>, <span class="ident">Token</span>),
+    <span class="doccomment">/// Fatal error (malformed macro?). Abort compilation.</span>
+    <span class="ident">Error</span>(<span class="ident">syntax_pos</span>::<span class="ident">Span</span>, <span class="ident">String</span>)
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>parse_failure_msg</span>(<span class='ident'>tok</span>: <span class='ident'>Token</span>) <span class='op'>-&gt;</span> <span class='ident'>String</span> {
-    <span class='kw'>match</span> <span class='ident'>tok</span> {
-        <span class='ident'>token</span>::<span class='ident'>Eof</span> <span class='op'>=&gt;</span> <span class='string'>&quot;unexpected end of macro invocation&quot;</span>.<span class='ident'>to_string</span>(),
-        _ <span class='op'>=&gt;</span> <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;no rules expected the token `{}`&quot;</span>, <span class='ident'>pprust</span>::<span class='ident'>token_to_string</span>(<span class='kw-2'>&amp;</span><span class='ident'>tok</span>)),
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">parse_failure_msg</span>(<span class="ident">tok</span>: <span class="ident">Token</span>) <span class="op">-&gt;</span> <span class="ident">String</span> {
+    <span class="kw">match</span> <span class="ident">tok</span> {
+        <span class="ident">token</span>::<span class="ident">Eof</span> <span class="op">=&gt;</span> <span class="string">&quot;unexpected end of macro invocation&quot;</span>.<span class="ident">to_string</span>(),
+        _ <span class="op">=&gt;</span> <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;no rules expected the token `{}`&quot;</span>, <span class="ident">pprust</span>::<span class="ident">token_to_string</span>(<span class="kw-2">&amp;</span><span class="ident">tok</span>)),
     }
 }
 
-<span class='doccomment'>/// Perform a token equality check, ignoring syntax context (that is, an unhygienic comparison)</span>
-<span class='kw'>fn</span> <span class='ident'>token_name_eq</span>(<span class='ident'>t1</span> : <span class='kw-2'>&amp;</span><span class='ident'>Token</span>, <span class='ident'>t2</span> : <span class='kw-2'>&amp;</span><span class='ident'>Token</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-    <span class='kw'>match</span> (<span class='ident'>t1</span>,<span class='ident'>t2</span>) {
-        (<span class='kw-2'>&amp;</span><span class='ident'>token</span>::<span class='ident'>Ident</span>(<span class='ident'>id1</span>),<span class='kw-2'>&amp;</span><span class='ident'>token</span>::<span class='ident'>Ident</span>(<span class='ident'>id2</span>))
-        <span class='op'>|</span> (<span class='kw-2'>&amp;</span><span class='ident'>token</span>::<span class='ident'>Lifetime</span>(<span class='ident'>id1</span>),<span class='kw-2'>&amp;</span><span class='ident'>token</span>::<span class='ident'>Lifetime</span>(<span class='ident'>id2</span>)) <span class='op'>=&gt;</span>
-            <span class='ident'>id1</span>.<span class='ident'>name</span> <span class='op'>==</span> <span class='ident'>id2</span>.<span class='ident'>name</span>,
-        _ <span class='op'>=&gt;</span> <span class='kw-2'>*</span><span class='ident'>t1</span> <span class='op'>==</span> <span class='kw-2'>*</span><span class='ident'>t2</span>
+<span class="doccomment">/// Perform a token equality check, ignoring syntax context (that is, an unhygienic comparison)</span>
+<span class="kw">fn</span> <span class="ident">token_name_eq</span>(<span class="ident">t1</span> : <span class="kw-2">&amp;</span><span class="ident">Token</span>, <span class="ident">t2</span> : <span class="kw-2">&amp;</span><span class="ident">Token</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+    <span class="kw">match</span> (<span class="ident">t1</span>,<span class="ident">t2</span>) {
+        (<span class="kw-2">&amp;</span><span class="ident">token</span>::<span class="ident">Ident</span>(<span class="ident">id1</span>),<span class="kw-2">&amp;</span><span class="ident">token</span>::<span class="ident">Ident</span>(<span class="ident">id2</span>))
+        <span class="op">|</span> (<span class="kw-2">&amp;</span><span class="ident">token</span>::<span class="ident">Lifetime</span>(<span class="ident">id1</span>),<span class="kw-2">&amp;</span><span class="ident">token</span>::<span class="ident">Lifetime</span>(<span class="ident">id2</span>)) <span class="op">=&gt;</span>
+            <span class="ident">id1</span>.<span class="ident">name</span> <span class="op">==</span> <span class="ident">id2</span>.<span class="ident">name</span>,
+        _ <span class="op">=&gt;</span> <span class="kw-2">*</span><span class="ident">t1</span> <span class="op">==</span> <span class="kw-2">*</span><span class="ident">t2</span>
     }
 }
 
-<span class='kw'>fn</span> <span class='ident'>create_matches</span>(<span class='ident'>len</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>NamedMatch</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span> {
-    (<span class='number'>0</span>..<span class='ident'>len</span>).<span class='ident'>into_iter</span>().<span class='ident'>map</span>(<span class='op'>|</span>_<span class='op'>|</span> <span class='ident'>Vec</span>::<span class='ident'>new</span>()).<span class='ident'>collect</span>()
+<span class="kw">fn</span> <span class="ident">create_matches</span>(<span class="ident">len</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Rc</span><span class="op">&lt;</span><span class="ident">NamedMatch</span><span class="op">&gt;&gt;</span><span class="op">&gt;</span> {
+    (<span class="number">0</span>..<span class="ident">len</span>).<span class="ident">into_iter</span>().<span class="ident">map</span>(<span class="op">|</span>_<span class="op">|</span> <span class="ident">Vec</span>::<span class="ident">new</span>()).<span class="ident">collect</span>()
 }
 
-<span class='kw'>fn</span> <span class='ident'>inner_parse_loop</span>(<span class='ident'>cur_eis</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>SmallVector</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>MatcherPos</span><span class='op'>&gt;&gt;</span>,
-                    <span class='ident'>next_eis</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>MatcherPos</span><span class='op'>&gt;&gt;</span>,
-                    <span class='ident'>eof_eis</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>SmallVector</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>MatcherPos</span><span class='op'>&gt;&gt;</span>,
-                    <span class='ident'>bb_eis</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>SmallVector</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>MatcherPos</span><span class='op'>&gt;&gt;</span>,
-                    <span class='ident'>token</span>: <span class='kw-2'>&amp;</span><span class='ident'>Token</span>, <span class='ident'>span</span>: <span class='kw-2'>&amp;</span><span class='ident'>syntax_pos</span>::<span class='ident'>Span</span>) <span class='op'>-&gt;</span> <span class='ident'>ParseResult</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-    <span class='kw'>while</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='kw-2'>mut</span> <span class='ident'>ei</span>) <span class='op'>=</span> <span class='ident'>cur_eis</span>.<span class='ident'>pop</span>() {
-        <span class='comment'>// When unzipped trees end, remove them</span>
-        <span class='kw'>while</span> <span class='ident'>ei</span>.<span class='ident'>idx</span> <span class='op'>&gt;=</span> <span class='ident'>ei</span>.<span class='ident'>top_elts</span>.<span class='ident'>len</span>() {
-            <span class='kw'>match</span> <span class='ident'>ei</span>.<span class='ident'>stack</span>.<span class='ident'>pop</span>() {
-                <span class='prelude-val'>Some</span>(<span class='ident'>MatcherTtFrame</span> { <span class='ident'>elts</span>, <span class='ident'>idx</span> }) <span class='op'>=&gt;</span> {
-                    <span class='ident'>ei</span>.<span class='ident'>top_elts</span> <span class='op'>=</span> <span class='ident'>elts</span>;
-                    <span class='ident'>ei</span>.<span class='ident'>idx</span> <span class='op'>=</span> <span class='ident'>idx</span> <span class='op'>+</span> <span class='number'>1</span>;
+<span class="kw">fn</span> <span class="ident">inner_parse_loop</span>(<span class="ident">sess</span>: <span class="kw-2">&amp;</span><span class="ident">ParseSess</span>,
+                    <span class="ident">cur_eis</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">SmallVector</span><span class="op">&lt;</span><span class="ident">Box</span><span class="op">&lt;</span><span class="ident">MatcherPos</span><span class="op">&gt;&gt;</span>,
+                    <span class="ident">next_eis</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Box</span><span class="op">&lt;</span><span class="ident">MatcherPos</span><span class="op">&gt;&gt;</span>,
+                    <span class="ident">eof_eis</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">SmallVector</span><span class="op">&lt;</span><span class="ident">Box</span><span class="op">&lt;</span><span class="ident">MatcherPos</span><span class="op">&gt;&gt;</span>,
+                    <span class="ident">bb_eis</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">SmallVector</span><span class="op">&lt;</span><span class="ident">Box</span><span class="op">&lt;</span><span class="ident">MatcherPos</span><span class="op">&gt;&gt;</span>,
+                    <span class="ident">token</span>: <span class="kw-2">&amp;</span><span class="ident">Token</span>,
+                    <span class="ident">span</span>: <span class="kw-2">&amp;</span><span class="ident">syntax_pos</span>::<span class="ident">Span</span>)
+                    <span class="op">-&gt;</span> <span class="ident">ParseResult</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+    <span class="kw">while</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="kw-2">mut</span> <span class="ident">ei</span>) <span class="op">=</span> <span class="ident">cur_eis</span>.<span class="ident">pop</span>() {
+        <span class="comment">// When unzipped trees end, remove them</span>
+        <span class="kw">while</span> <span class="ident">ei</span>.<span class="ident">idx</span> <span class="op">&gt;=</span> <span class="ident">ei</span>.<span class="ident">top_elts</span>.<span class="ident">len</span>() {
+            <span class="kw">match</span> <span class="ident">ei</span>.<span class="ident">stack</span>.<span class="ident">pop</span>() {
+                <span class="prelude-val">Some</span>(<span class="ident">MatcherTtFrame</span> { <span class="ident">elts</span>, <span class="ident">idx</span> }) <span class="op">=&gt;</span> {
+                    <span class="ident">ei</span>.<span class="ident">top_elts</span> <span class="op">=</span> <span class="ident">elts</span>;
+                    <span class="ident">ei</span>.<span class="ident">idx</span> <span class="op">=</span> <span class="ident">idx</span> <span class="op">+</span> <span class="number">1</span>;
                 }
-                <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='kw'>break</span>
+                <span class="prelude-val">None</span> <span class="op">=&gt;</span> <span class="kw">break</span>
             }
         }
 
-        <span class='kw'>let</span> <span class='ident'>idx</span> <span class='op'>=</span> <span class='ident'>ei</span>.<span class='ident'>idx</span>;
-        <span class='kw'>let</span> <span class='ident'>len</span> <span class='op'>=</span> <span class='ident'>ei</span>.<span class='ident'>top_elts</span>.<span class='ident'>len</span>();
+        <span class="kw">let</span> <span class="ident">idx</span> <span class="op">=</span> <span class="ident">ei</span>.<span class="ident">idx</span>;
+        <span class="kw">let</span> <span class="ident">len</span> <span class="op">=</span> <span class="ident">ei</span>.<span class="ident">top_elts</span>.<span class="ident">len</span>();
 
-        <span class='comment'>// at end of sequence</span>
-        <span class='kw'>if</span> <span class='ident'>idx</span> <span class='op'>&gt;=</span> <span class='ident'>len</span> {
-            <span class='comment'>// We are repeating iff there is a parent</span>
-            <span class='kw'>if</span> <span class='ident'>ei</span>.<span class='ident'>up</span>.<span class='ident'>is_some</span>() {
-                <span class='comment'>// Disregarding the separator, add the &quot;up&quot; case to the tokens that should be</span>
-                <span class='comment'>// examined.</span>
-                <span class='comment'>// (remove this condition to make trailing seps ok)</span>
-                <span class='kw'>if</span> <span class='ident'>idx</span> <span class='op'>==</span> <span class='ident'>len</span> {
-                    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>new_pos</span> <span class='op'>=</span> <span class='ident'>ei</span>.<span class='ident'>up</span>.<span class='ident'>clone</span>().<span class='ident'>unwrap</span>();
+        <span class="comment">// at end of sequence</span>
+        <span class="kw">if</span> <span class="ident">idx</span> <span class="op">&gt;=</span> <span class="ident">len</span> {
+            <span class="comment">// We are repeating iff there is a parent</span>
+            <span class="kw">if</span> <span class="ident">ei</span>.<span class="ident">up</span>.<span class="ident">is_some</span>() {
+                <span class="comment">// Disregarding the separator, add the &quot;up&quot; case to the tokens that should be</span>
+                <span class="comment">// examined.</span>
+                <span class="comment">// (remove this condition to make trailing seps ok)</span>
+                <span class="kw">if</span> <span class="ident">idx</span> <span class="op">==</span> <span class="ident">len</span> {
+                    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">new_pos</span> <span class="op">=</span> <span class="ident">ei</span>.<span class="ident">up</span>.<span class="ident">clone</span>().<span class="ident">unwrap</span>();
 
-                    <span class='comment'>// update matches (the MBE &quot;parse tree&quot;) by appending</span>
-                    <span class='comment'>// each tree as a subtree.</span>
+                    <span class="comment">// update matches (the MBE &quot;parse tree&quot;) by appending</span>
+                    <span class="comment">// each tree as a subtree.</span>
 
-                    <span class='comment'>// I bet this is a perf problem: we&#39;re preemptively</span>
-                    <span class='comment'>// doing a lot of array work that will get thrown away</span>
-                    <span class='comment'>// most of the time.</span>
+                    <span class="comment">// I bet this is a perf problem: we&#39;re preemptively</span>
+                    <span class="comment">// doing a lot of array work that will get thrown away</span>
+                    <span class="comment">// most of the time.</span>
 
-                    <span class='comment'>// Only touch the binders we have actually bound</span>
-                    <span class='kw'>for</span> <span class='ident'>idx</span> <span class='kw'>in</span> <span class='ident'>ei</span>.<span class='ident'>match_lo</span>..<span class='ident'>ei</span>.<span class='ident'>match_hi</span> {
-                        <span class='kw'>let</span> <span class='ident'>sub</span> <span class='op'>=</span> <span class='ident'>ei</span>.<span class='ident'>matches</span>[<span class='ident'>idx</span>].<span class='ident'>clone</span>();
-                        <span class='ident'>new_pos</span>.<span class='ident'>matches</span>[<span class='ident'>idx</span>]
-                            .<span class='ident'>push</span>(<span class='ident'>Rc</span>::<span class='ident'>new</span>(<span class='ident'>MatchedSeq</span>(<span class='ident'>sub</span>, <span class='ident'>mk_sp</span>(<span class='ident'>ei</span>.<span class='ident'>sp_lo</span>,
-                                                                <span class='ident'>span</span>.<span class='ident'>hi</span>))));
+                    <span class="comment">// Only touch the binders we have actually bound</span>
+                    <span class="kw">for</span> <span class="ident">idx</span> <span class="kw">in</span> <span class="ident">ei</span>.<span class="ident">match_lo</span>..<span class="ident">ei</span>.<span class="ident">match_hi</span> {
+                        <span class="kw">let</span> <span class="ident">sub</span> <span class="op">=</span> <span class="ident">ei</span>.<span class="ident">matches</span>[<span class="ident">idx</span>].<span class="ident">clone</span>();
+                        <span class="ident">new_pos</span>.<span class="ident">matches</span>[<span class="ident">idx</span>]
+                            .<span class="ident">push</span>(<span class="ident">Rc</span>::<span class="ident">new</span>(<span class="ident">MatchedSeq</span>(<span class="ident">sub</span>, <span class="ident">mk_sp</span>(<span class="ident">ei</span>.<span class="ident">sp_lo</span>,
+                                                                <span class="ident">span</span>.<span class="ident">hi</span>))));
                     }
 
-                    <span class='ident'>new_pos</span>.<span class='ident'>match_cur</span> <span class='op'>=</span> <span class='ident'>ei</span>.<span class='ident'>match_hi</span>;
-                    <span class='ident'>new_pos</span>.<span class='ident'>idx</span> <span class='op'>+=</span> <span class='number'>1</span>;
-                    <span class='ident'>cur_eis</span>.<span class='ident'>push</span>(<span class='ident'>new_pos</span>);
+                    <span class="ident">new_pos</span>.<span class="ident">match_cur</span> <span class="op">=</span> <span class="ident">ei</span>.<span class="ident">match_hi</span>;
+                    <span class="ident">new_pos</span>.<span class="ident">idx</span> <span class="op">+=</span> <span class="number">1</span>;
+                    <span class="ident">cur_eis</span>.<span class="ident">push</span>(<span class="ident">new_pos</span>);
                 }
 
-                <span class='comment'>// Check if we need a separator</span>
-                <span class='kw'>if</span> <span class='ident'>idx</span> <span class='op'>==</span> <span class='ident'>len</span> <span class='op'>&amp;&amp;</span> <span class='ident'>ei</span>.<span class='ident'>sep</span>.<span class='ident'>is_some</span>() {
-                    <span class='comment'>// We have a separator, and it is the current token.</span>
-                    <span class='kw'>if</span> <span class='ident'>ei</span>.<span class='ident'>sep</span>.<span class='ident'>as_ref</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='kw-2'>ref</span> <span class='ident'>sep</span><span class='op'>|</span> <span class='ident'>token_name_eq</span>(<span class='kw-2'>&amp;</span><span class='ident'>token</span>, <span class='ident'>sep</span>)).<span class='ident'>unwrap_or</span>(<span class='bool-val'>false</span>) {
-                        <span class='ident'>ei</span>.<span class='ident'>idx</span> <span class='op'>+=</span> <span class='number'>1</span>;
-                        <span class='ident'>next_eis</span>.<span class='ident'>push</span>(<span class='ident'>ei</span>);
+                <span class="comment">// Check if we need a separator</span>
+                <span class="kw">if</span> <span class="ident">idx</span> <span class="op">==</span> <span class="ident">len</span> <span class="op">&amp;&amp;</span> <span class="ident">ei</span>.<span class="ident">sep</span>.<span class="ident">is_some</span>() {
+                    <span class="comment">// We have a separator, and it is the current token.</span>
+                    <span class="kw">if</span> <span class="ident">ei</span>.<span class="ident">sep</span>.<span class="ident">as_ref</span>().<span class="ident">map</span>(<span class="op">|</span><span class="kw-2">ref</span> <span class="ident">sep</span><span class="op">|</span> <span class="ident">token_name_eq</span>(<span class="kw-2">&amp;</span><span class="ident">token</span>, <span class="ident">sep</span>)).<span class="ident">unwrap_or</span>(<span class="bool-val">false</span>) {
+                        <span class="ident">ei</span>.<span class="ident">idx</span> <span class="op">+=</span> <span class="number">1</span>;
+                        <span class="ident">next_eis</span>.<span class="ident">push</span>(<span class="ident">ei</span>);
                     }
-                } <span class='kw'>else</span> { <span class='comment'>// we don&#39;t need a separator</span>
-                    <span class='ident'>ei</span>.<span class='ident'>match_cur</span> <span class='op'>=</span> <span class='ident'>ei</span>.<span class='ident'>match_lo</span>;
-                    <span class='ident'>ei</span>.<span class='ident'>idx</span> <span class='op'>=</span> <span class='number'>0</span>;
-                    <span class='ident'>cur_eis</span>.<span class='ident'>push</span>(<span class='ident'>ei</span>);
+                } <span class="kw">else</span> { <span class="comment">// we don&#39;t need a separator</span>
+                    <span class="ident">ei</span>.<span class="ident">match_cur</span> <span class="op">=</span> <span class="ident">ei</span>.<span class="ident">match_lo</span>;
+                    <span class="ident">ei</span>.<span class="ident">idx</span> <span class="op">=</span> <span class="number">0</span>;
+                    <span class="ident">cur_eis</span>.<span class="ident">push</span>(<span class="ident">ei</span>);
                 }
-            } <span class='kw'>else</span> {
-                <span class='comment'>// We aren&#39;t repeating, so we must be potentially at the end of the input.</span>
-                <span class='ident'>eof_eis</span>.<span class='ident'>push</span>(<span class='ident'>ei</span>);
+            } <span class="kw">else</span> {
+                <span class="comment">// We aren&#39;t repeating, so we must be potentially at the end of the input.</span>
+                <span class="ident">eof_eis</span>.<span class="ident">push</span>(<span class="ident">ei</span>);
             }
-        } <span class='kw'>else</span> {
-            <span class='kw'>match</span> <span class='ident'>ei</span>.<span class='ident'>top_elts</span>.<span class='ident'>get_tt</span>(<span class='ident'>idx</span>) {
-                <span class='comment'>/* need to descend into sequence */</span>
-                <span class='ident'>TokenTree</span>::<span class='ident'>Sequence</span>(<span class='ident'>sp</span>, <span class='ident'>seq</span>) <span class='op'>=&gt;</span> {
-                    <span class='kw'>if</span> <span class='ident'>seq</span>.<span class='ident'>op</span> <span class='op'>==</span> <span class='ident'>tokenstream</span>::<span class='ident'>KleeneOp</span>::<span class='ident'>ZeroOrMore</span> {
-                        <span class='comment'>// Examine the case where there are 0 matches of this sequence</span>
-                        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>new_ei</span> <span class='op'>=</span> <span class='ident'>ei</span>.<span class='ident'>clone</span>();
-                        <span class='ident'>new_ei</span>.<span class='ident'>match_cur</span> <span class='op'>+=</span> <span class='ident'>seq</span>.<span class='ident'>num_captures</span>;
-                        <span class='ident'>new_ei</span>.<span class='ident'>idx</span> <span class='op'>+=</span> <span class='number'>1</span>;
-                        <span class='kw'>for</span> <span class='ident'>idx</span> <span class='kw'>in</span> <span class='ident'>ei</span>.<span class='ident'>match_cur</span>..<span class='ident'>ei</span>.<span class='ident'>match_cur</span> <span class='op'>+</span> <span class='ident'>seq</span>.<span class='ident'>num_captures</span> {
-                            <span class='ident'>new_ei</span>.<span class='ident'>matches</span>[<span class='ident'>idx</span>].<span class='ident'>push</span>(<span class='ident'>Rc</span>::<span class='ident'>new</span>(<span class='ident'>MatchedSeq</span>(<span class='macro'>vec</span><span class='macro'>!</span>[], <span class='ident'>sp</span>)));
+        } <span class="kw">else</span> {
+            <span class="kw">match</span> <span class="ident">ei</span>.<span class="ident">top_elts</span>.<span class="ident">get_tt</span>(<span class="ident">idx</span>) {
+                <span class="comment">/* need to descend into sequence */</span>
+                <span class="ident">TokenTree</span>::<span class="ident">Sequence</span>(<span class="ident">sp</span>, <span class="ident">seq</span>) <span class="op">=&gt;</span> {
+                    <span class="kw">if</span> <span class="ident">seq</span>.<span class="ident">op</span> <span class="op">==</span> <span class="ident">quoted</span>::<span class="ident">KleeneOp</span>::<span class="ident">ZeroOrMore</span> {
+                        <span class="comment">// Examine the case where there are 0 matches of this sequence</span>
+                        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">new_ei</span> <span class="op">=</span> <span class="ident">ei</span>.<span class="ident">clone</span>();
+                        <span class="ident">new_ei</span>.<span class="ident">match_cur</span> <span class="op">+=</span> <span class="ident">seq</span>.<span class="ident">num_captures</span>;
+                        <span class="ident">new_ei</span>.<span class="ident">idx</span> <span class="op">+=</span> <span class="number">1</span>;
+                        <span class="kw">for</span> <span class="ident">idx</span> <span class="kw">in</span> <span class="ident">ei</span>.<span class="ident">match_cur</span>..<span class="ident">ei</span>.<span class="ident">match_cur</span> <span class="op">+</span> <span class="ident">seq</span>.<span class="ident">num_captures</span> {
+                            <span class="ident">new_ei</span>.<span class="ident">matches</span>[<span class="ident">idx</span>].<span class="ident">push</span>(<span class="ident">Rc</span>::<span class="ident">new</span>(<span class="ident">MatchedSeq</span>(<span class="macro">vec</span><span class="macro">!</span>[], <span class="ident">sp</span>)));
                         }
-                        <span class='ident'>cur_eis</span>.<span class='ident'>push</span>(<span class='ident'>new_ei</span>);
+                        <span class="ident">cur_eis</span>.<span class="ident">push</span>(<span class="ident">new_ei</span>);
                     }
 
-                    <span class='comment'>// Examine the case where there is at least one match of this sequence</span>
-                    <span class='kw'>let</span> <span class='ident'>matches</span> <span class='op'>=</span> <span class='ident'>create_matches</span>(<span class='ident'>ei</span>.<span class='ident'>matches</span>.<span class='ident'>len</span>());
-                    <span class='ident'>cur_eis</span>.<span class='ident'>push</span>(<span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='ident'>MatcherPos</span> {
-                        <span class='ident'>stack</span>: <span class='macro'>vec</span><span class='macro'>!</span>[],
-                        <span class='ident'>sep</span>: <span class='ident'>seq</span>.<span class='ident'>separator</span>.<span class='ident'>clone</span>(),
-                        <span class='ident'>idx</span>: <span class='number'>0</span>,
-                        <span class='ident'>matches</span>: <span class='ident'>matches</span>,
-                        <span class='ident'>match_lo</span>: <span class='ident'>ei</span>.<span class='ident'>match_cur</span>,
-                        <span class='ident'>match_cur</span>: <span class='ident'>ei</span>.<span class='ident'>match_cur</span>,
-                        <span class='ident'>match_hi</span>: <span class='ident'>ei</span>.<span class='ident'>match_cur</span> <span class='op'>+</span> <span class='ident'>seq</span>.<span class='ident'>num_captures</span>,
-                        <span class='ident'>up</span>: <span class='prelude-val'>Some</span>(<span class='ident'>ei</span>),
-                        <span class='ident'>sp_lo</span>: <span class='ident'>sp</span>.<span class='ident'>lo</span>,
-                        <span class='ident'>top_elts</span>: <span class='ident'>Tt</span>(<span class='ident'>TokenTree</span>::<span class='ident'>Sequence</span>(<span class='ident'>sp</span>, <span class='ident'>seq</span>)),
+                    <span class="comment">// Examine the case where there is at least one match of this sequence</span>
+                    <span class="kw">let</span> <span class="ident">matches</span> <span class="op">=</span> <span class="ident">create_matches</span>(<span class="ident">ei</span>.<span class="ident">matches</span>.<span class="ident">len</span>());
+                    <span class="ident">cur_eis</span>.<span class="ident">push</span>(<span class="ident">Box</span>::<span class="ident">new</span>(<span class="ident">MatcherPos</span> {
+                        <span class="ident">stack</span>: <span class="macro">vec</span><span class="macro">!</span>[],
+                        <span class="ident">sep</span>: <span class="ident">seq</span>.<span class="ident">separator</span>.<span class="ident">clone</span>(),
+                        <span class="ident">idx</span>: <span class="number">0</span>,
+                        <span class="ident">matches</span>: <span class="ident">matches</span>,
+                        <span class="ident">match_lo</span>: <span class="ident">ei</span>.<span class="ident">match_cur</span>,
+                        <span class="ident">match_cur</span>: <span class="ident">ei</span>.<span class="ident">match_cur</span>,
+                        <span class="ident">match_hi</span>: <span class="ident">ei</span>.<span class="ident">match_cur</span> <span class="op">+</span> <span class="ident">seq</span>.<span class="ident">num_captures</span>,
+                        <span class="ident">up</span>: <span class="prelude-val">Some</span>(<span class="ident">ei</span>),
+                        <span class="ident">sp_lo</span>: <span class="ident">sp</span>.<span class="ident">lo</span>,
+                        <span class="ident">top_elts</span>: <span class="ident">Tt</span>(<span class="ident">TokenTree</span>::<span class="ident">Sequence</span>(<span class="ident">sp</span>, <span class="ident">seq</span>)),
                     }));
                 }
-                <span class='ident'>TokenTree</span>::<span class='ident'>Token</span>(_, <span class='ident'>MatchNt</span>(..)) <span class='op'>=&gt;</span> {
-                    <span class='comment'>// Built-in nonterminals never start with these tokens,</span>
-                    <span class='comment'>// so we can eliminate them from consideration.</span>
-                    <span class='kw'>match</span> <span class='kw-2'>*</span><span class='ident'>token</span> {
-                        <span class='ident'>token</span>::<span class='ident'>CloseDelim</span>(_) <span class='op'>=&gt;</span> {},
-                        _ <span class='op'>=&gt;</span> <span class='ident'>bb_eis</span>.<span class='ident'>push</span>(<span class='ident'>ei</span>),
+                <span class="ident">TokenTree</span>::<span class="ident">MetaVarDecl</span>(<span class="ident">span</span>, _, <span class="ident">id</span>) <span class="kw">if</span> <span class="ident">id</span>.<span class="ident">name</span> <span class="op">==</span> <span class="ident">keywords</span>::<span class="ident">Invalid</span>.<span class="ident">name</span>() <span class="op">=&gt;</span> {
+                    <span class="kw">if</span> <span class="ident">sess</span>.<span class="ident">missing_fragment_specifiers</span>.<span class="ident">borrow_mut</span>().<span class="ident">remove</span>(<span class="kw-2">&amp;</span><span class="ident">span</span>) {
+                        <span class="kw">return</span> <span class="ident">Error</span>(<span class="ident">span</span>, <span class="string">&quot;missing fragment specifier&quot;</span>.<span class="ident">to_string</span>());
                     }
                 }
-                <span class='ident'>TokenTree</span>::<span class='ident'>Token</span>(<span class='ident'>sp</span>, <span class='ident'>SubstNt</span>(..)) <span class='op'>=&gt;</span> {
-                    <span class='kw'>return</span> <span class='ident'>Error</span>(<span class='ident'>sp</span>, <span class='string'>&quot;missing fragment specifier&quot;</span>.<span class='ident'>to_string</span>())
+                <span class="ident">TokenTree</span>::<span class="ident">MetaVarDecl</span>(..) <span class="op">=&gt;</span> {
+                    <span class="comment">// Built-in nonterminals never start with these tokens,</span>
+                    <span class="comment">// so we can eliminate them from consideration.</span>
+                    <span class="kw">match</span> <span class="kw-2">*</span><span class="ident">token</span> {
+                        <span class="ident">token</span>::<span class="ident">CloseDelim</span>(_) <span class="op">=&gt;</span> {},
+                        _ <span class="op">=&gt;</span> <span class="ident">bb_eis</span>.<span class="ident">push</span>(<span class="ident">ei</span>),
+                    }
                 }
-                <span class='ident'>seq</span> @ <span class='ident'>TokenTree</span>::<span class='ident'>Delimited</span>(..) <span class='op'>|</span> <span class='ident'>seq</span> @ <span class='ident'>TokenTree</span>::<span class='ident'>Token</span>(_, <span class='ident'>DocComment</span>(..)) <span class='op'>=&gt;</span> {
-                    <span class='kw'>let</span> <span class='ident'>lower_elts</span> <span class='op'>=</span> <span class='ident'>mem</span>::<span class='ident'>replace</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>ei</span>.<span class='ident'>top_elts</span>, <span class='ident'>Tt</span>(<span class='ident'>seq</span>));
-                    <span class='kw'>let</span> <span class='ident'>idx</span> <span class='op'>=</span> <span class='ident'>ei</span>.<span class='ident'>idx</span>;
-                    <span class='ident'>ei</span>.<span class='ident'>stack</span>.<span class='ident'>push</span>(<span class='ident'>MatcherTtFrame</span> {
-                        <span class='ident'>elts</span>: <span class='ident'>lower_elts</span>,
-                        <span class='ident'>idx</span>: <span class='ident'>idx</span>,
+                <span class="ident">seq</span> @ <span class="ident">TokenTree</span>::<span class="ident">Delimited</span>(..) <span class="op">|</span> <span class="ident">seq</span> @ <span class="ident">TokenTree</span>::<span class="ident">Token</span>(_, <span class="ident">DocComment</span>(..)) <span class="op">=&gt;</span> {
+                    <span class="kw">let</span> <span class="ident">lower_elts</span> <span class="op">=</span> <span class="ident">mem</span>::<span class="ident">replace</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">ei</span>.<span class="ident">top_elts</span>, <span class="ident">Tt</span>(<span class="ident">seq</span>));
+                    <span class="kw">let</span> <span class="ident">idx</span> <span class="op">=</span> <span class="ident">ei</span>.<span class="ident">idx</span>;
+                    <span class="ident">ei</span>.<span class="ident">stack</span>.<span class="ident">push</span>(<span class="ident">MatcherTtFrame</span> {
+                        <span class="ident">elts</span>: <span class="ident">lower_elts</span>,
+                        <span class="ident">idx</span>: <span class="ident">idx</span>,
                     });
-                    <span class='ident'>ei</span>.<span class='ident'>idx</span> <span class='op'>=</span> <span class='number'>0</span>;
-                    <span class='ident'>cur_eis</span>.<span class='ident'>push</span>(<span class='ident'>ei</span>);
+                    <span class="ident">ei</span>.<span class="ident">idx</span> <span class="op">=</span> <span class="number">0</span>;
+                    <span class="ident">cur_eis</span>.<span class="ident">push</span>(<span class="ident">ei</span>);
                 }
-                <span class='ident'>TokenTree</span>::<span class='ident'>Token</span>(_, <span class='kw-2'>ref</span> <span class='ident'>t</span>) <span class='op'>=&gt;</span> {
-                    <span class='kw'>if</span> <span class='ident'>token_name_eq</span>(<span class='ident'>t</span>, <span class='kw-2'>&amp;</span><span class='ident'>token</span>) {
-                        <span class='ident'>ei</span>.<span class='ident'>idx</span> <span class='op'>+=</span> <span class='number'>1</span>;
-                        <span class='ident'>next_eis</span>.<span class='ident'>push</span>(<span class='ident'>ei</span>);
+                <span class="ident">TokenTree</span>::<span class="ident">Token</span>(_, <span class="kw-2">ref</span> <span class="ident">t</span>) <span class="op">=&gt;</span> {
+                    <span class="kw">if</span> <span class="ident">token_name_eq</span>(<span class="ident">t</span>, <span class="kw-2">&amp;</span><span class="ident">token</span>) {
+                        <span class="ident">ei</span>.<span class="ident">idx</span> <span class="op">+=</span> <span class="number">1</span>;
+                        <span class="ident">next_eis</span>.<span class="ident">push</span>(<span class="ident">ei</span>);
                     }
                 }
             }
         }
     }
 
-    <span class='ident'>Success</span>(())
+    <span class="ident">Success</span>(())
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>parse</span>(<span class='ident'>sess</span>: <span class='kw-2'>&amp;</span><span class='ident'>ParseSess</span>, <span class='ident'>tts</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>TokenTree</span><span class='op'>&gt;</span>, <span class='ident'>ms</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>TokenTree</span>], <span class='ident'>directory</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Directory</span><span class='op'>&gt;</span>)
-             <span class='op'>-&gt;</span> <span class='ident'>NamedParseResult</span> {
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>parser</span> <span class='op'>=</span> <span class='ident'>Parser</span>::<span class='ident'>new</span>(<span class='ident'>sess</span>, <span class='ident'>tts</span>, <span class='ident'>directory</span>, <span class='bool-val'>true</span>);
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>cur_eis</span> <span class='op'>=</span> <span class='ident'>SmallVector</span>::<span class='ident'>one</span>(<span class='ident'>initial_matcher_pos</span>(<span class='ident'>ms</span>.<span class='ident'>to_owned</span>(), <span class='ident'>parser</span>.<span class='ident'>span</span>.<span class='ident'>lo</span>));
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>next_eis</span> <span class='op'>=</span> <span class='ident'>Vec</span>::<span class='ident'>new</span>(); <span class='comment'>// or proceed normally</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">parse</span>(<span class="ident">sess</span>: <span class="kw-2">&amp;</span><span class="ident">ParseSess</span>, <span class="ident">tts</span>: <span class="ident">TokenStream</span>, <span class="ident">ms</span>: <span class="kw-2">&amp;</span>[<span class="ident">TokenTree</span>], <span class="ident">directory</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Directory</span><span class="op">&gt;</span>)
+             <span class="op">-&gt;</span> <span class="ident">NamedParseResult</span> {
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">parser</span> <span class="op">=</span> <span class="ident">Parser</span>::<span class="ident">new</span>(<span class="ident">sess</span>, <span class="ident">tts</span>, <span class="ident">directory</span>, <span class="bool-val">true</span>);
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">cur_eis</span> <span class="op">=</span> <span class="ident">SmallVector</span>::<span class="ident">one</span>(<span class="ident">initial_matcher_pos</span>(<span class="ident">ms</span>.<span class="ident">to_owned</span>(), <span class="ident">parser</span>.<span class="ident">span</span>.<span class="ident">lo</span>));
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">next_eis</span> <span class="op">=</span> <span class="ident">Vec</span>::<span class="ident">new</span>(); <span class="comment">// or proceed normally</span>
 
-    <span class='kw'>loop</span> {
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>bb_eis</span> <span class='op'>=</span> <span class='ident'>SmallVector</span>::<span class='ident'>new</span>(); <span class='comment'>// black-box parsed by parser.rs</span>
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>eof_eis</span> <span class='op'>=</span> <span class='ident'>SmallVector</span>::<span class='ident'>new</span>();
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>next_eis</span>.<span class='ident'>is_empty</span>());
+    <span class="kw">loop</span> {
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">bb_eis</span> <span class="op">=</span> <span class="ident">SmallVector</span>::<span class="ident">new</span>(); <span class="comment">// black-box parsed by parser.rs</span>
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">eof_eis</span> <span class="op">=</span> <span class="ident">SmallVector</span>::<span class="ident">new</span>();
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">next_eis</span>.<span class="ident">is_empty</span>());
 
-        <span class='kw'>match</span> <span class='ident'>inner_parse_loop</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>cur_eis</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>next_eis</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>eof_eis</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>bb_eis</span>,
-                               <span class='kw-2'>&amp;</span><span class='ident'>parser</span>.<span class='ident'>token</span>, <span class='kw-2'>&amp;</span><span class='ident'>parser</span>.<span class='ident'>span</span>) {
-            <span class='ident'>Success</span>(_) <span class='op'>=&gt;</span> {},
-            <span class='ident'>Failure</span>(<span class='ident'>sp</span>, <span class='ident'>tok</span>) <span class='op'>=&gt;</span> <span class='kw'>return</span> <span class='ident'>Failure</span>(<span class='ident'>sp</span>, <span class='ident'>tok</span>),
-            <span class='ident'>Error</span>(<span class='ident'>sp</span>, <span class='ident'>msg</span>) <span class='op'>=&gt;</span> <span class='kw'>return</span> <span class='ident'>Error</span>(<span class='ident'>sp</span>, <span class='ident'>msg</span>),
+        <span class="kw">match</span> <span class="ident">inner_parse_loop</span>(<span class="ident">sess</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">cur_eis</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">next_eis</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">eof_eis</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">bb_eis</span>,
+                               <span class="kw-2">&amp;</span><span class="ident">parser</span>.<span class="ident">token</span>, <span class="kw-2">&amp;</span><span class="ident">parser</span>.<span class="ident">span</span>) {
+            <span class="ident">Success</span>(_) <span class="op">=&gt;</span> {},
+            <span class="ident">Failure</span>(<span class="ident">sp</span>, <span class="ident">tok</span>) <span class="op">=&gt;</span> <span class="kw">return</span> <span class="ident">Failure</span>(<span class="ident">sp</span>, <span class="ident">tok</span>),
+            <span class="ident">Error</span>(<span class="ident">sp</span>, <span class="ident">msg</span>) <span class="op">=&gt;</span> <span class="kw">return</span> <span class="ident">Error</span>(<span class="ident">sp</span>, <span class="ident">msg</span>),
         }
 
-        <span class='comment'>// inner parse loop handled all cur_eis, so it&#39;s empty</span>
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>cur_eis</span>.<span class='ident'>is_empty</span>());
+        <span class="comment">// inner parse loop handled all cur_eis, so it&#39;s empty</span>
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">cur_eis</span>.<span class="ident">is_empty</span>());
 
-        <span class='comment'>/* error messages here could be improved with links to orig. rules */</span>
-        <span class='kw'>if</span> <span class='ident'>token_name_eq</span>(<span class='kw-2'>&amp;</span><span class='ident'>parser</span>.<span class='ident'>token</span>, <span class='kw-2'>&amp;</span><span class='ident'>token</span>::<span class='ident'>Eof</span>) {
-            <span class='kw'>if</span> <span class='ident'>eof_eis</span>.<span class='ident'>len</span>() <span class='op'>==</span> <span class='number'>1</span> {
-                <span class='kw'>return</span> <span class='ident'>nameize</span>(<span class='ident'>ms</span>, <span class='ident'>eof_eis</span>[<span class='number'>0</span>].<span class='ident'>matches</span>.<span class='ident'>iter_mut</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='kw-2'>mut</span> <span class='ident'>dv</span><span class='op'>|</span> <span class='ident'>dv</span>.<span class='ident'>pop</span>().<span class='ident'>unwrap</span>()));
-            } <span class='kw'>else</span> <span class='kw'>if</span> <span class='ident'>eof_eis</span>.<span class='ident'>len</span>() <span class='op'>&gt;</span> <span class='number'>1</span> {
-                <span class='kw'>return</span> <span class='ident'>Error</span>(<span class='ident'>parser</span>.<span class='ident'>span</span>, <span class='string'>&quot;ambiguity: multiple successful parses&quot;</span>.<span class='ident'>to_string</span>());
-            } <span class='kw'>else</span> {
-                <span class='kw'>return</span> <span class='ident'>Failure</span>(<span class='ident'>parser</span>.<span class='ident'>span</span>, <span class='ident'>token</span>::<span class='ident'>Eof</span>);
+        <span class="comment">/* error messages here could be improved with links to orig. rules */</span>
+        <span class="kw">if</span> <span class="ident">token_name_eq</span>(<span class="kw-2">&amp;</span><span class="ident">parser</span>.<span class="ident">token</span>, <span class="kw-2">&amp;</span><span class="ident">token</span>::<span class="ident">Eof</span>) {
+            <span class="kw">if</span> <span class="ident">eof_eis</span>.<span class="ident">len</span>() <span class="op">==</span> <span class="number">1</span> {
+                <span class="kw">let</span> <span class="ident">matches</span> <span class="op">=</span> <span class="ident">eof_eis</span>[<span class="number">0</span>].<span class="ident">matches</span>.<span class="ident">iter_mut</span>().<span class="ident">map</span>(<span class="op">|</span><span class="kw-2">mut</span> <span class="ident">dv</span><span class="op">|</span> <span class="ident">dv</span>.<span class="ident">pop</span>().<span class="ident">unwrap</span>());
+                <span class="kw">return</span> <span class="ident">nameize</span>(<span class="ident">sess</span>, <span class="ident">ms</span>, <span class="ident">matches</span>);
+            } <span class="kw">else</span> <span class="kw">if</span> <span class="ident">eof_eis</span>.<span class="ident">len</span>() <span class="op">&gt;</span> <span class="number">1</span> {
+                <span class="kw">return</span> <span class="ident">Error</span>(<span class="ident">parser</span>.<span class="ident">span</span>, <span class="string">&quot;ambiguity: multiple successful parses&quot;</span>.<span class="ident">to_string</span>());
+            } <span class="kw">else</span> {
+                <span class="kw">return</span> <span class="ident">Failure</span>(<span class="ident">parser</span>.<span class="ident">span</span>, <span class="ident">token</span>::<span class="ident">Eof</span>);
             }
-        } <span class='kw'>else</span> <span class='kw'>if</span> (<span class='op'>!</span><span class='ident'>bb_eis</span>.<span class='ident'>is_empty</span>() <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='ident'>next_eis</span>.<span class='ident'>is_empty</span>()) <span class='op'>||</span> <span class='ident'>bb_eis</span>.<span class='ident'>len</span>() <span class='op'>&gt;</span> <span class='number'>1</span> {
-            <span class='kw'>let</span> <span class='ident'>nts</span> <span class='op'>=</span> <span class='ident'>bb_eis</span>.<span class='ident'>iter</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>ei</span><span class='op'>|</span> <span class='kw'>match</span> <span class='ident'>ei</span>.<span class='ident'>top_elts</span>.<span class='ident'>get_tt</span>(<span class='ident'>ei</span>.<span class='ident'>idx</span>) {
-                <span class='ident'>TokenTree</span>::<span class='ident'>Token</span>(_, <span class='ident'>MatchNt</span>(<span class='ident'>bind</span>, <span class='ident'>name</span>)) <span class='op'>=&gt;</span> {
-                    <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;{} (&#39;{}&#39;)&quot;</span>, <span class='ident'>name</span>, <span class='ident'>bind</span>)
+        } <span class="kw">else</span> <span class="kw">if</span> (<span class="op">!</span><span class="ident">bb_eis</span>.<span class="ident">is_empty</span>() <span class="op">&amp;&amp;</span> <span class="op">!</span><span class="ident">next_eis</span>.<span class="ident">is_empty</span>()) <span class="op">||</span> <span class="ident">bb_eis</span>.<span class="ident">len</span>() <span class="op">&gt;</span> <span class="number">1</span> {
+            <span class="kw">let</span> <span class="ident">nts</span> <span class="op">=</span> <span class="ident">bb_eis</span>.<span class="ident">iter</span>().<span class="ident">map</span>(<span class="op">|</span><span class="ident">ei</span><span class="op">|</span> <span class="kw">match</span> <span class="ident">ei</span>.<span class="ident">top_elts</span>.<span class="ident">get_tt</span>(<span class="ident">ei</span>.<span class="ident">idx</span>) {
+                <span class="ident">TokenTree</span>::<span class="ident">MetaVarDecl</span>(_, <span class="ident">bind</span>, <span class="ident">name</span>) <span class="op">=&gt;</span> {
+                    <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;{} (&#39;{}&#39;)&quot;</span>, <span class="ident">name</span>, <span class="ident">bind</span>)
                 }
-                _ <span class='op'>=&gt;</span> <span class='macro'>panic</span><span class='macro'>!</span>()
-            }).<span class='ident'>collect</span>::<span class='op'>&lt;</span><span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>String</span><span class='op'>&gt;&gt;</span>().<span class='ident'>join</span>(<span class='string'>&quot; or &quot;</span>);
+                _ <span class="op">=&gt;</span> <span class="macro">panic</span><span class="macro">!</span>()
+            }).<span class="ident">collect</span>::<span class="op">&lt;</span><span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">String</span><span class="op">&gt;&gt;</span>().<span class="ident">join</span>(<span class="string">&quot; or &quot;</span>);
 
-            <span class='kw'>return</span> <span class='ident'>Error</span>(<span class='ident'>parser</span>.<span class='ident'>span</span>, <span class='macro'>format</span><span class='macro'>!</span>(
-                <span class='string'>&quot;local ambiguity: multiple parsing options: {}&quot;</span>,
-                <span class='kw'>match</span> <span class='ident'>next_eis</span>.<span class='ident'>len</span>() {
-                    <span class='number'>0</span> <span class='op'>=&gt;</span> <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;built-in NTs {}.&quot;</span>, <span class='ident'>nts</span>),
-                    <span class='number'>1</span> <span class='op'>=&gt;</span> <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;built-in NTs {} or 1 other option.&quot;</span>, <span class='ident'>nts</span>),
-                    <span class='ident'>n</span> <span class='op'>=&gt;</span> <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;built-in NTs {} or {} other options.&quot;</span>, <span class='ident'>nts</span>, <span class='ident'>n</span>),
+            <span class="kw">return</span> <span class="ident">Error</span>(<span class="ident">parser</span>.<span class="ident">span</span>, <span class="macro">format</span><span class="macro">!</span>(
+                <span class="string">&quot;local ambiguity: multiple parsing options: {}&quot;</span>,
+                <span class="kw">match</span> <span class="ident">next_eis</span>.<span class="ident">len</span>() {
+                    <span class="number">0</span> <span class="op">=&gt;</span> <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;built-in NTs {}.&quot;</span>, <span class="ident">nts</span>),
+                    <span class="number">1</span> <span class="op">=&gt;</span> <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;built-in NTs {} or 1 other option.&quot;</span>, <span class="ident">nts</span>),
+                    <span class="ident">n</span> <span class="op">=&gt;</span> <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;built-in NTs {} or {} other options.&quot;</span>, <span class="ident">nts</span>, <span class="ident">n</span>),
                 }
             ));
-        } <span class='kw'>else</span> <span class='kw'>if</span> <span class='ident'>bb_eis</span>.<span class='ident'>is_empty</span>() <span class='op'>&amp;&amp;</span> <span class='ident'>next_eis</span>.<span class='ident'>is_empty</span>() {
-            <span class='kw'>return</span> <span class='ident'>Failure</span>(<span class='ident'>parser</span>.<span class='ident'>span</span>, <span class='ident'>parser</span>.<span class='ident'>token</span>);
-        } <span class='kw'>else</span> <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>next_eis</span>.<span class='ident'>is_empty</span>() {
-            <span class='comment'>/* Now process the next token */</span>
-            <span class='ident'>cur_eis</span>.<span class='ident'>extend</span>(<span class='ident'>next_eis</span>.<span class='ident'>drain</span>(..));
-            <span class='ident'>parser</span>.<span class='ident'>bump</span>();
-        } <span class='kw'>else</span> <span class='comment'>/* bb_eis.len() == 1 */</span> {
-            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>ei</span> <span class='op'>=</span> <span class='ident'>bb_eis</span>.<span class='ident'>pop</span>().<span class='ident'>unwrap</span>();
-            <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>TokenTree</span>::<span class='ident'>Token</span>(<span class='ident'>span</span>, <span class='ident'>MatchNt</span>(_, <span class='ident'>ident</span>)) <span class='op'>=</span> <span class='ident'>ei</span>.<span class='ident'>top_elts</span>.<span class='ident'>get_tt</span>(<span class='ident'>ei</span>.<span class='ident'>idx</span>) {
-                <span class='kw'>let</span> <span class='ident'>match_cur</span> <span class='op'>=</span> <span class='ident'>ei</span>.<span class='ident'>match_cur</span>;
-                <span class='ident'>ei</span>.<span class='ident'>matches</span>[<span class='ident'>match_cur</span>].<span class='ident'>push</span>(<span class='ident'>Rc</span>::<span class='ident'>new</span>(<span class='ident'>MatchedNonterminal</span>(
-                            <span class='ident'>Rc</span>::<span class='ident'>new</span>(<span class='ident'>parse_nt</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>parser</span>, <span class='ident'>span</span>, <span class='kw-2'>&amp;</span><span class='ident'>ident</span>.<span class='ident'>name</span>.<span class='ident'>as_str</span>())))));
-                <span class='ident'>ei</span>.<span class='ident'>idx</span> <span class='op'>+=</span> <span class='number'>1</span>;
-                <span class='ident'>ei</span>.<span class='ident'>match_cur</span> <span class='op'>+=</span> <span class='number'>1</span>;
-            } <span class='kw'>else</span> {
-                <span class='macro'>unreachable</span><span class='macro'>!</span>()
+        } <span class="kw">else</span> <span class="kw">if</span> <span class="ident">bb_eis</span>.<span class="ident">is_empty</span>() <span class="op">&amp;&amp;</span> <span class="ident">next_eis</span>.<span class="ident">is_empty</span>() {
+            <span class="kw">return</span> <span class="ident">Failure</span>(<span class="ident">parser</span>.<span class="ident">span</span>, <span class="ident">parser</span>.<span class="ident">token</span>);
+        } <span class="kw">else</span> <span class="kw">if</span> <span class="op">!</span><span class="ident">next_eis</span>.<span class="ident">is_empty</span>() {
+            <span class="comment">/* Now process the next token */</span>
+            <span class="ident">cur_eis</span>.<span class="ident">extend</span>(<span class="ident">next_eis</span>.<span class="ident">drain</span>(..));
+            <span class="ident">parser</span>.<span class="ident">bump</span>();
+        } <span class="kw">else</span> <span class="comment">/* bb_eis.len() == 1 */</span> {
+            <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">ei</span> <span class="op">=</span> <span class="ident">bb_eis</span>.<span class="ident">pop</span>().<span class="ident">unwrap</span>();
+            <span class="kw">if</span> <span class="kw">let</span> <span class="ident">TokenTree</span>::<span class="ident">MetaVarDecl</span>(<span class="ident">span</span>, _, <span class="ident">ident</span>) <span class="op">=</span> <span class="ident">ei</span>.<span class="ident">top_elts</span>.<span class="ident">get_tt</span>(<span class="ident">ei</span>.<span class="ident">idx</span>) {
+                <span class="kw">let</span> <span class="ident">match_cur</span> <span class="op">=</span> <span class="ident">ei</span>.<span class="ident">match_cur</span>;
+                <span class="ident">ei</span>.<span class="ident">matches</span>[<span class="ident">match_cur</span>].<span class="ident">push</span>(<span class="ident">Rc</span>::<span class="ident">new</span>(<span class="ident">MatchedNonterminal</span>(
+                            <span class="ident">Rc</span>::<span class="ident">new</span>(<span class="ident">parse_nt</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">parser</span>, <span class="ident">span</span>, <span class="kw-2">&amp;</span><span class="ident">ident</span>.<span class="ident">name</span>.<span class="ident">as_str</span>())))));
+                <span class="ident">ei</span>.<span class="ident">idx</span> <span class="op">+=</span> <span class="number">1</span>;
+                <span class="ident">ei</span>.<span class="ident">match_cur</span> <span class="op">+=</span> <span class="number">1</span>;
+            } <span class="kw">else</span> {
+                <span class="macro">unreachable</span><span class="macro">!</span>()
             }
-            <span class='ident'>cur_eis</span>.<span class='ident'>push</span>(<span class='ident'>ei</span>);
+            <span class="ident">cur_eis</span>.<span class="ident">push</span>(<span class="ident">ei</span>);
         }
 
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>cur_eis</span>.<span class='ident'>is_empty</span>());
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="op">!</span><span class="ident">cur_eis</span>.<span class="ident">is_empty</span>());
     }
 }
 
-<span class='kw'>fn</span> <span class='ident'>parse_nt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='ident'>p</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Parser</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>, <span class='ident'>sp</span>: <span class='ident'>Span</span>, <span class='ident'>name</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) <span class='op'>-&gt;</span> <span class='ident'>Nonterminal</span> {
-    <span class='kw'>match</span> <span class='ident'>name</span> {
-        <span class='string'>&quot;tt&quot;</span> <span class='op'>=&gt;</span> {
-            <span class='ident'>p</span>.<span class='ident'>quote_depth</span> <span class='op'>+=</span> <span class='number'>1</span>; <span class='comment'>//but in theory, non-quoted tts might be useful</span>
-            <span class='kw'>let</span> <span class='ident'>tt</span> <span class='op'>=</span> <span class='macro'>panictry</span><span class='macro'>!</span>(<span class='ident'>p</span>.<span class='ident'>parse_token_tree</span>());
-            <span class='ident'>p</span>.<span class='ident'>quote_depth</span> <span class='op'>-=</span> <span class='number'>1</span>;
-            <span class='kw'>return</span> <span class='ident'>token</span>::<span class='ident'>NtTT</span>(<span class='ident'>tt</span>);
+<span class="kw">fn</span> <span class="ident">parse_nt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>(<span class="ident">p</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Parser</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>, <span class="ident">sp</span>: <span class="ident">Span</span>, <span class="ident">name</span>: <span class="kw-2">&amp;</span><span class="ident">str</span>) <span class="op">-&gt;</span> <span class="ident">Nonterminal</span> {
+    <span class="kw">match</span> <span class="ident">name</span> {
+        <span class="string">&quot;tt&quot;</span> <span class="op">=&gt;</span> {
+            <span class="kw">return</span> <span class="ident">token</span>::<span class="ident">NtTT</span>(<span class="macro">panictry</span><span class="macro">!</span>(<span class="ident">p</span>.<span class="ident">parse_token_tree</span>()));
         }
-        _ <span class='op'>=&gt;</span> {}
+        _ <span class="op">=&gt;</span> {}
     }
-    <span class='comment'>// check at the beginning and the parser checks after each bump</span>
-    <span class='ident'>p</span>.<span class='ident'>check_unknown_macro_variable</span>();
-    <span class='kw'>match</span> <span class='ident'>name</span> {
-        <span class='string'>&quot;item&quot;</span> <span class='op'>=&gt;</span> <span class='kw'>match</span> <span class='macro'>panictry</span><span class='macro'>!</span>(<span class='ident'>p</span>.<span class='ident'>parse_item</span>()) {
-            <span class='prelude-val'>Some</span>(<span class='ident'>i</span>) <span class='op'>=&gt;</span> <span class='ident'>token</span>::<span class='ident'>NtItem</span>(<span class='ident'>i</span>),
-            <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> {
-                <span class='ident'>p</span>.<span class='ident'>fatal</span>(<span class='string'>&quot;expected an item keyword&quot;</span>).<span class='ident'>emit</span>();
-                <span class='macro'>panic</span><span class='macro'>!</span>(<span class='ident'>FatalError</span>);
+    <span class="comment">// check at the beginning and the parser checks after each bump</span>
+    <span class="ident">p</span>.<span class="ident">check_unknown_macro_variable</span>();
+    <span class="kw">match</span> <span class="ident">name</span> {
+        <span class="string">&quot;item&quot;</span> <span class="op">=&gt;</span> <span class="kw">match</span> <span class="macro">panictry</span><span class="macro">!</span>(<span class="ident">p</span>.<span class="ident">parse_item</span>()) {
+            <span class="prelude-val">Some</span>(<span class="ident">i</span>) <span class="op">=&gt;</span> <span class="ident">token</span>::<span class="ident">NtItem</span>(<span class="ident">i</span>),
+            <span class="prelude-val">None</span> <span class="op">=&gt;</span> {
+                <span class="ident">p</span>.<span class="ident">fatal</span>(<span class="string">&quot;expected an item keyword&quot;</span>).<span class="ident">emit</span>();
+                <span class="macro">panic</span><span class="macro">!</span>(<span class="ident">FatalError</span>);
             }
         },
-        <span class='string'>&quot;block&quot;</span> <span class='op'>=&gt;</span> <span class='ident'>token</span>::<span class='ident'>NtBlock</span>(<span class='macro'>panictry</span><span class='macro'>!</span>(<span class='ident'>p</span>.<span class='ident'>parse_block</span>())),
-        <span class='string'>&quot;stmt&quot;</span> <span class='op'>=&gt;</span> <span class='kw'>match</span> <span class='macro'>panictry</span><span class='macro'>!</span>(<span class='ident'>p</span>.<span class='ident'>parse_stmt</span>()) {
-            <span class='prelude-val'>Some</span>(<span class='ident'>s</span>) <span class='op'>=&gt;</span> <span class='ident'>token</span>::<span class='ident'>NtStmt</span>(<span class='ident'>s</span>),
-            <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> {
-                <span class='ident'>p</span>.<span class='ident'>fatal</span>(<span class='string'>&quot;expected a statement&quot;</span>).<span class='ident'>emit</span>();
-                <span class='macro'>panic</span><span class='macro'>!</span>(<span class='ident'>FatalError</span>);
+        <span class="string">&quot;block&quot;</span> <span class="op">=&gt;</span> <span class="ident">token</span>::<span class="ident">NtBlock</span>(<span class="macro">panictry</span><span class="macro">!</span>(<span class="ident">p</span>.<span class="ident">parse_block</span>())),
+        <span class="string">&quot;stmt&quot;</span> <span class="op">=&gt;</span> <span class="kw">match</span> <span class="macro">panictry</span><span class="macro">!</span>(<span class="ident">p</span>.<span class="ident">parse_stmt</span>()) {
+            <span class="prelude-val">Some</span>(<span class="ident">s</span>) <span class="op">=&gt;</span> <span class="ident">token</span>::<span class="ident">NtStmt</span>(<span class="ident">s</span>),
+            <span class="prelude-val">None</span> <span class="op">=&gt;</span> {
+                <span class="ident">p</span>.<span class="ident">fatal</span>(<span class="string">&quot;expected a statement&quot;</span>).<span class="ident">emit</span>();
+                <span class="macro">panic</span><span class="macro">!</span>(<span class="ident">FatalError</span>);
             }
         },
-        <span class='string'>&quot;pat&quot;</span> <span class='op'>=&gt;</span> <span class='ident'>token</span>::<span class='ident'>NtPat</span>(<span class='macro'>panictry</span><span class='macro'>!</span>(<span class='ident'>p</span>.<span class='ident'>parse_pat</span>())),
-        <span class='string'>&quot;expr&quot;</span> <span class='op'>=&gt;</span> <span class='ident'>token</span>::<span class='ident'>NtExpr</span>(<span class='macro'>panictry</span><span class='macro'>!</span>(<span class='ident'>p</span>.<span class='ident'>parse_expr</span>())),
-        <span class='string'>&quot;ty&quot;</span> <span class='op'>=&gt;</span> <span class='ident'>token</span>::<span class='ident'>NtTy</span>(<span class='macro'>panictry</span><span class='macro'>!</span>(<span class='ident'>p</span>.<span class='ident'>parse_ty_no_plus</span>())),
-        <span class='comment'>// this could be handled like a token, since it is one</span>
-        <span class='string'>&quot;ident&quot;</span> <span class='op'>=&gt;</span> <span class='kw'>match</span> <span class='ident'>p</span>.<span class='ident'>token</span> {
-            <span class='ident'>token</span>::<span class='ident'>Ident</span>(<span class='ident'>sn</span>) <span class='op'>=&gt;</span> {
-                <span class='ident'>p</span>.<span class='ident'>bump</span>();
-                <span class='ident'>token</span>::<span class='ident'>NtIdent</span>(<span class='ident'>Spanned</span>::<span class='op'>&lt;</span><span class='ident'>Ident</span><span class='op'>&gt;</span>{<span class='ident'>node</span>: <span class='ident'>sn</span>, <span class='ident'>span</span>: <span class='ident'>p</span>.<span class='ident'>prev_span</span>})
+        <span class="string">&quot;pat&quot;</span> <span class="op">=&gt;</span> <span class="ident">token</span>::<span class="ident">NtPat</span>(<span class="macro">panictry</span><span class="macro">!</span>(<span class="ident">p</span>.<span class="ident">parse_pat</span>())),
+        <span class="string">&quot;expr&quot;</span> <span class="op">=&gt;</span> <span class="ident">token</span>::<span class="ident">NtExpr</span>(<span class="macro">panictry</span><span class="macro">!</span>(<span class="ident">p</span>.<span class="ident">parse_expr</span>())),
+        <span class="string">&quot;ty&quot;</span> <span class="op">=&gt;</span> <span class="ident">token</span>::<span class="ident">NtTy</span>(<span class="macro">panictry</span><span class="macro">!</span>(<span class="ident">p</span>.<span class="ident">parse_ty_no_plus</span>())),
+        <span class="comment">// this could be handled like a token, since it is one</span>
+        <span class="string">&quot;ident&quot;</span> <span class="op">=&gt;</span> <span class="kw">match</span> <span class="ident">p</span>.<span class="ident">token</span> {
+            <span class="ident">token</span>::<span class="ident">Ident</span>(<span class="ident">sn</span>) <span class="op">=&gt;</span> {
+                <span class="ident">p</span>.<span class="ident">bump</span>();
+                <span class="ident">token</span>::<span class="ident">NtIdent</span>(<span class="ident">Spanned</span>::<span class="op">&lt;</span><span class="ident">Ident</span><span class="op">&gt;</span>{<span class="ident">node</span>: <span class="ident">sn</span>, <span class="ident">span</span>: <span class="ident">p</span>.<span class="ident">prev_span</span>})
             }
-            _ <span class='op'>=&gt;</span> {
-                <span class='kw'>let</span> <span class='ident'>token_str</span> <span class='op'>=</span> <span class='ident'>pprust</span>::<span class='ident'>token_to_string</span>(<span class='kw-2'>&amp;</span><span class='ident'>p</span>.<span class='ident'>token</span>);
-                <span class='ident'>p</span>.<span class='ident'>fatal</span>(<span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;expected ident, found {}&quot;</span>,
-                                 <span class='kw-2'>&amp;</span><span class='ident'>token_str</span>[..])).<span class='ident'>emit</span>();
-                <span class='macro'>panic</span><span class='macro'>!</span>(<span class='ident'>FatalError</span>)
+            _ <span class="op">=&gt;</span> {
+                <span class="kw">let</span> <span class="ident">token_str</span> <span class="op">=</span> <span class="ident">pprust</span>::<span class="ident">token_to_string</span>(<span class="kw-2">&amp;</span><span class="ident">p</span>.<span class="ident">token</span>);
+                <span class="ident">p</span>.<span class="ident">fatal</span>(<span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;expected ident, found {}&quot;</span>,
+                                 <span class="kw-2">&amp;</span><span class="ident">token_str</span>[..])).<span class="ident">emit</span>();
+                <span class="macro">panic</span><span class="macro">!</span>(<span class="ident">FatalError</span>)
             }
         },
-        <span class='string'>&quot;path&quot;</span> <span class='op'>=&gt;</span> {
-            <span class='ident'>token</span>::<span class='ident'>NtPath</span>(<span class='macro'>panictry</span><span class='macro'>!</span>(<span class='ident'>p</span>.<span class='ident'>parse_path</span>(<span class='ident'>PathStyle</span>::<span class='ident'>Type</span>)))
+        <span class="string">&quot;path&quot;</span> <span class="op">=&gt;</span> {
+            <span class="ident">token</span>::<span class="ident">NtPath</span>(<span class="macro">panictry</span><span class="macro">!</span>(<span class="ident">p</span>.<span class="ident">parse_path</span>(<span class="ident">PathStyle</span>::<span class="ident">Type</span>)))
         },
-        <span class='string'>&quot;meta&quot;</span> <span class='op'>=&gt;</span> <span class='ident'>token</span>::<span class='ident'>NtMeta</span>(<span class='macro'>panictry</span><span class='macro'>!</span>(<span class='ident'>p</span>.<span class='ident'>parse_meta_item</span>())),
-        <span class='comment'>// this is not supposed to happen, since it has been checked</span>
-        <span class='comment'>// when compiling the macro.</span>
-        _ <span class='op'>=&gt;</span> <span class='ident'>p</span>.<span class='ident'>span_bug</span>(<span class='ident'>sp</span>, <span class='string'>&quot;invalid fragment specifier&quot;</span>)
+        <span class="string">&quot;meta&quot;</span> <span class="op">=&gt;</span> <span class="ident">token</span>::<span class="ident">NtMeta</span>(<span class="macro">panictry</span><span class="macro">!</span>(<span class="ident">p</span>.<span class="ident">parse_meta_item</span>())),
+        <span class="comment">// this is not supposed to happen, since it has been checked</span>
+        <span class="comment">// when compiling the macro.</span>
+        _ <span class="op">=&gt;</span> <span class="ident">p</span>.<span class="ident">span_bug</span>(<span class="ident">sp</span>, <span class="string">&quot;invalid fragment specifier&quot;</span>)
     }
 }
 </pre>

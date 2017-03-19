@@ -764,766 +764,726 @@
 <span id="719">719</span>
 <span id="720">720</span>
 <span id="721">721</span>
-<span id="722">722</span>
-<span id="723">723</span>
-<span id="724">724</span>
-<span id="725">725</span>
-<span id="726">726</span>
-<span id="727">727</span>
-<span id="728">728</span>
-<span id="729">729</span>
-<span id="730">730</span>
-<span id="731">731</span>
-<span id="732">732</span>
-<span id="733">733</span>
-<span id="734">734</span>
-<span id="735">735</span>
-<span id="736">736</span>
-<span id="737">737</span>
-<span id="738">738</span>
-<span id="739">739</span>
-<span id="740">740</span>
-<span id="741">741</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2015 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2015 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='doccomment'>//! Code related to match expresions. These are sufficiently complex</span>
-<span class='doccomment'>//! to warrant their own module and submodules. :) This main module</span>
-<span class='doccomment'>//! includes the high-level algorithm, the submodules contain the</span>
-<span class='doccomment'>//! details.</span>
+<span class="doccomment">//! Code related to match expresions. These are sufficiently complex</span>
+<span class="doccomment">//! to warrant their own module and submodules. :) This main module</span>
+<span class="doccomment">//! includes the high-level algorithm, the submodules contain the</span>
+<span class="doccomment">//! details.</span>
 
-<span class='kw'>use</span> <span class='ident'>build</span>::{<span class='ident'>BlockAnd</span>, <span class='ident'>BlockAndExtension</span>, <span class='ident'>Builder</span>};
-<span class='kw'>use</span> <span class='ident'>rustc_data_structures</span>::<span class='ident'>fx</span>::<span class='ident'>FxHashMap</span>;
-<span class='kw'>use</span> <span class='ident'>rustc_data_structures</span>::<span class='ident'>bitvec</span>::<span class='ident'>BitVector</span>;
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>middle</span>::<span class='ident'>const_val</span>::<span class='ident'>ConstVal</span>;
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::{<span class='ident'>AdtDef</span>, <span class='ident'>Ty</span>};
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>mir</span>::<span class='kw-2'>*</span>;
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>;
-<span class='kw'>use</span> <span class='ident'>hair</span>::<span class='kw-2'>*</span>;
-<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>::{<span class='ident'>Name</span>, <span class='ident'>NodeId</span>};
-<span class='kw'>use</span> <span class='ident'>syntax_pos</span>::<span class='ident'>Span</span>;
+<span class="kw">use</span> <span class="ident">build</span>::{<span class="ident">BlockAnd</span>, <span class="ident">BlockAndExtension</span>, <span class="ident">Builder</span>};
+<span class="kw">use</span> <span class="ident">rustc_data_structures</span>::<span class="ident">fx</span>::<span class="ident">FxHashMap</span>;
+<span class="kw">use</span> <span class="ident">rustc_data_structures</span>::<span class="ident">bitvec</span>::<span class="ident">BitVector</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">middle</span>::<span class="ident">const_val</span>::<span class="ident">ConstVal</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::{<span class="ident">AdtDef</span>, <span class="ident">Ty</span>};
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">mir</span>::<span class="kw-2">*</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">hir</span>;
+<span class="kw">use</span> <span class="ident">hair</span>::<span class="kw-2">*</span>;
+<span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">ast</span>::{<span class="ident">Name</span>, <span class="ident">NodeId</span>};
+<span class="kw">use</span> <span class="ident">syntax_pos</span>::<span class="ident">Span</span>;
 
-<span class='comment'>// helper functions, broken out by category:</span>
-<span class='kw'>mod</span> <span class='ident'>simplify</span>;
-<span class='kw'>mod</span> <span class='ident'>test</span>;
-<span class='kw'>mod</span> <span class='ident'>util</span>;
+<span class="comment">// helper functions, broken out by category:</span>
+<span class="kw">mod</span> <span class="ident">simplify</span>;
+<span class="kw">mod</span> <span class="ident">test</span>;
+<span class="kw">mod</span> <span class="ident">util</span>;
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>Builder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>match_expr</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                      <span class='ident'>destination</span>: <span class='kw-2'>&amp;</span><span class='ident'>Lvalue</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                      <span class='ident'>span</span>: <span class='ident'>Span</span>,
-                      <span class='kw-2'>mut</span> <span class='ident'>block</span>: <span class='ident'>BasicBlock</span>,
-                      <span class='ident'>discriminant</span>: <span class='ident'>ExprRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                      <span class='ident'>arms</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Arm</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>)
-                      <span class='op'>-&gt;</span> <span class='ident'>BlockAnd</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-        <span class='kw'>let</span> <span class='ident'>discriminant_lvalue</span> <span class='op'>=</span> <span class='macro'>unpack</span><span class='macro'>!</span>(<span class='ident'>block</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>as_lvalue</span>(<span class='ident'>block</span>, <span class='ident'>discriminant</span>));
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">Builder</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">match_expr</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                      <span class="ident">destination</span>: <span class="kw-2">&amp;</span><span class="ident">Lvalue</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                      <span class="ident">span</span>: <span class="ident">Span</span>,
+                      <span class="kw-2">mut</span> <span class="ident">block</span>: <span class="ident">BasicBlock</span>,
+                      <span class="ident">discriminant</span>: <span class="ident">ExprRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                      <span class="ident">arms</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Arm</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>)
+                      <span class="op">-&gt;</span> <span class="ident">BlockAnd</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+        <span class="kw">let</span> <span class="ident">discriminant_lvalue</span> <span class="op">=</span> <span class="macro">unpack</span><span class="macro">!</span>(<span class="ident">block</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">as_lvalue</span>(<span class="ident">block</span>, <span class="ident">discriminant</span>));
 
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>arm_blocks</span> <span class='op'>=</span> <span class='ident'>ArmBlocks</span> {
-            <span class='ident'>blocks</span>: <span class='ident'>arms</span>.<span class='ident'>iter</span>()
-                        .<span class='ident'>map</span>(<span class='op'>|</span>_<span class='op'>|</span> <span class='self'>self</span>.<span class='ident'>cfg</span>.<span class='ident'>start_new_block</span>())
-                        .<span class='ident'>collect</span>(),
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">arm_blocks</span> <span class="op">=</span> <span class="ident">ArmBlocks</span> {
+            <span class="ident">blocks</span>: <span class="ident">arms</span>.<span class="ident">iter</span>()
+                        .<span class="ident">map</span>(<span class="op">|</span>_<span class="op">|</span> <span class="self">self</span>.<span class="ident">cfg</span>.<span class="ident">start_new_block</span>())
+                        .<span class="ident">collect</span>(),
         };
 
-        <span class='comment'>// Get the arm bodies and their scopes, while declaring bindings.</span>
-        <span class='kw'>let</span> <span class='ident'>arm_bodies</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span>_<span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>arms</span>.<span class='ident'>iter</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>arm</span><span class='op'>|</span> {
-            <span class='kw'>let</span> <span class='ident'>body</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>hir</span>.<span class='ident'>mirror</span>(<span class='ident'>arm</span>.<span class='ident'>body</span>.<span class='ident'>clone</span>());
-            <span class='kw'>let</span> <span class='ident'>scope</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>declare_bindings</span>(<span class='prelude-val'>None</span>, <span class='ident'>body</span>.<span class='ident'>span</span>, <span class='kw-2'>&amp;</span><span class='ident'>arm</span>.<span class='ident'>patterns</span>[<span class='number'>0</span>]);
-            (<span class='ident'>body</span>, <span class='ident'>scope</span>.<span class='ident'>unwrap_or</span>(<span class='self'>self</span>.<span class='ident'>visibility_scope</span>))
-        }).<span class='ident'>collect</span>();
+        <span class="comment">// Get the arm bodies and their scopes, while declaring bindings.</span>
+        <span class="kw">let</span> <span class="ident">arm_bodies</span>: <span class="ident">Vec</span><span class="op">&lt;</span>_<span class="op">&gt;</span> <span class="op">=</span> <span class="ident">arms</span>.<span class="ident">iter</span>().<span class="ident">map</span>(<span class="op">|</span><span class="ident">arm</span><span class="op">|</span> {
+            <span class="kw">let</span> <span class="ident">body</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">hir</span>.<span class="ident">mirror</span>(<span class="ident">arm</span>.<span class="ident">body</span>.<span class="ident">clone</span>());
+            <span class="kw">let</span> <span class="ident">scope</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">declare_bindings</span>(<span class="prelude-val">None</span>, <span class="ident">body</span>.<span class="ident">span</span>, <span class="kw-2">&amp;</span><span class="ident">arm</span>.<span class="ident">patterns</span>[<span class="number">0</span>]);
+            (<span class="ident">body</span>, <span class="ident">scope</span>.<span class="ident">unwrap_or</span>(<span class="self">self</span>.<span class="ident">visibility_scope</span>))
+        }).<span class="ident">collect</span>();
 
-        <span class='comment'>// assemble a list of candidates: there is one candidate per</span>
-        <span class='comment'>// pattern, which means there may be more than one candidate</span>
-        <span class='comment'>// *per arm*. These candidates are kept sorted such that the</span>
-        <span class='comment'>// highest priority candidate comes first in the list.</span>
-        <span class='comment'>// (i.e. same order as in source)</span>
-        <span class='kw'>let</span> <span class='ident'>candidates</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span>_<span class='op'>&gt;</span> <span class='op'>=</span>
-            <span class='ident'>arms</span>.<span class='ident'>iter</span>()
-                .<span class='ident'>enumerate</span>()
-                .<span class='ident'>flat_map</span>(<span class='op'>|</span>(<span class='ident'>arm_index</span>, <span class='ident'>arm</span>)<span class='op'>|</span> {
-                    <span class='ident'>arm</span>.<span class='ident'>patterns</span>.<span class='ident'>iter</span>()
-                                .<span class='ident'>map</span>(<span class='kw'>move</span> <span class='op'>|</span><span class='ident'>pat</span><span class='op'>|</span> (<span class='ident'>arm_index</span>, <span class='ident'>pat</span>, <span class='ident'>arm</span>.<span class='ident'>guard</span>.<span class='ident'>clone</span>()))
+        <span class="comment">// assemble a list of candidates: there is one candidate per</span>
+        <span class="comment">// pattern, which means there may be more than one candidate</span>
+        <span class="comment">// *per arm*. These candidates are kept sorted such that the</span>
+        <span class="comment">// highest priority candidate comes first in the list.</span>
+        <span class="comment">// (i.e. same order as in source)</span>
+        <span class="kw">let</span> <span class="ident">candidates</span>: <span class="ident">Vec</span><span class="op">&lt;</span>_<span class="op">&gt;</span> <span class="op">=</span>
+            <span class="ident">arms</span>.<span class="ident">iter</span>()
+                .<span class="ident">enumerate</span>()
+                .<span class="ident">flat_map</span>(<span class="op">|</span>(<span class="ident">arm_index</span>, <span class="ident">arm</span>)<span class="op">|</span> {
+                    <span class="ident">arm</span>.<span class="ident">patterns</span>.<span class="ident">iter</span>()
+                                .<span class="ident">map</span>(<span class="kw">move</span> <span class="op">|</span><span class="ident">pat</span><span class="op">|</span> (<span class="ident">arm_index</span>, <span class="ident">pat</span>, <span class="ident">arm</span>.<span class="ident">guard</span>.<span class="ident">clone</span>()))
                 })
-                .<span class='ident'>map</span>(<span class='op'>|</span>(<span class='ident'>arm_index</span>, <span class='ident'>pattern</span>, <span class='ident'>guard</span>)<span class='op'>|</span> {
-                    <span class='ident'>Candidate</span> {
-                        <span class='ident'>span</span>: <span class='ident'>pattern</span>.<span class='ident'>span</span>,
-                        <span class='ident'>match_pairs</span>: <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>MatchPair</span>::<span class='ident'>new</span>(<span class='ident'>discriminant_lvalue</span>.<span class='ident'>clone</span>(), <span class='ident'>pattern</span>)],
-                        <span class='ident'>bindings</span>: <span class='macro'>vec</span><span class='macro'>!</span>[],
-                        <span class='ident'>guard</span>: <span class='ident'>guard</span>,
-                        <span class='ident'>arm_index</span>: <span class='ident'>arm_index</span>,
+                .<span class="ident">map</span>(<span class="op">|</span>(<span class="ident">arm_index</span>, <span class="ident">pattern</span>, <span class="ident">guard</span>)<span class="op">|</span> {
+                    <span class="ident">Candidate</span> {
+                        <span class="ident">span</span>: <span class="ident">pattern</span>.<span class="ident">span</span>,
+                        <span class="ident">match_pairs</span>: <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">MatchPair</span>::<span class="ident">new</span>(<span class="ident">discriminant_lvalue</span>.<span class="ident">clone</span>(), <span class="ident">pattern</span>)],
+                        <span class="ident">bindings</span>: <span class="macro">vec</span><span class="macro">!</span>[],
+                        <span class="ident">guard</span>: <span class="ident">guard</span>,
+                        <span class="ident">arm_index</span>: <span class="ident">arm_index</span>,
                     }
                 })
-                .<span class='ident'>collect</span>();
+                .<span class="ident">collect</span>();
 
-        <span class='comment'>// this will generate code to test discriminant_lvalue and</span>
-        <span class='comment'>// branch to the appropriate arm block</span>
-        <span class='kw'>let</span> <span class='ident'>otherwise</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>match_candidates</span>(<span class='ident'>span</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>arm_blocks</span>, <span class='ident'>candidates</span>, <span class='ident'>block</span>);
+        <span class="comment">// this will generate code to test discriminant_lvalue and</span>
+        <span class="comment">// branch to the appropriate arm block</span>
+        <span class="kw">let</span> <span class="ident">otherwise</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">match_candidates</span>(<span class="ident">span</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">arm_blocks</span>, <span class="ident">candidates</span>, <span class="ident">block</span>);
 
-        <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>otherwise</span>.<span class='ident'>is_empty</span>() {
-            <span class='comment'>// All matches are exhaustive. However, because some matches</span>
-            <span class='comment'>// only have exponentially-large exhaustive decision trees, we</span>
-            <span class='comment'>// sometimes generate an inexhaustive decision tree.</span>
-            <span class='comment'>//</span>
-            <span class='comment'>// In that case, the inexhaustive tips of the decision tree</span>
-            <span class='comment'>// can&#39;t be reached - terminate them with an `unreachable`.</span>
-            <span class='kw'>let</span> <span class='ident'>source_info</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>source_info</span>(<span class='ident'>span</span>);
+        <span class="kw">if</span> <span class="op">!</span><span class="ident">otherwise</span>.<span class="ident">is_empty</span>() {
+            <span class="comment">// All matches are exhaustive. However, because some matches</span>
+            <span class="comment">// only have exponentially-large exhaustive decision trees, we</span>
+            <span class="comment">// sometimes generate an inexhaustive decision tree.</span>
+            <span class="comment">//</span>
+            <span class="comment">// In that case, the inexhaustive tips of the decision tree</span>
+            <span class="comment">// can&#39;t be reached - terminate them with an `unreachable`.</span>
+            <span class="kw">let</span> <span class="ident">source_info</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">source_info</span>(<span class="ident">span</span>);
 
-            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>otherwise</span> <span class='op'>=</span> <span class='ident'>otherwise</span>;
-            <span class='ident'>otherwise</span>.<span class='ident'>sort</span>();
-            <span class='ident'>otherwise</span>.<span class='ident'>dedup</span>(); <span class='comment'>// variant switches can introduce duplicate target blocks</span>
-            <span class='kw'>for</span> <span class='ident'>block</span> <span class='kw'>in</span> <span class='ident'>otherwise</span> {
-                <span class='self'>self</span>.<span class='ident'>cfg</span>.<span class='ident'>terminate</span>(<span class='ident'>block</span>, <span class='ident'>source_info</span>, <span class='ident'>TerminatorKind</span>::<span class='ident'>Unreachable</span>);
+            <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">otherwise</span> <span class="op">=</span> <span class="ident">otherwise</span>;
+            <span class="ident">otherwise</span>.<span class="ident">sort</span>();
+            <span class="ident">otherwise</span>.<span class="ident">dedup</span>(); <span class="comment">// variant switches can introduce duplicate target blocks</span>
+            <span class="kw">for</span> <span class="ident">block</span> <span class="kw">in</span> <span class="ident">otherwise</span> {
+                <span class="self">self</span>.<span class="ident">cfg</span>.<span class="ident">terminate</span>(<span class="ident">block</span>, <span class="ident">source_info</span>, <span class="ident">TerminatorKind</span>::<span class="ident">Unreachable</span>);
             }
         }
 
-        <span class='comment'>// all the arm blocks will rejoin here</span>
-        <span class='kw'>let</span> <span class='ident'>end_block</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>cfg</span>.<span class='ident'>start_new_block</span>();
+        <span class="comment">// all the arm blocks will rejoin here</span>
+        <span class="kw">let</span> <span class="ident">end_block</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">cfg</span>.<span class="ident">start_new_block</span>();
 
-        <span class='kw'>let</span> <span class='ident'>outer_source_info</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>source_info</span>(<span class='ident'>span</span>);
-        <span class='kw'>for</span> (<span class='ident'>arm_index</span>, (<span class='ident'>body</span>, <span class='ident'>visibility_scope</span>)) <span class='kw'>in</span> <span class='ident'>arm_bodies</span>.<span class='ident'>into_iter</span>().<span class='ident'>enumerate</span>() {
-            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>arm_block</span> <span class='op'>=</span> <span class='ident'>arm_blocks</span>.<span class='ident'>blocks</span>[<span class='ident'>arm_index</span>];
-            <span class='comment'>// Re-enter the visibility scope we created the bindings in.</span>
-            <span class='self'>self</span>.<span class='ident'>visibility_scope</span> <span class='op'>=</span> <span class='ident'>visibility_scope</span>;
-            <span class='macro'>unpack</span><span class='macro'>!</span>(<span class='ident'>arm_block</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>into</span>(<span class='ident'>destination</span>, <span class='ident'>arm_block</span>, <span class='ident'>body</span>));
-            <span class='self'>self</span>.<span class='ident'>cfg</span>.<span class='ident'>terminate</span>(<span class='ident'>arm_block</span>, <span class='ident'>outer_source_info</span>,
-                               <span class='ident'>TerminatorKind</span>::<span class='ident'>Goto</span> { <span class='ident'>target</span>: <span class='ident'>end_block</span> });
+        <span class="kw">let</span> <span class="ident">outer_source_info</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">source_info</span>(<span class="ident">span</span>);
+        <span class="kw">for</span> (<span class="ident">arm_index</span>, (<span class="ident">body</span>, <span class="ident">visibility_scope</span>)) <span class="kw">in</span> <span class="ident">arm_bodies</span>.<span class="ident">into_iter</span>().<span class="ident">enumerate</span>() {
+            <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">arm_block</span> <span class="op">=</span> <span class="ident">arm_blocks</span>.<span class="ident">blocks</span>[<span class="ident">arm_index</span>];
+            <span class="comment">// Re-enter the visibility scope we created the bindings in.</span>
+            <span class="self">self</span>.<span class="ident">visibility_scope</span> <span class="op">=</span> <span class="ident">visibility_scope</span>;
+            <span class="macro">unpack</span><span class="macro">!</span>(<span class="ident">arm_block</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">into</span>(<span class="ident">destination</span>, <span class="ident">arm_block</span>, <span class="ident">body</span>));
+            <span class="self">self</span>.<span class="ident">cfg</span>.<span class="ident">terminate</span>(<span class="ident">arm_block</span>, <span class="ident">outer_source_info</span>,
+                               <span class="ident">TerminatorKind</span>::<span class="ident">Goto</span> { <span class="ident">target</span>: <span class="ident">end_block</span> });
         }
-        <span class='self'>self</span>.<span class='ident'>visibility_scope</span> <span class='op'>=</span> <span class='ident'>outer_source_info</span>.<span class='ident'>scope</span>;
+        <span class="self">self</span>.<span class="ident">visibility_scope</span> <span class="op">=</span> <span class="ident">outer_source_info</span>.<span class="ident">scope</span>;
 
-        <span class='ident'>end_block</span>.<span class='ident'>unit</span>()
+        <span class="ident">end_block</span>.<span class="ident">unit</span>()
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>expr_into_pattern</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                             <span class='kw-2'>mut</span> <span class='ident'>block</span>: <span class='ident'>BasicBlock</span>,
-                             <span class='ident'>irrefutable_pat</span>: <span class='ident'>Pattern</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                             <span class='ident'>initializer</span>: <span class='ident'>ExprRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-                             <span class='op'>-&gt;</span> <span class='ident'>BlockAnd</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-        <span class='comment'>// optimize the case of `let x = ...`</span>
-        <span class='kw'>match</span> <span class='kw-2'>*</span><span class='ident'>irrefutable_pat</span>.<span class='ident'>kind</span> {
-            <span class='ident'>PatternKind</span>::<span class='ident'>Binding</span> { <span class='ident'>mode</span>: <span class='ident'>BindingMode</span>::<span class='ident'>ByValue</span>,
-                                   <span class='ident'>var</span>,
-                                   <span class='ident'>subpattern</span>: <span class='prelude-val'>None</span>, .. } <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>storage_live_for_bindings</span>(<span class='ident'>block</span>, <span class='kw-2'>&amp;</span><span class='ident'>irrefutable_pat</span>);
-                <span class='kw'>let</span> <span class='ident'>lvalue</span> <span class='op'>=</span> <span class='ident'>Lvalue</span>::<span class='ident'>Local</span>(<span class='self'>self</span>.<span class='ident'>var_indices</span>[<span class='kw-2'>&amp;</span><span class='ident'>var</span>]);
-                <span class='kw'>return</span> <span class='self'>self</span>.<span class='ident'>into</span>(<span class='kw-2'>&amp;</span><span class='ident'>lvalue</span>, <span class='ident'>block</span>, <span class='ident'>initializer</span>);
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">expr_into_pattern</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                             <span class="kw-2">mut</span> <span class="ident">block</span>: <span class="ident">BasicBlock</span>,
+                             <span class="ident">irrefutable_pat</span>: <span class="ident">Pattern</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                             <span class="ident">initializer</span>: <span class="ident">ExprRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+                             <span class="op">-&gt;</span> <span class="ident">BlockAnd</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+        <span class="comment">// optimize the case of `let x = ...`</span>
+        <span class="kw">match</span> <span class="kw-2">*</span><span class="ident">irrefutable_pat</span>.<span class="ident">kind</span> {
+            <span class="ident">PatternKind</span>::<span class="ident">Binding</span> { <span class="ident">mode</span>: <span class="ident">BindingMode</span>::<span class="ident">ByValue</span>,
+                                   <span class="ident">var</span>,
+                                   <span class="ident">subpattern</span>: <span class="prelude-val">None</span>, .. } <span class="op">=&gt;</span> {
+                <span class="kw">let</span> <span class="ident">lvalue</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">storage_live_binding</span>(<span class="ident">block</span>, <span class="ident">var</span>, <span class="ident">irrefutable_pat</span>.<span class="ident">span</span>);
+                <span class="macro">unpack</span><span class="macro">!</span>(<span class="ident">block</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">into</span>(<span class="kw-2">&amp;</span><span class="ident">lvalue</span>, <span class="ident">block</span>, <span class="ident">initializer</span>));
+                <span class="self">self</span>.<span class="ident">schedule_drop_for_binding</span>(<span class="ident">var</span>, <span class="ident">irrefutable_pat</span>.<span class="ident">span</span>);
+                <span class="ident">block</span>.<span class="ident">unit</span>()
             }
-            _ <span class='op'>=&gt;</span> {}
+            _ <span class="op">=&gt;</span> {
+                <span class="kw">let</span> <span class="ident">lvalue</span> <span class="op">=</span> <span class="macro">unpack</span><span class="macro">!</span>(<span class="ident">block</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">as_lvalue</span>(<span class="ident">block</span>, <span class="ident">initializer</span>));
+                <span class="self">self</span>.<span class="ident">lvalue_into_pattern</span>(<span class="ident">block</span>, <span class="ident">irrefutable_pat</span>, <span class="kw-2">&amp;</span><span class="ident">lvalue</span>)
+            }
         }
-        <span class='kw'>let</span> <span class='ident'>lvalue</span> <span class='op'>=</span> <span class='macro'>unpack</span><span class='macro'>!</span>(<span class='ident'>block</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>as_lvalue</span>(<span class='ident'>block</span>, <span class='ident'>initializer</span>));
-        <span class='self'>self</span>.<span class='ident'>lvalue_into_pattern</span>(<span class='ident'>block</span>,
-                                 <span class='ident'>irrefutable_pat</span>,
-                                 <span class='kw-2'>&amp;</span><span class='ident'>lvalue</span>)
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>lvalue_into_pattern</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                               <span class='kw-2'>mut</span> <span class='ident'>block</span>: <span class='ident'>BasicBlock</span>,
-                               <span class='ident'>irrefutable_pat</span>: <span class='ident'>Pattern</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                               <span class='ident'>initializer</span>: <span class='kw-2'>&amp;</span><span class='ident'>Lvalue</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-                               <span class='op'>-&gt;</span> <span class='ident'>BlockAnd</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-        <span class='comment'>// create a dummy candidate</span>
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>candidate</span> <span class='op'>=</span> <span class='ident'>Candidate</span> {
-            <span class='ident'>span</span>: <span class='ident'>irrefutable_pat</span>.<span class='ident'>span</span>,
-            <span class='ident'>match_pairs</span>: <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>MatchPair</span>::<span class='ident'>new</span>(<span class='ident'>initializer</span>.<span class='ident'>clone</span>(), <span class='kw-2'>&amp;</span><span class='ident'>irrefutable_pat</span>)],
-            <span class='ident'>bindings</span>: <span class='macro'>vec</span><span class='macro'>!</span>[],
-            <span class='ident'>guard</span>: <span class='prelude-val'>None</span>,
-            <span class='ident'>arm_index</span>: <span class='number'>0</span>, <span class='comment'>// since we don&#39;t call `match_candidates`, this field is unused</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">lvalue_into_pattern</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                               <span class="kw-2">mut</span> <span class="ident">block</span>: <span class="ident">BasicBlock</span>,
+                               <span class="ident">irrefutable_pat</span>: <span class="ident">Pattern</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                               <span class="ident">initializer</span>: <span class="kw-2">&amp;</span><span class="ident">Lvalue</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+                               <span class="op">-&gt;</span> <span class="ident">BlockAnd</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+        <span class="comment">// create a dummy candidate</span>
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">candidate</span> <span class="op">=</span> <span class="ident">Candidate</span> {
+            <span class="ident">span</span>: <span class="ident">irrefutable_pat</span>.<span class="ident">span</span>,
+            <span class="ident">match_pairs</span>: <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">MatchPair</span>::<span class="ident">new</span>(<span class="ident">initializer</span>.<span class="ident">clone</span>(), <span class="kw-2">&amp;</span><span class="ident">irrefutable_pat</span>)],
+            <span class="ident">bindings</span>: <span class="macro">vec</span><span class="macro">!</span>[],
+            <span class="ident">guard</span>: <span class="prelude-val">None</span>,
+            <span class="ident">arm_index</span>: <span class="number">0</span>, <span class="comment">// since we don&#39;t call `match_candidates`, this field is unused</span>
         };
 
-        <span class='comment'>// Simplify the candidate. Since the pattern is irrefutable, this should</span>
-        <span class='comment'>// always convert all match-pairs into bindings.</span>
-        <span class='macro'>unpack</span><span class='macro'>!</span>(<span class='ident'>block</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>simplify_candidate</span>(<span class='ident'>block</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>candidate</span>));
+        <span class="comment">// Simplify the candidate. Since the pattern is irrefutable, this should</span>
+        <span class="comment">// always convert all match-pairs into bindings.</span>
+        <span class="macro">unpack</span><span class="macro">!</span>(<span class="ident">block</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">simplify_candidate</span>(<span class="ident">block</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">candidate</span>));
 
-        <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>candidate</span>.<span class='ident'>match_pairs</span>.<span class='ident'>is_empty</span>() {
-            <span class='macro'>span_bug</span><span class='macro'>!</span>(<span class='ident'>candidate</span>.<span class='ident'>match_pairs</span>[<span class='number'>0</span>].<span class='ident'>pattern</span>.<span class='ident'>span</span>,
-                      <span class='string'>&quot;match pairs {:?} remaining after simplifying \
+        <span class="kw">if</span> <span class="op">!</span><span class="ident">candidate</span>.<span class="ident">match_pairs</span>.<span class="ident">is_empty</span>() {
+            <span class="macro">span_bug</span><span class="macro">!</span>(<span class="ident">candidate</span>.<span class="ident">match_pairs</span>[<span class="number">0</span>].<span class="ident">pattern</span>.<span class="ident">span</span>,
+                      <span class="string">&quot;match pairs {:?} remaining after simplifying \
                        irrefutable pattern&quot;</span>,
-                      <span class='ident'>candidate</span>.<span class='ident'>match_pairs</span>);
+                      <span class="ident">candidate</span>.<span class="ident">match_pairs</span>);
         }
 
-        <span class='comment'>// now apply the bindings, which will also declare the variables</span>
-        <span class='self'>self</span>.<span class='ident'>bind_matched_candidate</span>(<span class='ident'>block</span>, <span class='ident'>candidate</span>.<span class='ident'>bindings</span>);
+        <span class="comment">// now apply the bindings, which will also declare the variables</span>
+        <span class="self">self</span>.<span class="ident">bind_matched_candidate</span>(<span class="ident">block</span>, <span class="ident">candidate</span>.<span class="ident">bindings</span>);
 
-        <span class='ident'>block</span>.<span class='ident'>unit</span>()
+        <span class="ident">block</span>.<span class="ident">unit</span>()
     }
 
-    <span class='doccomment'>/// Declares the bindings of the given pattern and returns the visibility scope</span>
-    <span class='doccomment'>/// for the bindings in this patterns, if such a scope had to be created.</span>
-    <span class='doccomment'>/// NOTE: Declaring the bindings should always be done in their drop scope.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>declare_bindings</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                            <span class='kw-2'>mut</span> <span class='ident'>var_scope</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>VisibilityScope</span><span class='op'>&gt;</span>,
-                            <span class='ident'>scope_span</span>: <span class='ident'>Span</span>,
-                            <span class='ident'>pattern</span>: <span class='kw-2'>&amp;</span><span class='ident'>Pattern</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-                            <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>VisibilityScope</span><span class='op'>&gt;</span> {
-        <span class='kw'>match</span> <span class='kw-2'>*</span><span class='ident'>pattern</span>.<span class='ident'>kind</span> {
-            <span class='ident'>PatternKind</span>::<span class='ident'>Binding</span> { <span class='ident'>mutability</span>, <span class='ident'>name</span>, <span class='ident'>mode</span>: _, <span class='ident'>var</span>, <span class='ident'>ty</span>, <span class='kw-2'>ref</span> <span class='ident'>subpattern</span> } <span class='op'>=&gt;</span> {
-                <span class='kw'>if</span> <span class='ident'>var_scope</span>.<span class='ident'>is_none</span>() {
-                    <span class='ident'>var_scope</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='self'>self</span>.<span class='ident'>new_visibility_scope</span>(<span class='ident'>scope_span</span>));
-                }
-                <span class='kw'>let</span> <span class='ident'>source_info</span> <span class='op'>=</span> <span class='ident'>SourceInfo</span> {
-                    <span class='ident'>span</span>: <span class='ident'>pattern</span>.<span class='ident'>span</span>,
-                    <span class='ident'>scope</span>: <span class='ident'>var_scope</span>.<span class='ident'>unwrap</span>()
-                };
-                <span class='self'>self</span>.<span class='ident'>declare_binding</span>(<span class='ident'>source_info</span>, <span class='ident'>mutability</span>, <span class='ident'>name</span>, <span class='ident'>var</span>, <span class='ident'>ty</span>);
-                <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>subpattern</span>) <span class='op'>=</span> <span class='ident'>subpattern</span>.<span class='ident'>as_ref</span>() {
-                    <span class='ident'>var_scope</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>declare_bindings</span>(<span class='ident'>var_scope</span>, <span class='ident'>scope_span</span>, <span class='ident'>subpattern</span>);
-                }
+    <span class="doccomment">/// Declares the bindings of the given pattern and returns the visibility scope</span>
+    <span class="doccomment">/// for the bindings in this patterns, if such a scope had to be created.</span>
+    <span class="doccomment">/// NOTE: Declaring the bindings should always be done in their drop scope.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">declare_bindings</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                            <span class="kw-2">mut</span> <span class="ident">var_scope</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">VisibilityScope</span><span class="op">&gt;</span>,
+                            <span class="ident">scope_span</span>: <span class="ident">Span</span>,
+                            <span class="ident">pattern</span>: <span class="kw-2">&amp;</span><span class="ident">Pattern</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+                            <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">VisibilityScope</span><span class="op">&gt;</span> {
+        <span class="self">self</span>.<span class="ident">visit_bindings</span>(<span class="ident">pattern</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="op">|</span><span class="ident">this</span>, <span class="ident">mutability</span>, <span class="ident">name</span>, <span class="ident">var</span>, <span class="ident">span</span>, <span class="ident">ty</span><span class="op">|</span> {
+            <span class="kw">if</span> <span class="ident">var_scope</span>.<span class="ident">is_none</span>() {
+                <span class="ident">var_scope</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="ident">this</span>.<span class="ident">new_visibility_scope</span>(<span class="ident">scope_span</span>));
             }
-            <span class='ident'>PatternKind</span>::<span class='ident'>Array</span> { <span class='kw-2'>ref</span> <span class='ident'>prefix</span>, <span class='kw-2'>ref</span> <span class='ident'>slice</span>, <span class='kw-2'>ref</span> <span class='ident'>suffix</span> } <span class='op'>|</span>
-            <span class='ident'>PatternKind</span>::<span class='ident'>Slice</span> { <span class='kw-2'>ref</span> <span class='ident'>prefix</span>, <span class='kw-2'>ref</span> <span class='ident'>slice</span>, <span class='kw-2'>ref</span> <span class='ident'>suffix</span> } <span class='op'>=&gt;</span> {
-                <span class='kw'>for</span> <span class='ident'>subpattern</span> <span class='kw'>in</span> <span class='ident'>prefix</span>.<span class='ident'>iter</span>().<span class='ident'>chain</span>(<span class='ident'>slice</span>).<span class='ident'>chain</span>(<span class='ident'>suffix</span>) {
-                    <span class='ident'>var_scope</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>declare_bindings</span>(<span class='ident'>var_scope</span>, <span class='ident'>scope_span</span>, <span class='ident'>subpattern</span>);
-                }
-            }
-            <span class='ident'>PatternKind</span>::<span class='ident'>Constant</span> { .. } <span class='op'>|</span> <span class='ident'>PatternKind</span>::<span class='ident'>Range</span> { .. } <span class='op'>|</span> <span class='ident'>PatternKind</span>::<span class='ident'>Wild</span> <span class='op'>=&gt;</span> {
-            }
-            <span class='ident'>PatternKind</span>::<span class='ident'>Deref</span> { <span class='kw-2'>ref</span> <span class='ident'>subpattern</span> } <span class='op'>=&gt;</span> {
-                <span class='ident'>var_scope</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>declare_bindings</span>(<span class='ident'>var_scope</span>, <span class='ident'>scope_span</span>, <span class='ident'>subpattern</span>);
-            }
-            <span class='ident'>PatternKind</span>::<span class='ident'>Leaf</span> { <span class='kw-2'>ref</span> <span class='ident'>subpatterns</span> } <span class='op'>|</span>
-            <span class='ident'>PatternKind</span>::<span class='ident'>Variant</span> { <span class='kw-2'>ref</span> <span class='ident'>subpatterns</span>, .. } <span class='op'>=&gt;</span> {
-                <span class='kw'>for</span> <span class='ident'>subpattern</span> <span class='kw'>in</span> <span class='ident'>subpatterns</span> {
-                    <span class='ident'>var_scope</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>declare_bindings</span>(<span class='ident'>var_scope</span>, <span class='ident'>scope_span</span>, <span class='kw-2'>&amp;</span><span class='ident'>subpattern</span>.<span class='ident'>pattern</span>);
-                }
-            }
-        }
-        <span class='ident'>var_scope</span>
-    }
-
-    <span class='doccomment'>/// Emit `StorageLive` for every binding in the pattern.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>storage_live_for_bindings</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                                     <span class='ident'>block</span>: <span class='ident'>BasicBlock</span>,
-                                     <span class='ident'>pattern</span>: <span class='kw-2'>&amp;</span><span class='ident'>Pattern</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) {
-        <span class='kw'>match</span> <span class='kw-2'>*</span><span class='ident'>pattern</span>.<span class='ident'>kind</span> {
-            <span class='ident'>PatternKind</span>::<span class='ident'>Binding</span> { <span class='ident'>var</span>, <span class='kw-2'>ref</span> <span class='ident'>subpattern</span>, .. } <span class='op'>=&gt;</span> {
-                <span class='kw'>let</span> <span class='ident'>lvalue</span> <span class='op'>=</span> <span class='ident'>Lvalue</span>::<span class='ident'>Local</span>(<span class='self'>self</span>.<span class='ident'>var_indices</span>[<span class='kw-2'>&amp;</span><span class='ident'>var</span>]);
-                <span class='kw'>let</span> <span class='ident'>source_info</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>source_info</span>(<span class='ident'>pattern</span>.<span class='ident'>span</span>);
-                <span class='self'>self</span>.<span class='ident'>cfg</span>.<span class='ident'>push</span>(<span class='ident'>block</span>, <span class='ident'>Statement</span> {
-                    <span class='ident'>source_info</span>: <span class='ident'>source_info</span>,
-                    <span class='ident'>kind</span>: <span class='ident'>StatementKind</span>::<span class='ident'>StorageLive</span>(<span class='ident'>lvalue</span>)
-                });
-
-                <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>subpattern</span>) <span class='op'>=</span> <span class='ident'>subpattern</span>.<span class='ident'>as_ref</span>() {
-                    <span class='self'>self</span>.<span class='ident'>storage_live_for_bindings</span>(<span class='ident'>block</span>, <span class='ident'>subpattern</span>);
-                }
-            }
-            <span class='ident'>PatternKind</span>::<span class='ident'>Array</span> { <span class='kw-2'>ref</span> <span class='ident'>prefix</span>, <span class='kw-2'>ref</span> <span class='ident'>slice</span>, <span class='kw-2'>ref</span> <span class='ident'>suffix</span> } <span class='op'>|</span>
-            <span class='ident'>PatternKind</span>::<span class='ident'>Slice</span> { <span class='kw-2'>ref</span> <span class='ident'>prefix</span>, <span class='kw-2'>ref</span> <span class='ident'>slice</span>, <span class='kw-2'>ref</span> <span class='ident'>suffix</span> } <span class='op'>=&gt;</span> {
-                <span class='kw'>for</span> <span class='ident'>subpattern</span> <span class='kw'>in</span> <span class='ident'>prefix</span>.<span class='ident'>iter</span>().<span class='ident'>chain</span>(<span class='ident'>slice</span>).<span class='ident'>chain</span>(<span class='ident'>suffix</span>) {
-                    <span class='self'>self</span>.<span class='ident'>storage_live_for_bindings</span>(<span class='ident'>block</span>, <span class='ident'>subpattern</span>);
-                }
-            }
-            <span class='ident'>PatternKind</span>::<span class='ident'>Constant</span> { .. } <span class='op'>|</span> <span class='ident'>PatternKind</span>::<span class='ident'>Range</span> { .. } <span class='op'>|</span> <span class='ident'>PatternKind</span>::<span class='ident'>Wild</span> <span class='op'>=&gt;</span> {
-            }
-            <span class='ident'>PatternKind</span>::<span class='ident'>Deref</span> { <span class='kw-2'>ref</span> <span class='ident'>subpattern</span> } <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>storage_live_for_bindings</span>(<span class='ident'>block</span>, <span class='ident'>subpattern</span>);
-            }
-            <span class='ident'>PatternKind</span>::<span class='ident'>Leaf</span> { <span class='kw-2'>ref</span> <span class='ident'>subpatterns</span> } <span class='op'>|</span>
-            <span class='ident'>PatternKind</span>::<span class='ident'>Variant</span> { <span class='kw-2'>ref</span> <span class='ident'>subpatterns</span>, .. } <span class='op'>=&gt;</span> {
-                <span class='kw'>for</span> <span class='ident'>subpattern</span> <span class='kw'>in</span> <span class='ident'>subpatterns</span> {
-                    <span class='self'>self</span>.<span class='ident'>storage_live_for_bindings</span>(<span class='ident'>block</span>, <span class='kw-2'>&amp;</span><span class='ident'>subpattern</span>.<span class='ident'>pattern</span>);
-                }
-            }
-        }
-    }
-}
-
-<span class='doccomment'>/// List of blocks for each arm (and potentially other metadata in the</span>
-<span class='doccomment'>/// future).</span>
-<span class='kw'>struct</span> <span class='ident'>ArmBlocks</span> {
-    <span class='ident'>blocks</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>BasicBlock</span><span class='op'>&gt;</span>,
-}
-
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Debug</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>Candidate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;pat</span>, <span class='lifetime'>&#39;tcx</span>:<span class='lifetime'>&#39;pat</span><span class='op'>&gt;</span> {
-    <span class='comment'>// span of the original pattern that gave rise to this candidate</span>
-    <span class='ident'>span</span>: <span class='ident'>Span</span>,
-
-    <span class='comment'>// all of these must be satisfied...</span>
-    <span class='ident'>match_pairs</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>MatchPair</span><span class='op'>&lt;</span><span class='lifetime'>&#39;pat</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
-
-    <span class='comment'>// ...these bindings established...</span>
-    <span class='ident'>bindings</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Binding</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
-
-    <span class='comment'>// ...and the guard must be evaluated...</span>
-    <span class='ident'>guard</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>ExprRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
-
-    <span class='comment'>// ...and then we branch to arm with this index.</span>
-    <span class='ident'>arm_index</span>: <span class='ident'>usize</span>,
-}
-
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Debug</span>)]</span>
-<span class='kw'>struct</span> <span class='ident'>Binding</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='ident'>span</span>: <span class='ident'>Span</span>,
-    <span class='ident'>source</span>: <span class='ident'>Lvalue</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>name</span>: <span class='ident'>Name</span>,
-    <span class='ident'>var_id</span>: <span class='ident'>NodeId</span>,
-    <span class='ident'>var_ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>mutability</span>: <span class='ident'>Mutability</span>,
-    <span class='ident'>binding_mode</span>: <span class='ident'>BindingMode</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-}
-
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Debug</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>MatchPair</span><span class='op'>&lt;</span><span class='lifetime'>&#39;pat</span>, <span class='lifetime'>&#39;tcx</span>:<span class='lifetime'>&#39;pat</span><span class='op'>&gt;</span> {
-    <span class='comment'>// this lvalue...</span>
-    <span class='ident'>lvalue</span>: <span class='ident'>Lvalue</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-
-    <span class='comment'>// ... must match this pattern.</span>
-    <span class='ident'>pattern</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;pat</span> <span class='ident'>Pattern</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-
-    <span class='comment'>// HACK(eddyb) This is used to toggle whether a Slice pattern</span>
-    <span class='comment'>// has had its length checked. This is only necessary because</span>
-    <span class='comment'>// the &quot;rest&quot; part of the pattern right now has type &amp;[T] and</span>
-    <span class='comment'>// as such, it requires an Rvalue::Slice to be generated.</span>
-    <span class='comment'>// See RFC 495 / issue #23121 for the eventual (proper) solution.</span>
-    <span class='ident'>slice_len_checked</span>: <span class='ident'>bool</span>
-}
-
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Debug</span>, <span class='ident'>PartialEq</span>)]</span>
-<span class='kw'>enum</span> <span class='ident'>TestKind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='comment'>// test the branches of enum</span>
-    <span class='ident'>Switch</span> {
-        <span class='ident'>adt_def</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>AdtDef</span>,
-        <span class='ident'>variants</span>: <span class='ident'>BitVector</span>,
-    },
-
-    <span class='comment'>// test the branches of enum</span>
-    <span class='ident'>SwitchInt</span> {
-        <span class='ident'>switch_ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-        <span class='ident'>options</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ConstVal</span><span class='op'>&gt;</span>,
-        <span class='ident'>indices</span>: <span class='ident'>FxHashMap</span><span class='op'>&lt;</span><span class='ident'>ConstVal</span>, <span class='ident'>usize</span><span class='op'>&gt;</span>,
-    },
-
-    <span class='comment'>// test for equality</span>
-    <span class='ident'>Eq</span> {
-        <span class='ident'>value</span>: <span class='ident'>ConstVal</span>,
-        <span class='ident'>ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    },
-
-    <span class='comment'>// test whether the value falls within an inclusive or exclusive range</span>
-    <span class='ident'>Range</span> {
-        <span class='ident'>lo</span>: <span class='ident'>Literal</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-        <span class='ident'>hi</span>: <span class='ident'>Literal</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-        <span class='ident'>ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-        <span class='ident'>end</span>: <span class='ident'>hir</span>::<span class='ident'>RangeEnd</span>,
-    },
-
-    <span class='comment'>// test length of the slice is equal to len</span>
-    <span class='ident'>Len</span> {
-        <span class='ident'>len</span>: <span class='ident'>u64</span>,
-        <span class='ident'>op</span>: <span class='ident'>BinOp</span>,
-    },
-}
-
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Debug</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>Test</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='ident'>span</span>: <span class='ident'>Span</span>,
-    <span class='ident'>kind</span>: <span class='ident'>TestKind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-}
-
-<span class='comment'>///////////////////////////////////////////////////////////////////////////</span>
-<span class='comment'>// Main matching algorithm</span>
-
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>Builder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='doccomment'>/// The main match algorithm. It begins with a set of candidates</span>
-    <span class='doccomment'>/// `candidates` and has the job of generating code to determine</span>
-    <span class='doccomment'>/// which of these candidates, if any, is the correct one. The</span>
-    <span class='doccomment'>/// candidates are sorted such that the first item in the list</span>
-    <span class='doccomment'>/// has the highest priority. When a candidate is found to match</span>
-    <span class='doccomment'>/// the value, we will generate a branch to the appropriate</span>
-    <span class='doccomment'>/// block found in `arm_blocks`.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// The return value is a list of &quot;otherwise&quot; blocks. These are</span>
-    <span class='doccomment'>/// points in execution where we found that *NONE* of the</span>
-    <span class='doccomment'>/// candidates apply.  In principle, this means that the input</span>
-    <span class='doccomment'>/// list was not exhaustive, though at present we sometimes are</span>
-    <span class='doccomment'>/// not smart enough to recognize all exhaustive inputs.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// It might be surprising that the input can be inexhaustive.</span>
-    <span class='doccomment'>/// Indeed, initially, it is not, because all matches are</span>
-    <span class='doccomment'>/// exhaustive in Rust. But during processing we sometimes divide</span>
-    <span class='doccomment'>/// up the list of candidates and recurse with a non-exhaustive</span>
-    <span class='doccomment'>/// list. This is important to keep the size of the generated code</span>
-    <span class='doccomment'>/// under control. See `test_candidates` for more details.</span>
-    <span class='kw'>fn</span> <span class='ident'>match_candidates</span><span class='op'>&lt;</span><span class='lifetime'>&#39;pat</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                              <span class='ident'>span</span>: <span class='ident'>Span</span>,
-                              <span class='ident'>arm_blocks</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>ArmBlocks</span>,
-                              <span class='kw-2'>mut</span> <span class='ident'>candidates</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Candidate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;pat</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
-                              <span class='kw-2'>mut</span> <span class='ident'>block</span>: <span class='ident'>BasicBlock</span>)
-                              <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>BasicBlock</span><span class='op'>&gt;</span>
-    {
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;matched_candidate(span={:?}, block={:?}, candidates={:?})&quot;</span>,
-               <span class='ident'>span</span>, <span class='ident'>block</span>, <span class='ident'>candidates</span>);
-
-        <span class='comment'>// Start by simplifying candidates. Once this process is</span>
-        <span class='comment'>// complete, all the match pairs which remain require some</span>
-        <span class='comment'>// form of test, whether it be a switch or pattern comparison.</span>
-        <span class='kw'>for</span> <span class='ident'>candidate</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>candidates</span> {
-            <span class='macro'>unpack</span><span class='macro'>!</span>(<span class='ident'>block</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>simplify_candidate</span>(<span class='ident'>block</span>, <span class='ident'>candidate</span>));
-        }
-
-        <span class='comment'>// The candidates are sorted by priority. Check to see</span>
-        <span class='comment'>// whether the higher priority candidates (and hence at</span>
-        <span class='comment'>// the front of the vec) have satisfied all their match</span>
-        <span class='comment'>// pairs.</span>
-        <span class='kw'>let</span> <span class='ident'>fully_matched</span> <span class='op'>=</span>
-            <span class='ident'>candidates</span>.<span class='ident'>iter</span>().<span class='ident'>take_while</span>(<span class='op'>|</span><span class='ident'>c</span><span class='op'>|</span> <span class='ident'>c</span>.<span class='ident'>match_pairs</span>.<span class='ident'>is_empty</span>()).<span class='ident'>count</span>();
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;match_candidates: {:?} candidates fully matched&quot;</span>, <span class='ident'>fully_matched</span>);
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>unmatched_candidates</span> <span class='op'>=</span> <span class='ident'>candidates</span>.<span class='ident'>split_off</span>(<span class='ident'>fully_matched</span>);
-        <span class='kw'>for</span> <span class='ident'>candidate</span> <span class='kw'>in</span> <span class='ident'>candidates</span> {
-            <span class='comment'>// If so, apply any bindings, test the guard (if any), and</span>
-            <span class='comment'>// branch to the arm.</span>
-            <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>b</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>bind_and_guard_matched_candidate</span>(<span class='ident'>block</span>, <span class='ident'>arm_blocks</span>, <span class='ident'>candidate</span>) {
-                <span class='ident'>block</span> <span class='op'>=</span> <span class='ident'>b</span>;
-            } <span class='kw'>else</span> {
-                <span class='comment'>// if None is returned, then any remaining candidates</span>
-                <span class='comment'>// are unreachable (at least not through this path).</span>
-                <span class='kw'>return</span> <span class='macro'>vec</span><span class='macro'>!</span>[];
-            }
-        }
-
-        <span class='comment'>// If there are no candidates that still need testing, we&#39;re done.</span>
-        <span class='comment'>// Since all matches are exhaustive, execution should never reach this point.</span>
-        <span class='kw'>if</span> <span class='ident'>unmatched_candidates</span>.<span class='ident'>is_empty</span>() {
-            <span class='kw'>return</span> <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>block</span>];
-        }
-
-        <span class='comment'>// Test candidates where possible.</span>
-        <span class='kw'>let</span> (<span class='ident'>otherwise</span>, <span class='ident'>tested_candidates</span>) <span class='op'>=</span>
-            <span class='self'>self</span>.<span class='ident'>test_candidates</span>(<span class='ident'>span</span>, <span class='ident'>arm_blocks</span>, <span class='kw-2'>&amp;</span><span class='ident'>unmatched_candidates</span>, <span class='ident'>block</span>);
-
-        <span class='comment'>// If the target candidates were exhaustive, then we are done.</span>
-        <span class='kw'>if</span> <span class='ident'>otherwise</span>.<span class='ident'>is_empty</span>() {
-            <span class='kw'>return</span> <span class='macro'>vec</span><span class='macro'>!</span>[];
-        }
-
-        <span class='comment'>// If all candidates were sorted into `target_candidates` somewhere, then</span>
-        <span class='comment'>// the initial set was inexhaustive.</span>
-        <span class='kw'>let</span> <span class='ident'>untested_candidates</span> <span class='op'>=</span> <span class='ident'>unmatched_candidates</span>.<span class='ident'>split_off</span>(<span class='ident'>tested_candidates</span>);
-        <span class='kw'>if</span> <span class='ident'>untested_candidates</span>.<span class='ident'>len</span>() <span class='op'>==</span> <span class='number'>0</span> {
-            <span class='kw'>return</span> <span class='ident'>otherwise</span>;
-        }
-
-        <span class='comment'>// Otherwise, let&#39;s process those remaining candidates.</span>
-        <span class='kw'>let</span> <span class='ident'>join_block</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>join_otherwise_blocks</span>(<span class='ident'>span</span>, <span class='ident'>otherwise</span>);
-        <span class='self'>self</span>.<span class='ident'>match_candidates</span>(<span class='ident'>span</span>, <span class='ident'>arm_blocks</span>, <span class='ident'>untested_candidates</span>, <span class='ident'>join_block</span>)
-    }
-
-    <span class='kw'>fn</span> <span class='ident'>join_otherwise_blocks</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                             <span class='ident'>span</span>: <span class='ident'>Span</span>,
-                             <span class='kw-2'>mut</span> <span class='ident'>otherwise</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>BasicBlock</span><span class='op'>&gt;</span>)
-                             <span class='op'>-&gt;</span> <span class='ident'>BasicBlock</span>
-    {
-        <span class='kw'>let</span> <span class='ident'>source_info</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>source_info</span>(<span class='ident'>span</span>);
-        <span class='ident'>otherwise</span>.<span class='ident'>sort</span>();
-        <span class='ident'>otherwise</span>.<span class='ident'>dedup</span>(); <span class='comment'>// variant switches can introduce duplicate target blocks</span>
-        <span class='kw'>if</span> <span class='ident'>otherwise</span>.<span class='ident'>len</span>() <span class='op'>==</span> <span class='number'>1</span> {
-            <span class='ident'>otherwise</span>[<span class='number'>0</span>]
-        } <span class='kw'>else</span> {
-            <span class='kw'>let</span> <span class='ident'>join_block</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>cfg</span>.<span class='ident'>start_new_block</span>();
-            <span class='kw'>for</span> <span class='ident'>block</span> <span class='kw'>in</span> <span class='ident'>otherwise</span> {
-                <span class='self'>self</span>.<span class='ident'>cfg</span>.<span class='ident'>terminate</span>(<span class='ident'>block</span>, <span class='ident'>source_info</span>,
-                                   <span class='ident'>TerminatorKind</span>::<span class='ident'>Goto</span> { <span class='ident'>target</span>: <span class='ident'>join_block</span> });
-            }
-            <span class='ident'>join_block</span>
-        }
-    }
-
-    <span class='doccomment'>/// This is the most subtle part of the matching algorithm.  At</span>
-    <span class='doccomment'>/// this point, the input candidates have been fully simplified,</span>
-    <span class='doccomment'>/// and so we know that all remaining match-pairs require some</span>
-    <span class='doccomment'>/// sort of test. To decide what test to do, we take the highest</span>
-    <span class='doccomment'>/// priority candidate (last one in the list) and extract the</span>
-    <span class='doccomment'>/// first match-pair from the list. From this we decide what kind</span>
-    <span class='doccomment'>/// of test is needed using `test`, defined in the `test` module.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// *Note:* taking the first match pair is somewhat arbitrary, and</span>
-    <span class='doccomment'>/// we might do better here by choosing more carefully what to</span>
-    <span class='doccomment'>/// test.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// For example, consider the following possible match-pairs:</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// 1. `x @ Some(P)` -- we will do a `Switch` to decide what variant `x` has</span>
-    <span class='doccomment'>/// 2. `x @ 22` -- we will do a `SwitchInt`</span>
-    <span class='doccomment'>/// 3. `x @ 3..5` -- we will do a range test</span>
-    <span class='doccomment'>/// 4. etc.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// Once we know what sort of test we are going to perform, this</span>
-    <span class='doccomment'>/// test may also help us with other candidates. So we walk over</span>
-    <span class='doccomment'>/// the candidates (from high to low priority) and check. This</span>
-    <span class='doccomment'>/// gives us, for each outcome of the test, a transformed list of</span>
-    <span class='doccomment'>/// candidates.  For example, if we are testing the current</span>
-    <span class='doccomment'>/// variant of `x.0`, and we have a candidate `{x.0 @ Some(v), x.1</span>
-    <span class='doccomment'>/// @ 22}`, then we would have a resulting candidate of `{(x.0 as</span>
-    <span class='doccomment'>/// Some).0 @ v, x.1 @ 22}`. Note that the first match-pair is now</span>
-    <span class='doccomment'>/// simpler (and, in fact, irrefutable).</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// But there may also be candidates that the test just doesn&#39;t</span>
-    <span class='doccomment'>/// apply to. The classical example involves wildcards:</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// ```rust,ignore</span>
-    <span class='doccomment'>/// match (x, y, z) {</span>
-    <span class='doccomment'>///     (true, _, true) =&gt; true,    // (0)</span>
-    <span class='doccomment'>///     (_, true, _) =&gt; true,       // (1)</span>
-    <span class='doccomment'>///     (false, false, _) =&gt; false, // (2)</span>
-    <span class='doccomment'>///     (true, _, false) =&gt; false,  // (3)</span>
-    <span class='doccomment'>/// }</span>
-    <span class='doccomment'>/// ```</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// In that case, after we test on `x`, there are 2 overlapping candidate</span>
-    <span class='doccomment'>/// sets:</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// - If the outcome is that `x` is true, candidates 0, 1, and 3</span>
-    <span class='doccomment'>/// - If the outcome is that `x` is false, candidates 1 and 2</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// Here, the traditional &quot;decision tree&quot; method would generate 2</span>
-    <span class='doccomment'>/// separate code-paths for the 2 separate cases.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// In some cases, this duplication can create an exponential amount of</span>
-    <span class='doccomment'>/// code. This is most easily seen by noticing that this method terminates</span>
-    <span class='doccomment'>/// with precisely the reachable arms being reachable - but that problem</span>
-    <span class='doccomment'>/// is trivially NP-complete:</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// ```rust</span>
-    <span class='doccomment'>///     match (var0, var1, var2, var3, ..) {</span>
-    <span class='doccomment'>///         (true, _, _, false, true, ...) =&gt; false,</span>
-    <span class='doccomment'>///         (_, true, true, false, _, ...) =&gt; false,</span>
-    <span class='doccomment'>///         (false, _, false, false, _, ...) =&gt; false,</span>
-    <span class='doccomment'>///         ...</span>
-    <span class='doccomment'>///         _ =&gt; true</span>
-    <span class='doccomment'>///     }</span>
-    <span class='doccomment'>/// ```</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// Here the last arm is reachable only if there is an assignment to</span>
-    <span class='doccomment'>/// the variables that does not match any of the literals. Therefore,</span>
-    <span class='doccomment'>/// compilation would take an exponential amount of time in some cases.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// That kind of exponential worst-case might not occur in practice, but</span>
-    <span class='doccomment'>/// our simplistic treatment of constants and guards would make it occur</span>
-    <span class='doccomment'>/// in very common situations - for example #29740:</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// ```rust</span>
-    <span class='doccomment'>/// match x {</span>
-    <span class='doccomment'>///     &quot;foo&quot; if foo_guard =&gt; ...,</span>
-    <span class='doccomment'>///     &quot;bar&quot; if bar_guard =&gt; ...,</span>
-    <span class='doccomment'>///     &quot;baz&quot; if baz_guard =&gt; ...,</span>
-    <span class='doccomment'>///     ...</span>
-    <span class='doccomment'>/// }</span>
-    <span class='doccomment'>/// ```</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// Here we first test the match-pair `x @ &quot;foo&quot;`, which is an `Eq` test.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// It might seem that we would end up with 2 disjoint candidate</span>
-    <span class='doccomment'>/// sets, consisting of the first candidate or the other 3, but our</span>
-    <span class='doccomment'>/// algorithm doesn&#39;t reason about &quot;foo&quot; being distinct from the other</span>
-    <span class='doccomment'>/// constants; it considers the latter arms to potentially match after</span>
-    <span class='doccomment'>/// both outcomes, which obviously leads to an exponential amount</span>
-    <span class='doccomment'>/// of tests.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// To avoid these kinds of problems, our algorithm tries to ensure</span>
-    <span class='doccomment'>/// the amount of generated tests is linear. When we do a k-way test,</span>
-    <span class='doccomment'>/// we return an additional &quot;unmatched&quot; set alongside the obvious `k`</span>
-    <span class='doccomment'>/// sets. When we encounter a candidate that would be present in more</span>
-    <span class='doccomment'>/// than one of the sets, we put it and all candidates below it into the</span>
-    <span class='doccomment'>/// &quot;unmatched&quot; set. This ensures these `k+1` sets are disjoint.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// After we perform our test, we branch into the appropriate candidate</span>
-    <span class='doccomment'>/// set and recurse with `match_candidates`. These sub-matches are</span>
-    <span class='doccomment'>/// obviously inexhaustive - as we discarded our otherwise set - so</span>
-    <span class='doccomment'>/// we set their continuation to do `match_candidates` on the</span>
-    <span class='doccomment'>/// &quot;unmatched&quot; set (which is again inexhaustive).</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// If you apply this to the above test, you basically wind up</span>
-    <span class='doccomment'>/// with an if-else-if chain, testing each candidate in turn,</span>
-    <span class='doccomment'>/// which is precisely what we want.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// In addition to avoiding exponential-time blowups, this algorithm</span>
-    <span class='doccomment'>/// also has nice property that each guard and arm is only generated</span>
-    <span class='doccomment'>/// once.</span>
-    <span class='kw'>fn</span> <span class='ident'>test_candidates</span><span class='op'>&lt;</span><span class='lifetime'>&#39;pat</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                             <span class='ident'>span</span>: <span class='ident'>Span</span>,
-                             <span class='ident'>arm_blocks</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>ArmBlocks</span>,
-                             <span class='ident'>candidates</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>Candidate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;pat</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>],
-                             <span class='ident'>block</span>: <span class='ident'>BasicBlock</span>)
-                             <span class='op'>-&gt;</span> (<span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>BasicBlock</span><span class='op'>&gt;</span>, <span class='ident'>usize</span>)
-    {
-        <span class='comment'>// extract the match-pair from the highest priority candidate</span>
-        <span class='kw'>let</span> <span class='ident'>match_pair</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='ident'>candidates</span>.<span class='ident'>first</span>().<span class='ident'>unwrap</span>().<span class='ident'>match_pairs</span>[<span class='number'>0</span>];
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>test</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>test</span>(<span class='ident'>match_pair</span>);
-
-        <span class='comment'>// most of the time, the test to perform is simply a function</span>
-        <span class='comment'>// of the main candidate; but for a test like SwitchInt, we</span>
-        <span class='comment'>// may want to add cases based on the candidates that are</span>
-        <span class='comment'>// available</span>
-        <span class='kw'>match</span> <span class='ident'>test</span>.<span class='ident'>kind</span> {
-            <span class='ident'>TestKind</span>::<span class='ident'>SwitchInt</span> { <span class='ident'>switch_ty</span>, <span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>options</span>, <span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>indices</span> } <span class='op'>=&gt;</span> {
-                <span class='kw'>for</span> <span class='ident'>candidate</span> <span class='kw'>in</span> <span class='ident'>candidates</span>.<span class='ident'>iter</span>() {
-                    <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>add_cases_to_switch</span>(<span class='kw-2'>&amp;</span><span class='ident'>match_pair</span>.<span class='ident'>lvalue</span>,
-                                                 <span class='ident'>candidate</span>,
-                                                 <span class='ident'>switch_ty</span>,
-                                                 <span class='ident'>options</span>,
-                                                 <span class='ident'>indices</span>) {
-                        <span class='kw'>break</span>;
-                    }
-                }
-            }
-            <span class='ident'>TestKind</span>::<span class='ident'>Switch</span> { <span class='ident'>adt_def</span>: _, <span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>variants</span>} <span class='op'>=&gt;</span> {
-                <span class='kw'>for</span> <span class='ident'>candidate</span> <span class='kw'>in</span> <span class='ident'>candidates</span>.<span class='ident'>iter</span>() {
-                    <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>add_variants_to_switch</span>(<span class='kw-2'>&amp;</span><span class='ident'>match_pair</span>.<span class='ident'>lvalue</span>,
-                                                    <span class='ident'>candidate</span>,
-                                                    <span class='ident'>variants</span>) {
-                        <span class='kw'>break</span>;
-                    }
-                }
-            }
-            _ <span class='op'>=&gt;</span> { }
-        }
-
-        <span class='comment'>// perform the test, branching to one of N blocks. For each of</span>
-        <span class='comment'>// those N possible outcomes, create a (initially empty)</span>
-        <span class='comment'>// vector of candidates. Those are the candidates that still</span>
-        <span class='comment'>// apply if the test has that particular outcome.</span>
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;match_candidates: test={:?} match_pair={:?}&quot;</span>, <span class='ident'>test</span>, <span class='ident'>match_pair</span>);
-        <span class='kw'>let</span> <span class='ident'>target_blocks</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>perform_test</span>(<span class='ident'>block</span>, <span class='kw-2'>&amp;</span><span class='ident'>match_pair</span>.<span class='ident'>lvalue</span>, <span class='kw-2'>&amp;</span><span class='ident'>test</span>);
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>target_candidates</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span>_<span class='op'>&gt;</span> <span class='op'>=</span> (<span class='number'>0</span>..<span class='ident'>target_blocks</span>.<span class='ident'>len</span>()).<span class='ident'>map</span>(<span class='op'>|</span>_<span class='op'>|</span> <span class='macro'>vec</span><span class='macro'>!</span>[]).<span class='ident'>collect</span>();
-
-        <span class='comment'>// Sort the candidates into the appropriate vector in</span>
-        <span class='comment'>// `target_candidates`. Note that at some point we may</span>
-        <span class='comment'>// encounter a candidate where the test is not relevant; at</span>
-        <span class='comment'>// that point, we stop sorting.</span>
-        <span class='kw'>let</span> <span class='ident'>tested_candidates</span> <span class='op'>=</span>
-            <span class='ident'>candidates</span>.<span class='ident'>iter</span>()
-                      .<span class='ident'>take_while</span>(<span class='op'>|</span><span class='ident'>c</span><span class='op'>|</span> <span class='self'>self</span>.<span class='ident'>sort_candidate</span>(<span class='kw-2'>&amp;</span><span class='ident'>match_pair</span>.<span class='ident'>lvalue</span>,
-                                                          <span class='kw-2'>&amp;</span><span class='ident'>test</span>,
-                                                          <span class='ident'>c</span>,
-                                                          <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>target_candidates</span>))
-                      .<span class='ident'>count</span>();
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>tested_candidates</span> <span class='op'>&gt;</span> <span class='number'>0</span>); <span class='comment'>// at least the last candidate ought to be tested</span>
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;tested_candidates: {}&quot;</span>, <span class='ident'>tested_candidates</span>);
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;untested_candidates: {}&quot;</span>, <span class='ident'>candidates</span>.<span class='ident'>len</span>() <span class='op'>-</span> <span class='ident'>tested_candidates</span>);
-
-        <span class='comment'>// For each outcome of test, process the candidates that still</span>
-        <span class='comment'>// apply. Collect a list of blocks where control flow will</span>
-        <span class='comment'>// branch if one of the `target_candidate` sets is not</span>
-        <span class='comment'>// exhaustive.</span>
-        <span class='kw'>let</span> <span class='ident'>otherwise</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span>_<span class='op'>&gt;</span> <span class='op'>=</span>
-            <span class='ident'>target_blocks</span>.<span class='ident'>into_iter</span>()
-                         .<span class='ident'>zip</span>(<span class='ident'>target_candidates</span>)
-                         .<span class='ident'>flat_map</span>(<span class='op'>|</span>(<span class='ident'>target_block</span>, <span class='ident'>target_candidates</span>)<span class='op'>|</span> {
-                             <span class='self'>self</span>.<span class='ident'>match_candidates</span>(<span class='ident'>span</span>,
-                                                   <span class='ident'>arm_blocks</span>,
-                                                   <span class='ident'>target_candidates</span>,
-                                                   <span class='ident'>target_block</span>)
-                         })
-                         .<span class='ident'>collect</span>();
-
-        (<span class='ident'>otherwise</span>, <span class='ident'>tested_candidates</span>)
-    }
-
-    <span class='doccomment'>/// Initializes each of the bindings from the candidate by</span>
-    <span class='doccomment'>/// moving/copying/ref&#39;ing the source as appropriate. Tests the</span>
-    <span class='doccomment'>/// guard, if any, and then branches to the arm. Returns the block</span>
-    <span class='doccomment'>/// for the case where the guard fails.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// Note: we check earlier that if there is a guard, there cannot</span>
-    <span class='doccomment'>/// be move bindings.  This isn&#39;t really important for the</span>
-    <span class='doccomment'>/// self-consistency of this fn, but the reason for it should be</span>
-    <span class='doccomment'>/// clear: after we&#39;ve done the assignments, if there were move</span>
-    <span class='doccomment'>/// bindings, further tests would be a use-after-move (which would</span>
-    <span class='doccomment'>/// in turn be detected by the borrowck code that runs on the</span>
-    <span class='doccomment'>/// MIR).</span>
-    <span class='kw'>fn</span> <span class='ident'>bind_and_guard_matched_candidate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;pat</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                                              <span class='kw-2'>mut</span> <span class='ident'>block</span>: <span class='ident'>BasicBlock</span>,
-                                              <span class='ident'>arm_blocks</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>ArmBlocks</span>,
-                                              <span class='ident'>candidate</span>: <span class='ident'>Candidate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;pat</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-                                              <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>BasicBlock</span><span class='op'>&gt;</span> {
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;bind_and_guard_matched_candidate(block={:?}, candidate={:?})&quot;</span>,
-               <span class='ident'>block</span>, <span class='ident'>candidate</span>);
-
-        <span class='macro'>debug_assert</span><span class='macro'>!</span>(<span class='ident'>candidate</span>.<span class='ident'>match_pairs</span>.<span class='ident'>is_empty</span>());
-
-        <span class='self'>self</span>.<span class='ident'>bind_matched_candidate</span>(<span class='ident'>block</span>, <span class='ident'>candidate</span>.<span class='ident'>bindings</span>);
-
-        <span class='kw'>let</span> <span class='ident'>arm_block</span> <span class='op'>=</span> <span class='ident'>arm_blocks</span>.<span class='ident'>blocks</span>[<span class='ident'>candidate</span>.<span class='ident'>arm_index</span>];
-
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>guard</span>) <span class='op'>=</span> <span class='ident'>candidate</span>.<span class='ident'>guard</span> {
-            <span class='comment'>// the block to branch to if the guard fails; if there is no</span>
-            <span class='comment'>// guard, this block is simply unreachable</span>
-            <span class='kw'>let</span> <span class='ident'>guard</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>hir</span>.<span class='ident'>mirror</span>(<span class='ident'>guard</span>);
-            <span class='kw'>let</span> <span class='ident'>source_info</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>source_info</span>(<span class='ident'>guard</span>.<span class='ident'>span</span>);
-            <span class='kw'>let</span> <span class='ident'>cond</span> <span class='op'>=</span> <span class='macro'>unpack</span><span class='macro'>!</span>(<span class='ident'>block</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>as_operand</span>(<span class='ident'>block</span>, <span class='ident'>guard</span>));
-            <span class='kw'>let</span> <span class='ident'>otherwise</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>cfg</span>.<span class='ident'>start_new_block</span>();
-            <span class='self'>self</span>.<span class='ident'>cfg</span>.<span class='ident'>terminate</span>(<span class='ident'>block</span>, <span class='ident'>source_info</span>,
-                               <span class='ident'>TerminatorKind</span>::<span class='ident'>if_</span>(<span class='self'>self</span>.<span class='ident'>hir</span>.<span class='ident'>tcx</span>(), <span class='ident'>cond</span>, <span class='ident'>arm_block</span>, <span class='ident'>otherwise</span>));
-            <span class='prelude-val'>Some</span>(<span class='ident'>otherwise</span>)
-        } <span class='kw'>else</span> {
-            <span class='kw'>let</span> <span class='ident'>source_info</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>source_info</span>(<span class='ident'>candidate</span>.<span class='ident'>span</span>);
-            <span class='self'>self</span>.<span class='ident'>cfg</span>.<span class='ident'>terminate</span>(<span class='ident'>block</span>, <span class='ident'>source_info</span>,
-                               <span class='ident'>TerminatorKind</span>::<span class='ident'>Goto</span> { <span class='ident'>target</span>: <span class='ident'>arm_block</span> });
-            <span class='prelude-val'>None</span>
-        }
-    }
-
-    <span class='kw'>fn</span> <span class='ident'>bind_matched_candidate</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                              <span class='ident'>block</span>: <span class='ident'>BasicBlock</span>,
-                              <span class='ident'>bindings</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Binding</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>) {
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;bind_matched_candidate(block={:?}, bindings={:?})&quot;</span>,
-               <span class='ident'>block</span>, <span class='ident'>bindings</span>);
-
-        <span class='comment'>// Assign each of the bindings. This may trigger moves out of the candidate.</span>
-        <span class='kw'>for</span> <span class='ident'>binding</span> <span class='kw'>in</span> <span class='ident'>bindings</span> {
-            <span class='comment'>// Find the variable for the `var_id` being bound. It</span>
-            <span class='comment'>// should have been created by a previous call to</span>
-            <span class='comment'>// `declare_bindings`.</span>
-            <span class='kw'>let</span> <span class='ident'>var_index</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>var_indices</span>[<span class='kw-2'>&amp;</span><span class='ident'>binding</span>.<span class='ident'>var_id</span>];
-
-            <span class='kw'>let</span> <span class='ident'>rvalue</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>binding</span>.<span class='ident'>binding_mode</span> {
-                <span class='ident'>BindingMode</span>::<span class='ident'>ByValue</span> <span class='op'>=&gt;</span>
-                    <span class='ident'>Rvalue</span>::<span class='ident'>Use</span>(<span class='ident'>Operand</span>::<span class='ident'>Consume</span>(<span class='ident'>binding</span>.<span class='ident'>source</span>)),
-                <span class='ident'>BindingMode</span>::<span class='ident'>ByRef</span>(<span class='ident'>region</span>, <span class='ident'>borrow_kind</span>) <span class='op'>=&gt;</span>
-                    <span class='ident'>Rvalue</span>::<span class='ident'>Ref</span>(<span class='ident'>region</span>, <span class='ident'>borrow_kind</span>, <span class='ident'>binding</span>.<span class='ident'>source</span>),
+            <span class="kw">let</span> <span class="ident">source_info</span> <span class="op">=</span> <span class="ident">SourceInfo</span> {
+                <span class="ident">span</span>: <span class="ident">span</span>,
+                <span class="ident">scope</span>: <span class="ident">var_scope</span>.<span class="ident">unwrap</span>()
             };
+            <span class="ident">this</span>.<span class="ident">declare_binding</span>(<span class="ident">source_info</span>, <span class="ident">mutability</span>, <span class="ident">name</span>, <span class="ident">var</span>, <span class="ident">ty</span>);
+        });
+        <span class="ident">var_scope</span>
+    }
 
-            <span class='kw'>let</span> <span class='ident'>source_info</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>source_info</span>(<span class='ident'>binding</span>.<span class='ident'>span</span>);
-            <span class='self'>self</span>.<span class='ident'>cfg</span>.<span class='ident'>push</span>(<span class='ident'>block</span>, <span class='ident'>Statement</span> {
-                <span class='ident'>source_info</span>: <span class='ident'>source_info</span>,
-                <span class='ident'>kind</span>: <span class='ident'>StatementKind</span>::<span class='ident'>StorageLive</span>(<span class='ident'>Lvalue</span>::<span class='ident'>Local</span>(<span class='ident'>var_index</span>))
-            });
-            <span class='self'>self</span>.<span class='ident'>cfg</span>.<span class='ident'>push_assign</span>(<span class='ident'>block</span>, <span class='ident'>source_info</span>,
-                                 <span class='kw-2'>&amp;</span><span class='ident'>Lvalue</span>::<span class='ident'>Local</span>(<span class='ident'>var_index</span>), <span class='ident'>rvalue</span>);
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">storage_live_binding</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">block</span>: <span class="ident">BasicBlock</span>, <span class="ident">var</span>: <span class="ident">NodeId</span>, <span class="ident">span</span>: <span class="ident">Span</span>)
+                            <span class="op">-&gt;</span> <span class="ident">Lvalue</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>
+    {
+        <span class="kw">let</span> <span class="ident">local_id</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">var_indices</span>[<span class="kw-2">&amp;</span><span class="ident">var</span>];
+        <span class="kw">let</span> <span class="ident">source_info</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">source_info</span>(<span class="ident">span</span>);
+        <span class="self">self</span>.<span class="ident">cfg</span>.<span class="ident">push</span>(<span class="ident">block</span>, <span class="ident">Statement</span> {
+            <span class="ident">source_info</span>: <span class="ident">source_info</span>,
+            <span class="ident">kind</span>: <span class="ident">StatementKind</span>::<span class="ident">StorageLive</span>(<span class="ident">Lvalue</span>::<span class="ident">Local</span>(<span class="ident">local_id</span>))
+        });
+        <span class="ident">Lvalue</span>::<span class="ident">Local</span>(<span class="ident">local_id</span>)
+    }
+
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">schedule_drop_for_binding</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">var</span>: <span class="ident">NodeId</span>, <span class="ident">span</span>: <span class="ident">Span</span>) {
+        <span class="kw">let</span> <span class="ident">local_id</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">var_indices</span>[<span class="kw-2">&amp;</span><span class="ident">var</span>];
+        <span class="kw">let</span> <span class="ident">var_ty</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">local_decls</span>[<span class="ident">local_id</span>].<span class="ident">ty</span>;
+        <span class="kw">let</span> <span class="ident">extent</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">hir</span>.<span class="ident">tcx</span>().<span class="ident">region_maps</span>.<span class="ident">var_scope</span>(<span class="ident">var</span>);
+        <span class="self">self</span>.<span class="ident">schedule_drop</span>(<span class="ident">span</span>, <span class="ident">extent</span>, <span class="kw-2">&amp;</span><span class="ident">Lvalue</span>::<span class="ident">Local</span>(<span class="ident">local_id</span>), <span class="ident">var_ty</span>);
+    }
+
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">visit_bindings</span><span class="op">&lt;</span><span class="ident">F</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">pattern</span>: <span class="kw-2">&amp;</span><span class="ident">Pattern</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="kw-2">mut</span> <span class="ident">f</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">F</span>)
+        <span class="kw">where</span> <span class="ident">F</span>: <span class="ident">FnMut</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">Self</span>, <span class="ident">Mutability</span>, <span class="ident">Name</span>, <span class="ident">NodeId</span>, <span class="ident">Span</span>, <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+    {
+        <span class="kw">match</span> <span class="kw-2">*</span><span class="ident">pattern</span>.<span class="ident">kind</span> {
+            <span class="ident">PatternKind</span>::<span class="ident">Binding</span> { <span class="ident">mutability</span>, <span class="ident">name</span>, <span class="ident">var</span>, <span class="ident">ty</span>, <span class="kw-2">ref</span> <span class="ident">subpattern</span>, .. } <span class="op">=&gt;</span> {
+                <span class="ident">f</span>(<span class="self">self</span>, <span class="ident">mutability</span>, <span class="ident">name</span>, <span class="ident">var</span>, <span class="ident">pattern</span>.<span class="ident">span</span>, <span class="ident">ty</span>);
+                <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">subpattern</span>) <span class="op">=</span> <span class="ident">subpattern</span>.<span class="ident">as_ref</span>() {
+                    <span class="self">self</span>.<span class="ident">visit_bindings</span>(<span class="ident">subpattern</span>, <span class="ident">f</span>);
+                }
+            }
+            <span class="ident">PatternKind</span>::<span class="ident">Array</span> { <span class="kw-2">ref</span> <span class="ident">prefix</span>, <span class="kw-2">ref</span> <span class="ident">slice</span>, <span class="kw-2">ref</span> <span class="ident">suffix</span> } <span class="op">|</span>
+            <span class="ident">PatternKind</span>::<span class="ident">Slice</span> { <span class="kw-2">ref</span> <span class="ident">prefix</span>, <span class="kw-2">ref</span> <span class="ident">slice</span>, <span class="kw-2">ref</span> <span class="ident">suffix</span> } <span class="op">=&gt;</span> {
+                <span class="kw">for</span> <span class="ident">subpattern</span> <span class="kw">in</span> <span class="ident">prefix</span>.<span class="ident">iter</span>().<span class="ident">chain</span>(<span class="ident">slice</span>).<span class="ident">chain</span>(<span class="ident">suffix</span>) {
+                    <span class="self">self</span>.<span class="ident">visit_bindings</span>(<span class="ident">subpattern</span>, <span class="ident">f</span>);
+                }
+            }
+            <span class="ident">PatternKind</span>::<span class="ident">Constant</span> { .. } <span class="op">|</span> <span class="ident">PatternKind</span>::<span class="ident">Range</span> { .. } <span class="op">|</span> <span class="ident">PatternKind</span>::<span class="ident">Wild</span> <span class="op">=&gt;</span> {
+            }
+            <span class="ident">PatternKind</span>::<span class="ident">Deref</span> { <span class="kw-2">ref</span> <span class="ident">subpattern</span> } <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">visit_bindings</span>(<span class="ident">subpattern</span>, <span class="ident">f</span>);
+            }
+            <span class="ident">PatternKind</span>::<span class="ident">Leaf</span> { <span class="kw-2">ref</span> <span class="ident">subpatterns</span> } <span class="op">|</span>
+            <span class="ident">PatternKind</span>::<span class="ident">Variant</span> { <span class="kw-2">ref</span> <span class="ident">subpatterns</span>, .. } <span class="op">=&gt;</span> {
+                <span class="kw">for</span> <span class="ident">subpattern</span> <span class="kw">in</span> <span class="ident">subpatterns</span> {
+                    <span class="self">self</span>.<span class="ident">visit_bindings</span>(<span class="kw-2">&amp;</span><span class="ident">subpattern</span>.<span class="ident">pattern</span>, <span class="ident">f</span>);
+                }
+            }
+        }
+    }
+}
+
+
+<span class="doccomment">/// List of blocks for each arm (and potentially other metadata in the</span>
+<span class="doccomment">/// future).</span>
+<span class="kw">struct</span> <span class="ident">ArmBlocks</span> {
+    <span class="ident">blocks</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">BasicBlock</span><span class="op">&gt;</span>,
+}
+
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">Debug</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">Candidate</span><span class="op">&lt;</span><span class="lifetime">&#39;pat</span>, <span class="lifetime">&#39;tcx</span>:<span class="lifetime">&#39;pat</span><span class="op">&gt;</span> {
+    <span class="comment">// span of the original pattern that gave rise to this candidate</span>
+    <span class="ident">span</span>: <span class="ident">Span</span>,
+
+    <span class="comment">// all of these must be satisfied...</span>
+    <span class="ident">match_pairs</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">MatchPair</span><span class="op">&lt;</span><span class="lifetime">&#39;pat</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,
+
+    <span class="comment">// ...these bindings established...</span>
+    <span class="ident">bindings</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Binding</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,
+
+    <span class="comment">// ...and the guard must be evaluated...</span>
+    <span class="ident">guard</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">ExprRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,
+
+    <span class="comment">// ...and then we branch to arm with this index.</span>
+    <span class="ident">arm_index</span>: <span class="ident">usize</span>,
+}
+
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">Debug</span>)]</span>
+<span class="kw">struct</span> <span class="ident">Binding</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="ident">span</span>: <span class="ident">Span</span>,
+    <span class="ident">source</span>: <span class="ident">Lvalue</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">name</span>: <span class="ident">Name</span>,
+    <span class="ident">var_id</span>: <span class="ident">NodeId</span>,
+    <span class="ident">var_ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">mutability</span>: <span class="ident">Mutability</span>,
+    <span class="ident">binding_mode</span>: <span class="ident">BindingMode</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+}
+
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">Debug</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">MatchPair</span><span class="op">&lt;</span><span class="lifetime">&#39;pat</span>, <span class="lifetime">&#39;tcx</span>:<span class="lifetime">&#39;pat</span><span class="op">&gt;</span> {
+    <span class="comment">// this lvalue...</span>
+    <span class="ident">lvalue</span>: <span class="ident">Lvalue</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+
+    <span class="comment">// ... must match this pattern.</span>
+    <span class="ident">pattern</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;pat</span> <span class="ident">Pattern</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+
+    <span class="comment">// HACK(eddyb) This is used to toggle whether a Slice pattern</span>
+    <span class="comment">// has had its length checked. This is only necessary because</span>
+    <span class="comment">// the &quot;rest&quot; part of the pattern right now has type &amp;[T] and</span>
+    <span class="comment">// as such, it requires an Rvalue::Slice to be generated.</span>
+    <span class="comment">// See RFC 495 / issue #23121 for the eventual (proper) solution.</span>
+    <span class="ident">slice_len_checked</span>: <span class="ident">bool</span>
+}
+
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">Debug</span>, <span class="ident">PartialEq</span>)]</span>
+<span class="kw">enum</span> <span class="ident">TestKind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="comment">// test the branches of enum</span>
+    <span class="ident">Switch</span> {
+        <span class="ident">adt_def</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">AdtDef</span>,
+        <span class="ident">variants</span>: <span class="ident">BitVector</span>,
+    },
+
+    <span class="comment">// test the branches of enum</span>
+    <span class="ident">SwitchInt</span> {
+        <span class="ident">switch_ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+        <span class="ident">options</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">ConstVal</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,
+        <span class="ident">indices</span>: <span class="ident">FxHashMap</span><span class="op">&lt;</span><span class="ident">ConstVal</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">usize</span><span class="op">&gt;</span>,
+    },
+
+    <span class="comment">// test for equality</span>
+    <span class="ident">Eq</span> {
+        <span class="ident">value</span>: <span class="ident">ConstVal</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+        <span class="ident">ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    },
+
+    <span class="comment">// test whether the value falls within an inclusive or exclusive range</span>
+    <span class="ident">Range</span> {
+        <span class="ident">lo</span>: <span class="ident">Literal</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+        <span class="ident">hi</span>: <span class="ident">Literal</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+        <span class="ident">ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+        <span class="ident">end</span>: <span class="ident">hir</span>::<span class="ident">RangeEnd</span>,
+    },
+
+    <span class="comment">// test length of the slice is equal to len</span>
+    <span class="ident">Len</span> {
+        <span class="ident">len</span>: <span class="ident">u64</span>,
+        <span class="ident">op</span>: <span class="ident">BinOp</span>,
+    },
+}
+
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">Test</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="ident">span</span>: <span class="ident">Span</span>,
+    <span class="ident">kind</span>: <span class="ident">TestKind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+}
+
+<span class="comment">///////////////////////////////////////////////////////////////////////////</span>
+<span class="comment">// Main matching algorithm</span>
+
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">Builder</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// The main match algorithm. It begins with a set of candidates</span>
+    <span class="doccomment">/// `candidates` and has the job of generating code to determine</span>
+    <span class="doccomment">/// which of these candidates, if any, is the correct one. The</span>
+    <span class="doccomment">/// candidates are sorted such that the first item in the list</span>
+    <span class="doccomment">/// has the highest priority. When a candidate is found to match</span>
+    <span class="doccomment">/// the value, we will generate a branch to the appropriate</span>
+    <span class="doccomment">/// block found in `arm_blocks`.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// The return value is a list of &quot;otherwise&quot; blocks. These are</span>
+    <span class="doccomment">/// points in execution where we found that *NONE* of the</span>
+    <span class="doccomment">/// candidates apply.  In principle, this means that the input</span>
+    <span class="doccomment">/// list was not exhaustive, though at present we sometimes are</span>
+    <span class="doccomment">/// not smart enough to recognize all exhaustive inputs.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// It might be surprising that the input can be inexhaustive.</span>
+    <span class="doccomment">/// Indeed, initially, it is not, because all matches are</span>
+    <span class="doccomment">/// exhaustive in Rust. But during processing we sometimes divide</span>
+    <span class="doccomment">/// up the list of candidates and recurse with a non-exhaustive</span>
+    <span class="doccomment">/// list. This is important to keep the size of the generated code</span>
+    <span class="doccomment">/// under control. See `test_candidates` for more details.</span>
+    <span class="kw">fn</span> <span class="ident">match_candidates</span><span class="op">&lt;</span><span class="lifetime">&#39;pat</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                              <span class="ident">span</span>: <span class="ident">Span</span>,
+                              <span class="ident">arm_blocks</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">ArmBlocks</span>,
+                              <span class="kw-2">mut</span> <span class="ident">candidates</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Candidate</span><span class="op">&lt;</span><span class="lifetime">&#39;pat</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,
+                              <span class="kw-2">mut</span> <span class="ident">block</span>: <span class="ident">BasicBlock</span>)
+                              <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">BasicBlock</span><span class="op">&gt;</span>
+    {
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;matched_candidate(span={:?}, block={:?}, candidates={:?})&quot;</span>,
+               <span class="ident">span</span>, <span class="ident">block</span>, <span class="ident">candidates</span>);
+
+        <span class="comment">// Start by simplifying candidates. Once this process is</span>
+        <span class="comment">// complete, all the match pairs which remain require some</span>
+        <span class="comment">// form of test, whether it be a switch or pattern comparison.</span>
+        <span class="kw">for</span> <span class="ident">candidate</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">candidates</span> {
+            <span class="macro">unpack</span><span class="macro">!</span>(<span class="ident">block</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">simplify_candidate</span>(<span class="ident">block</span>, <span class="ident">candidate</span>));
+        }
+
+        <span class="comment">// The candidates are sorted by priority. Check to see</span>
+        <span class="comment">// whether the higher priority candidates (and hence at</span>
+        <span class="comment">// the front of the vec) have satisfied all their match</span>
+        <span class="comment">// pairs.</span>
+        <span class="kw">let</span> <span class="ident">fully_matched</span> <span class="op">=</span>
+            <span class="ident">candidates</span>.<span class="ident">iter</span>().<span class="ident">take_while</span>(<span class="op">|</span><span class="ident">c</span><span class="op">|</span> <span class="ident">c</span>.<span class="ident">match_pairs</span>.<span class="ident">is_empty</span>()).<span class="ident">count</span>();
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;match_candidates: {:?} candidates fully matched&quot;</span>, <span class="ident">fully_matched</span>);
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">unmatched_candidates</span> <span class="op">=</span> <span class="ident">candidates</span>.<span class="ident">split_off</span>(<span class="ident">fully_matched</span>);
+        <span class="kw">for</span> <span class="ident">candidate</span> <span class="kw">in</span> <span class="ident">candidates</span> {
+            <span class="comment">// If so, apply any bindings, test the guard (if any), and</span>
+            <span class="comment">// branch to the arm.</span>
+            <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">b</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">bind_and_guard_matched_candidate</span>(<span class="ident">block</span>, <span class="ident">arm_blocks</span>, <span class="ident">candidate</span>) {
+                <span class="ident">block</span> <span class="op">=</span> <span class="ident">b</span>;
+            } <span class="kw">else</span> {
+                <span class="comment">// if None is returned, then any remaining candidates</span>
+                <span class="comment">// are unreachable (at least not through this path).</span>
+                <span class="kw">return</span> <span class="macro">vec</span><span class="macro">!</span>[];
+            }
+        }
+
+        <span class="comment">// If there are no candidates that still need testing, we&#39;re done.</span>
+        <span class="comment">// Since all matches are exhaustive, execution should never reach this point.</span>
+        <span class="kw">if</span> <span class="ident">unmatched_candidates</span>.<span class="ident">is_empty</span>() {
+            <span class="kw">return</span> <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">block</span>];
+        }
+
+        <span class="comment">// Test candidates where possible.</span>
+        <span class="kw">let</span> (<span class="ident">otherwise</span>, <span class="ident">tested_candidates</span>) <span class="op">=</span>
+            <span class="self">self</span>.<span class="ident">test_candidates</span>(<span class="ident">span</span>, <span class="ident">arm_blocks</span>, <span class="kw-2">&amp;</span><span class="ident">unmatched_candidates</span>, <span class="ident">block</span>);
+
+        <span class="comment">// If the target candidates were exhaustive, then we are done.</span>
+        <span class="kw">if</span> <span class="ident">otherwise</span>.<span class="ident">is_empty</span>() {
+            <span class="kw">return</span> <span class="macro">vec</span><span class="macro">!</span>[];
+        }
+
+        <span class="comment">// If all candidates were sorted into `target_candidates` somewhere, then</span>
+        <span class="comment">// the initial set was inexhaustive.</span>
+        <span class="kw">let</span> <span class="ident">untested_candidates</span> <span class="op">=</span> <span class="ident">unmatched_candidates</span>.<span class="ident">split_off</span>(<span class="ident">tested_candidates</span>);
+        <span class="kw">if</span> <span class="ident">untested_candidates</span>.<span class="ident">len</span>() <span class="op">==</span> <span class="number">0</span> {
+            <span class="kw">return</span> <span class="ident">otherwise</span>;
+        }
+
+        <span class="comment">// Otherwise, let&#39;s process those remaining candidates.</span>
+        <span class="kw">let</span> <span class="ident">join_block</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">join_otherwise_blocks</span>(<span class="ident">span</span>, <span class="ident">otherwise</span>);
+        <span class="self">self</span>.<span class="ident">match_candidates</span>(<span class="ident">span</span>, <span class="ident">arm_blocks</span>, <span class="ident">untested_candidates</span>, <span class="ident">join_block</span>)
+    }
+
+    <span class="kw">fn</span> <span class="ident">join_otherwise_blocks</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                             <span class="ident">span</span>: <span class="ident">Span</span>,
+                             <span class="kw-2">mut</span> <span class="ident">otherwise</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">BasicBlock</span><span class="op">&gt;</span>)
+                             <span class="op">-&gt;</span> <span class="ident">BasicBlock</span>
+    {
+        <span class="kw">let</span> <span class="ident">source_info</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">source_info</span>(<span class="ident">span</span>);
+        <span class="ident">otherwise</span>.<span class="ident">sort</span>();
+        <span class="ident">otherwise</span>.<span class="ident">dedup</span>(); <span class="comment">// variant switches can introduce duplicate target blocks</span>
+        <span class="kw">if</span> <span class="ident">otherwise</span>.<span class="ident">len</span>() <span class="op">==</span> <span class="number">1</span> {
+            <span class="ident">otherwise</span>[<span class="number">0</span>]
+        } <span class="kw">else</span> {
+            <span class="kw">let</span> <span class="ident">join_block</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">cfg</span>.<span class="ident">start_new_block</span>();
+            <span class="kw">for</span> <span class="ident">block</span> <span class="kw">in</span> <span class="ident">otherwise</span> {
+                <span class="self">self</span>.<span class="ident">cfg</span>.<span class="ident">terminate</span>(<span class="ident">block</span>, <span class="ident">source_info</span>,
+                                   <span class="ident">TerminatorKind</span>::<span class="ident">Goto</span> { <span class="ident">target</span>: <span class="ident">join_block</span> });
+            }
+            <span class="ident">join_block</span>
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>declare_binding</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                       <span class='ident'>source_info</span>: <span class='ident'>SourceInfo</span>,
-                       <span class='ident'>mutability</span>: <span class='ident'>Mutability</span>,
-                       <span class='ident'>name</span>: <span class='ident'>Name</span>,
-                       <span class='ident'>var_id</span>: <span class='ident'>NodeId</span>,
-                       <span class='ident'>var_ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-                       <span class='op'>-&gt;</span> <span class='ident'>Local</span>
+    <span class="doccomment">/// This is the most subtle part of the matching algorithm.  At</span>
+    <span class="doccomment">/// this point, the input candidates have been fully simplified,</span>
+    <span class="doccomment">/// and so we know that all remaining match-pairs require some</span>
+    <span class="doccomment">/// sort of test. To decide what test to do, we take the highest</span>
+    <span class="doccomment">/// priority candidate (last one in the list) and extract the</span>
+    <span class="doccomment">/// first match-pair from the list. From this we decide what kind</span>
+    <span class="doccomment">/// of test is needed using `test`, defined in the `test` module.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// *Note:* taking the first match pair is somewhat arbitrary, and</span>
+    <span class="doccomment">/// we might do better here by choosing more carefully what to</span>
+    <span class="doccomment">/// test.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// For example, consider the following possible match-pairs:</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// 1. `x @ Some(P)` -- we will do a `Switch` to decide what variant `x` has</span>
+    <span class="doccomment">/// 2. `x @ 22` -- we will do a `SwitchInt`</span>
+    <span class="doccomment">/// 3. `x @ 3..5` -- we will do a range test</span>
+    <span class="doccomment">/// 4. etc.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Once we know what sort of test we are going to perform, this</span>
+    <span class="doccomment">/// test may also help us with other candidates. So we walk over</span>
+    <span class="doccomment">/// the candidates (from high to low priority) and check. This</span>
+    <span class="doccomment">/// gives us, for each outcome of the test, a transformed list of</span>
+    <span class="doccomment">/// candidates.  For example, if we are testing the current</span>
+    <span class="doccomment">/// variant of `x.0`, and we have a candidate `{x.0 @ Some(v), x.1</span>
+    <span class="doccomment">/// @ 22}`, then we would have a resulting candidate of `{(x.0 as</span>
+    <span class="doccomment">/// Some).0 @ v, x.1 @ 22}`. Note that the first match-pair is now</span>
+    <span class="doccomment">/// simpler (and, in fact, irrefutable).</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// But there may also be candidates that the test just doesn&#39;t</span>
+    <span class="doccomment">/// apply to. The classical example involves wildcards:</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// ```rust,ignore</span>
+    <span class="doccomment">/// match (x, y, z) {</span>
+    <span class="doccomment">///     (true, _, true) =&gt; true,    // (0)</span>
+    <span class="doccomment">///     (_, true, _) =&gt; true,       // (1)</span>
+    <span class="doccomment">///     (false, false, _) =&gt; false, // (2)</span>
+    <span class="doccomment">///     (true, _, false) =&gt; false,  // (3)</span>
+    <span class="doccomment">/// }</span>
+    <span class="doccomment">/// ```</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// In that case, after we test on `x`, there are 2 overlapping candidate</span>
+    <span class="doccomment">/// sets:</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// - If the outcome is that `x` is true, candidates 0, 1, and 3</span>
+    <span class="doccomment">/// - If the outcome is that `x` is false, candidates 1 and 2</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Here, the traditional &quot;decision tree&quot; method would generate 2</span>
+    <span class="doccomment">/// separate code-paths for the 2 separate cases.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// In some cases, this duplication can create an exponential amount of</span>
+    <span class="doccomment">/// code. This is most easily seen by noticing that this method terminates</span>
+    <span class="doccomment">/// with precisely the reachable arms being reachable - but that problem</span>
+    <span class="doccomment">/// is trivially NP-complete:</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// ```rust</span>
+    <span class="doccomment">///     match (var0, var1, var2, var3, ..) {</span>
+    <span class="doccomment">///         (true, _, _, false, true, ...) =&gt; false,</span>
+    <span class="doccomment">///         (_, true, true, false, _, ...) =&gt; false,</span>
+    <span class="doccomment">///         (false, _, false, false, _, ...) =&gt; false,</span>
+    <span class="doccomment">///         ...</span>
+    <span class="doccomment">///         _ =&gt; true</span>
+    <span class="doccomment">///     }</span>
+    <span class="doccomment">/// ```</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Here the last arm is reachable only if there is an assignment to</span>
+    <span class="doccomment">/// the variables that does not match any of the literals. Therefore,</span>
+    <span class="doccomment">/// compilation would take an exponential amount of time in some cases.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// That kind of exponential worst-case might not occur in practice, but</span>
+    <span class="doccomment">/// our simplistic treatment of constants and guards would make it occur</span>
+    <span class="doccomment">/// in very common situations - for example #29740:</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// ```rust</span>
+    <span class="doccomment">/// match x {</span>
+    <span class="doccomment">///     &quot;foo&quot; if foo_guard =&gt; ...,</span>
+    <span class="doccomment">///     &quot;bar&quot; if bar_guard =&gt; ...,</span>
+    <span class="doccomment">///     &quot;baz&quot; if baz_guard =&gt; ...,</span>
+    <span class="doccomment">///     ...</span>
+    <span class="doccomment">/// }</span>
+    <span class="doccomment">/// ```</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Here we first test the match-pair `x @ &quot;foo&quot;`, which is an `Eq` test.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// It might seem that we would end up with 2 disjoint candidate</span>
+    <span class="doccomment">/// sets, consisting of the first candidate or the other 3, but our</span>
+    <span class="doccomment">/// algorithm doesn&#39;t reason about &quot;foo&quot; being distinct from the other</span>
+    <span class="doccomment">/// constants; it considers the latter arms to potentially match after</span>
+    <span class="doccomment">/// both outcomes, which obviously leads to an exponential amount</span>
+    <span class="doccomment">/// of tests.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// To avoid these kinds of problems, our algorithm tries to ensure</span>
+    <span class="doccomment">/// the amount of generated tests is linear. When we do a k-way test,</span>
+    <span class="doccomment">/// we return an additional &quot;unmatched&quot; set alongside the obvious `k`</span>
+    <span class="doccomment">/// sets. When we encounter a candidate that would be present in more</span>
+    <span class="doccomment">/// than one of the sets, we put it and all candidates below it into the</span>
+    <span class="doccomment">/// &quot;unmatched&quot; set. This ensures these `k+1` sets are disjoint.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// After we perform our test, we branch into the appropriate candidate</span>
+    <span class="doccomment">/// set and recurse with `match_candidates`. These sub-matches are</span>
+    <span class="doccomment">/// obviously inexhaustive - as we discarded our otherwise set - so</span>
+    <span class="doccomment">/// we set their continuation to do `match_candidates` on the</span>
+    <span class="doccomment">/// &quot;unmatched&quot; set (which is again inexhaustive).</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// If you apply this to the above test, you basically wind up</span>
+    <span class="doccomment">/// with an if-else-if chain, testing each candidate in turn,</span>
+    <span class="doccomment">/// which is precisely what we want.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// In addition to avoiding exponential-time blowups, this algorithm</span>
+    <span class="doccomment">/// also has nice property that each guard and arm is only generated</span>
+    <span class="doccomment">/// once.</span>
+    <span class="kw">fn</span> <span class="ident">test_candidates</span><span class="op">&lt;</span><span class="lifetime">&#39;pat</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                             <span class="ident">span</span>: <span class="ident">Span</span>,
+                             <span class="ident">arm_blocks</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">ArmBlocks</span>,
+                             <span class="ident">candidates</span>: <span class="kw-2">&amp;</span>[<span class="ident">Candidate</span><span class="op">&lt;</span><span class="lifetime">&#39;pat</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>],
+                             <span class="ident">block</span>: <span class="ident">BasicBlock</span>)
+                             <span class="op">-&gt;</span> (<span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">BasicBlock</span><span class="op">&gt;</span>, <span class="ident">usize</span>)
     {
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;declare_binding(var_id={:?}, name={:?}, var_ty={:?}, source_info={:?})&quot;</span>,
-               <span class='ident'>var_id</span>, <span class='ident'>name</span>, <span class='ident'>var_ty</span>, <span class='ident'>source_info</span>);
+        <span class="comment">// extract the match-pair from the highest priority candidate</span>
+        <span class="kw">let</span> <span class="ident">match_pair</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="ident">candidates</span>.<span class="ident">first</span>().<span class="ident">unwrap</span>().<span class="ident">match_pairs</span>[<span class="number">0</span>];
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">test</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">test</span>(<span class="ident">match_pair</span>);
 
-        <span class='kw'>let</span> <span class='ident'>var</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>local_decls</span>.<span class='ident'>push</span>(<span class='ident'>LocalDecl</span>::<span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-            <span class='ident'>mutability</span>: <span class='ident'>mutability</span>,
-            <span class='ident'>ty</span>: <span class='ident'>var_ty</span>.<span class='ident'>clone</span>(),
-            <span class='ident'>name</span>: <span class='prelude-val'>Some</span>(<span class='ident'>name</span>),
-            <span class='ident'>source_info</span>: <span class='prelude-val'>Some</span>(<span class='ident'>source_info</span>),
+        <span class="comment">// most of the time, the test to perform is simply a function</span>
+        <span class="comment">// of the main candidate; but for a test like SwitchInt, we</span>
+        <span class="comment">// may want to add cases based on the candidates that are</span>
+        <span class="comment">// available</span>
+        <span class="kw">match</span> <span class="ident">test</span>.<span class="ident">kind</span> {
+            <span class="ident">TestKind</span>::<span class="ident">SwitchInt</span> { <span class="ident">switch_ty</span>, <span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">options</span>, <span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">indices</span> } <span class="op">=&gt;</span> {
+                <span class="kw">for</span> <span class="ident">candidate</span> <span class="kw">in</span> <span class="ident">candidates</span>.<span class="ident">iter</span>() {
+                    <span class="kw">if</span> <span class="op">!</span><span class="self">self</span>.<span class="ident">add_cases_to_switch</span>(<span class="kw-2">&amp;</span><span class="ident">match_pair</span>.<span class="ident">lvalue</span>,
+                                                 <span class="ident">candidate</span>,
+                                                 <span class="ident">switch_ty</span>,
+                                                 <span class="ident">options</span>,
+                                                 <span class="ident">indices</span>) {
+                        <span class="kw">break</span>;
+                    }
+                }
+            }
+            <span class="ident">TestKind</span>::<span class="ident">Switch</span> { <span class="ident">adt_def</span>: _, <span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">variants</span>} <span class="op">=&gt;</span> {
+                <span class="kw">for</span> <span class="ident">candidate</span> <span class="kw">in</span> <span class="ident">candidates</span>.<span class="ident">iter</span>() {
+                    <span class="kw">if</span> <span class="op">!</span><span class="self">self</span>.<span class="ident">add_variants_to_switch</span>(<span class="kw-2">&amp;</span><span class="ident">match_pair</span>.<span class="ident">lvalue</span>,
+                                                    <span class="ident">candidate</span>,
+                                                    <span class="ident">variants</span>) {
+                        <span class="kw">break</span>;
+                    }
+                }
+            }
+            _ <span class="op">=&gt;</span> { }
+        }
+
+        <span class="comment">// perform the test, branching to one of N blocks. For each of</span>
+        <span class="comment">// those N possible outcomes, create a (initially empty)</span>
+        <span class="comment">// vector of candidates. Those are the candidates that still</span>
+        <span class="comment">// apply if the test has that particular outcome.</span>
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;match_candidates: test={:?} match_pair={:?}&quot;</span>, <span class="ident">test</span>, <span class="ident">match_pair</span>);
+        <span class="kw">let</span> <span class="ident">target_blocks</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">perform_test</span>(<span class="ident">block</span>, <span class="kw-2">&amp;</span><span class="ident">match_pair</span>.<span class="ident">lvalue</span>, <span class="kw-2">&amp;</span><span class="ident">test</span>);
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">target_candidates</span>: <span class="ident">Vec</span><span class="op">&lt;</span>_<span class="op">&gt;</span> <span class="op">=</span> (<span class="number">0</span>..<span class="ident">target_blocks</span>.<span class="ident">len</span>()).<span class="ident">map</span>(<span class="op">|</span>_<span class="op">|</span> <span class="macro">vec</span><span class="macro">!</span>[]).<span class="ident">collect</span>();
+
+        <span class="comment">// Sort the candidates into the appropriate vector in</span>
+        <span class="comment">// `target_candidates`. Note that at some point we may</span>
+        <span class="comment">// encounter a candidate where the test is not relevant; at</span>
+        <span class="comment">// that point, we stop sorting.</span>
+        <span class="kw">let</span> <span class="ident">tested_candidates</span> <span class="op">=</span>
+            <span class="ident">candidates</span>.<span class="ident">iter</span>()
+                      .<span class="ident">take_while</span>(<span class="op">|</span><span class="ident">c</span><span class="op">|</span> <span class="self">self</span>.<span class="ident">sort_candidate</span>(<span class="kw-2">&amp;</span><span class="ident">match_pair</span>.<span class="ident">lvalue</span>,
+                                                          <span class="kw-2">&amp;</span><span class="ident">test</span>,
+                                                          <span class="ident">c</span>,
+                                                          <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">target_candidates</span>))
+                      .<span class="ident">count</span>();
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">tested_candidates</span> <span class="op">&gt;</span> <span class="number">0</span>); <span class="comment">// at least the last candidate ought to be tested</span>
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;tested_candidates: {}&quot;</span>, <span class="ident">tested_candidates</span>);
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;untested_candidates: {}&quot;</span>, <span class="ident">candidates</span>.<span class="ident">len</span>() <span class="op">-</span> <span class="ident">tested_candidates</span>);
+
+        <span class="comment">// For each outcome of test, process the candidates that still</span>
+        <span class="comment">// apply. Collect a list of blocks where control flow will</span>
+        <span class="comment">// branch if one of the `target_candidate` sets is not</span>
+        <span class="comment">// exhaustive.</span>
+        <span class="kw">let</span> <span class="ident">otherwise</span>: <span class="ident">Vec</span><span class="op">&lt;</span>_<span class="op">&gt;</span> <span class="op">=</span>
+            <span class="ident">target_blocks</span>.<span class="ident">into_iter</span>()
+                         .<span class="ident">zip</span>(<span class="ident">target_candidates</span>)
+                         .<span class="ident">flat_map</span>(<span class="op">|</span>(<span class="ident">target_block</span>, <span class="ident">target_candidates</span>)<span class="op">|</span> {
+                             <span class="self">self</span>.<span class="ident">match_candidates</span>(<span class="ident">span</span>,
+                                                   <span class="ident">arm_blocks</span>,
+                                                   <span class="ident">target_candidates</span>,
+                                                   <span class="ident">target_block</span>)
+                         })
+                         .<span class="ident">collect</span>();
+
+        (<span class="ident">otherwise</span>, <span class="ident">tested_candidates</span>)
+    }
+
+    <span class="doccomment">/// Initializes each of the bindings from the candidate by</span>
+    <span class="doccomment">/// moving/copying/ref&#39;ing the source as appropriate. Tests the</span>
+    <span class="doccomment">/// guard, if any, and then branches to the arm. Returns the block</span>
+    <span class="doccomment">/// for the case where the guard fails.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Note: we check earlier that if there is a guard, there cannot</span>
+    <span class="doccomment">/// be move bindings.  This isn&#39;t really important for the</span>
+    <span class="doccomment">/// self-consistency of this fn, but the reason for it should be</span>
+    <span class="doccomment">/// clear: after we&#39;ve done the assignments, if there were move</span>
+    <span class="doccomment">/// bindings, further tests would be a use-after-move (which would</span>
+    <span class="doccomment">/// in turn be detected by the borrowck code that runs on the</span>
+    <span class="doccomment">/// MIR).</span>
+    <span class="kw">fn</span> <span class="ident">bind_and_guard_matched_candidate</span><span class="op">&lt;</span><span class="lifetime">&#39;pat</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                                              <span class="kw-2">mut</span> <span class="ident">block</span>: <span class="ident">BasicBlock</span>,
+                                              <span class="ident">arm_blocks</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">ArmBlocks</span>,
+                                              <span class="ident">candidate</span>: <span class="ident">Candidate</span><span class="op">&lt;</span><span class="lifetime">&#39;pat</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+                                              <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">BasicBlock</span><span class="op">&gt;</span> {
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;bind_and_guard_matched_candidate(block={:?}, candidate={:?})&quot;</span>,
+               <span class="ident">block</span>, <span class="ident">candidate</span>);
+
+        <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="ident">candidate</span>.<span class="ident">match_pairs</span>.<span class="ident">is_empty</span>());
+
+        <span class="self">self</span>.<span class="ident">bind_matched_candidate</span>(<span class="ident">block</span>, <span class="ident">candidate</span>.<span class="ident">bindings</span>);
+
+        <span class="kw">let</span> <span class="ident">arm_block</span> <span class="op">=</span> <span class="ident">arm_blocks</span>.<span class="ident">blocks</span>[<span class="ident">candidate</span>.<span class="ident">arm_index</span>];
+
+        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">guard</span>) <span class="op">=</span> <span class="ident">candidate</span>.<span class="ident">guard</span> {
+            <span class="comment">// the block to branch to if the guard fails; if there is no</span>
+            <span class="comment">// guard, this block is simply unreachable</span>
+            <span class="kw">let</span> <span class="ident">guard</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">hir</span>.<span class="ident">mirror</span>(<span class="ident">guard</span>);
+            <span class="kw">let</span> <span class="ident">source_info</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">source_info</span>(<span class="ident">guard</span>.<span class="ident">span</span>);
+            <span class="kw">let</span> <span class="ident">cond</span> <span class="op">=</span> <span class="macro">unpack</span><span class="macro">!</span>(<span class="ident">block</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">as_local_operand</span>(<span class="ident">block</span>, <span class="ident">guard</span>));
+            <span class="kw">let</span> <span class="ident">otherwise</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">cfg</span>.<span class="ident">start_new_block</span>();
+            <span class="self">self</span>.<span class="ident">cfg</span>.<span class="ident">terminate</span>(<span class="ident">block</span>, <span class="ident">source_info</span>,
+                               <span class="ident">TerminatorKind</span>::<span class="ident">if_</span>(<span class="self">self</span>.<span class="ident">hir</span>.<span class="ident">tcx</span>(), <span class="ident">cond</span>, <span class="ident">arm_block</span>, <span class="ident">otherwise</span>));
+            <span class="prelude-val">Some</span>(<span class="ident">otherwise</span>)
+        } <span class="kw">else</span> {
+            <span class="kw">let</span> <span class="ident">source_info</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">source_info</span>(<span class="ident">candidate</span>.<span class="ident">span</span>);
+            <span class="self">self</span>.<span class="ident">cfg</span>.<span class="ident">terminate</span>(<span class="ident">block</span>, <span class="ident">source_info</span>,
+                               <span class="ident">TerminatorKind</span>::<span class="ident">Goto</span> { <span class="ident">target</span>: <span class="ident">arm_block</span> });
+            <span class="prelude-val">None</span>
+        }
+    }
+
+    <span class="kw">fn</span> <span class="ident">bind_matched_candidate</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                              <span class="ident">block</span>: <span class="ident">BasicBlock</span>,
+                              <span class="ident">bindings</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Binding</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>) {
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;bind_matched_candidate(block={:?}, bindings={:?})&quot;</span>,
+               <span class="ident">block</span>, <span class="ident">bindings</span>);
+
+        <span class="comment">// Assign each of the bindings. This may trigger moves out of the candidate.</span>
+        <span class="kw">for</span> <span class="ident">binding</span> <span class="kw">in</span> <span class="ident">bindings</span> {
+            <span class="kw">let</span> <span class="ident">source_info</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">source_info</span>(<span class="ident">binding</span>.<span class="ident">span</span>);
+            <span class="kw">let</span> <span class="ident">local</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">storage_live_binding</span>(<span class="ident">block</span>, <span class="ident">binding</span>.<span class="ident">var_id</span>, <span class="ident">binding</span>.<span class="ident">span</span>);
+            <span class="self">self</span>.<span class="ident">schedule_drop_for_binding</span>(<span class="ident">binding</span>.<span class="ident">var_id</span>, <span class="ident">binding</span>.<span class="ident">span</span>);
+            <span class="kw">let</span> <span class="ident">rvalue</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">binding</span>.<span class="ident">binding_mode</span> {
+                <span class="ident">BindingMode</span>::<span class="ident">ByValue</span> <span class="op">=&gt;</span>
+                    <span class="ident">Rvalue</span>::<span class="ident">Use</span>(<span class="ident">Operand</span>::<span class="ident">Consume</span>(<span class="ident">binding</span>.<span class="ident">source</span>)),
+                <span class="ident">BindingMode</span>::<span class="ident">ByRef</span>(<span class="ident">region</span>, <span class="ident">borrow_kind</span>) <span class="op">=&gt;</span>
+                    <span class="ident">Rvalue</span>::<span class="ident">Ref</span>(<span class="ident">region</span>, <span class="ident">borrow_kind</span>, <span class="ident">binding</span>.<span class="ident">source</span>),
+            };
+            <span class="self">self</span>.<span class="ident">cfg</span>.<span class="ident">push_assign</span>(<span class="ident">block</span>, <span class="ident">source_info</span>, <span class="kw-2">&amp;</span><span class="ident">local</span>, <span class="ident">rvalue</span>);
+        }
+    }
+
+    <span class="kw">fn</span> <span class="ident">declare_binding</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                       <span class="ident">source_info</span>: <span class="ident">SourceInfo</span>,
+                       <span class="ident">mutability</span>: <span class="ident">Mutability</span>,
+                       <span class="ident">name</span>: <span class="ident">Name</span>,
+                       <span class="ident">var_id</span>: <span class="ident">NodeId</span>,
+                       <span class="ident">var_ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+                       <span class="op">-&gt;</span> <span class="ident">Local</span>
+    {
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;declare_binding(var_id={:?}, name={:?}, var_ty={:?}, source_info={:?})&quot;</span>,
+               <span class="ident">var_id</span>, <span class="ident">name</span>, <span class="ident">var_ty</span>, <span class="ident">source_info</span>);
+
+        <span class="kw">let</span> <span class="ident">var</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">local_decls</span>.<span class="ident">push</span>(<span class="ident">LocalDecl</span>::<span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+            <span class="ident">mutability</span>: <span class="ident">mutability</span>,
+            <span class="ident">ty</span>: <span class="ident">var_ty</span>.<span class="ident">clone</span>(),
+            <span class="ident">name</span>: <span class="prelude-val">Some</span>(<span class="ident">name</span>),
+            <span class="ident">source_info</span>: <span class="prelude-val">Some</span>(<span class="ident">source_info</span>),
         });
-        <span class='kw'>let</span> <span class='ident'>extent</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>hir</span>.<span class='ident'>tcx</span>().<span class='ident'>region_maps</span>.<span class='ident'>var_scope</span>(<span class='ident'>var_id</span>);
-        <span class='self'>self</span>.<span class='ident'>schedule_drop</span>(<span class='ident'>source_info</span>.<span class='ident'>span</span>, <span class='ident'>extent</span>, <span class='kw-2'>&amp;</span><span class='ident'>Lvalue</span>::<span class='ident'>Local</span>(<span class='ident'>var</span>), <span class='ident'>var_ty</span>);
-        <span class='self'>self</span>.<span class='ident'>var_indices</span>.<span class='ident'>insert</span>(<span class='ident'>var_id</span>, <span class='ident'>var</span>);
+        <span class="self">self</span>.<span class="ident">var_indices</span>.<span class="ident">insert</span>(<span class="ident">var_id</span>, <span class="ident">var</span>);
 
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;declare_binding: var={:?}&quot;</span>, <span class='ident'>var</span>);
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;declare_binding: var={:?}&quot;</span>, <span class="ident">var</span>);
 
-        <span class='ident'>var</span>
+        <span class="ident">var</span>
     }
 }
 </pre>

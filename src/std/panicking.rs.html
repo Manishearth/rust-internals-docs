@@ -622,585 +622,593 @@
 <span id="577">577</span>
 <span id="578">578</span>
 <span id="579">579</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+<span id="580">580</span>
+<span id="581">581</span>
+<span id="582">582</span>
+<span id="583">583</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='doccomment'>//! Implementation of various bits and pieces of the `panic!` macro and</span>
-<span class='doccomment'>//! associated runtime pieces.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! Specifically, this module contains the implementation of:</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! * Panic hooks</span>
-<span class='doccomment'>//! * Executing a panic up to doing the actual implementation</span>
-<span class='doccomment'>//! * Shims around &quot;try&quot;</span>
+<span class="doccomment">//! Implementation of various bits and pieces of the `panic!` macro and</span>
+<span class="doccomment">//! associated runtime pieces.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Specifically, this module contains the implementation of:</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! * Panic hooks</span>
+<span class="doccomment">//! * Executing a panic up to doing the actual implementation</span>
+<span class="doccomment">//! * Shims around &quot;try&quot;</span>
 
-<span class='kw'>use</span> <span class='ident'>io</span>::<span class='ident'>prelude</span>::<span class='kw-2'>*</span>;
+<span class="kw">use</span> <span class="ident">io</span>::<span class="ident">prelude</span>::<span class="kw-2">*</span>;
 
-<span class='kw'>use</span> <span class='ident'>any</span>::<span class='ident'>Any</span>;
-<span class='kw'>use</span> <span class='ident'>cell</span>::<span class='ident'>RefCell</span>;
-<span class='kw'>use</span> <span class='ident'>fmt</span>;
-<span class='kw'>use</span> <span class='ident'>intrinsics</span>;
-<span class='kw'>use</span> <span class='ident'>mem</span>;
-<span class='kw'>use</span> <span class='ident'>ptr</span>;
-<span class='kw'>use</span> <span class='ident'>raw</span>;
-<span class='kw'>use</span> <span class='ident'>sys</span>::<span class='ident'>stdio</span>::<span class='ident'>Stderr</span>;
-<span class='kw'>use</span> <span class='ident'>sys_common</span>::<span class='ident'>rwlock</span>::<span class='ident'>RWLock</span>;
-<span class='kw'>use</span> <span class='ident'>sys_common</span>::<span class='ident'>thread_info</span>;
-<span class='kw'>use</span> <span class='ident'>sys_common</span>::<span class='ident'>util</span>;
-<span class='kw'>use</span> <span class='ident'>thread</span>;
+<span class="kw">use</span> <span class="ident">any</span>::<span class="ident">Any</span>;
+<span class="kw">use</span> <span class="ident">cell</span>::<span class="ident">RefCell</span>;
+<span class="kw">use</span> <span class="ident">fmt</span>;
+<span class="kw">use</span> <span class="ident">intrinsics</span>;
+<span class="kw">use</span> <span class="ident">mem</span>;
+<span class="kw">use</span> <span class="ident">ptr</span>;
+<span class="kw">use</span> <span class="ident">raw</span>;
+<span class="kw">use</span> <span class="ident">sys</span>::<span class="ident">stdio</span>::<span class="ident">Stderr</span>;
+<span class="kw">use</span> <span class="ident">sys_common</span>::<span class="ident">rwlock</span>::<span class="ident">RWLock</span>;
+<span class="kw">use</span> <span class="ident">sys_common</span>::<span class="ident">thread_info</span>;
+<span class="kw">use</span> <span class="ident">sys_common</span>::<span class="ident">util</span>;
+<span class="kw">use</span> <span class="ident">thread</span>;
 
-<span class='macro'>thread_local</span><span class='macro'>!</span> {
-    <span class='kw'>pub</span> <span class='kw'>static</span> <span class='ident'>LOCAL_STDERR</span>: <span class='ident'>RefCell</span><span class='op'>&lt;</span><span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>Write</span> <span class='op'>+</span> <span class='ident'>Send</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span> <span class='op'>=</span> {
-        <span class='ident'>RefCell</span>::<span class='ident'>new</span>(<span class='prelude-val'>None</span>)
+<span class="macro">thread_local</span><span class="macro">!</span> {
+    <span class="kw">pub</span> <span class="kw">static</span> <span class="ident">LOCAL_STDERR</span>: <span class="ident">RefCell</span><span class="op">&lt;</span><span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Box</span><span class="op">&lt;</span><span class="ident">Write</span> <span class="op">+</span> <span class="ident">Send</span><span class="op">&gt;&gt;</span><span class="op">&gt;</span> <span class="op">=</span> {
+        <span class="ident">RefCell</span>::<span class="ident">new</span>(<span class="prelude-val">None</span>)
     }
 }
 
-<span class='comment'>// Binary interface to the panic runtime that the standard library depends on.</span>
-<span class='comment'>//</span>
-<span class='comment'>// The standard library is tagged with `#![needs_panic_runtime]` (introduced in</span>
-<span class='comment'>// RFC 1513) to indicate that it requires some other crate tagged with</span>
-<span class='comment'>// `#![panic_runtime]` to exist somewhere. Each panic runtime is intended to</span>
-<span class='comment'>// implement these symbols (with the same signatures) so we can get matched up</span>
-<span class='comment'>// to them.</span>
-<span class='comment'>//</span>
-<span class='comment'>// One day this may look a little less ad-hoc with the compiler helping out to</span>
-<span class='comment'>// hook up these functions, but it is not this day!</span>
-<span class='attribute'>#[<span class='ident'>allow</span>(<span class='ident'>improper_ctypes</span>)]</span>
-<span class='kw'>extern</span> {
-    <span class='kw'>fn</span> <span class='ident'>__rust_maybe_catch_panic</span>(<span class='ident'>f</span>: <span class='kw'>fn</span>(<span class='kw-2'>*</span><span class='kw-2'>mut</span> <span class='ident'>u8</span>),
-                                <span class='ident'>data</span>: <span class='kw-2'>*</span><span class='kw-2'>mut</span> <span class='ident'>u8</span>,
-                                <span class='ident'>data_ptr</span>: <span class='kw-2'>*</span><span class='kw-2'>mut</span> <span class='ident'>usize</span>,
-                                <span class='ident'>vtable_ptr</span>: <span class='kw-2'>*</span><span class='kw-2'>mut</span> <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='ident'>u32</span>;
-    <span class='attribute'>#[<span class='ident'>unwind</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>__rust_start_panic</span>(<span class='ident'>data</span>: <span class='ident'>usize</span>, <span class='ident'>vtable</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='ident'>u32</span>;
+<span class="comment">// Binary interface to the panic runtime that the standard library depends on.</span>
+<span class="comment">//</span>
+<span class="comment">// The standard library is tagged with `#![needs_panic_runtime]` (introduced in</span>
+<span class="comment">// RFC 1513) to indicate that it requires some other crate tagged with</span>
+<span class="comment">// `#![panic_runtime]` to exist somewhere. Each panic runtime is intended to</span>
+<span class="comment">// implement these symbols (with the same signatures) so we can get matched up</span>
+<span class="comment">// to them.</span>
+<span class="comment">//</span>
+<span class="comment">// One day this may look a little less ad-hoc with the compiler helping out to</span>
+<span class="comment">// hook up these functions, but it is not this day!</span>
+<span class="attribute">#[<span class="ident">allow</span>(<span class="ident">improper_ctypes</span>)]</span>
+<span class="kw">extern</span> {
+    <span class="kw">fn</span> <span class="ident">__rust_maybe_catch_panic</span>(<span class="ident">f</span>: <span class="kw">fn</span>(<span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">u8</span>),
+                                <span class="ident">data</span>: <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">u8</span>,
+                                <span class="ident">data_ptr</span>: <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">usize</span>,
+                                <span class="ident">vtable_ptr</span>: <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">u32</span>;
+    <span class="attribute">#[<span class="ident">unwind</span>]</span>
+    <span class="kw">fn</span> <span class="ident">__rust_start_panic</span>(<span class="ident">data</span>: <span class="ident">usize</span>, <span class="ident">vtable</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">u32</span>;
 }
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Copy</span>, <span class='ident'>Clone</span>)]</span>
-<span class='kw'>enum</span> <span class='ident'>Hook</span> {
-    <span class='ident'>Default</span>,
-    <span class='ident'>Custom</span>(<span class='kw-2'>*</span><span class='kw-2'>mut</span> (<span class='ident'>Fn</span>(<span class='kw-2'>&amp;</span><span class='ident'>PanicInfo</span>) <span class='op'>+</span> <span class='lifetime'>&#39;static</span> <span class='op'>+</span> <span class='ident'>Sync</span> <span class='op'>+</span> <span class='ident'>Send</span>)),
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Copy</span>, <span class="ident">Clone</span>)]</span>
+<span class="kw">enum</span> <span class="ident">Hook</span> {
+    <span class="ident">Default</span>,
+    <span class="ident">Custom</span>(<span class="kw-2">*</span><span class="kw-2">mut</span> (<span class="ident">Fn</span>(<span class="kw-2">&amp;</span><span class="ident">PanicInfo</span>) <span class="op">+</span> <span class="lifetime">&#39;static</span> <span class="op">+</span> <span class="ident">Sync</span> <span class="op">+</span> <span class="ident">Send</span>)),
 }
 
-<span class='kw'>static</span> <span class='ident'>HOOK_LOCK</span>: <span class='ident'>RWLock</span> <span class='op'>=</span> <span class='ident'>RWLock</span>::<span class='ident'>new</span>();
-<span class='kw'>static</span> <span class='kw-2'>mut</span> <span class='ident'>HOOK</span>: <span class='ident'>Hook</span> <span class='op'>=</span> <span class='ident'>Hook</span>::<span class='ident'>Default</span>;
+<span class="kw">static</span> <span class="ident">HOOK_LOCK</span>: <span class="ident">RWLock</span> <span class="op">=</span> <span class="ident">RWLock</span>::<span class="ident">new</span>();
+<span class="kw">static</span> <span class="kw-2">mut</span> <span class="ident">HOOK</span>: <span class="ident">Hook</span> <span class="op">=</span> <span class="ident">Hook</span>::<span class="ident">Default</span>;
 
-<span class='doccomment'>/// Registers a custom panic hook, replacing any that was previously registered.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// The panic hook is invoked when a thread panics, but before the panic runtime</span>
-<span class='doccomment'>/// is invoked. As such, the hook will run with both the aborting and unwinding</span>
-<span class='doccomment'>/// runtimes. The default hook prints a message to standard error and generates</span>
-<span class='doccomment'>/// a backtrace if requested, but this behavior can be customized with the</span>
-<span class='doccomment'>/// `set_hook` and `take_hook` functions.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// The hook is provided with a `PanicInfo` struct which contains information</span>
-<span class='doccomment'>/// about the origin of the panic, including the payload passed to `panic!` and</span>
-<span class='doccomment'>/// the source code location from which the panic originated.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// The panic hook is a global resource.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Panics</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Panics if called from a panicking thread.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Examples</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// The following will print &quot;Custom panic hook&quot;:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```should_panic</span>
-<span class='doccomment'>/// use std::panic;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// panic::set_hook(Box::new(|_| {</span>
-<span class='doccomment'>///     println!(&quot;Custom panic hook&quot;);</span>
-<span class='doccomment'>/// }));</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// panic!(&quot;Normal panic&quot;);</span>
-<span class='doccomment'>/// ```</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;panic_hooks&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.10.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>set_hook</span>(<span class='ident'>hook</span>: <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>Fn</span>(<span class='kw-2'>&amp;</span><span class='ident'>PanicInfo</span>) <span class='op'>+</span> <span class='lifetime'>&#39;static</span> <span class='op'>+</span> <span class='ident'>Sync</span> <span class='op'>+</span> <span class='ident'>Send</span><span class='op'>&gt;</span>) {
-    <span class='kw'>if</span> <span class='ident'>thread</span>::<span class='ident'>panicking</span>() {
-        <span class='macro'>panic</span><span class='macro'>!</span>(<span class='string'>&quot;cannot modify the panic hook from a panicking thread&quot;</span>);
+<span class="doccomment">/// Registers a custom panic hook, replacing any that was previously registered.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// The panic hook is invoked when a thread panics, but before the panic runtime</span>
+<span class="doccomment">/// is invoked. As such, the hook will run with both the aborting and unwinding</span>
+<span class="doccomment">/// runtimes. The default hook prints a message to standard error and generates</span>
+<span class="doccomment">/// a backtrace if requested, but this behavior can be customized with the</span>
+<span class="doccomment">/// `set_hook` and `take_hook` functions.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// The hook is provided with a `PanicInfo` struct which contains information</span>
+<span class="doccomment">/// about the origin of the panic, including the payload passed to `panic!` and</span>
+<span class="doccomment">/// the source code location from which the panic originated.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// The panic hook is a global resource.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Panics</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Panics if called from a panicking thread.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// The following will print &quot;Custom panic hook&quot;:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```should_panic</span>
+<span class="doccomment">/// use std::panic;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// panic::set_hook(Box::new(|_| {</span>
+<span class="doccomment">///     println!(&quot;Custom panic hook&quot;);</span>
+<span class="doccomment">/// }));</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// panic!(&quot;Normal panic&quot;);</span>
+<span class="doccomment">/// ```</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;panic_hooks&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.10.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">set_hook</span>(<span class="ident">hook</span>: <span class="ident">Box</span><span class="op">&lt;</span><span class="ident">Fn</span>(<span class="kw-2">&amp;</span><span class="ident">PanicInfo</span>) <span class="op">+</span> <span class="lifetime">&#39;static</span> <span class="op">+</span> <span class="ident">Sync</span> <span class="op">+</span> <span class="ident">Send</span><span class="op">&gt;</span>) {
+    <span class="kw">if</span> <span class="ident">thread</span>::<span class="ident">panicking</span>() {
+        <span class="macro">panic</span><span class="macro">!</span>(<span class="string">&quot;cannot modify the panic hook from a panicking thread&quot;</span>);
     }
 
-    <span class='kw'>unsafe</span> {
-        <span class='ident'>HOOK_LOCK</span>.<span class='ident'>write</span>();
-        <span class='kw'>let</span> <span class='ident'>old_hook</span> <span class='op'>=</span> <span class='ident'>HOOK</span>;
-        <span class='ident'>HOOK</span> <span class='op'>=</span> <span class='ident'>Hook</span>::<span class='ident'>Custom</span>(<span class='ident'>Box</span>::<span class='ident'>into_raw</span>(<span class='ident'>hook</span>));
-        <span class='ident'>HOOK_LOCK</span>.<span class='ident'>write_unlock</span>();
+    <span class="kw">unsafe</span> {
+        <span class="ident">HOOK_LOCK</span>.<span class="ident">write</span>();
+        <span class="kw">let</span> <span class="ident">old_hook</span> <span class="op">=</span> <span class="ident">HOOK</span>;
+        <span class="ident">HOOK</span> <span class="op">=</span> <span class="ident">Hook</span>::<span class="ident">Custom</span>(<span class="ident">Box</span>::<span class="ident">into_raw</span>(<span class="ident">hook</span>));
+        <span class="ident">HOOK_LOCK</span>.<span class="ident">write_unlock</span>();
 
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>Hook</span>::<span class='ident'>Custom</span>(<span class='ident'>ptr</span>) <span class='op'>=</span> <span class='ident'>old_hook</span> {
-            <span class='ident'>Box</span>::<span class='ident'>from_raw</span>(<span class='ident'>ptr</span>);
+        <span class="kw">if</span> <span class="kw">let</span> <span class="ident">Hook</span>::<span class="ident">Custom</span>(<span class="ident">ptr</span>) <span class="op">=</span> <span class="ident">old_hook</span> {
+            <span class="ident">Box</span>::<span class="ident">from_raw</span>(<span class="ident">ptr</span>);
         }
     }
 }
 
-<span class='doccomment'>/// Unregisters the current panic hook, returning it.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// If no custom hook is registered, the default hook will be returned.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Panics</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Panics if called from a panicking thread.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Examples</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// The following will print &quot;Normal panic&quot;:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```should_panic</span>
-<span class='doccomment'>/// use std::panic;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// panic::set_hook(Box::new(|_| {</span>
-<span class='doccomment'>///     println!(&quot;Custom panic hook&quot;);</span>
-<span class='doccomment'>/// }));</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// let _ = panic::take_hook();</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// panic!(&quot;Normal panic&quot;);</span>
-<span class='doccomment'>/// ```</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;panic_hooks&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.10.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>take_hook</span>() <span class='op'>-&gt;</span> <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>Fn</span>(<span class='kw-2'>&amp;</span><span class='ident'>PanicInfo</span>) <span class='op'>+</span> <span class='lifetime'>&#39;static</span> <span class='op'>+</span> <span class='ident'>Sync</span> <span class='op'>+</span> <span class='ident'>Send</span><span class='op'>&gt;</span> {
-    <span class='kw'>if</span> <span class='ident'>thread</span>::<span class='ident'>panicking</span>() {
-        <span class='macro'>panic</span><span class='macro'>!</span>(<span class='string'>&quot;cannot modify the panic hook from a panicking thread&quot;</span>);
+<span class="doccomment">/// Unregisters the current panic hook, returning it.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// If no custom hook is registered, the default hook will be returned.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Panics</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Panics if called from a panicking thread.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// The following will print &quot;Normal panic&quot;:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```should_panic</span>
+<span class="doccomment">/// use std::panic;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// panic::set_hook(Box::new(|_| {</span>
+<span class="doccomment">///     println!(&quot;Custom panic hook&quot;);</span>
+<span class="doccomment">/// }));</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// let _ = panic::take_hook();</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// panic!(&quot;Normal panic&quot;);</span>
+<span class="doccomment">/// ```</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;panic_hooks&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.10.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">take_hook</span>() <span class="op">-&gt;</span> <span class="ident">Box</span><span class="op">&lt;</span><span class="ident">Fn</span>(<span class="kw-2">&amp;</span><span class="ident">PanicInfo</span>) <span class="op">+</span> <span class="lifetime">&#39;static</span> <span class="op">+</span> <span class="ident">Sync</span> <span class="op">+</span> <span class="ident">Send</span><span class="op">&gt;</span> {
+    <span class="kw">if</span> <span class="ident">thread</span>::<span class="ident">panicking</span>() {
+        <span class="macro">panic</span><span class="macro">!</span>(<span class="string">&quot;cannot modify the panic hook from a panicking thread&quot;</span>);
     }
 
-    <span class='kw'>unsafe</span> {
-        <span class='ident'>HOOK_LOCK</span>.<span class='ident'>write</span>();
-        <span class='kw'>let</span> <span class='ident'>hook</span> <span class='op'>=</span> <span class='ident'>HOOK</span>;
-        <span class='ident'>HOOK</span> <span class='op'>=</span> <span class='ident'>Hook</span>::<span class='ident'>Default</span>;
-        <span class='ident'>HOOK_LOCK</span>.<span class='ident'>write_unlock</span>();
+    <span class="kw">unsafe</span> {
+        <span class="ident">HOOK_LOCK</span>.<span class="ident">write</span>();
+        <span class="kw">let</span> <span class="ident">hook</span> <span class="op">=</span> <span class="ident">HOOK</span>;
+        <span class="ident">HOOK</span> <span class="op">=</span> <span class="ident">Hook</span>::<span class="ident">Default</span>;
+        <span class="ident">HOOK_LOCK</span>.<span class="ident">write_unlock</span>();
 
-        <span class='kw'>match</span> <span class='ident'>hook</span> {
-            <span class='ident'>Hook</span>::<span class='ident'>Default</span> <span class='op'>=&gt;</span> <span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='ident'>default_hook</span>),
-            <span class='ident'>Hook</span>::<span class='ident'>Custom</span>(<span class='ident'>ptr</span>) <span class='op'>=&gt;</span> <span class='ident'>Box</span>::<span class='ident'>from_raw</span>(<span class='ident'>ptr</span>),
+        <span class="kw">match</span> <span class="ident">hook</span> {
+            <span class="ident">Hook</span>::<span class="ident">Default</span> <span class="op">=&gt;</span> <span class="ident">Box</span>::<span class="ident">new</span>(<span class="ident">default_hook</span>),
+            <span class="ident">Hook</span>::<span class="ident">Custom</span>(<span class="ident">ptr</span>) <span class="op">=&gt;</span> <span class="ident">Box</span>::<span class="ident">from_raw</span>(<span class="ident">ptr</span>),
         }
     }
 }
 
-<span class='doccomment'>/// A struct providing information about a panic.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// `PanicInfo` structure is passed to a panic hook set by the [`set_hook()`]</span>
-<span class='doccomment'>/// function.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// [`set_hook()`]: ../../std/panic/fn.set_hook.html</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Examples</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```should_panic</span>
-<span class='doccomment'>/// use std::panic;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// panic::set_hook(Box::new(|panic_info| {</span>
-<span class='doccomment'>///     println!(&quot;panic occured: {:?}&quot;, panic_info.payload().downcast_ref::&lt;&amp;str&gt;().unwrap());</span>
-<span class='doccomment'>/// }));</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// panic!(&quot;Normal panic&quot;);</span>
-<span class='doccomment'>/// ```</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;panic_hooks&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.10.0&quot;</span>)]</span>
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Debug</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>PanicInfo</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-    <span class='ident'>payload</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> (<span class='ident'>Any</span> <span class='op'>+</span> <span class='ident'>Send</span>),
-    <span class='ident'>location</span>: <span class='ident'>Location</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>,
+<span class="doccomment">/// A struct providing information about a panic.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// `PanicInfo` structure is passed to a panic hook set by the [`set_hook`]</span>
+<span class="doccomment">/// function.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [`set_hook`]: ../../std/panic/fn.set_hook.html</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```should_panic</span>
+<span class="doccomment">/// use std::panic;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// panic::set_hook(Box::new(|panic_info| {</span>
+<span class="doccomment">///     println!(&quot;panic occured: {:?}&quot;, panic_info.payload().downcast_ref::&lt;&amp;str&gt;().unwrap());</span>
+<span class="doccomment">/// }));</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// panic!(&quot;Normal panic&quot;);</span>
+<span class="doccomment">/// ```</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;panic_hooks&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.10.0&quot;</span>)]</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">PanicInfo</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span> {
+    <span class="ident">payload</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> (<span class="ident">Any</span> <span class="op">+</span> <span class="ident">Send</span>),
+    <span class="ident">location</span>: <span class="ident">Location</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>,
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> <span class='ident'>PanicInfo</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-    <span class='doccomment'>/// Returns the payload associated with the panic.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// This will commonly, but not always, be a `&amp;&#39;static str` or [`String`].</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// [`String`]: ../../std/string/struct.String.html</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// # Examples</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// ```should_panic</span>
-    <span class='doccomment'>/// use std::panic;</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// panic::set_hook(Box::new(|panic_info| {</span>
-    <span class='doccomment'>///     println!(&quot;panic occured: {:?}&quot;, panic_info.payload().downcast_ref::&lt;&amp;str&gt;().unwrap());</span>
-    <span class='doccomment'>/// }));</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// panic!(&quot;Normal panic&quot;);</span>
-    <span class='doccomment'>/// ```</span>
-    <span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;panic_hooks&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.10.0&quot;</span>)]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>payload</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span>(<span class='ident'>Any</span> <span class='op'>+</span> <span class='ident'>Send</span>) {
-        <span class='self'>self</span>.<span class='ident'>payload</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span> <span class="ident">PanicInfo</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// Returns the payload associated with the panic.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This will commonly, but not always, be a `&amp;&#39;static str` or [`String`].</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// [`String`]: ../../std/string/struct.String.html</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// # Examples</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// ```should_panic</span>
+    <span class="doccomment">/// use std::panic;</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// panic::set_hook(Box::new(|panic_info| {</span>
+    <span class="doccomment">///     println!(&quot;panic occured: {:?}&quot;, panic_info.payload().downcast_ref::&lt;&amp;str&gt;().unwrap());</span>
+    <span class="doccomment">/// }));</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// panic!(&quot;Normal panic&quot;);</span>
+    <span class="doccomment">/// ```</span>
+    <span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;panic_hooks&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.10.0&quot;</span>)]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">payload</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span>(<span class="ident">Any</span> <span class="op">+</span> <span class="ident">Send</span>) {
+        <span class="self">self</span>.<span class="ident">payload</span>
     }
 
-    <span class='doccomment'>/// Returns information about the location from which the panic originated,</span>
-    <span class='doccomment'>/// if available.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// This method will currently always return [`Some`], but this may change</span>
-    <span class='doccomment'>/// in future versions.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// [`Some`]: ../../std/option/enum.Option.html#variant.Some</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// # Examples</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// ```should_panic</span>
-    <span class='doccomment'>/// use std::panic;</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// panic::set_hook(Box::new(|panic_info| {</span>
-    <span class='doccomment'>///     if let Some(location) = panic_info.location() {</span>
-    <span class='doccomment'>///         println!(&quot;panic occured in file &#39;{}&#39; at line {}&quot;, location.file(), location.line());</span>
-    <span class='doccomment'>///     } else {</span>
-    <span class='doccomment'>///         println!(&quot;panic occured but can&#39;t get location information...&quot;);</span>
-    <span class='doccomment'>///     }</span>
-    <span class='doccomment'>/// }));</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// panic!(&quot;Normal panic&quot;);</span>
-    <span class='doccomment'>/// ```</span>
-    <span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;panic_hooks&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.10.0&quot;</span>)]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>location</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='ident'>Location</span><span class='op'>&gt;</span> {
-        <span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>location</span>)
-    }
-}
-
-<span class='doccomment'>/// A struct containing information about the location of a panic.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This structure is created by the [`location()`] method of [`PanicInfo`].</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// [`location()`]: ../../std/panic/struct.PanicInfo.html#method.location</span>
-<span class='doccomment'>/// [`PanicInfo`]: ../../std/panic/struct.PanicInfo.html</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Examples</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```should_panic</span>
-<span class='doccomment'>/// use std::panic;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// panic::set_hook(Box::new(|panic_info| {</span>
-<span class='doccomment'>///     if let Some(location) = panic_info.location() {</span>
-<span class='doccomment'>///         println!(&quot;panic occured in file &#39;{}&#39; at line {}&quot;, location.file(), location.line());</span>
-<span class='doccomment'>///     } else {</span>
-<span class='doccomment'>///         println!(&quot;panic occured but can&#39;t get location information...&quot;);</span>
-<span class='doccomment'>///     }</span>
-<span class='doccomment'>/// }));</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// panic!(&quot;Normal panic&quot;);</span>
-<span class='doccomment'>/// ```</span>
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Debug</span>)]</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;panic_hooks&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.10.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>Location</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-    <span class='ident'>file</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>str</span>,
-    <span class='ident'>line</span>: <span class='ident'>u32</span>,
-}
-
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> <span class='ident'>Location</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-    <span class='doccomment'>/// Returns the name of the source file from which the panic originated.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// # Examples</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// ```should_panic</span>
-    <span class='doccomment'>/// use std::panic;</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// panic::set_hook(Box::new(|panic_info| {</span>
-    <span class='doccomment'>///     if let Some(location) = panic_info.location() {</span>
-    <span class='doccomment'>///         println!(&quot;panic occured in file &#39;{}&#39;&quot;, location.file());</span>
-    <span class='doccomment'>///     } else {</span>
-    <span class='doccomment'>///         println!(&quot;panic occured but can&#39;t get location information...&quot;);</span>
-    <span class='doccomment'>///     }</span>
-    <span class='doccomment'>/// }));</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// panic!(&quot;Normal panic&quot;);</span>
-    <span class='doccomment'>/// ```</span>
-    <span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;panic_hooks&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.10.0&quot;</span>)]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>file</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='ident'>str</span> {
-        <span class='self'>self</span>.<span class='ident'>file</span>
-    }
-
-    <span class='doccomment'>/// Returns the line number from which the panic originated.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// # Examples</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// ```should_panic</span>
-    <span class='doccomment'>/// use std::panic;</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// panic::set_hook(Box::new(|panic_info| {</span>
-    <span class='doccomment'>///     if let Some(location) = panic_info.location() {</span>
-    <span class='doccomment'>///         println!(&quot;panic occured at line {}&quot;, location.line());</span>
-    <span class='doccomment'>///     } else {</span>
-    <span class='doccomment'>///         println!(&quot;panic occured but can&#39;t get location information...&quot;);</span>
-    <span class='doccomment'>///     }</span>
-    <span class='doccomment'>/// }));</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// panic!(&quot;Normal panic&quot;);</span>
-    <span class='doccomment'>/// ```</span>
-    <span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;panic_hooks&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.10.0&quot;</span>)]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>line</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>u32</span> {
-        <span class='self'>self</span>.<span class='ident'>line</span>
+    <span class="doccomment">/// Returns information about the location from which the panic originated,</span>
+    <span class="doccomment">/// if available.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This method will currently always return [`Some`], but this may change</span>
+    <span class="doccomment">/// in future versions.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// [`Some`]: ../../std/option/enum.Option.html#variant.Some</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// # Examples</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// ```should_panic</span>
+    <span class="doccomment">/// use std::panic;</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// panic::set_hook(Box::new(|panic_info| {</span>
+    <span class="doccomment">///     if let Some(location) = panic_info.location() {</span>
+    <span class="doccomment">///         println!(&quot;panic occured in file &#39;{}&#39; at line {}&quot;, location.file(), location.line());</span>
+    <span class="doccomment">///     } else {</span>
+    <span class="doccomment">///         println!(&quot;panic occured but can&#39;t get location information...&quot;);</span>
+    <span class="doccomment">///     }</span>
+    <span class="doccomment">/// }));</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// panic!(&quot;Normal panic&quot;);</span>
+    <span class="doccomment">/// ```</span>
+    <span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;panic_hooks&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.10.0&quot;</span>)]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">location</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="kw-2">&amp;</span><span class="ident">Location</span><span class="op">&gt;</span> {
+        <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">location</span>)
     }
 }
 
-<span class='kw'>fn</span> <span class='ident'>default_hook</span>(<span class='ident'>info</span>: <span class='kw-2'>&amp;</span><span class='ident'>PanicInfo</span>) {
-    <span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;backtrace&quot;</span>)]</span>
-    <span class='kw'>use</span> <span class='ident'>sys_common</span>::<span class='ident'>backtrace</span>;
+<span class="doccomment">/// A struct containing information about the location of a panic.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This structure is created by the [`location`] method of [`PanicInfo`].</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [`location`]: ../../std/panic/struct.PanicInfo.html#method.location</span>
+<span class="doccomment">/// [`PanicInfo`]: ../../std/panic/struct.PanicInfo.html</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```should_panic</span>
+<span class="doccomment">/// use std::panic;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// panic::set_hook(Box::new(|panic_info| {</span>
+<span class="doccomment">///     if let Some(location) = panic_info.location() {</span>
+<span class="doccomment">///         println!(&quot;panic occured in file &#39;{}&#39; at line {}&quot;, location.file(), location.line());</span>
+<span class="doccomment">///     } else {</span>
+<span class="doccomment">///         println!(&quot;panic occured but can&#39;t get location information...&quot;);</span>
+<span class="doccomment">///     }</span>
+<span class="doccomment">/// }));</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// panic!(&quot;Normal panic&quot;);</span>
+<span class="doccomment">/// ```</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>)]</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;panic_hooks&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.10.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">Location</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span> {
+    <span class="ident">file</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">str</span>,
+    <span class="ident">line</span>: <span class="ident">u32</span>,
+}
 
-    <span class='comment'>// If this is a double panic, make sure that we print a backtrace</span>
-    <span class='comment'>// for this panic. Otherwise only print it if logging is enabled.</span>
-    <span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;backtrace&quot;</span>)]</span>
-    <span class='kw'>let</span> <span class='ident'>log_backtrace</span> <span class='op'>=</span> {
-        <span class='kw'>let</span> <span class='ident'>panics</span> <span class='op'>=</span> <span class='ident'>update_panic_count</span>(<span class='number'>0</span>);
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span> <span class="ident">Location</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// Returns the name of the source file from which the panic originated.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// # Examples</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// ```should_panic</span>
+    <span class="doccomment">/// use std::panic;</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// panic::set_hook(Box::new(|panic_info| {</span>
+    <span class="doccomment">///     if let Some(location) = panic_info.location() {</span>
+    <span class="doccomment">///         println!(&quot;panic occured in file &#39;{}&#39;&quot;, location.file());</span>
+    <span class="doccomment">///     } else {</span>
+    <span class="doccomment">///         println!(&quot;panic occured but can&#39;t get location information...&quot;);</span>
+    <span class="doccomment">///     }</span>
+    <span class="doccomment">/// }));</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// panic!(&quot;Normal panic&quot;);</span>
+    <span class="doccomment">/// ```</span>
+    <span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;panic_hooks&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.10.0&quot;</span>)]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">file</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="ident">str</span> {
+        <span class="self">self</span>.<span class="ident">file</span>
+    }
 
-        <span class='ident'>panics</span> <span class='op'>&gt;=</span> <span class='number'>2</span> <span class='op'>||</span> <span class='ident'>backtrace</span>::<span class='ident'>log_enabled</span>()
-    };
+    <span class="doccomment">/// Returns the line number from which the panic originated.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// # Examples</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// ```should_panic</span>
+    <span class="doccomment">/// use std::panic;</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// panic::set_hook(Box::new(|panic_info| {</span>
+    <span class="doccomment">///     if let Some(location) = panic_info.location() {</span>
+    <span class="doccomment">///         println!(&quot;panic occured at line {}&quot;, location.line());</span>
+    <span class="doccomment">///     } else {</span>
+    <span class="doccomment">///         println!(&quot;panic occured but can&#39;t get location information...&quot;);</span>
+    <span class="doccomment">///     }</span>
+    <span class="doccomment">/// }));</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// panic!(&quot;Normal panic&quot;);</span>
+    <span class="doccomment">/// ```</span>
+    <span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;panic_hooks&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.10.0&quot;</span>)]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">line</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">u32</span> {
+        <span class="self">self</span>.<span class="ident">line</span>
+    }
+}
 
-    <span class='kw'>let</span> <span class='ident'>file</span> <span class='op'>=</span> <span class='ident'>info</span>.<span class='ident'>location</span>.<span class='ident'>file</span>;
-    <span class='kw'>let</span> <span class='ident'>line</span> <span class='op'>=</span> <span class='ident'>info</span>.<span class='ident'>location</span>.<span class='ident'>line</span>;
+<span class="kw">fn</span> <span class="ident">default_hook</span>(<span class="ident">info</span>: <span class="kw-2">&amp;</span><span class="ident">PanicInfo</span>) {
+    <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;backtrace&quot;</span>)]</span>
+    <span class="kw">use</span> <span class="ident">sys_common</span>::<span class="ident">backtrace</span>;
 
-    <span class='kw'>let</span> <span class='ident'>msg</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>info</span>.<span class='ident'>payload</span>.<span class='ident'>downcast_ref</span>::<span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='lifetime'>&#39;static</span> <span class='ident'>str</span><span class='op'>&gt;</span>() {
-        <span class='prelude-val'>Some</span>(<span class='ident'>s</span>) <span class='op'>=&gt;</span> <span class='kw-2'>*</span><span class='ident'>s</span>,
-        <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='kw'>match</span> <span class='ident'>info</span>.<span class='ident'>payload</span>.<span class='ident'>downcast_ref</span>::<span class='op'>&lt;</span><span class='ident'>String</span><span class='op'>&gt;</span>() {
-            <span class='prelude-val'>Some</span>(<span class='ident'>s</span>) <span class='op'>=&gt;</span> <span class='kw-2'>&amp;</span><span class='ident'>s</span>[..],
-            <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='string'>&quot;Box&lt;Any&gt;&quot;</span>,
+    <span class="comment">// If this is a double panic, make sure that we print a backtrace</span>
+    <span class="comment">// for this panic. Otherwise only print it if logging is enabled.</span>
+    <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;backtrace&quot;</span>)]</span>
+    <span class="kw">let</span> <span class="ident">log_backtrace</span> <span class="op">=</span> {
+        <span class="kw">let</span> <span class="ident">panics</span> <span class="op">=</span> <span class="ident">update_panic_count</span>(<span class="number">0</span>);
+
+        <span class="kw">if</span> <span class="ident">panics</span> <span class="op">&gt;=</span> <span class="number">2</span> {
+            <span class="prelude-val">Some</span>(<span class="ident">backtrace</span>::<span class="ident">PrintFormat</span>::<span class="ident">Full</span>)
+        } <span class="kw">else</span> {
+            <span class="ident">backtrace</span>::<span class="ident">log_enabled</span>()
         }
     };
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>err</span> <span class='op'>=</span> <span class='ident'>Stderr</span>::<span class='ident'>new</span>().<span class='ident'>ok</span>();
-    <span class='kw'>let</span> <span class='ident'>thread</span> <span class='op'>=</span> <span class='ident'>thread_info</span>::<span class='ident'>current_thread</span>();
-    <span class='kw'>let</span> <span class='ident'>name</span> <span class='op'>=</span> <span class='ident'>thread</span>.<span class='ident'>as_ref</span>().<span class='ident'>and_then</span>(<span class='op'>|</span><span class='ident'>t</span><span class='op'>|</span> <span class='ident'>t</span>.<span class='ident'>name</span>()).<span class='ident'>unwrap_or</span>(<span class='string'>&quot;&lt;unnamed&gt;&quot;</span>);
 
-    <span class='kw'>let</span> <span class='ident'>write</span> <span class='op'>=</span> <span class='op'>|</span><span class='ident'>err</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> ::<span class='ident'>io</span>::<span class='ident'>Write</span><span class='op'>|</span> {
-        <span class='kw'>let</span> _ <span class='op'>=</span> <span class='macro'>writeln</span><span class='macro'>!</span>(<span class='ident'>err</span>, <span class='string'>&quot;thread &#39;{}&#39; panicked at &#39;{}&#39;, {}:{}&quot;</span>,
-                         <span class='ident'>name</span>, <span class='ident'>msg</span>, <span class='ident'>file</span>, <span class='ident'>line</span>);
+    <span class="kw">let</span> <span class="ident">file</span> <span class="op">=</span> <span class="ident">info</span>.<span class="ident">location</span>.<span class="ident">file</span>;
+    <span class="kw">let</span> <span class="ident">line</span> <span class="op">=</span> <span class="ident">info</span>.<span class="ident">location</span>.<span class="ident">line</span>;
 
-        <span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;backtrace&quot;</span>)]</span>
+    <span class="kw">let</span> <span class="ident">msg</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">info</span>.<span class="ident">payload</span>.<span class="ident">downcast_ref</span>::<span class="op">&lt;</span><span class="kw-2">&amp;</span><span class="lifetime">&#39;static</span> <span class="ident">str</span><span class="op">&gt;</span>() {
+        <span class="prelude-val">Some</span>(<span class="ident">s</span>) <span class="op">=&gt;</span> <span class="kw-2">*</span><span class="ident">s</span>,
+        <span class="prelude-val">None</span> <span class="op">=&gt;</span> <span class="kw">match</span> <span class="ident">info</span>.<span class="ident">payload</span>.<span class="ident">downcast_ref</span>::<span class="op">&lt;</span><span class="ident">String</span><span class="op">&gt;</span>() {
+            <span class="prelude-val">Some</span>(<span class="ident">s</span>) <span class="op">=&gt;</span> <span class="kw-2">&amp;</span><span class="ident">s</span>[..],
+            <span class="prelude-val">None</span> <span class="op">=&gt;</span> <span class="string">&quot;Box&lt;Any&gt;&quot;</span>,
+        }
+    };
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">err</span> <span class="op">=</span> <span class="ident">Stderr</span>::<span class="ident">new</span>().<span class="ident">ok</span>();
+    <span class="kw">let</span> <span class="ident">thread</span> <span class="op">=</span> <span class="ident">thread_info</span>::<span class="ident">current_thread</span>();
+    <span class="kw">let</span> <span class="ident">name</span> <span class="op">=</span> <span class="ident">thread</span>.<span class="ident">as_ref</span>().<span class="ident">and_then</span>(<span class="op">|</span><span class="ident">t</span><span class="op">|</span> <span class="ident">t</span>.<span class="ident">name</span>()).<span class="ident">unwrap_or</span>(<span class="string">&quot;&lt;unnamed&gt;&quot;</span>);
+
+    <span class="kw">let</span> <span class="ident">write</span> <span class="op">=</span> <span class="op">|</span><span class="ident">err</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> ::<span class="ident">io</span>::<span class="ident">Write</span><span class="op">|</span> {
+        <span class="kw">let</span> _ <span class="op">=</span> <span class="macro">writeln</span><span class="macro">!</span>(<span class="ident">err</span>, <span class="string">&quot;thread &#39;{}&#39; panicked at &#39;{}&#39;, {}:{}&quot;</span>,
+                         <span class="ident">name</span>, <span class="ident">msg</span>, <span class="ident">file</span>, <span class="ident">line</span>);
+
+        <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;backtrace&quot;</span>)]</span>
         {
-            <span class='kw'>use</span> <span class='ident'>sync</span>::<span class='ident'>atomic</span>::{<span class='ident'>AtomicBool</span>, <span class='ident'>Ordering</span>};
+            <span class="kw">use</span> <span class="ident">sync</span>::<span class="ident">atomic</span>::{<span class="ident">AtomicBool</span>, <span class="ident">Ordering</span>};
 
-            <span class='kw'>static</span> <span class='ident'>FIRST_PANIC</span>: <span class='ident'>AtomicBool</span> <span class='op'>=</span> <span class='ident'>AtomicBool</span>::<span class='ident'>new</span>(<span class='bool-val'>true</span>);
+            <span class="kw">static</span> <span class="ident">FIRST_PANIC</span>: <span class="ident">AtomicBool</span> <span class="op">=</span> <span class="ident">AtomicBool</span>::<span class="ident">new</span>(<span class="bool-val">true</span>);
 
-            <span class='kw'>if</span> <span class='ident'>log_backtrace</span> {
-                <span class='kw'>let</span> _ <span class='op'>=</span> <span class='ident'>backtrace</span>::<span class='ident'>write</span>(<span class='ident'>err</span>);
-            } <span class='kw'>else</span> <span class='kw'>if</span> <span class='ident'>FIRST_PANIC</span>.<span class='ident'>compare_and_swap</span>(<span class='bool-val'>true</span>, <span class='bool-val'>false</span>, <span class='ident'>Ordering</span>::<span class='ident'>SeqCst</span>) {
-                <span class='kw'>let</span> _ <span class='op'>=</span> <span class='macro'>writeln</span><span class='macro'>!</span>(<span class='ident'>err</span>, <span class='string'>&quot;note: Run with `RUST_BACKTRACE=1` for a backtrace.&quot;</span>);
+            <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">format</span>) <span class="op">=</span> <span class="ident">log_backtrace</span> {
+                <span class="kw">let</span> _ <span class="op">=</span> <span class="ident">backtrace</span>::<span class="ident">print</span>(<span class="ident">err</span>, <span class="ident">format</span>);
+            } <span class="kw">else</span> <span class="kw">if</span> <span class="ident">FIRST_PANIC</span>.<span class="ident">compare_and_swap</span>(<span class="bool-val">true</span>, <span class="bool-val">false</span>, <span class="ident">Ordering</span>::<span class="ident">SeqCst</span>) {
+                <span class="kw">let</span> _ <span class="op">=</span> <span class="macro">writeln</span><span class="macro">!</span>(<span class="ident">err</span>, <span class="string">&quot;note: Run with `RUST_BACKTRACE=1` for a backtrace.&quot;</span>);
             }
         }
     };
 
-    <span class='kw'>let</span> <span class='ident'>prev</span> <span class='op'>=</span> <span class='ident'>LOCAL_STDERR</span>.<span class='ident'>with</span>(<span class='op'>|</span><span class='ident'>s</span><span class='op'>|</span> <span class='ident'>s</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>take</span>());
-    <span class='kw'>match</span> (<span class='ident'>prev</span>, <span class='ident'>err</span>.<span class='ident'>as_mut</span>()) {
-        (<span class='prelude-val'>Some</span>(<span class='kw-2'>mut</span> <span class='ident'>stderr</span>), _) <span class='op'>=&gt;</span> {
-            <span class='ident'>write</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='kw-2'>*</span><span class='ident'>stderr</span>);
-            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>s</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='ident'>stderr</span>);
-            <span class='ident'>LOCAL_STDERR</span>.<span class='ident'>with</span>(<span class='op'>|</span><span class='ident'>slot</span><span class='op'>|</span> {
-                <span class='kw-2'>*</span><span class='ident'>slot</span>.<span class='ident'>borrow_mut</span>() <span class='op'>=</span> <span class='ident'>s</span>.<span class='ident'>take</span>();
+    <span class="kw">let</span> <span class="ident">prev</span> <span class="op">=</span> <span class="ident">LOCAL_STDERR</span>.<span class="ident">with</span>(<span class="op">|</span><span class="ident">s</span><span class="op">|</span> <span class="ident">s</span>.<span class="ident">borrow_mut</span>().<span class="ident">take</span>());
+    <span class="kw">match</span> (<span class="ident">prev</span>, <span class="ident">err</span>.<span class="ident">as_mut</span>()) {
+        (<span class="prelude-val">Some</span>(<span class="kw-2">mut</span> <span class="ident">stderr</span>), _) <span class="op">=&gt;</span> {
+            <span class="ident">write</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="kw-2">*</span><span class="ident">stderr</span>);
+            <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">s</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="ident">stderr</span>);
+            <span class="ident">LOCAL_STDERR</span>.<span class="ident">with</span>(<span class="op">|</span><span class="ident">slot</span><span class="op">|</span> {
+                <span class="kw-2">*</span><span class="ident">slot</span>.<span class="ident">borrow_mut</span>() <span class="op">=</span> <span class="ident">s</span>.<span class="ident">take</span>();
             });
         }
-        (<span class='prelude-val'>None</span>, <span class='prelude-val'>Some</span>(<span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>err</span>)) <span class='op'>=&gt;</span> { <span class='ident'>write</span>(<span class='ident'>err</span>) }
-        _ <span class='op'>=&gt;</span> {}
+        (<span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(<span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">err</span>)) <span class="op">=&gt;</span> { <span class="ident">write</span>(<span class="ident">err</span>) }
+        _ <span class="op">=&gt;</span> {}
     }
 }
 
 
-<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>not</span>(<span class='ident'>test</span>))]</span>
-<span class='attribute'>#[<span class='ident'>doc</span>(<span class='ident'>hidden</span>)]</span>
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;update_panic_count&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>update_panic_count</span>(<span class='ident'>amt</span>: <span class='ident'>isize</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
-    <span class='kw'>use</span> <span class='ident'>cell</span>::<span class='ident'>Cell</span>;
-    <span class='macro'>thread_local</span><span class='macro'>!</span> { <span class='kw'>static</span> <span class='ident'>PANIC_COUNT</span>: <span class='ident'>Cell</span><span class='op'>&lt;</span><span class='ident'>usize</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>Cell</span>::<span class='ident'>new</span>(<span class='number'>0</span>) }
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">not</span>(<span class="ident">test</span>))]</span>
+<span class="attribute">#[<span class="ident">doc</span>(<span class="ident">hidden</span>)]</span>
+<span class="attribute">#[<span class="ident">unstable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;update_panic_count&quot;</span>, <span class="ident">issue</span> <span class="op">=</span> <span class="string">&quot;0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">update_panic_count</span>(<span class="ident">amt</span>: <span class="ident">isize</span>) <span class="op">-&gt;</span> <span class="ident">usize</span> {
+    <span class="kw">use</span> <span class="ident">cell</span>::<span class="ident">Cell</span>;
+    <span class="macro">thread_local</span><span class="macro">!</span> { <span class="kw">static</span> <span class="ident">PANIC_COUNT</span>: <span class="ident">Cell</span><span class="op">&lt;</span><span class="ident">usize</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">Cell</span>::<span class="ident">new</span>(<span class="number">0</span>) }
 
-    <span class='ident'>PANIC_COUNT</span>.<span class='ident'>with</span>(<span class='op'>|</span><span class='ident'>c</span><span class='op'>|</span> {
-        <span class='kw'>let</span> <span class='ident'>next</span> <span class='op'>=</span> (<span class='ident'>c</span>.<span class='ident'>get</span>() <span class='kw'>as</span> <span class='ident'>isize</span> <span class='op'>+</span> <span class='ident'>amt</span>) <span class='kw'>as</span> <span class='ident'>usize</span>;
-        <span class='ident'>c</span>.<span class='ident'>set</span>(<span class='ident'>next</span>);
-        <span class='kw'>return</span> <span class='ident'>next</span>
+    <span class="ident">PANIC_COUNT</span>.<span class="ident">with</span>(<span class="op">|</span><span class="ident">c</span><span class="op">|</span> {
+        <span class="kw">let</span> <span class="ident">next</span> <span class="op">=</span> (<span class="ident">c</span>.<span class="ident">get</span>() <span class="kw">as</span> <span class="ident">isize</span> <span class="op">+</span> <span class="ident">amt</span>) <span class="kw">as</span> <span class="ident">usize</span>;
+        <span class="ident">c</span>.<span class="ident">set</span>(<span class="ident">next</span>);
+        <span class="kw">return</span> <span class="ident">next</span>
     })
 }
 
-<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>test</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='ident'>realstd</span>::<span class='ident'>rt</span>::<span class='ident'>update_panic_count</span>;
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">test</span>)]</span>
+<span class="kw">pub</span> <span class="kw">use</span> <span class="ident">realstd</span>::<span class="ident">rt</span>::<span class="ident">update_panic_count</span>;
 
-<span class='doccomment'>/// Invoke a closure, capturing the cause of an unwinding panic if one occurs.</span>
-<span class='kw'>pub</span> <span class='kw'>unsafe</span> <span class='kw'>fn</span> <span class='ident'>try</span><span class='op'>&lt;</span><span class='ident'>R</span>, <span class='ident'>F</span>: <span class='ident'>FnOnce</span>() <span class='op'>-&gt;</span> <span class='ident'>R</span><span class='op'>&gt;</span>(<span class='ident'>f</span>: <span class='ident'>F</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>R</span>, <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>Any</span> <span class='op'>+</span> <span class='ident'>Send</span><span class='op'>&gt;&gt;</span> {
-    <span class='attribute'>#[<span class='ident'>allow</span>(<span class='ident'>unions_with_drop_fields</span>)]</span>
-    <span class='ident'>union</span> <span class='ident'>Data</span><span class='op'>&lt;</span><span class='ident'>F</span>, <span class='ident'>R</span><span class='op'>&gt;</span> {
-        <span class='ident'>f</span>: <span class='ident'>F</span>,
-        <span class='ident'>r</span>: <span class='ident'>R</span>,
+<span class="doccomment">/// Invoke a closure, capturing the cause of an unwinding panic if one occurs.</span>
+<span class="kw">pub</span> <span class="kw">unsafe</span> <span class="kw">fn</span> <span class="ident">try</span><span class="op">&lt;</span><span class="ident">R</span>, <span class="ident">F</span>: <span class="ident">FnOnce</span>() <span class="op">-&gt;</span> <span class="ident">R</span><span class="op">&gt;</span>(<span class="ident">f</span>: <span class="ident">F</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">R</span>, <span class="ident">Box</span><span class="op">&lt;</span><span class="ident">Any</span> <span class="op">+</span> <span class="ident">Send</span><span class="op">&gt;&gt;</span> {
+    <span class="attribute">#[<span class="ident">allow</span>(<span class="ident">unions_with_drop_fields</span>)]</span>
+    <span class="ident">union</span> <span class="ident">Data</span><span class="op">&lt;</span><span class="ident">F</span>, <span class="ident">R</span><span class="op">&gt;</span> {
+        <span class="ident">f</span>: <span class="ident">F</span>,
+        <span class="ident">r</span>: <span class="ident">R</span>,
     }
 
-    <span class='comment'>// We do some sketchy operations with ownership here for the sake of</span>
-    <span class='comment'>// performance. We can only  pass pointers down to</span>
-    <span class='comment'>// `__rust_maybe_catch_panic` (can&#39;t pass objects by value), so we do all</span>
-    <span class='comment'>// the ownership tracking here manually using a union.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// We go through a transition where:</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// * First, we set the data to be the closure that we&#39;re going to call.</span>
-    <span class='comment'>// * When we make the function call, the `do_call` function below, we take</span>
-    <span class='comment'>//   ownership of the function pointer. At this point the `Data` union is</span>
-    <span class='comment'>//   entirely uninitialized.</span>
-    <span class='comment'>// * If the closure successfully returns, we write the return value into the</span>
-    <span class='comment'>//   data&#39;s return slot. Note that `ptr::write` is used as it&#39;s overwriting</span>
-    <span class='comment'>//   uninitialized data.</span>
-    <span class='comment'>// * Finally, when we come back out of the `__rust_maybe_catch_panic` we&#39;re</span>
-    <span class='comment'>//   in one of two states:</span>
-    <span class='comment'>//</span>
-    <span class='comment'>//      1. The closure didn&#39;t panic, in which case the return value was</span>
-    <span class='comment'>//         filled in. We move it out of `data` and return it.</span>
-    <span class='comment'>//      2. The closure panicked, in which case the return value wasn&#39;t</span>
-    <span class='comment'>//         filled in. In this case the entire `data` union is invalid, so</span>
-    <span class='comment'>//         there is no need to drop anything.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// Once we stack all that together we should have the &quot;most efficient&#39;</span>
-    <span class='comment'>// method of calling a catch panic whilst juggling ownership.</span>
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>any_data</span> <span class='op'>=</span> <span class='number'>0</span>;
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>any_vtable</span> <span class='op'>=</span> <span class='number'>0</span>;
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>data</span> <span class='op'>=</span> <span class='ident'>Data</span> {
-        <span class='ident'>f</span>: <span class='ident'>f</span>,
+    <span class="comment">// We do some sketchy operations with ownership here for the sake of</span>
+    <span class="comment">// performance. We can only  pass pointers down to</span>
+    <span class="comment">// `__rust_maybe_catch_panic` (can&#39;t pass objects by value), so we do all</span>
+    <span class="comment">// the ownership tracking here manually using a union.</span>
+    <span class="comment">//</span>
+    <span class="comment">// We go through a transition where:</span>
+    <span class="comment">//</span>
+    <span class="comment">// * First, we set the data to be the closure that we&#39;re going to call.</span>
+    <span class="comment">// * When we make the function call, the `do_call` function below, we take</span>
+    <span class="comment">//   ownership of the function pointer. At this point the `Data` union is</span>
+    <span class="comment">//   entirely uninitialized.</span>
+    <span class="comment">// * If the closure successfully returns, we write the return value into the</span>
+    <span class="comment">//   data&#39;s return slot. Note that `ptr::write` is used as it&#39;s overwriting</span>
+    <span class="comment">//   uninitialized data.</span>
+    <span class="comment">// * Finally, when we come back out of the `__rust_maybe_catch_panic` we&#39;re</span>
+    <span class="comment">//   in one of two states:</span>
+    <span class="comment">//</span>
+    <span class="comment">//      1. The closure didn&#39;t panic, in which case the return value was</span>
+    <span class="comment">//         filled in. We move it out of `data` and return it.</span>
+    <span class="comment">//      2. The closure panicked, in which case the return value wasn&#39;t</span>
+    <span class="comment">//         filled in. In this case the entire `data` union is invalid, so</span>
+    <span class="comment">//         there is no need to drop anything.</span>
+    <span class="comment">//</span>
+    <span class="comment">// Once we stack all that together we should have the &quot;most efficient&#39;</span>
+    <span class="comment">// method of calling a catch panic whilst juggling ownership.</span>
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">any_data</span> <span class="op">=</span> <span class="number">0</span>;
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">any_vtable</span> <span class="op">=</span> <span class="number">0</span>;
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">data</span> <span class="op">=</span> <span class="ident">Data</span> {
+        <span class="ident">f</span>: <span class="ident">f</span>,
     };
 
-    <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='ident'>__rust_maybe_catch_panic</span>(<span class='ident'>do_call</span>::<span class='op'>&lt;</span><span class='ident'>F</span>, <span class='ident'>R</span><span class='op'>&gt;</span>,
-                                     <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>data</span> <span class='kw'>as</span> <span class='kw-2'>*</span><span class='kw-2'>mut</span> _ <span class='kw'>as</span> <span class='kw-2'>*</span><span class='kw-2'>mut</span> <span class='ident'>u8</span>,
-                                     <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>any_data</span>,
-                                     <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>any_vtable</span>);
+    <span class="kw">let</span> <span class="ident">r</span> <span class="op">=</span> <span class="ident">__rust_maybe_catch_panic</span>(<span class="ident">do_call</span>::<span class="op">&lt;</span><span class="ident">F</span>, <span class="ident">R</span><span class="op">&gt;</span>,
+                                     <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">data</span> <span class="kw">as</span> <span class="kw-2">*</span><span class="kw-2">mut</span> _ <span class="kw">as</span> <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">u8</span>,
+                                     <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">any_data</span>,
+                                     <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">any_vtable</span>);
 
-    <span class='kw'>return</span> <span class='kw'>if</span> <span class='ident'>r</span> <span class='op'>==</span> <span class='number'>0</span> {
-        <span class='macro'>debug_assert</span><span class='macro'>!</span>(<span class='ident'>update_panic_count</span>(<span class='number'>0</span>) <span class='op'>==</span> <span class='number'>0</span>);
-        <span class='prelude-val'>Ok</span>(<span class='ident'>data</span>.<span class='ident'>r</span>)
-    } <span class='kw'>else</span> {
-        <span class='ident'>update_panic_count</span>(<span class='op'>-</span><span class='number'>1</span>);
-        <span class='macro'>debug_assert</span><span class='macro'>!</span>(<span class='ident'>update_panic_count</span>(<span class='number'>0</span>) <span class='op'>==</span> <span class='number'>0</span>);
-        <span class='prelude-val'>Err</span>(<span class='ident'>mem</span>::<span class='ident'>transmute</span>(<span class='ident'>raw</span>::<span class='ident'>TraitObject</span> {
-            <span class='ident'>data</span>: <span class='ident'>any_data</span> <span class='kw'>as</span> <span class='kw-2'>*</span><span class='kw-2'>mut</span> _,
-            <span class='ident'>vtable</span>: <span class='ident'>any_vtable</span> <span class='kw'>as</span> <span class='kw-2'>*</span><span class='kw-2'>mut</span> _,
+    <span class="kw">return</span> <span class="kw">if</span> <span class="ident">r</span> <span class="op">==</span> <span class="number">0</span> {
+        <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="ident">update_panic_count</span>(<span class="number">0</span>) <span class="op">==</span> <span class="number">0</span>);
+        <span class="prelude-val">Ok</span>(<span class="ident">data</span>.<span class="ident">r</span>)
+    } <span class="kw">else</span> {
+        <span class="ident">update_panic_count</span>(<span class="op">-</span><span class="number">1</span>);
+        <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="ident">update_panic_count</span>(<span class="number">0</span>) <span class="op">==</span> <span class="number">0</span>);
+        <span class="prelude-val">Err</span>(<span class="ident">mem</span>::<span class="ident">transmute</span>(<span class="ident">raw</span>::<span class="ident">TraitObject</span> {
+            <span class="ident">data</span>: <span class="ident">any_data</span> <span class="kw">as</span> <span class="kw-2">*</span><span class="kw-2">mut</span> _,
+            <span class="ident">vtable</span>: <span class="ident">any_vtable</span> <span class="kw">as</span> <span class="kw-2">*</span><span class="kw-2">mut</span> _,
         }))
     };
 
-    <span class='kw'>fn</span> <span class='ident'>do_call</span><span class='op'>&lt;</span><span class='ident'>F</span>: <span class='ident'>FnOnce</span>() <span class='op'>-&gt;</span> <span class='ident'>R</span>, <span class='ident'>R</span><span class='op'>&gt;</span>(<span class='ident'>data</span>: <span class='kw-2'>*</span><span class='kw-2'>mut</span> <span class='ident'>u8</span>) {
-        <span class='kw'>unsafe</span> {
-            <span class='kw'>let</span> <span class='ident'>data</span> <span class='op'>=</span> <span class='ident'>data</span> <span class='kw'>as</span> <span class='kw-2'>*</span><span class='kw-2'>mut</span> <span class='ident'>Data</span><span class='op'>&lt;</span><span class='ident'>F</span>, <span class='ident'>R</span><span class='op'>&gt;</span>;
-            <span class='kw'>let</span> <span class='ident'>f</span> <span class='op'>=</span> <span class='ident'>ptr</span>::<span class='ident'>read</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> (<span class='kw-2'>*</span><span class='ident'>data</span>).<span class='ident'>f</span>);
-            <span class='ident'>ptr</span>::<span class='ident'>write</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> (<span class='kw-2'>*</span><span class='ident'>data</span>).<span class='ident'>r</span>, <span class='ident'>f</span>());
+    <span class="kw">fn</span> <span class="ident">do_call</span><span class="op">&lt;</span><span class="ident">F</span>: <span class="ident">FnOnce</span>() <span class="op">-&gt;</span> <span class="ident">R</span>, <span class="ident">R</span><span class="op">&gt;</span>(<span class="ident">data</span>: <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">u8</span>) {
+        <span class="kw">unsafe</span> {
+            <span class="kw">let</span> <span class="ident">data</span> <span class="op">=</span> <span class="ident">data</span> <span class="kw">as</span> <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">Data</span><span class="op">&lt;</span><span class="ident">F</span>, <span class="ident">R</span><span class="op">&gt;</span>;
+            <span class="kw">let</span> <span class="ident">f</span> <span class="op">=</span> <span class="ident">ptr</span>::<span class="ident">read</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> (<span class="kw-2">*</span><span class="ident">data</span>).<span class="ident">f</span>);
+            <span class="ident">ptr</span>::<span class="ident">write</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> (<span class="kw-2">*</span><span class="ident">data</span>).<span class="ident">r</span>, <span class="ident">f</span>());
         }
     }
 }
 
-<span class='doccomment'>/// Determines whether the current thread is unwinding because of panic.</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>panicking</span>() <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-    <span class='ident'>update_panic_count</span>(<span class='number'>0</span>) <span class='op'>!=</span> <span class='number'>0</span>
+<span class="doccomment">/// Determines whether the current thread is unwinding because of panic.</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">panicking</span>() <span class="op">-&gt;</span> <span class="ident">bool</span> {
+    <span class="ident">update_panic_count</span>(<span class="number">0</span>) <span class="op">!=</span> <span class="number">0</span>
 }
 
-<span class='doccomment'>/// Entry point of panic from the libcore crate.</span>
-<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>not</span>(<span class='ident'>test</span>))]</span>
-<span class='attribute'>#[<span class='ident'>lang</span> <span class='op'>=</span> <span class='string'>&quot;panic_fmt&quot;</span>]</span>
-<span class='attribute'>#[<span class='ident'>unwind</span>]</span>
-<span class='kw'>pub</span> <span class='kw'>extern</span> <span class='kw'>fn</span> <span class='ident'>rust_begin_panic</span>(<span class='ident'>msg</span>: <span class='ident'>fmt</span>::<span class='ident'>Arguments</span>,
-                               <span class='ident'>file</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;static</span> <span class='ident'>str</span>,
-                               <span class='ident'>line</span>: <span class='ident'>u32</span>) <span class='op'>-&gt;</span> <span class='op'>!</span> {
-    <span class='ident'>begin_panic_fmt</span>(<span class='kw-2'>&amp;</span><span class='ident'>msg</span>, <span class='kw-2'>&amp;</span>(<span class='ident'>file</span>, <span class='ident'>line</span>))
+<span class="doccomment">/// Entry point of panic from the libcore crate.</span>
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">not</span>(<span class="ident">test</span>))]</span>
+<span class="attribute">#[<span class="ident">lang</span> <span class="op">=</span> <span class="string">&quot;panic_fmt&quot;</span>]</span>
+<span class="attribute">#[<span class="ident">unwind</span>]</span>
+<span class="kw">pub</span> <span class="kw">extern</span> <span class="kw">fn</span> <span class="ident">rust_begin_panic</span>(<span class="ident">msg</span>: <span class="ident">fmt</span>::<span class="ident">Arguments</span>,
+                               <span class="ident">file</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;static</span> <span class="ident">str</span>,
+                               <span class="ident">line</span>: <span class="ident">u32</span>) <span class="op">-&gt;</span> <span class="op">!</span> {
+    <span class="ident">begin_panic_fmt</span>(<span class="kw-2">&amp;</span><span class="ident">msg</span>, <span class="kw-2">&amp;</span>(<span class="ident">file</span>, <span class="ident">line</span>))
 }
 
-<span class='doccomment'>/// The entry point for panicking with a formatted message.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This is designed to reduce the amount of code required at the call</span>
-<span class='doccomment'>/// site as much as possible (so that `panic!()` has as low an impact</span>
-<span class='doccomment'>/// on (e.g.) the inlining of other functions as possible), by moving</span>
-<span class='doccomment'>/// the actual formatting into this shared place.</span>
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;libstd_sys_internals&quot;</span>,
-           <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;used by the panic! macro&quot;</span>,
-           <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;0&quot;</span>)]</span>
-<span class='attribute'>#[<span class='ident'>inline</span>(<span class='ident'>never</span>)]</span> <span class='attribute'>#[<span class='ident'>cold</span>]</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>begin_panic_fmt</span>(<span class='ident'>msg</span>: <span class='kw-2'>&amp;</span><span class='ident'>fmt</span>::<span class='ident'>Arguments</span>,
-                       <span class='ident'>file_line</span>: <span class='kw-2'>&amp;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;static</span> <span class='ident'>str</span>, <span class='ident'>u32</span>)) <span class='op'>-&gt;</span> <span class='op'>!</span> {
-    <span class='kw'>use</span> <span class='ident'>fmt</span>::<span class='ident'>Write</span>;
+<span class="doccomment">/// The entry point for panicking with a formatted message.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This is designed to reduce the amount of code required at the call</span>
+<span class="doccomment">/// site as much as possible (so that `panic!()` has as low an impact</span>
+<span class="doccomment">/// on (e.g.) the inlining of other functions as possible), by moving</span>
+<span class="doccomment">/// the actual formatting into this shared place.</span>
+<span class="attribute">#[<span class="ident">unstable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;libstd_sys_internals&quot;</span>,
+           <span class="ident">reason</span> <span class="op">=</span> <span class="string">&quot;used by the panic! macro&quot;</span>,
+           <span class="ident">issue</span> <span class="op">=</span> <span class="string">&quot;0&quot;</span>)]</span>
+<span class="attribute">#[<span class="ident">inline</span>(<span class="ident">never</span>)]</span> <span class="attribute">#[<span class="ident">cold</span>]</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">begin_panic_fmt</span>(<span class="ident">msg</span>: <span class="kw-2">&amp;</span><span class="ident">fmt</span>::<span class="ident">Arguments</span>,
+                       <span class="ident">file_line</span>: <span class="kw-2">&amp;</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;static</span> <span class="ident">str</span>, <span class="ident">u32</span>)) <span class="op">-&gt;</span> <span class="op">!</span> {
+    <span class="kw">use</span> <span class="ident">fmt</span>::<span class="ident">Write</span>;
 
-    <span class='comment'>// We do two allocations here, unfortunately. But (a) they&#39;re</span>
-    <span class='comment'>// required with the current scheme, and (b) we don&#39;t handle</span>
-    <span class='comment'>// panic + OOM properly anyway (see comment in begin_panic</span>
-    <span class='comment'>// below).</span>
+    <span class="comment">// We do two allocations here, unfortunately. But (a) they&#39;re</span>
+    <span class="comment">// required with the current scheme, and (b) we don&#39;t handle</span>
+    <span class="comment">// panic + OOM properly anyway (see comment in begin_panic</span>
+    <span class="comment">// below).</span>
 
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>s</span> <span class='op'>=</span> <span class='ident'>String</span>::<span class='ident'>new</span>();
-    <span class='kw'>let</span> _ <span class='op'>=</span> <span class='ident'>s</span>.<span class='ident'>write_fmt</span>(<span class='kw-2'>*</span><span class='ident'>msg</span>);
-    <span class='ident'>begin_panic</span>(<span class='ident'>s</span>, <span class='ident'>file_line</span>)
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">s</span> <span class="op">=</span> <span class="ident">String</span>::<span class="ident">new</span>();
+    <span class="kw">let</span> _ <span class="op">=</span> <span class="ident">s</span>.<span class="ident">write_fmt</span>(<span class="kw-2">*</span><span class="ident">msg</span>);
+    <span class="ident">begin_panic</span>(<span class="ident">s</span>, <span class="ident">file_line</span>)
 }
 
-<span class='doccomment'>/// This is the entry point of panicking for panic!() and assert!().</span>
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;libstd_sys_internals&quot;</span>,
-           <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;used by the panic! macro&quot;</span>,
-           <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;0&quot;</span>)]</span>
-<span class='attribute'>#[<span class='ident'>inline</span>(<span class='ident'>never</span>)]</span> <span class='attribute'>#[<span class='ident'>cold</span>]</span> <span class='comment'>// avoid code bloat at the call sites as much as possible</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>begin_panic</span><span class='op'>&lt;</span><span class='ident'>M</span>: <span class='ident'>Any</span> <span class='op'>+</span> <span class='ident'>Send</span><span class='op'>&gt;</span>(<span class='ident'>msg</span>: <span class='ident'>M</span>, <span class='ident'>file_line</span>: <span class='kw-2'>&amp;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;static</span> <span class='ident'>str</span>, <span class='ident'>u32</span>)) <span class='op'>-&gt;</span> <span class='op'>!</span> {
-    <span class='comment'>// Note that this should be the only allocation performed in this code path.</span>
-    <span class='comment'>// Currently this means that panic!() on OOM will invoke this code path,</span>
-    <span class='comment'>// but then again we&#39;re not really ready for panic on OOM anyway. If</span>
-    <span class='comment'>// we do start doing this, then we should propagate this allocation to</span>
-    <span class='comment'>// be performed in the parent of this thread instead of the thread that&#39;s</span>
-    <span class='comment'>// panicking.</span>
+<span class="doccomment">/// This is the entry point of panicking for panic!() and assert!().</span>
+<span class="attribute">#[<span class="ident">unstable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;libstd_sys_internals&quot;</span>,
+           <span class="ident">reason</span> <span class="op">=</span> <span class="string">&quot;used by the panic! macro&quot;</span>,
+           <span class="ident">issue</span> <span class="op">=</span> <span class="string">&quot;0&quot;</span>)]</span>
+<span class="attribute">#[<span class="ident">inline</span>(<span class="ident">never</span>)]</span> <span class="attribute">#[<span class="ident">cold</span>]</span> <span class="comment">// avoid code bloat at the call sites as much as possible</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">begin_panic</span><span class="op">&lt;</span><span class="ident">M</span>: <span class="ident">Any</span> <span class="op">+</span> <span class="ident">Send</span><span class="op">&gt;</span>(<span class="ident">msg</span>: <span class="ident">M</span>, <span class="ident">file_line</span>: <span class="kw-2">&amp;</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;static</span> <span class="ident">str</span>, <span class="ident">u32</span>)) <span class="op">-&gt;</span> <span class="op">!</span> {
+    <span class="comment">// Note that this should be the only allocation performed in this code path.</span>
+    <span class="comment">// Currently this means that panic!() on OOM will invoke this code path,</span>
+    <span class="comment">// but then again we&#39;re not really ready for panic on OOM anyway. If</span>
+    <span class="comment">// we do start doing this, then we should propagate this allocation to</span>
+    <span class="comment">// be performed in the parent of this thread instead of the thread that&#39;s</span>
+    <span class="comment">// panicking.</span>
 
-    <span class='ident'>rust_panic_with_hook</span>(<span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='ident'>msg</span>), <span class='ident'>file_line</span>)
+    <span class="ident">rust_panic_with_hook</span>(<span class="ident">Box</span>::<span class="ident">new</span>(<span class="ident">msg</span>), <span class="ident">file_line</span>)
 }
 
-<span class='doccomment'>/// Executes the primary logic for a panic, including checking for recursive</span>
-<span class='doccomment'>/// panics and panic hooks.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This is the entry point or panics from libcore, formatted panics, and</span>
-<span class='doccomment'>/// `Box&lt;Any&gt;` panics. Here we&#39;ll verify that we&#39;re not panicking recursively,</span>
-<span class='doccomment'>/// run panic hooks, and then delegate to the actual implementation of panics.</span>
-<span class='attribute'>#[<span class='ident'>inline</span>(<span class='ident'>never</span>)]</span>
-<span class='attribute'>#[<span class='ident'>cold</span>]</span>
-<span class='kw'>fn</span> <span class='ident'>rust_panic_with_hook</span>(<span class='ident'>msg</span>: <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>Any</span> <span class='op'>+</span> <span class='ident'>Send</span><span class='op'>&gt;</span>,
-                        <span class='ident'>file_line</span>: <span class='kw-2'>&amp;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;static</span> <span class='ident'>str</span>, <span class='ident'>u32</span>)) <span class='op'>-&gt;</span> <span class='op'>!</span> {
-    <span class='kw'>let</span> (<span class='ident'>file</span>, <span class='ident'>line</span>) <span class='op'>=</span> <span class='kw-2'>*</span><span class='ident'>file_line</span>;
+<span class="doccomment">/// Executes the primary logic for a panic, including checking for recursive</span>
+<span class="doccomment">/// panics and panic hooks.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This is the entry point or panics from libcore, formatted panics, and</span>
+<span class="doccomment">/// `Box&lt;Any&gt;` panics. Here we&#39;ll verify that we&#39;re not panicking recursively,</span>
+<span class="doccomment">/// run panic hooks, and then delegate to the actual implementation of panics.</span>
+<span class="attribute">#[<span class="ident">inline</span>(<span class="ident">never</span>)]</span>
+<span class="attribute">#[<span class="ident">cold</span>]</span>
+<span class="kw">fn</span> <span class="ident">rust_panic_with_hook</span>(<span class="ident">msg</span>: <span class="ident">Box</span><span class="op">&lt;</span><span class="ident">Any</span> <span class="op">+</span> <span class="ident">Send</span><span class="op">&gt;</span>,
+                        <span class="ident">file_line</span>: <span class="kw-2">&amp;</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;static</span> <span class="ident">str</span>, <span class="ident">u32</span>)) <span class="op">-&gt;</span> <span class="op">!</span> {
+    <span class="kw">let</span> (<span class="ident">file</span>, <span class="ident">line</span>) <span class="op">=</span> <span class="kw-2">*</span><span class="ident">file_line</span>;
 
-    <span class='kw'>let</span> <span class='ident'>panics</span> <span class='op'>=</span> <span class='ident'>update_panic_count</span>(<span class='number'>1</span>);
+    <span class="kw">let</span> <span class="ident">panics</span> <span class="op">=</span> <span class="ident">update_panic_count</span>(<span class="number">1</span>);
 
-    <span class='comment'>// If this is the third nested call (e.g. panics == 2, this is 0-indexed),</span>
-    <span class='comment'>// the panic hook probably triggered the last panic, otherwise the</span>
-    <span class='comment'>// double-panic check would have aborted the process. In this case abort the</span>
-    <span class='comment'>// process real quickly as we don&#39;t want to try calling it again as it&#39;ll</span>
-    <span class='comment'>// probably just panic again.</span>
-    <span class='kw'>if</span> <span class='ident'>panics</span> <span class='op'>&gt;</span> <span class='number'>2</span> {
-        <span class='ident'>util</span>::<span class='ident'>dumb_print</span>(<span class='macro'>format_args</span><span class='macro'>!</span>(<span class='string'>&quot;thread panicked while processing \
+    <span class="comment">// If this is the third nested call (e.g. panics == 2, this is 0-indexed),</span>
+    <span class="comment">// the panic hook probably triggered the last panic, otherwise the</span>
+    <span class="comment">// double-panic check would have aborted the process. In this case abort the</span>
+    <span class="comment">// process real quickly as we don&#39;t want to try calling it again as it&#39;ll</span>
+    <span class="comment">// probably just panic again.</span>
+    <span class="kw">if</span> <span class="ident">panics</span> <span class="op">&gt;</span> <span class="number">2</span> {
+        <span class="ident">util</span>::<span class="ident">dumb_print</span>(<span class="macro">format_args</span><span class="macro">!</span>(<span class="string">&quot;thread panicked while processing \
                                        panic. aborting.\n&quot;</span>));
-        <span class='kw'>unsafe</span> { <span class='ident'>intrinsics</span>::<span class='ident'>abort</span>() }
+        <span class="kw">unsafe</span> { <span class="ident">intrinsics</span>::<span class="ident">abort</span>() }
     }
 
-    <span class='kw'>unsafe</span> {
-        <span class='kw'>let</span> <span class='ident'>info</span> <span class='op'>=</span> <span class='ident'>PanicInfo</span> {
-            <span class='ident'>payload</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>*</span><span class='ident'>msg</span>,
-            <span class='ident'>location</span>: <span class='ident'>Location</span> {
-                <span class='ident'>file</span>: <span class='ident'>file</span>,
-                <span class='ident'>line</span>: <span class='ident'>line</span>,
+    <span class="kw">unsafe</span> {
+        <span class="kw">let</span> <span class="ident">info</span> <span class="op">=</span> <span class="ident">PanicInfo</span> {
+            <span class="ident">payload</span>: <span class="kw-2">&amp;</span><span class="kw-2">*</span><span class="ident">msg</span>,
+            <span class="ident">location</span>: <span class="ident">Location</span> {
+                <span class="ident">file</span>: <span class="ident">file</span>,
+                <span class="ident">line</span>: <span class="ident">line</span>,
             },
         };
-        <span class='ident'>HOOK_LOCK</span>.<span class='ident'>read</span>();
-        <span class='kw'>match</span> <span class='ident'>HOOK</span> {
-            <span class='ident'>Hook</span>::<span class='ident'>Default</span> <span class='op'>=&gt;</span> <span class='ident'>default_hook</span>(<span class='kw-2'>&amp;</span><span class='ident'>info</span>),
-            <span class='ident'>Hook</span>::<span class='ident'>Custom</span>(<span class='ident'>ptr</span>) <span class='op'>=&gt;</span> (<span class='kw-2'>*</span><span class='ident'>ptr</span>)(<span class='kw-2'>&amp;</span><span class='ident'>info</span>),
+        <span class="ident">HOOK_LOCK</span>.<span class="ident">read</span>();
+        <span class="kw">match</span> <span class="ident">HOOK</span> {
+            <span class="ident">Hook</span>::<span class="ident">Default</span> <span class="op">=&gt;</span> <span class="ident">default_hook</span>(<span class="kw-2">&amp;</span><span class="ident">info</span>),
+            <span class="ident">Hook</span>::<span class="ident">Custom</span>(<span class="ident">ptr</span>) <span class="op">=&gt;</span> (<span class="kw-2">*</span><span class="ident">ptr</span>)(<span class="kw-2">&amp;</span><span class="ident">info</span>),
         }
-        <span class='ident'>HOOK_LOCK</span>.<span class='ident'>read_unlock</span>();
+        <span class="ident">HOOK_LOCK</span>.<span class="ident">read_unlock</span>();
     }
 
-    <span class='kw'>if</span> <span class='ident'>panics</span> <span class='op'>&gt;</span> <span class='number'>1</span> {
-        <span class='comment'>// If a thread panics while it&#39;s already unwinding then we</span>
-        <span class='comment'>// have limited options. Currently our preference is to</span>
-        <span class='comment'>// just abort. In the future we may consider resuming</span>
-        <span class='comment'>// unwinding or otherwise exiting the thread cleanly.</span>
-        <span class='ident'>util</span>::<span class='ident'>dumb_print</span>(<span class='macro'>format_args</span><span class='macro'>!</span>(<span class='string'>&quot;thread panicked while panicking. \
+    <span class="kw">if</span> <span class="ident">panics</span> <span class="op">&gt;</span> <span class="number">1</span> {
+        <span class="comment">// If a thread panics while it&#39;s already unwinding then we</span>
+        <span class="comment">// have limited options. Currently our preference is to</span>
+        <span class="comment">// just abort. In the future we may consider resuming</span>
+        <span class="comment">// unwinding or otherwise exiting the thread cleanly.</span>
+        <span class="ident">util</span>::<span class="ident">dumb_print</span>(<span class="macro">format_args</span><span class="macro">!</span>(<span class="string">&quot;thread panicked while panicking. \
                                        aborting.\n&quot;</span>));
-        <span class='kw'>unsafe</span> { <span class='ident'>intrinsics</span>::<span class='ident'>abort</span>() }
+        <span class="kw">unsafe</span> { <span class="ident">intrinsics</span>::<span class="ident">abort</span>() }
     }
 
-    <span class='ident'>rust_panic</span>(<span class='ident'>msg</span>)
+    <span class="ident">rust_panic</span>(<span class="ident">msg</span>)
 }
 
-<span class='doccomment'>/// Shim around rust_panic. Called by resume_unwind.</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>update_count_then_panic</span>(<span class='ident'>msg</span>: <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>Any</span> <span class='op'>+</span> <span class='ident'>Send</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='op'>!</span> {
-    <span class='ident'>update_panic_count</span>(<span class='number'>1</span>);
-    <span class='ident'>rust_panic</span>(<span class='ident'>msg</span>)
+<span class="doccomment">/// Shim around rust_panic. Called by resume_unwind.</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">update_count_then_panic</span>(<span class="ident">msg</span>: <span class="ident">Box</span><span class="op">&lt;</span><span class="ident">Any</span> <span class="op">+</span> <span class="ident">Send</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="op">!</span> {
+    <span class="ident">update_panic_count</span>(<span class="number">1</span>);
+    <span class="ident">rust_panic</span>(<span class="ident">msg</span>)
 }
 
-<span class='doccomment'>/// A private no-mangle function on which to slap yer breakpoints.</span>
-<span class='attribute'>#[<span class='ident'>no_mangle</span>]</span>
-<span class='attribute'>#[<span class='ident'>allow</span>(<span class='ident'>private_no_mangle_fns</span>)]</span> <span class='comment'>// yes we get it, but we like breakpoints</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>rust_panic</span>(<span class='ident'>msg</span>: <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>Any</span> <span class='op'>+</span> <span class='ident'>Send</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='op'>!</span> {
-    <span class='kw'>let</span> <span class='ident'>code</span> <span class='op'>=</span> <span class='kw'>unsafe</span> {
-        <span class='kw'>let</span> <span class='ident'>obj</span> <span class='op'>=</span> <span class='ident'>mem</span>::<span class='ident'>transmute</span>::<span class='op'>&lt;</span>_, <span class='ident'>raw</span>::<span class='ident'>TraitObject</span><span class='op'>&gt;</span>(<span class='ident'>msg</span>);
-        <span class='ident'>__rust_start_panic</span>(<span class='ident'>obj</span>.<span class='ident'>data</span> <span class='kw'>as</span> <span class='ident'>usize</span>, <span class='ident'>obj</span>.<span class='ident'>vtable</span> <span class='kw'>as</span> <span class='ident'>usize</span>)
+<span class="doccomment">/// A private no-mangle function on which to slap yer breakpoints.</span>
+<span class="attribute">#[<span class="ident">no_mangle</span>]</span>
+<span class="attribute">#[<span class="ident">allow</span>(<span class="ident">private_no_mangle_fns</span>)]</span> <span class="comment">// yes we get it, but we like breakpoints</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">rust_panic</span>(<span class="ident">msg</span>: <span class="ident">Box</span><span class="op">&lt;</span><span class="ident">Any</span> <span class="op">+</span> <span class="ident">Send</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="op">!</span> {
+    <span class="kw">let</span> <span class="ident">code</span> <span class="op">=</span> <span class="kw">unsafe</span> {
+        <span class="kw">let</span> <span class="ident">obj</span> <span class="op">=</span> <span class="ident">mem</span>::<span class="ident">transmute</span>::<span class="op">&lt;</span>_, <span class="ident">raw</span>::<span class="ident">TraitObject</span><span class="op">&gt;</span>(<span class="ident">msg</span>);
+        <span class="ident">__rust_start_panic</span>(<span class="ident">obj</span>.<span class="ident">data</span> <span class="kw">as</span> <span class="ident">usize</span>, <span class="ident">obj</span>.<span class="ident">vtable</span> <span class="kw">as</span> <span class="ident">usize</span>)
     };
-    <span class='macro'>rtabort</span><span class='macro'>!</span>(<span class='string'>&quot;failed to initiate panic, error {}&quot;</span>, <span class='ident'>code</span>)
+    <span class="macro">rtabort</span><span class="macro">!</span>(<span class="string">&quot;failed to initiate panic, error {}&quot;</span>, <span class="ident">code</span>)
 }
 </pre>
 </section>

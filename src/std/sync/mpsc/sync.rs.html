@@ -571,532 +571,532 @@
 <span id="526">526</span>
 <span id="527">527</span>
 <span id="528">528</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='doccomment'>/// Synchronous channels/ports</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This channel implementation differs significantly from the asynchronous</span>
-<span class='doccomment'>/// implementations found next to it (oneshot/stream/share). This is an</span>
-<span class='doccomment'>/// implementation of a synchronous, bounded buffer channel.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Each channel is created with some amount of backing buffer, and sends will</span>
-<span class='doccomment'>/// *block* until buffer space becomes available. A buffer size of 0 is valid,</span>
-<span class='doccomment'>/// which means that every successful send is paired with a successful recv.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This flavor of channels defines a new `send_opt` method for channels which</span>
-<span class='doccomment'>/// is the method by which a message is sent but the thread does not panic if it</span>
-<span class='doccomment'>/// cannot be delivered.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Another major difference is that send() will *always* return back the data</span>
-<span class='doccomment'>/// if it couldn&#39;t be sent. This is because it is deterministically known when</span>
-<span class='doccomment'>/// the data is received and when it is not received.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Implementation-wise, it can all be summed up with &quot;use a mutex plus some</span>
-<span class='doccomment'>/// logic&quot;. The mutex used here is an OS native mutex, meaning that no user code</span>
-<span class='doccomment'>/// is run inside of the mutex (to prevent context switching). This</span>
-<span class='doccomment'>/// implementation shares almost all code for the buffered and unbuffered cases</span>
-<span class='doccomment'>/// of a synchronous channel. There are a few branches for the unbuffered case,</span>
-<span class='doccomment'>/// but they&#39;re mostly just relevant to blocking senders.</span>
+<span class="doccomment">/// Synchronous channels/ports</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This channel implementation differs significantly from the asynchronous</span>
+<span class="doccomment">/// implementations found next to it (oneshot/stream/share). This is an</span>
+<span class="doccomment">/// implementation of a synchronous, bounded buffer channel.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Each channel is created with some amount of backing buffer, and sends will</span>
+<span class="doccomment">/// *block* until buffer space becomes available. A buffer size of 0 is valid,</span>
+<span class="doccomment">/// which means that every successful send is paired with a successful recv.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This flavor of channels defines a new `send_opt` method for channels which</span>
+<span class="doccomment">/// is the method by which a message is sent but the thread does not panic if it</span>
+<span class="doccomment">/// cannot be delivered.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Another major difference is that send() will *always* return back the data</span>
+<span class="doccomment">/// if it couldn&#39;t be sent. This is because it is deterministically known when</span>
+<span class="doccomment">/// the data is received and when it is not received.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Implementation-wise, it can all be summed up with &quot;use a mutex plus some</span>
+<span class="doccomment">/// logic&quot;. The mutex used here is an OS native mutex, meaning that no user code</span>
+<span class="doccomment">/// is run inside of the mutex (to prevent context switching). This</span>
+<span class="doccomment">/// implementation shares almost all code for the buffered and unbuffered cases</span>
+<span class="doccomment">/// of a synchronous channel. There are a few branches for the unbuffered case,</span>
+<span class="doccomment">/// but they&#39;re mostly just relevant to blocking senders.</span>
 
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>Failure</span>::<span class='kw-2'>*</span>;
-<span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>Blocker</span>::<span class='kw-2'>*</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">Failure</span>::<span class="kw-2">*</span>;
+<span class="kw">use</span> <span class="self">self</span>::<span class="ident">Blocker</span>::<span class="kw-2">*</span>;
 
-<span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>intrinsics</span>::<span class='ident'>abort</span>;
-<span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>isize</span>;
-<span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>mem</span>;
-<span class='kw'>use</span> <span class='ident'>core</span>::<span class='ident'>ptr</span>;
+<span class="kw">use</span> <span class="ident">core</span>::<span class="ident">intrinsics</span>::<span class="ident">abort</span>;
+<span class="kw">use</span> <span class="ident">core</span>::<span class="ident">isize</span>;
+<span class="kw">use</span> <span class="ident">core</span>::<span class="ident">mem</span>;
+<span class="kw">use</span> <span class="ident">core</span>::<span class="ident">ptr</span>;
 
-<span class='kw'>use</span> <span class='ident'>sync</span>::<span class='ident'>atomic</span>::{<span class='ident'>Ordering</span>, <span class='ident'>AtomicUsize</span>};
-<span class='kw'>use</span> <span class='ident'>sync</span>::<span class='ident'>mpsc</span>::<span class='ident'>blocking</span>::{<span class='self'>self</span>, <span class='ident'>WaitToken</span>, <span class='ident'>SignalToken</span>};
-<span class='kw'>use</span> <span class='ident'>sync</span>::<span class='ident'>mpsc</span>::<span class='ident'>select</span>::<span class='ident'>StartResult</span>::{<span class='self'>self</span>, <span class='ident'>Installed</span>, <span class='ident'>Abort</span>};
-<span class='kw'>use</span> <span class='ident'>sync</span>::{<span class='ident'>Mutex</span>, <span class='ident'>MutexGuard</span>};
-<span class='kw'>use</span> <span class='ident'>time</span>::<span class='ident'>Instant</span>;
+<span class="kw">use</span> <span class="ident">sync</span>::<span class="ident">atomic</span>::{<span class="ident">Ordering</span>, <span class="ident">AtomicUsize</span>};
+<span class="kw">use</span> <span class="ident">sync</span>::<span class="ident">mpsc</span>::<span class="ident">blocking</span>::{<span class="self">self</span>, <span class="ident">WaitToken</span>, <span class="ident">SignalToken</span>};
+<span class="kw">use</span> <span class="ident">sync</span>::<span class="ident">mpsc</span>::<span class="ident">select</span>::<span class="ident">StartResult</span>::{<span class="self">self</span>, <span class="ident">Installed</span>, <span class="ident">Abort</span>};
+<span class="kw">use</span> <span class="ident">sync</span>::{<span class="ident">Mutex</span>, <span class="ident">MutexGuard</span>};
+<span class="kw">use</span> <span class="ident">time</span>::<span class="ident">Instant</span>;
 
-<span class='kw'>const</span> <span class='ident'>MAX_REFCOUNT</span>: <span class='ident'>usize</span> <span class='op'>=</span> (<span class='ident'>isize</span>::<span class='ident'>MAX</span>) <span class='kw'>as</span> <span class='ident'>usize</span>;
+<span class="kw">const</span> <span class="ident">MAX_REFCOUNT</span>: <span class="ident">usize</span> <span class="op">=</span> (<span class="ident">isize</span>::<span class="ident">MAX</span>) <span class="kw">as</span> <span class="ident">usize</span>;
 
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>Packet</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='doccomment'>/// Only field outside of the mutex. Just done for kicks, but mainly because</span>
-    <span class='doccomment'>/// the other shared channel already had the code implemented</span>
-    <span class='ident'>channels</span>: <span class='ident'>AtomicUsize</span>,
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">Packet</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// Only field outside of the mutex. Just done for kicks, but mainly because</span>
+    <span class="doccomment">/// the other shared channel already had the code implemented</span>
+    <span class="ident">channels</span>: <span class="ident">AtomicUsize</span>,
 
-    <span class='ident'>lock</span>: <span class='ident'>Mutex</span><span class='op'>&lt;</span><span class='ident'>State</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>,
+    <span class="ident">lock</span>: <span class="ident">Mutex</span><span class="op">&lt;</span><span class="ident">State</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span>,
 }
 
-<span class='kw'>unsafe</span> <span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='ident'>Send</span><span class='op'>&gt;</span> <span class='ident'>Send</span> <span class='kw'>for</span> <span class='ident'>Packet</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> { }
+<span class="kw">unsafe</span> <span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="ident">Send</span><span class="op">&gt;</span> <span class="ident">Send</span> <span class="kw">for</span> <span class="ident">Packet</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> { }
 
-<span class='kw'>unsafe</span> <span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='ident'>Send</span><span class='op'>&gt;</span> <span class='ident'>Sync</span> <span class='kw'>for</span> <span class='ident'>Packet</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> { }
+<span class="kw">unsafe</span> <span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="ident">Send</span><span class="op">&gt;</span> <span class="ident">Sync</span> <span class="kw">for</span> <span class="ident">Packet</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> { }
 
-<span class='kw'>struct</span> <span class='ident'>State</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='ident'>disconnected</span>: <span class='ident'>bool</span>, <span class='comment'>// Is the channel disconnected yet?</span>
-    <span class='ident'>queue</span>: <span class='ident'>Queue</span>,       <span class='comment'>// queue of senders waiting to send data</span>
-    <span class='ident'>blocker</span>: <span class='ident'>Blocker</span>,   <span class='comment'>// currently blocked thread on this channel</span>
-    <span class='ident'>buf</span>: <span class='ident'>Buffer</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>,     <span class='comment'>// storage for buffered messages</span>
-    <span class='ident'>cap</span>: <span class='ident'>usize</span>,         <span class='comment'>// capacity of this channel</span>
+<span class="kw">struct</span> <span class="ident">State</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="ident">disconnected</span>: <span class="ident">bool</span>, <span class="comment">// Is the channel disconnected yet?</span>
+    <span class="ident">queue</span>: <span class="ident">Queue</span>,       <span class="comment">// queue of senders waiting to send data</span>
+    <span class="ident">blocker</span>: <span class="ident">Blocker</span>,   <span class="comment">// currently blocked thread on this channel</span>
+    <span class="ident">buf</span>: <span class="ident">Buffer</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>,     <span class="comment">// storage for buffered messages</span>
+    <span class="ident">cap</span>: <span class="ident">usize</span>,         <span class="comment">// capacity of this channel</span>
 
-    <span class='doccomment'>/// A curious flag used to indicate whether a sender failed or succeeded in</span>
-    <span class='doccomment'>/// blocking. This is used to transmit information back to the thread that it</span>
-    <span class='doccomment'>/// must dequeue its message from the buffer because it was not received.</span>
-    <span class='doccomment'>/// This is only relevant in the 0-buffer case. This obviously cannot be</span>
-    <span class='doccomment'>/// safely constructed, but it&#39;s guaranteed to always have a valid pointer</span>
-    <span class='doccomment'>/// value.</span>
-    <span class='ident'>canceled</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='lifetime'>&#39;static</span> <span class='kw-2'>mut</span> <span class='ident'>bool</span><span class='op'>&gt;</span>,
+    <span class="doccomment">/// A curious flag used to indicate whether a sender failed or succeeded in</span>
+    <span class="doccomment">/// blocking. This is used to transmit information back to the thread that it</span>
+    <span class="doccomment">/// must dequeue its message from the buffer because it was not received.</span>
+    <span class="doccomment">/// This is only relevant in the 0-buffer case. This obviously cannot be</span>
+    <span class="doccomment">/// safely constructed, but it&#39;s guaranteed to always have a valid pointer</span>
+    <span class="doccomment">/// value.</span>
+    <span class="ident">canceled</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="kw-2">&amp;</span><span class="lifetime">&#39;static</span> <span class="kw-2">mut</span> <span class="ident">bool</span><span class="op">&gt;</span>,
 }
 
-<span class='kw'>unsafe</span> <span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='ident'>Send</span><span class='op'>&gt;</span> <span class='ident'>Send</span> <span class='kw'>for</span> <span class='ident'>State</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {}
+<span class="kw">unsafe</span> <span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="ident">Send</span><span class="op">&gt;</span> <span class="ident">Send</span> <span class="kw">for</span> <span class="ident">State</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {}
 
-<span class='doccomment'>/// Possible flavors of threads who can be blocked on this channel.</span>
-<span class='kw'>enum</span> <span class='ident'>Blocker</span> {
-    <span class='ident'>BlockedSender</span>(<span class='ident'>SignalToken</span>),
-    <span class='ident'>BlockedReceiver</span>(<span class='ident'>SignalToken</span>),
-    <span class='ident'>NoneBlocked</span>
+<span class="doccomment">/// Possible flavors of threads who can be blocked on this channel.</span>
+<span class="kw">enum</span> <span class="ident">Blocker</span> {
+    <span class="ident">BlockedSender</span>(<span class="ident">SignalToken</span>),
+    <span class="ident">BlockedReceiver</span>(<span class="ident">SignalToken</span>),
+    <span class="ident">NoneBlocked</span>
 }
 
-<span class='doccomment'>/// Simple queue for threading threads together. Nodes are stack-allocated, so</span>
-<span class='doccomment'>/// this structure is not safe at all</span>
-<span class='kw'>struct</span> <span class='ident'>Queue</span> {
-    <span class='ident'>head</span>: <span class='kw-2'>*</span><span class='kw-2'>mut</span> <span class='ident'>Node</span>,
-    <span class='ident'>tail</span>: <span class='kw-2'>*</span><span class='kw-2'>mut</span> <span class='ident'>Node</span>,
+<span class="doccomment">/// Simple queue for threading threads together. Nodes are stack-allocated, so</span>
+<span class="doccomment">/// this structure is not safe at all</span>
+<span class="kw">struct</span> <span class="ident">Queue</span> {
+    <span class="ident">head</span>: <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">Node</span>,
+    <span class="ident">tail</span>: <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">Node</span>,
 }
 
-<span class='kw'>struct</span> <span class='ident'>Node</span> {
-    <span class='ident'>token</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>SignalToken</span><span class='op'>&gt;</span>,
-    <span class='ident'>next</span>: <span class='kw-2'>*</span><span class='kw-2'>mut</span> <span class='ident'>Node</span>,
+<span class="kw">struct</span> <span class="ident">Node</span> {
+    <span class="ident">token</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">SignalToken</span><span class="op">&gt;</span>,
+    <span class="ident">next</span>: <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">Node</span>,
 }
 
-<span class='kw'>unsafe</span> <span class='kw'>impl</span> <span class='ident'>Send</span> <span class='kw'>for</span> <span class='ident'>Node</span> {}
+<span class="kw">unsafe</span> <span class="kw">impl</span> <span class="ident">Send</span> <span class="kw">for</span> <span class="ident">Node</span> {}
 
-<span class='doccomment'>/// A simple ring-buffer</span>
-<span class='kw'>struct</span> <span class='ident'>Buffer</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='ident'>buf</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>,
-    <span class='ident'>start</span>: <span class='ident'>usize</span>,
-    <span class='ident'>size</span>: <span class='ident'>usize</span>,
+<span class="doccomment">/// A simple ring-buffer</span>
+<span class="kw">struct</span> <span class="ident">Buffer</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="ident">buf</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span>,
+    <span class="ident">start</span>: <span class="ident">usize</span>,
+    <span class="ident">size</span>: <span class="ident">usize</span>,
 }
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Debug</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>Failure</span> {
-    <span class='ident'>Empty</span>,
-    <span class='ident'>Disconnected</span>,
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>)]</span>
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">Failure</span> {
+    <span class="ident">Empty</span>,
+    <span class="ident">Disconnected</span>,
 }
 
-<span class='doccomment'>/// Atomically blocks the current thread, placing it into `slot`, unlocking `lock`</span>
-<span class='doccomment'>/// in the meantime. This re-locks the mutex upon returning.</span>
-<span class='kw'>fn</span> <span class='ident'>wait</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;b</span>, <span class='ident'>T</span><span class='op'>&gt;</span>(<span class='ident'>lock</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>Mutex</span><span class='op'>&lt;</span><span class='ident'>State</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>,
-                   <span class='kw-2'>mut</span> <span class='ident'>guard</span>: <span class='ident'>MutexGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;b</span>, <span class='ident'>State</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>,
-                   <span class='ident'>f</span>: <span class='kw'>fn</span>(<span class='ident'>SignalToken</span>) <span class='op'>-&gt;</span> <span class='ident'>Blocker</span>)
-                   <span class='op'>-&gt;</span> <span class='ident'>MutexGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>State</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>
+<span class="doccomment">/// Atomically blocks the current thread, placing it into `slot`, unlocking `lock`</span>
+<span class="doccomment">/// in the meantime. This re-locks the mutex upon returning.</span>
+<span class="kw">fn</span> <span class="ident">wait</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;b</span>, <span class="ident">T</span><span class="op">&gt;</span>(<span class="ident">lock</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">Mutex</span><span class="op">&lt;</span><span class="ident">State</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span>,
+                   <span class="kw-2">mut</span> <span class="ident">guard</span>: <span class="ident">MutexGuard</span><span class="op">&lt;</span><span class="lifetime">&#39;b</span>, <span class="ident">State</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span>,
+                   <span class="ident">f</span>: <span class="kw">fn</span>(<span class="ident">SignalToken</span>) <span class="op">-&gt;</span> <span class="ident">Blocker</span>)
+                   <span class="op">-&gt;</span> <span class="ident">MutexGuard</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">State</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span>
 {
-    <span class='kw'>let</span> (<span class='ident'>wait_token</span>, <span class='ident'>signal_token</span>) <span class='op'>=</span> <span class='ident'>blocking</span>::<span class='ident'>tokens</span>();
-    <span class='kw'>match</span> <span class='ident'>mem</span>::<span class='ident'>replace</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>guard</span>.<span class='ident'>blocker</span>, <span class='ident'>f</span>(<span class='ident'>signal_token</span>)) {
-        <span class='ident'>NoneBlocked</span> <span class='op'>=&gt;</span> {}
-        _ <span class='op'>=&gt;</span> <span class='macro'>unreachable</span><span class='macro'>!</span>(),
+    <span class="kw">let</span> (<span class="ident">wait_token</span>, <span class="ident">signal_token</span>) <span class="op">=</span> <span class="ident">blocking</span>::<span class="ident">tokens</span>();
+    <span class="kw">match</span> <span class="ident">mem</span>::<span class="ident">replace</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">guard</span>.<span class="ident">blocker</span>, <span class="ident">f</span>(<span class="ident">signal_token</span>)) {
+        <span class="ident">NoneBlocked</span> <span class="op">=&gt;</span> {}
+        _ <span class="op">=&gt;</span> <span class="macro">unreachable</span><span class="macro">!</span>(),
     }
-    <span class='ident'>drop</span>(<span class='ident'>guard</span>);         <span class='comment'>// unlock</span>
-    <span class='ident'>wait_token</span>.<span class='ident'>wait</span>();   <span class='comment'>// block</span>
-    <span class='ident'>lock</span>.<span class='ident'>lock</span>().<span class='ident'>unwrap</span>() <span class='comment'>// relock</span>
+    <span class="ident">drop</span>(<span class="ident">guard</span>);         <span class="comment">// unlock</span>
+    <span class="ident">wait_token</span>.<span class="ident">wait</span>();   <span class="comment">// block</span>
+    <span class="ident">lock</span>.<span class="ident">lock</span>().<span class="ident">unwrap</span>() <span class="comment">// relock</span>
 }
 
-<span class='doccomment'>/// Same as wait, but waiting at most until `deadline`.</span>
-<span class='kw'>fn</span> <span class='ident'>wait_timeout_receiver</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;b</span>, <span class='ident'>T</span><span class='op'>&gt;</span>(<span class='ident'>lock</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>Mutex</span><span class='op'>&lt;</span><span class='ident'>State</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>,
-                                    <span class='ident'>deadline</span>: <span class='ident'>Instant</span>,
-                                    <span class='kw-2'>mut</span> <span class='ident'>guard</span>: <span class='ident'>MutexGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;b</span>, <span class='ident'>State</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>,
-                                    <span class='ident'>success</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>bool</span>)
-                                    <span class='op'>-&gt;</span> <span class='ident'>MutexGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>State</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>
+<span class="doccomment">/// Same as wait, but waiting at most until `deadline`.</span>
+<span class="kw">fn</span> <span class="ident">wait_timeout_receiver</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;b</span>, <span class="ident">T</span><span class="op">&gt;</span>(<span class="ident">lock</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">Mutex</span><span class="op">&lt;</span><span class="ident">State</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span>,
+                                    <span class="ident">deadline</span>: <span class="ident">Instant</span>,
+                                    <span class="kw-2">mut</span> <span class="ident">guard</span>: <span class="ident">MutexGuard</span><span class="op">&lt;</span><span class="lifetime">&#39;b</span>, <span class="ident">State</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span>,
+                                    <span class="ident">success</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">bool</span>)
+                                    <span class="op">-&gt;</span> <span class="ident">MutexGuard</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">State</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span>
 {
-    <span class='kw'>let</span> (<span class='ident'>wait_token</span>, <span class='ident'>signal_token</span>) <span class='op'>=</span> <span class='ident'>blocking</span>::<span class='ident'>tokens</span>();
-    <span class='kw'>match</span> <span class='ident'>mem</span>::<span class='ident'>replace</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>guard</span>.<span class='ident'>blocker</span>, <span class='ident'>BlockedReceiver</span>(<span class='ident'>signal_token</span>)) {
-        <span class='ident'>NoneBlocked</span> <span class='op'>=&gt;</span> {}
-        _ <span class='op'>=&gt;</span> <span class='macro'>unreachable</span><span class='macro'>!</span>(),
+    <span class="kw">let</span> (<span class="ident">wait_token</span>, <span class="ident">signal_token</span>) <span class="op">=</span> <span class="ident">blocking</span>::<span class="ident">tokens</span>();
+    <span class="kw">match</span> <span class="ident">mem</span>::<span class="ident">replace</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">guard</span>.<span class="ident">blocker</span>, <span class="ident">BlockedReceiver</span>(<span class="ident">signal_token</span>)) {
+        <span class="ident">NoneBlocked</span> <span class="op">=&gt;</span> {}
+        _ <span class="op">=&gt;</span> <span class="macro">unreachable</span><span class="macro">!</span>(),
     }
-    <span class='ident'>drop</span>(<span class='ident'>guard</span>);         <span class='comment'>// unlock</span>
-    <span class='kw-2'>*</span><span class='ident'>success</span> <span class='op'>=</span> <span class='ident'>wait_token</span>.<span class='ident'>wait_max_until</span>(<span class='ident'>deadline</span>);   <span class='comment'>// block</span>
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>new_guard</span> <span class='op'>=</span> <span class='ident'>lock</span>.<span class='ident'>lock</span>().<span class='ident'>unwrap</span>(); <span class='comment'>// relock</span>
-    <span class='kw'>if</span> <span class='op'>!</span><span class='kw-2'>*</span><span class='ident'>success</span> {
-        <span class='ident'>abort_selection</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>new_guard</span>);
+    <span class="ident">drop</span>(<span class="ident">guard</span>);         <span class="comment">// unlock</span>
+    <span class="kw-2">*</span><span class="ident">success</span> <span class="op">=</span> <span class="ident">wait_token</span>.<span class="ident">wait_max_until</span>(<span class="ident">deadline</span>);   <span class="comment">// block</span>
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">new_guard</span> <span class="op">=</span> <span class="ident">lock</span>.<span class="ident">lock</span>().<span class="ident">unwrap</span>(); <span class="comment">// relock</span>
+    <span class="kw">if</span> <span class="op">!</span><span class="kw-2">*</span><span class="ident">success</span> {
+        <span class="ident">abort_selection</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">new_guard</span>);
     }
-    <span class='ident'>new_guard</span>
+    <span class="ident">new_guard</span>
 }
 
-<span class='kw'>fn</span> <span class='ident'>abort_selection</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>T</span><span class='op'>&gt;</span>(<span class='ident'>guard</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>MutexGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span> , <span class='ident'>State</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-    <span class='kw'>match</span> <span class='ident'>mem</span>::<span class='ident'>replace</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>guard</span>.<span class='ident'>blocker</span>, <span class='ident'>NoneBlocked</span>) {
-        <span class='ident'>NoneBlocked</span> <span class='op'>=&gt;</span> <span class='bool-val'>true</span>,
-        <span class='ident'>BlockedSender</span>(<span class='ident'>token</span>) <span class='op'>=&gt;</span> {
-            <span class='ident'>guard</span>.<span class='ident'>blocker</span> <span class='op'>=</span> <span class='ident'>BlockedSender</span>(<span class='ident'>token</span>);
-            <span class='bool-val'>true</span>
+<span class="kw">fn</span> <span class="ident">abort_selection</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">T</span><span class="op">&gt;</span>(<span class="ident">guard</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">MutexGuard</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span> , <span class="ident">State</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+    <span class="kw">match</span> <span class="ident">mem</span>::<span class="ident">replace</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">guard</span>.<span class="ident">blocker</span>, <span class="ident">NoneBlocked</span>) {
+        <span class="ident">NoneBlocked</span> <span class="op">=&gt;</span> <span class="bool-val">true</span>,
+        <span class="ident">BlockedSender</span>(<span class="ident">token</span>) <span class="op">=&gt;</span> {
+            <span class="ident">guard</span>.<span class="ident">blocker</span> <span class="op">=</span> <span class="ident">BlockedSender</span>(<span class="ident">token</span>);
+            <span class="bool-val">true</span>
         }
-        <span class='ident'>BlockedReceiver</span>(<span class='ident'>token</span>) <span class='op'>=&gt;</span> { <span class='ident'>drop</span>(<span class='ident'>token</span>); <span class='bool-val'>false</span> }
+        <span class="ident">BlockedReceiver</span>(<span class="ident">token</span>) <span class="op">=&gt;</span> { <span class="ident">drop</span>(<span class="ident">token</span>); <span class="bool-val">false</span> }
     }
 }
 
-<span class='doccomment'>/// Wakes up a thread, dropping the lock at the correct time</span>
-<span class='kw'>fn</span> <span class='ident'>wakeup</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>(<span class='ident'>token</span>: <span class='ident'>SignalToken</span>, <span class='ident'>guard</span>: <span class='ident'>MutexGuard</span><span class='op'>&lt;</span><span class='ident'>State</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>) {
-    <span class='comment'>// We need to be careful to wake up the waiting thread *outside* of the mutex</span>
-    <span class='comment'>// in case it incurs a context switch.</span>
-    <span class='ident'>drop</span>(<span class='ident'>guard</span>);
-    <span class='ident'>token</span>.<span class='ident'>signal</span>();
+<span class="doccomment">/// Wakes up a thread, dropping the lock at the correct time</span>
+<span class="kw">fn</span> <span class="ident">wakeup</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="ident">token</span>: <span class="ident">SignalToken</span>, <span class="ident">guard</span>: <span class="ident">MutexGuard</span><span class="op">&lt;</span><span class="ident">State</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span>) {
+    <span class="comment">// We need to be careful to wake up the waiting thread *outside* of the mutex</span>
+    <span class="comment">// in case it incurs a context switch.</span>
+    <span class="ident">drop</span>(<span class="ident">guard</span>);
+    <span class="ident">token</span>.<span class="ident">signal</span>();
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>Packet</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>cap</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='ident'>Packet</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-        <span class='ident'>Packet</span> {
-            <span class='ident'>channels</span>: <span class='ident'>AtomicUsize</span>::<span class='ident'>new</span>(<span class='number'>1</span>),
-            <span class='ident'>lock</span>: <span class='ident'>Mutex</span>::<span class='ident'>new</span>(<span class='ident'>State</span> {
-                <span class='ident'>disconnected</span>: <span class='bool-val'>false</span>,
-                <span class='ident'>blocker</span>: <span class='ident'>NoneBlocked</span>,
-                <span class='ident'>cap</span>: <span class='ident'>cap</span>,
-                <span class='ident'>canceled</span>: <span class='prelude-val'>None</span>,
-                <span class='ident'>queue</span>: <span class='ident'>Queue</span> {
-                    <span class='ident'>head</span>: <span class='ident'>ptr</span>::<span class='ident'>null_mut</span>(),
-                    <span class='ident'>tail</span>: <span class='ident'>ptr</span>::<span class='ident'>null_mut</span>(),
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">Packet</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">new</span>(<span class="ident">cap</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">Packet</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+        <span class="ident">Packet</span> {
+            <span class="ident">channels</span>: <span class="ident">AtomicUsize</span>::<span class="ident">new</span>(<span class="number">1</span>),
+            <span class="ident">lock</span>: <span class="ident">Mutex</span>::<span class="ident">new</span>(<span class="ident">State</span> {
+                <span class="ident">disconnected</span>: <span class="bool-val">false</span>,
+                <span class="ident">blocker</span>: <span class="ident">NoneBlocked</span>,
+                <span class="ident">cap</span>: <span class="ident">cap</span>,
+                <span class="ident">canceled</span>: <span class="prelude-val">None</span>,
+                <span class="ident">queue</span>: <span class="ident">Queue</span> {
+                    <span class="ident">head</span>: <span class="ident">ptr</span>::<span class="ident">null_mut</span>(),
+                    <span class="ident">tail</span>: <span class="ident">ptr</span>::<span class="ident">null_mut</span>(),
                 },
-                <span class='ident'>buf</span>: <span class='ident'>Buffer</span> {
-                    <span class='ident'>buf</span>: (<span class='number'>0</span>..<span class='ident'>cap</span> <span class='op'>+</span> <span class='kw'>if</span> <span class='ident'>cap</span> <span class='op'>==</span> <span class='number'>0</span> {<span class='number'>1</span>} <span class='kw'>else</span> {<span class='number'>0</span>}).<span class='ident'>map</span>(<span class='op'>|</span>_<span class='op'>|</span> <span class='prelude-val'>None</span>).<span class='ident'>collect</span>(),
-                    <span class='ident'>start</span>: <span class='number'>0</span>,
-                    <span class='ident'>size</span>: <span class='number'>0</span>,
+                <span class="ident">buf</span>: <span class="ident">Buffer</span> {
+                    <span class="ident">buf</span>: (<span class="number">0</span>..<span class="ident">cap</span> <span class="op">+</span> <span class="kw">if</span> <span class="ident">cap</span> <span class="op">==</span> <span class="number">0</span> {<span class="number">1</span>} <span class="kw">else</span> {<span class="number">0</span>}).<span class="ident">map</span>(<span class="op">|</span>_<span class="op">|</span> <span class="prelude-val">None</span>).<span class="ident">collect</span>(),
+                    <span class="ident">start</span>: <span class="number">0</span>,
+                    <span class="ident">size</span>: <span class="number">0</span>,
                 },
             }),
         }
     }
 
-    <span class='comment'>// wait until a send slot is available, returning locked access to</span>
-    <span class='comment'>// the channel state.</span>
-    <span class='kw'>fn</span> <span class='ident'>acquire_send_slot</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>MutexGuard</span><span class='op'>&lt;</span><span class='ident'>State</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span> {
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>node</span> <span class='op'>=</span> <span class='ident'>Node</span> { <span class='ident'>token</span>: <span class='prelude-val'>None</span>, <span class='ident'>next</span>: <span class='ident'>ptr</span>::<span class='ident'>null_mut</span>() };
-        <span class='kw'>loop</span> {
-            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>guard</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>lock</span>.<span class='ident'>lock</span>().<span class='ident'>unwrap</span>();
-            <span class='comment'>// are we ready to go?</span>
-            <span class='kw'>if</span> <span class='ident'>guard</span>.<span class='ident'>disconnected</span> <span class='op'>||</span> <span class='ident'>guard</span>.<span class='ident'>buf</span>.<span class='ident'>size</span>() <span class='op'>&lt;</span> <span class='ident'>guard</span>.<span class='ident'>buf</span>.<span class='ident'>cap</span>() {
-                <span class='kw'>return</span> <span class='ident'>guard</span>;
+    <span class="comment">// wait until a send slot is available, returning locked access to</span>
+    <span class="comment">// the channel state.</span>
+    <span class="kw">fn</span> <span class="ident">acquire_send_slot</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">MutexGuard</span><span class="op">&lt;</span><span class="ident">State</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span> {
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">node</span> <span class="op">=</span> <span class="ident">Node</span> { <span class="ident">token</span>: <span class="prelude-val">None</span>, <span class="ident">next</span>: <span class="ident">ptr</span>::<span class="ident">null_mut</span>() };
+        <span class="kw">loop</span> {
+            <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">guard</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">lock</span>.<span class="ident">lock</span>().<span class="ident">unwrap</span>();
+            <span class="comment">// are we ready to go?</span>
+            <span class="kw">if</span> <span class="ident">guard</span>.<span class="ident">disconnected</span> <span class="op">||</span> <span class="ident">guard</span>.<span class="ident">buf</span>.<span class="ident">size</span>() <span class="op">&lt;</span> <span class="ident">guard</span>.<span class="ident">buf</span>.<span class="ident">cap</span>() {
+                <span class="kw">return</span> <span class="ident">guard</span>;
             }
-            <span class='comment'>// no room; actually block</span>
-            <span class='kw'>let</span> <span class='ident'>wait_token</span> <span class='op'>=</span> <span class='ident'>guard</span>.<span class='ident'>queue</span>.<span class='ident'>enqueue</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>node</span>);
-            <span class='ident'>drop</span>(<span class='ident'>guard</span>);
-            <span class='ident'>wait_token</span>.<span class='ident'>wait</span>();
+            <span class="comment">// no room; actually block</span>
+            <span class="kw">let</span> <span class="ident">wait_token</span> <span class="op">=</span> <span class="ident">guard</span>.<span class="ident">queue</span>.<span class="ident">enqueue</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">node</span>);
+            <span class="ident">drop</span>(<span class="ident">guard</span>);
+            <span class="ident">wait_token</span>.<span class="ident">wait</span>();
         }
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>send</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>t</span>: <span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(), <span class='ident'>T</span><span class='op'>&gt;</span> {
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>guard</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>acquire_send_slot</span>();
-        <span class='kw'>if</span> <span class='ident'>guard</span>.<span class='ident'>disconnected</span> { <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>t</span>) }
-        <span class='ident'>guard</span>.<span class='ident'>buf</span>.<span class='ident'>enqueue</span>(<span class='ident'>t</span>);
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">send</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">t</span>: <span class="ident">T</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">T</span><span class="op">&gt;</span> {
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">guard</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">acquire_send_slot</span>();
+        <span class="kw">if</span> <span class="ident">guard</span>.<span class="ident">disconnected</span> { <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">t</span>) }
+        <span class="ident">guard</span>.<span class="ident">buf</span>.<span class="ident">enqueue</span>(<span class="ident">t</span>);
 
-        <span class='kw'>match</span> <span class='ident'>mem</span>::<span class='ident'>replace</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>guard</span>.<span class='ident'>blocker</span>, <span class='ident'>NoneBlocked</span>) {
-            <span class='comment'>// if our capacity is 0, then we need to wait for a receiver to be</span>
-            <span class='comment'>// available to take our data. After waiting, we check again to make</span>
-            <span class='comment'>// sure the port didn&#39;t go away in the meantime. If it did, we need</span>
-            <span class='comment'>// to hand back our data.</span>
-            <span class='ident'>NoneBlocked</span> <span class='kw'>if</span> <span class='ident'>guard</span>.<span class='ident'>cap</span> <span class='op'>==</span> <span class='number'>0</span> <span class='op'>=&gt;</span> {
-                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>canceled</span> <span class='op'>=</span> <span class='bool-val'>false</span>;
-                <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>guard</span>.<span class='ident'>canceled</span>.<span class='ident'>is_none</span>());
-                <span class='ident'>guard</span>.<span class='ident'>canceled</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='kw'>unsafe</span> { <span class='ident'>mem</span>::<span class='ident'>transmute</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>canceled</span>) });
-                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>guard</span> <span class='op'>=</span> <span class='ident'>wait</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>lock</span>, <span class='ident'>guard</span>, <span class='ident'>BlockedSender</span>);
-                <span class='kw'>if</span> <span class='ident'>canceled</span> {<span class='prelude-val'>Err</span>(<span class='ident'>guard</span>.<span class='ident'>buf</span>.<span class='ident'>dequeue</span>())} <span class='kw'>else</span> {<span class='prelude-val'>Ok</span>(())}
+        <span class="kw">match</span> <span class="ident">mem</span>::<span class="ident">replace</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">guard</span>.<span class="ident">blocker</span>, <span class="ident">NoneBlocked</span>) {
+            <span class="comment">// if our capacity is 0, then we need to wait for a receiver to be</span>
+            <span class="comment">// available to take our data. After waiting, we check again to make</span>
+            <span class="comment">// sure the port didn&#39;t go away in the meantime. If it did, we need</span>
+            <span class="comment">// to hand back our data.</span>
+            <span class="ident">NoneBlocked</span> <span class="kw">if</span> <span class="ident">guard</span>.<span class="ident">cap</span> <span class="op">==</span> <span class="number">0</span> <span class="op">=&gt;</span> {
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">canceled</span> <span class="op">=</span> <span class="bool-val">false</span>;
+                <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">guard</span>.<span class="ident">canceled</span>.<span class="ident">is_none</span>());
+                <span class="ident">guard</span>.<span class="ident">canceled</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="kw">unsafe</span> { <span class="ident">mem</span>::<span class="ident">transmute</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">canceled</span>) });
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">guard</span> <span class="op">=</span> <span class="ident">wait</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">lock</span>, <span class="ident">guard</span>, <span class="ident">BlockedSender</span>);
+                <span class="kw">if</span> <span class="ident">canceled</span> {<span class="prelude-val">Err</span>(<span class="ident">guard</span>.<span class="ident">buf</span>.<span class="ident">dequeue</span>())} <span class="kw">else</span> {<span class="prelude-val">Ok</span>(())}
             }
 
-            <span class='comment'>// success, we buffered some data</span>
-            <span class='ident'>NoneBlocked</span> <span class='op'>=&gt;</span> <span class='prelude-val'>Ok</span>(()),
+            <span class="comment">// success, we buffered some data</span>
+            <span class="ident">NoneBlocked</span> <span class="op">=&gt;</span> <span class="prelude-val">Ok</span>(()),
 
-            <span class='comment'>// success, someone&#39;s about to receive our buffered data.</span>
-            <span class='ident'>BlockedReceiver</span>(<span class='ident'>token</span>) <span class='op'>=&gt;</span> { <span class='ident'>wakeup</span>(<span class='ident'>token</span>, <span class='ident'>guard</span>); <span class='prelude-val'>Ok</span>(()) }
+            <span class="comment">// success, someone&#39;s about to receive our buffered data.</span>
+            <span class="ident">BlockedReceiver</span>(<span class="ident">token</span>) <span class="op">=&gt;</span> { <span class="ident">wakeup</span>(<span class="ident">token</span>, <span class="ident">guard</span>); <span class="prelude-val">Ok</span>(()) }
 
-            <span class='ident'>BlockedSender</span>(..) <span class='op'>=&gt;</span> <span class='macro'>panic</span><span class='macro'>!</span>(<span class='string'>&quot;lolwut&quot;</span>),
+            <span class="ident">BlockedSender</span>(..) <span class="op">=&gt;</span> <span class="macro">panic</span><span class="macro">!</span>(<span class="string">&quot;lolwut&quot;</span>),
         }
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>try_send</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>t</span>: <span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(), <span class='kw'>super</span>::<span class='ident'>TrySendError</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span> {
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>guard</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>lock</span>.<span class='ident'>lock</span>().<span class='ident'>unwrap</span>();
-        <span class='kw'>if</span> <span class='ident'>guard</span>.<span class='ident'>disconnected</span> {
-            <span class='prelude-val'>Err</span>(<span class='kw'>super</span>::<span class='ident'>TrySendError</span>::<span class='ident'>Disconnected</span>(<span class='ident'>t</span>))
-        } <span class='kw'>else</span> <span class='kw'>if</span> <span class='ident'>guard</span>.<span class='ident'>buf</span>.<span class='ident'>size</span>() <span class='op'>==</span> <span class='ident'>guard</span>.<span class='ident'>buf</span>.<span class='ident'>cap</span>() {
-            <span class='prelude-val'>Err</span>(<span class='kw'>super</span>::<span class='ident'>TrySendError</span>::<span class='ident'>Full</span>(<span class='ident'>t</span>))
-        } <span class='kw'>else</span> <span class='kw'>if</span> <span class='ident'>guard</span>.<span class='ident'>cap</span> <span class='op'>==</span> <span class='number'>0</span> {
-            <span class='comment'>// With capacity 0, even though we have buffer space we can&#39;t</span>
-            <span class='comment'>// transfer the data unless there&#39;s a receiver waiting.</span>
-            <span class='kw'>match</span> <span class='ident'>mem</span>::<span class='ident'>replace</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>guard</span>.<span class='ident'>blocker</span>, <span class='ident'>NoneBlocked</span>) {
-                <span class='ident'>NoneBlocked</span> <span class='op'>=&gt;</span> <span class='prelude-val'>Err</span>(<span class='kw'>super</span>::<span class='ident'>TrySendError</span>::<span class='ident'>Full</span>(<span class='ident'>t</span>)),
-                <span class='ident'>BlockedSender</span>(..) <span class='op'>=&gt;</span> <span class='macro'>unreachable</span><span class='macro'>!</span>(),
-                <span class='ident'>BlockedReceiver</span>(<span class='ident'>token</span>) <span class='op'>=&gt;</span> {
-                    <span class='ident'>guard</span>.<span class='ident'>buf</span>.<span class='ident'>enqueue</span>(<span class='ident'>t</span>);
-                    <span class='ident'>wakeup</span>(<span class='ident'>token</span>, <span class='ident'>guard</span>);
-                    <span class='prelude-val'>Ok</span>(())
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">try_send</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">t</span>: <span class="ident">T</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="kw">super</span>::<span class="ident">TrySendError</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span> {
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">guard</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">lock</span>.<span class="ident">lock</span>().<span class="ident">unwrap</span>();
+        <span class="kw">if</span> <span class="ident">guard</span>.<span class="ident">disconnected</span> {
+            <span class="prelude-val">Err</span>(<span class="kw">super</span>::<span class="ident">TrySendError</span>::<span class="ident">Disconnected</span>(<span class="ident">t</span>))
+        } <span class="kw">else</span> <span class="kw">if</span> <span class="ident">guard</span>.<span class="ident">buf</span>.<span class="ident">size</span>() <span class="op">==</span> <span class="ident">guard</span>.<span class="ident">buf</span>.<span class="ident">cap</span>() {
+            <span class="prelude-val">Err</span>(<span class="kw">super</span>::<span class="ident">TrySendError</span>::<span class="ident">Full</span>(<span class="ident">t</span>))
+        } <span class="kw">else</span> <span class="kw">if</span> <span class="ident">guard</span>.<span class="ident">cap</span> <span class="op">==</span> <span class="number">0</span> {
+            <span class="comment">// With capacity 0, even though we have buffer space we can&#39;t</span>
+            <span class="comment">// transfer the data unless there&#39;s a receiver waiting.</span>
+            <span class="kw">match</span> <span class="ident">mem</span>::<span class="ident">replace</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">guard</span>.<span class="ident">blocker</span>, <span class="ident">NoneBlocked</span>) {
+                <span class="ident">NoneBlocked</span> <span class="op">=&gt;</span> <span class="prelude-val">Err</span>(<span class="kw">super</span>::<span class="ident">TrySendError</span>::<span class="ident">Full</span>(<span class="ident">t</span>)),
+                <span class="ident">BlockedSender</span>(..) <span class="op">=&gt;</span> <span class="macro">unreachable</span><span class="macro">!</span>(),
+                <span class="ident">BlockedReceiver</span>(<span class="ident">token</span>) <span class="op">=&gt;</span> {
+                    <span class="ident">guard</span>.<span class="ident">buf</span>.<span class="ident">enqueue</span>(<span class="ident">t</span>);
+                    <span class="ident">wakeup</span>(<span class="ident">token</span>, <span class="ident">guard</span>);
+                    <span class="prelude-val">Ok</span>(())
                 }
             }
-        } <span class='kw'>else</span> {
-            <span class='comment'>// If the buffer has some space and the capacity isn&#39;t 0, then we</span>
-            <span class='comment'>// just enqueue the data for later retrieval, ensuring to wake up</span>
-            <span class='comment'>// any blocked receiver if there is one.</span>
-            <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>guard</span>.<span class='ident'>buf</span>.<span class='ident'>size</span>() <span class='op'>&lt;</span> <span class='ident'>guard</span>.<span class='ident'>buf</span>.<span class='ident'>cap</span>());
-            <span class='ident'>guard</span>.<span class='ident'>buf</span>.<span class='ident'>enqueue</span>(<span class='ident'>t</span>);
-            <span class='kw'>match</span> <span class='ident'>mem</span>::<span class='ident'>replace</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>guard</span>.<span class='ident'>blocker</span>, <span class='ident'>NoneBlocked</span>) {
-                <span class='ident'>BlockedReceiver</span>(<span class='ident'>token</span>) <span class='op'>=&gt;</span> <span class='ident'>wakeup</span>(<span class='ident'>token</span>, <span class='ident'>guard</span>),
-                <span class='ident'>NoneBlocked</span> <span class='op'>=&gt;</span> {}
-                <span class='ident'>BlockedSender</span>(..) <span class='op'>=&gt;</span> <span class='macro'>unreachable</span><span class='macro'>!</span>(),
+        } <span class="kw">else</span> {
+            <span class="comment">// If the buffer has some space and the capacity isn&#39;t 0, then we</span>
+            <span class="comment">// just enqueue the data for later retrieval, ensuring to wake up</span>
+            <span class="comment">// any blocked receiver if there is one.</span>
+            <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">guard</span>.<span class="ident">buf</span>.<span class="ident">size</span>() <span class="op">&lt;</span> <span class="ident">guard</span>.<span class="ident">buf</span>.<span class="ident">cap</span>());
+            <span class="ident">guard</span>.<span class="ident">buf</span>.<span class="ident">enqueue</span>(<span class="ident">t</span>);
+            <span class="kw">match</span> <span class="ident">mem</span>::<span class="ident">replace</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">guard</span>.<span class="ident">blocker</span>, <span class="ident">NoneBlocked</span>) {
+                <span class="ident">BlockedReceiver</span>(<span class="ident">token</span>) <span class="op">=&gt;</span> <span class="ident">wakeup</span>(<span class="ident">token</span>, <span class="ident">guard</span>),
+                <span class="ident">NoneBlocked</span> <span class="op">=&gt;</span> {}
+                <span class="ident">BlockedSender</span>(..) <span class="op">=&gt;</span> <span class="macro">unreachable</span><span class="macro">!</span>(),
             }
-            <span class='prelude-val'>Ok</span>(())
+            <span class="prelude-val">Ok</span>(())
         }
     }
 
-    <span class='comment'>// Receives a message from this channel</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// When reading this, remember that there can only ever be one receiver at</span>
-    <span class='comment'>// time.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>recv</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>deadline</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Instant</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>T</span>, <span class='ident'>Failure</span><span class='op'>&gt;</span> {
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>guard</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>lock</span>.<span class='ident'>lock</span>().<span class='ident'>unwrap</span>();
+    <span class="comment">// Receives a message from this channel</span>
+    <span class="comment">//</span>
+    <span class="comment">// When reading this, remember that there can only ever be one receiver at</span>
+    <span class="comment">// time.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">recv</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">deadline</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Instant</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">T</span>, <span class="ident">Failure</span><span class="op">&gt;</span> {
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">guard</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">lock</span>.<span class="ident">lock</span>().<span class="ident">unwrap</span>();
 
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>woke_up_after_waiting</span> <span class='op'>=</span> <span class='bool-val'>false</span>;
-        <span class='comment'>// Wait for the buffer to have something in it. No need for a</span>
-        <span class='comment'>// while loop because we&#39;re the only receiver.</span>
-        <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>guard</span>.<span class='ident'>disconnected</span> <span class='op'>&amp;&amp;</span> <span class='ident'>guard</span>.<span class='ident'>buf</span>.<span class='ident'>size</span>() <span class='op'>==</span> <span class='number'>0</span> {
-            <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>deadline</span>) <span class='op'>=</span> <span class='ident'>deadline</span> {
-                <span class='ident'>guard</span> <span class='op'>=</span> <span class='ident'>wait_timeout_receiver</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>lock</span>,
-                                              <span class='ident'>deadline</span>,
-                                              <span class='ident'>guard</span>,
-                                              <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>woke_up_after_waiting</span>);
-            } <span class='kw'>else</span> {
-                <span class='ident'>guard</span> <span class='op'>=</span> <span class='ident'>wait</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>lock</span>, <span class='ident'>guard</span>, <span class='ident'>BlockedReceiver</span>);
-                <span class='ident'>woke_up_after_waiting</span> <span class='op'>=</span> <span class='bool-val'>true</span>;
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">woke_up_after_waiting</span> <span class="op">=</span> <span class="bool-val">false</span>;
+        <span class="comment">// Wait for the buffer to have something in it. No need for a</span>
+        <span class="comment">// while loop because we&#39;re the only receiver.</span>
+        <span class="kw">if</span> <span class="op">!</span><span class="ident">guard</span>.<span class="ident">disconnected</span> <span class="op">&amp;&amp;</span> <span class="ident">guard</span>.<span class="ident">buf</span>.<span class="ident">size</span>() <span class="op">==</span> <span class="number">0</span> {
+            <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">deadline</span>) <span class="op">=</span> <span class="ident">deadline</span> {
+                <span class="ident">guard</span> <span class="op">=</span> <span class="ident">wait_timeout_receiver</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">lock</span>,
+                                              <span class="ident">deadline</span>,
+                                              <span class="ident">guard</span>,
+                                              <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">woke_up_after_waiting</span>);
+            } <span class="kw">else</span> {
+                <span class="ident">guard</span> <span class="op">=</span> <span class="ident">wait</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">lock</span>, <span class="ident">guard</span>, <span class="ident">BlockedReceiver</span>);
+                <span class="ident">woke_up_after_waiting</span> <span class="op">=</span> <span class="bool-val">true</span>;
             }
         }
 
-        <span class='comment'>// NB: Channel could be disconnected while waiting, so the order of</span>
-        <span class='comment'>// these conditionals is important.</span>
-        <span class='kw'>if</span> <span class='ident'>guard</span>.<span class='ident'>disconnected</span> <span class='op'>&amp;&amp;</span> <span class='ident'>guard</span>.<span class='ident'>buf</span>.<span class='ident'>size</span>() <span class='op'>==</span> <span class='number'>0</span> {
-            <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>Disconnected</span>);
+        <span class="comment">// NB: Channel could be disconnected while waiting, so the order of</span>
+        <span class="comment">// these conditionals is important.</span>
+        <span class="kw">if</span> <span class="ident">guard</span>.<span class="ident">disconnected</span> <span class="op">&amp;&amp;</span> <span class="ident">guard</span>.<span class="ident">buf</span>.<span class="ident">size</span>() <span class="op">==</span> <span class="number">0</span> {
+            <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">Disconnected</span>);
         }
 
-        <span class='comment'>// Pick up the data, wake up our neighbors, and carry on</span>
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>guard</span>.<span class='ident'>buf</span>.<span class='ident'>size</span>() <span class='op'>&gt;</span> <span class='number'>0</span> <span class='op'>||</span> (<span class='ident'>deadline</span>.<span class='ident'>is_some</span>() <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='ident'>woke_up_after_waiting</span>));
+        <span class="comment">// Pick up the data, wake up our neighbors, and carry on</span>
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">guard</span>.<span class="ident">buf</span>.<span class="ident">size</span>() <span class="op">&gt;</span> <span class="number">0</span> <span class="op">||</span> (<span class="ident">deadline</span>.<span class="ident">is_some</span>() <span class="op">&amp;&amp;</span> <span class="op">!</span><span class="ident">woke_up_after_waiting</span>));
 
-        <span class='kw'>if</span> <span class='ident'>guard</span>.<span class='ident'>buf</span>.<span class='ident'>size</span>() <span class='op'>==</span> <span class='number'>0</span> { <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>Empty</span>); }
+        <span class="kw">if</span> <span class="ident">guard</span>.<span class="ident">buf</span>.<span class="ident">size</span>() <span class="op">==</span> <span class="number">0</span> { <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">Empty</span>); }
 
-        <span class='kw'>let</span> <span class='ident'>ret</span> <span class='op'>=</span> <span class='ident'>guard</span>.<span class='ident'>buf</span>.<span class='ident'>dequeue</span>();
-        <span class='self'>self</span>.<span class='ident'>wakeup_senders</span>(<span class='ident'>woke_up_after_waiting</span>, <span class='ident'>guard</span>);
-        <span class='prelude-val'>Ok</span>(<span class='ident'>ret</span>)
+        <span class="kw">let</span> <span class="ident">ret</span> <span class="op">=</span> <span class="ident">guard</span>.<span class="ident">buf</span>.<span class="ident">dequeue</span>();
+        <span class="self">self</span>.<span class="ident">wakeup_senders</span>(<span class="ident">woke_up_after_waiting</span>, <span class="ident">guard</span>);
+        <span class="prelude-val">Ok</span>(<span class="ident">ret</span>)
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>try_recv</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>T</span>, <span class='ident'>Failure</span><span class='op'>&gt;</span> {
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>guard</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>lock</span>.<span class='ident'>lock</span>().<span class='ident'>unwrap</span>();
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">try_recv</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">T</span>, <span class="ident">Failure</span><span class="op">&gt;</span> {
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">guard</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">lock</span>.<span class="ident">lock</span>().<span class="ident">unwrap</span>();
 
-        <span class='comment'>// Easy cases first</span>
-        <span class='kw'>if</span> <span class='ident'>guard</span>.<span class='ident'>disconnected</span> <span class='op'>&amp;&amp;</span> <span class='ident'>guard</span>.<span class='ident'>buf</span>.<span class='ident'>size</span>() <span class='op'>==</span> <span class='number'>0</span> { <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>Disconnected</span>) }
-        <span class='kw'>if</span> <span class='ident'>guard</span>.<span class='ident'>buf</span>.<span class='ident'>size</span>() <span class='op'>==</span> <span class='number'>0</span> { <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>Empty</span>) }
+        <span class="comment">// Easy cases first</span>
+        <span class="kw">if</span> <span class="ident">guard</span>.<span class="ident">disconnected</span> <span class="op">&amp;&amp;</span> <span class="ident">guard</span>.<span class="ident">buf</span>.<span class="ident">size</span>() <span class="op">==</span> <span class="number">0</span> { <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">Disconnected</span>) }
+        <span class="kw">if</span> <span class="ident">guard</span>.<span class="ident">buf</span>.<span class="ident">size</span>() <span class="op">==</span> <span class="number">0</span> { <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">Empty</span>) }
 
-        <span class='comment'>// Be sure to wake up neighbors</span>
-        <span class='kw'>let</span> <span class='ident'>ret</span> <span class='op'>=</span> <span class='prelude-val'>Ok</span>(<span class='ident'>guard</span>.<span class='ident'>buf</span>.<span class='ident'>dequeue</span>());
-        <span class='self'>self</span>.<span class='ident'>wakeup_senders</span>(<span class='bool-val'>false</span>, <span class='ident'>guard</span>);
-        <span class='ident'>ret</span>
+        <span class="comment">// Be sure to wake up neighbors</span>
+        <span class="kw">let</span> <span class="ident">ret</span> <span class="op">=</span> <span class="prelude-val">Ok</span>(<span class="ident">guard</span>.<span class="ident">buf</span>.<span class="ident">dequeue</span>());
+        <span class="self">self</span>.<span class="ident">wakeup_senders</span>(<span class="bool-val">false</span>, <span class="ident">guard</span>);
+        <span class="ident">ret</span>
     }
 
-    <span class='comment'>// Wake up pending senders after some data has been received</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// * `waited` - flag if the receiver blocked to receive some data, or if it</span>
-    <span class='comment'>//              just picked up some data on the way out</span>
-    <span class='comment'>// * `guard` - the lock guard that is held over this channel&#39;s lock</span>
-    <span class='kw'>fn</span> <span class='ident'>wakeup_senders</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>waited</span>: <span class='ident'>bool</span>, <span class='kw-2'>mut</span> <span class='ident'>guard</span>: <span class='ident'>MutexGuard</span><span class='op'>&lt;</span><span class='ident'>State</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>) {
-        <span class='kw'>let</span> <span class='ident'>pending_sender1</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>SignalToken</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>guard</span>.<span class='ident'>queue</span>.<span class='ident'>dequeue</span>();
+    <span class="comment">// Wake up pending senders after some data has been received</span>
+    <span class="comment">//</span>
+    <span class="comment">// * `waited` - flag if the receiver blocked to receive some data, or if it</span>
+    <span class="comment">//              just picked up some data on the way out</span>
+    <span class="comment">// * `guard` - the lock guard that is held over this channel&#39;s lock</span>
+    <span class="kw">fn</span> <span class="ident">wakeup_senders</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">waited</span>: <span class="ident">bool</span>, <span class="kw-2">mut</span> <span class="ident">guard</span>: <span class="ident">MutexGuard</span><span class="op">&lt;</span><span class="ident">State</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span>) {
+        <span class="kw">let</span> <span class="ident">pending_sender1</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">SignalToken</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">guard</span>.<span class="ident">queue</span>.<span class="ident">dequeue</span>();
 
-        <span class='comment'>// If this is a no-buffer channel (cap == 0), then if we didn&#39;t wait we</span>
-        <span class='comment'>// need to ACK the sender. If we waited, then the sender waking us up</span>
-        <span class='comment'>// was already the ACK.</span>
-        <span class='kw'>let</span> <span class='ident'>pending_sender2</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='ident'>guard</span>.<span class='ident'>cap</span> <span class='op'>==</span> <span class='number'>0</span> <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='ident'>waited</span> {
-            <span class='kw'>match</span> <span class='ident'>mem</span>::<span class='ident'>replace</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>guard</span>.<span class='ident'>blocker</span>, <span class='ident'>NoneBlocked</span>) {
-                <span class='ident'>NoneBlocked</span> <span class='op'>=&gt;</span> <span class='prelude-val'>None</span>,
-                <span class='ident'>BlockedReceiver</span>(..) <span class='op'>=&gt;</span> <span class='macro'>unreachable</span><span class='macro'>!</span>(),
-                <span class='ident'>BlockedSender</span>(<span class='ident'>token</span>) <span class='op'>=&gt;</span> {
-                    <span class='ident'>guard</span>.<span class='ident'>canceled</span>.<span class='ident'>take</span>();
-                    <span class='prelude-val'>Some</span>(<span class='ident'>token</span>)
+        <span class="comment">// If this is a no-buffer channel (cap == 0), then if we didn&#39;t wait we</span>
+        <span class="comment">// need to ACK the sender. If we waited, then the sender waking us up</span>
+        <span class="comment">// was already the ACK.</span>
+        <span class="kw">let</span> <span class="ident">pending_sender2</span> <span class="op">=</span> <span class="kw">if</span> <span class="ident">guard</span>.<span class="ident">cap</span> <span class="op">==</span> <span class="number">0</span> <span class="op">&amp;&amp;</span> <span class="op">!</span><span class="ident">waited</span> {
+            <span class="kw">match</span> <span class="ident">mem</span>::<span class="ident">replace</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">guard</span>.<span class="ident">blocker</span>, <span class="ident">NoneBlocked</span>) {
+                <span class="ident">NoneBlocked</span> <span class="op">=&gt;</span> <span class="prelude-val">None</span>,
+                <span class="ident">BlockedReceiver</span>(..) <span class="op">=&gt;</span> <span class="macro">unreachable</span><span class="macro">!</span>(),
+                <span class="ident">BlockedSender</span>(<span class="ident">token</span>) <span class="op">=&gt;</span> {
+                    <span class="ident">guard</span>.<span class="ident">canceled</span>.<span class="ident">take</span>();
+                    <span class="prelude-val">Some</span>(<span class="ident">token</span>)
                 }
             }
-        } <span class='kw'>else</span> {
-            <span class='prelude-val'>None</span>
+        } <span class="kw">else</span> {
+            <span class="prelude-val">None</span>
         };
-        <span class='ident'>mem</span>::<span class='ident'>drop</span>(<span class='ident'>guard</span>);
+        <span class="ident">mem</span>::<span class="ident">drop</span>(<span class="ident">guard</span>);
 
-        <span class='comment'>// only outside of the lock do we wake up the pending threads</span>
-        <span class='ident'>pending_sender1</span>.<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>t</span><span class='op'>|</span> <span class='ident'>t</span>.<span class='ident'>signal</span>());
-        <span class='ident'>pending_sender2</span>.<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>t</span><span class='op'>|</span> <span class='ident'>t</span>.<span class='ident'>signal</span>());
+        <span class="comment">// only outside of the lock do we wake up the pending threads</span>
+        <span class="ident">pending_sender1</span>.<span class="ident">map</span>(<span class="op">|</span><span class="ident">t</span><span class="op">|</span> <span class="ident">t</span>.<span class="ident">signal</span>());
+        <span class="ident">pending_sender2</span>.<span class="ident">map</span>(<span class="op">|</span><span class="ident">t</span><span class="op">|</span> <span class="ident">t</span>.<span class="ident">signal</span>());
     }
 
-    <span class='comment'>// Prepares this shared packet for a channel clone, essentially just bumping</span>
-    <span class='comment'>// a refcount.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>clone_chan</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) {
-        <span class='kw'>let</span> <span class='ident'>old_count</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>channels</span>.<span class='ident'>fetch_add</span>(<span class='number'>1</span>, <span class='ident'>Ordering</span>::<span class='ident'>SeqCst</span>);
+    <span class="comment">// Prepares this shared packet for a channel clone, essentially just bumping</span>
+    <span class="comment">// a refcount.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">clone_chan</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) {
+        <span class="kw">let</span> <span class="ident">old_count</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">channels</span>.<span class="ident">fetch_add</span>(<span class="number">1</span>, <span class="ident">Ordering</span>::<span class="ident">SeqCst</span>);
 
-        <span class='comment'>// See comments on Arc::clone() on why we do this (for `mem::forget`).</span>
-        <span class='kw'>if</span> <span class='ident'>old_count</span> <span class='op'>&gt;</span> <span class='ident'>MAX_REFCOUNT</span> {
-            <span class='kw'>unsafe</span> {
-                <span class='ident'>abort</span>();
+        <span class="comment">// See comments on Arc::clone() on why we do this (for `mem::forget`).</span>
+        <span class="kw">if</span> <span class="ident">old_count</span> <span class="op">&gt;</span> <span class="ident">MAX_REFCOUNT</span> {
+            <span class="kw">unsafe</span> {
+                <span class="ident">abort</span>();
             }
         }
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>drop_chan</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) {
-        <span class='comment'>// Only flag the channel as disconnected if we&#39;re the last channel</span>
-        <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>channels</span>.<span class='ident'>fetch_sub</span>(<span class='number'>1</span>, <span class='ident'>Ordering</span>::<span class='ident'>SeqCst</span>) {
-            <span class='number'>1</span> <span class='op'>=&gt;</span> {}
-            _ <span class='op'>=&gt;</span> <span class='kw'>return</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">drop_chan</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) {
+        <span class="comment">// Only flag the channel as disconnected if we&#39;re the last channel</span>
+        <span class="kw">match</span> <span class="self">self</span>.<span class="ident">channels</span>.<span class="ident">fetch_sub</span>(<span class="number">1</span>, <span class="ident">Ordering</span>::<span class="ident">SeqCst</span>) {
+            <span class="number">1</span> <span class="op">=&gt;</span> {}
+            _ <span class="op">=&gt;</span> <span class="kw">return</span>
         }
 
-        <span class='comment'>// Not much to do other than wake up a receiver if one&#39;s there</span>
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>guard</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>lock</span>.<span class='ident'>lock</span>().<span class='ident'>unwrap</span>();
-        <span class='kw'>if</span> <span class='ident'>guard</span>.<span class='ident'>disconnected</span> { <span class='kw'>return</span> }
-        <span class='ident'>guard</span>.<span class='ident'>disconnected</span> <span class='op'>=</span> <span class='bool-val'>true</span>;
-        <span class='kw'>match</span> <span class='ident'>mem</span>::<span class='ident'>replace</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>guard</span>.<span class='ident'>blocker</span>, <span class='ident'>NoneBlocked</span>) {
-            <span class='ident'>NoneBlocked</span> <span class='op'>=&gt;</span> {}
-            <span class='ident'>BlockedSender</span>(..) <span class='op'>=&gt;</span> <span class='macro'>unreachable</span><span class='macro'>!</span>(),
-            <span class='ident'>BlockedReceiver</span>(<span class='ident'>token</span>) <span class='op'>=&gt;</span> <span class='ident'>wakeup</span>(<span class='ident'>token</span>, <span class='ident'>guard</span>),
+        <span class="comment">// Not much to do other than wake up a receiver if one&#39;s there</span>
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">guard</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">lock</span>.<span class="ident">lock</span>().<span class="ident">unwrap</span>();
+        <span class="kw">if</span> <span class="ident">guard</span>.<span class="ident">disconnected</span> { <span class="kw">return</span> }
+        <span class="ident">guard</span>.<span class="ident">disconnected</span> <span class="op">=</span> <span class="bool-val">true</span>;
+        <span class="kw">match</span> <span class="ident">mem</span>::<span class="ident">replace</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">guard</span>.<span class="ident">blocker</span>, <span class="ident">NoneBlocked</span>) {
+            <span class="ident">NoneBlocked</span> <span class="op">=&gt;</span> {}
+            <span class="ident">BlockedSender</span>(..) <span class="op">=&gt;</span> <span class="macro">unreachable</span><span class="macro">!</span>(),
+            <span class="ident">BlockedReceiver</span>(<span class="ident">token</span>) <span class="op">=&gt;</span> <span class="ident">wakeup</span>(<span class="ident">token</span>, <span class="ident">guard</span>),
         }
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>drop_port</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) {
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>guard</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>lock</span>.<span class='ident'>lock</span>().<span class='ident'>unwrap</span>();
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">drop_port</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) {
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">guard</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">lock</span>.<span class="ident">lock</span>().<span class="ident">unwrap</span>();
 
-        <span class='kw'>if</span> <span class='ident'>guard</span>.<span class='ident'>disconnected</span> { <span class='kw'>return</span> }
-        <span class='ident'>guard</span>.<span class='ident'>disconnected</span> <span class='op'>=</span> <span class='bool-val'>true</span>;
+        <span class="kw">if</span> <span class="ident">guard</span>.<span class="ident">disconnected</span> { <span class="kw">return</span> }
+        <span class="ident">guard</span>.<span class="ident">disconnected</span> <span class="op">=</span> <span class="bool-val">true</span>;
 
-        <span class='comment'>// If the capacity is 0, then the sender may want its data back after</span>
-        <span class='comment'>// we&#39;re disconnected. Otherwise it&#39;s now our responsibility to destroy</span>
-        <span class='comment'>// the buffered data. As with many other portions of this code, this</span>
-        <span class='comment'>// needs to be careful to destroy the data *outside* of the lock to</span>
-        <span class='comment'>// prevent deadlock.</span>
-        <span class='kw'>let</span> <span class='ident'>_data</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='ident'>guard</span>.<span class='ident'>cap</span> <span class='op'>!=</span> <span class='number'>0</span> {
-            <span class='ident'>mem</span>::<span class='ident'>replace</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>guard</span>.<span class='ident'>buf</span>.<span class='ident'>buf</span>, <span class='ident'>Vec</span>::<span class='ident'>new</span>())
-        } <span class='kw'>else</span> {
-            <span class='ident'>Vec</span>::<span class='ident'>new</span>()
+        <span class="comment">// If the capacity is 0, then the sender may want its data back after</span>
+        <span class="comment">// we&#39;re disconnected. Otherwise it&#39;s now our responsibility to destroy</span>
+        <span class="comment">// the buffered data. As with many other portions of this code, this</span>
+        <span class="comment">// needs to be careful to destroy the data *outside* of the lock to</span>
+        <span class="comment">// prevent deadlock.</span>
+        <span class="kw">let</span> <span class="ident">_data</span> <span class="op">=</span> <span class="kw">if</span> <span class="ident">guard</span>.<span class="ident">cap</span> <span class="op">!=</span> <span class="number">0</span> {
+            <span class="ident">mem</span>::<span class="ident">replace</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">guard</span>.<span class="ident">buf</span>.<span class="ident">buf</span>, <span class="ident">Vec</span>::<span class="ident">new</span>())
+        } <span class="kw">else</span> {
+            <span class="ident">Vec</span>::<span class="ident">new</span>()
         };
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>queue</span> <span class='op'>=</span> <span class='ident'>mem</span>::<span class='ident'>replace</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>guard</span>.<span class='ident'>queue</span>, <span class='ident'>Queue</span> {
-            <span class='ident'>head</span>: <span class='ident'>ptr</span>::<span class='ident'>null_mut</span>(),
-            <span class='ident'>tail</span>: <span class='ident'>ptr</span>::<span class='ident'>null_mut</span>(),
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">queue</span> <span class="op">=</span> <span class="ident">mem</span>::<span class="ident">replace</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">guard</span>.<span class="ident">queue</span>, <span class="ident">Queue</span> {
+            <span class="ident">head</span>: <span class="ident">ptr</span>::<span class="ident">null_mut</span>(),
+            <span class="ident">tail</span>: <span class="ident">ptr</span>::<span class="ident">null_mut</span>(),
         });
 
-        <span class='kw'>let</span> <span class='ident'>waiter</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>mem</span>::<span class='ident'>replace</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>guard</span>.<span class='ident'>blocker</span>, <span class='ident'>NoneBlocked</span>) {
-            <span class='ident'>NoneBlocked</span> <span class='op'>=&gt;</span> <span class='prelude-val'>None</span>,
-            <span class='ident'>BlockedSender</span>(<span class='ident'>token</span>) <span class='op'>=&gt;</span> {
-                <span class='kw-2'>*</span><span class='ident'>guard</span>.<span class='ident'>canceled</span>.<span class='ident'>take</span>().<span class='ident'>unwrap</span>() <span class='op'>=</span> <span class='bool-val'>true</span>;
-                <span class='prelude-val'>Some</span>(<span class='ident'>token</span>)
+        <span class="kw">let</span> <span class="ident">waiter</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">mem</span>::<span class="ident">replace</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">guard</span>.<span class="ident">blocker</span>, <span class="ident">NoneBlocked</span>) {
+            <span class="ident">NoneBlocked</span> <span class="op">=&gt;</span> <span class="prelude-val">None</span>,
+            <span class="ident">BlockedSender</span>(<span class="ident">token</span>) <span class="op">=&gt;</span> {
+                <span class="kw-2">*</span><span class="ident">guard</span>.<span class="ident">canceled</span>.<span class="ident">take</span>().<span class="ident">unwrap</span>() <span class="op">=</span> <span class="bool-val">true</span>;
+                <span class="prelude-val">Some</span>(<span class="ident">token</span>)
             }
-            <span class='ident'>BlockedReceiver</span>(..) <span class='op'>=&gt;</span> <span class='macro'>unreachable</span><span class='macro'>!</span>(),
+            <span class="ident">BlockedReceiver</span>(..) <span class="op">=&gt;</span> <span class="macro">unreachable</span><span class="macro">!</span>(),
         };
-        <span class='ident'>mem</span>::<span class='ident'>drop</span>(<span class='ident'>guard</span>);
+        <span class="ident">mem</span>::<span class="ident">drop</span>(<span class="ident">guard</span>);
 
-        <span class='kw'>while</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>token</span>) <span class='op'>=</span> <span class='ident'>queue</span>.<span class='ident'>dequeue</span>() { <span class='ident'>token</span>.<span class='ident'>signal</span>(); }
-        <span class='ident'>waiter</span>.<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>t</span><span class='op'>|</span> <span class='ident'>t</span>.<span class='ident'>signal</span>());
+        <span class="kw">while</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">token</span>) <span class="op">=</span> <span class="ident">queue</span>.<span class="ident">dequeue</span>() { <span class="ident">token</span>.<span class="ident">signal</span>(); }
+        <span class="ident">waiter</span>.<span class="ident">map</span>(<span class="op">|</span><span class="ident">t</span><span class="op">|</span> <span class="ident">t</span>.<span class="ident">signal</span>());
     }
 
-    <span class='comment'>////////////////////////////////////////////////////////////////////////////</span>
-    <span class='comment'>// select implementation</span>
-    <span class='comment'>////////////////////////////////////////////////////////////////////////////</span>
+    <span class="comment">////////////////////////////////////////////////////////////////////////////</span>
+    <span class="comment">// select implementation</span>
+    <span class="comment">////////////////////////////////////////////////////////////////////////////</span>
 
-    <span class='comment'>// If Ok, the value is whether this port has data, if Err, then the upgraded</span>
-    <span class='comment'>// port needs to be checked instead of this one.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>can_recv</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-        <span class='kw'>let</span> <span class='ident'>guard</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>lock</span>.<span class='ident'>lock</span>().<span class='ident'>unwrap</span>();
-        <span class='ident'>guard</span>.<span class='ident'>disconnected</span> <span class='op'>||</span> <span class='ident'>guard</span>.<span class='ident'>buf</span>.<span class='ident'>size</span>() <span class='op'>&gt;</span> <span class='number'>0</span>
+    <span class="comment">// If Ok, the value is whether this port has data, if Err, then the upgraded</span>
+    <span class="comment">// port needs to be checked instead of this one.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">can_recv</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+        <span class="kw">let</span> <span class="ident">guard</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">lock</span>.<span class="ident">lock</span>().<span class="ident">unwrap</span>();
+        <span class="ident">guard</span>.<span class="ident">disconnected</span> <span class="op">||</span> <span class="ident">guard</span>.<span class="ident">buf</span>.<span class="ident">size</span>() <span class="op">&gt;</span> <span class="number">0</span>
     }
 
-    <span class='comment'>// Attempts to start selection on this port. This can either succeed or fail</span>
-    <span class='comment'>// because there is data waiting.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>start_selection</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>token</span>: <span class='ident'>SignalToken</span>) <span class='op'>-&gt;</span> <span class='ident'>StartResult</span> {
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>guard</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>lock</span>.<span class='ident'>lock</span>().<span class='ident'>unwrap</span>();
-        <span class='kw'>if</span> <span class='ident'>guard</span>.<span class='ident'>disconnected</span> <span class='op'>||</span> <span class='ident'>guard</span>.<span class='ident'>buf</span>.<span class='ident'>size</span>() <span class='op'>&gt;</span> <span class='number'>0</span> {
-            <span class='ident'>Abort</span>
-        } <span class='kw'>else</span> {
-            <span class='kw'>match</span> <span class='ident'>mem</span>::<span class='ident'>replace</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>guard</span>.<span class='ident'>blocker</span>, <span class='ident'>BlockedReceiver</span>(<span class='ident'>token</span>)) {
-                <span class='ident'>NoneBlocked</span> <span class='op'>=&gt;</span> {}
-                <span class='ident'>BlockedSender</span>(..) <span class='op'>=&gt;</span> <span class='macro'>unreachable</span><span class='macro'>!</span>(),
-                <span class='ident'>BlockedReceiver</span>(..) <span class='op'>=&gt;</span> <span class='macro'>unreachable</span><span class='macro'>!</span>(),
+    <span class="comment">// Attempts to start selection on this port. This can either succeed or fail</span>
+    <span class="comment">// because there is data waiting.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">start_selection</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">token</span>: <span class="ident">SignalToken</span>) <span class="op">-&gt;</span> <span class="ident">StartResult</span> {
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">guard</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">lock</span>.<span class="ident">lock</span>().<span class="ident">unwrap</span>();
+        <span class="kw">if</span> <span class="ident">guard</span>.<span class="ident">disconnected</span> <span class="op">||</span> <span class="ident">guard</span>.<span class="ident">buf</span>.<span class="ident">size</span>() <span class="op">&gt;</span> <span class="number">0</span> {
+            <span class="ident">Abort</span>
+        } <span class="kw">else</span> {
+            <span class="kw">match</span> <span class="ident">mem</span>::<span class="ident">replace</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">guard</span>.<span class="ident">blocker</span>, <span class="ident">BlockedReceiver</span>(<span class="ident">token</span>)) {
+                <span class="ident">NoneBlocked</span> <span class="op">=&gt;</span> {}
+                <span class="ident">BlockedSender</span>(..) <span class="op">=&gt;</span> <span class="macro">unreachable</span><span class="macro">!</span>(),
+                <span class="ident">BlockedReceiver</span>(..) <span class="op">=&gt;</span> <span class="macro">unreachable</span><span class="macro">!</span>(),
             }
-            <span class='ident'>Installed</span>
+            <span class="ident">Installed</span>
         }
     }
 
-    <span class='comment'>// Remove a previous selecting thread from this port. This ensures that the</span>
-    <span class='comment'>// blocked thread will no longer be visible to any other threads.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// The return value indicates whether there&#39;s data on this port.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>abort_selection</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>guard</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>lock</span>.<span class='ident'>lock</span>().<span class='ident'>unwrap</span>();
-        <span class='ident'>abort_selection</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>guard</span>)
+    <span class="comment">// Remove a previous selecting thread from this port. This ensures that the</span>
+    <span class="comment">// blocked thread will no longer be visible to any other threads.</span>
+    <span class="comment">//</span>
+    <span class="comment">// The return value indicates whether there&#39;s data on this port.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">abort_selection</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">guard</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">lock</span>.<span class="ident">lock</span>().<span class="ident">unwrap</span>();
+        <span class="ident">abort_selection</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">guard</span>)
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>Drop</span> <span class='kw'>for</span> <span class='ident'>Packet</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>drop</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) {
-        <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>channels</span>.<span class='ident'>load</span>(<span class='ident'>Ordering</span>::<span class='ident'>SeqCst</span>), <span class='number'>0</span>);
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>guard</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>lock</span>.<span class='ident'>lock</span>().<span class='ident'>unwrap</span>();
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>guard</span>.<span class='ident'>queue</span>.<span class='ident'>dequeue</span>().<span class='ident'>is_none</span>());
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>guard</span>.<span class='ident'>canceled</span>.<span class='ident'>is_none</span>());
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">Drop</span> <span class="kw">for</span> <span class="ident">Packet</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">drop</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) {
+        <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">channels</span>.<span class="ident">load</span>(<span class="ident">Ordering</span>::<span class="ident">SeqCst</span>), <span class="number">0</span>);
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">guard</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">lock</span>.<span class="ident">lock</span>().<span class="ident">unwrap</span>();
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">guard</span>.<span class="ident">queue</span>.<span class="ident">dequeue</span>().<span class="ident">is_none</span>());
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">guard</span>.<span class="ident">canceled</span>.<span class="ident">is_none</span>());
     }
 }
 
 
-<span class='comment'>////////////////////////////////////////////////////////////////////////////////</span>
-<span class='comment'>// Buffer, a simple ring buffer backed by Vec&lt;T&gt;</span>
-<span class='comment'>////////////////////////////////////////////////////////////////////////////////</span>
+<span class="comment">////////////////////////////////////////////////////////////////////////////////</span>
+<span class="comment">// Buffer, a simple ring buffer backed by Vec&lt;T&gt;</span>
+<span class="comment">////////////////////////////////////////////////////////////////////////////////</span>
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>Buffer</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>enqueue</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>t</span>: <span class='ident'>T</span>) {
-        <span class='kw'>let</span> <span class='ident'>pos</span> <span class='op'>=</span> (<span class='self'>self</span>.<span class='ident'>start</span> <span class='op'>+</span> <span class='self'>self</span>.<span class='ident'>size</span>) <span class='op'>%</span> <span class='self'>self</span>.<span class='ident'>buf</span>.<span class='ident'>len</span>();
-        <span class='self'>self</span>.<span class='ident'>size</span> <span class='op'>+=</span> <span class='number'>1</span>;
-        <span class='kw'>let</span> <span class='ident'>prev</span> <span class='op'>=</span> <span class='ident'>mem</span>::<span class='ident'>replace</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>.<span class='ident'>buf</span>[<span class='ident'>pos</span>], <span class='prelude-val'>Some</span>(<span class='ident'>t</span>));
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>prev</span>.<span class='ident'>is_none</span>());
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">Buffer</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">enqueue</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">t</span>: <span class="ident">T</span>) {
+        <span class="kw">let</span> <span class="ident">pos</span> <span class="op">=</span> (<span class="self">self</span>.<span class="ident">start</span> <span class="op">+</span> <span class="self">self</span>.<span class="ident">size</span>) <span class="op">%</span> <span class="self">self</span>.<span class="ident">buf</span>.<span class="ident">len</span>();
+        <span class="self">self</span>.<span class="ident">size</span> <span class="op">+=</span> <span class="number">1</span>;
+        <span class="kw">let</span> <span class="ident">prev</span> <span class="op">=</span> <span class="ident">mem</span>::<span class="ident">replace</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>.<span class="ident">buf</span>[<span class="ident">pos</span>], <span class="prelude-val">Some</span>(<span class="ident">t</span>));
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">prev</span>.<span class="ident">is_none</span>());
     }
 
-    <span class='kw'>fn</span> <span class='ident'>dequeue</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>T</span> {
-        <span class='kw'>let</span> <span class='ident'>start</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>start</span>;
-        <span class='self'>self</span>.<span class='ident'>size</span> <span class='op'>-=</span> <span class='number'>1</span>;
-        <span class='self'>self</span>.<span class='ident'>start</span> <span class='op'>=</span> (<span class='self'>self</span>.<span class='ident'>start</span> <span class='op'>+</span> <span class='number'>1</span>) <span class='op'>%</span> <span class='self'>self</span>.<span class='ident'>buf</span>.<span class='ident'>len</span>();
-        <span class='kw'>let</span> <span class='ident'>result</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>.<span class='ident'>buf</span>[<span class='ident'>start</span>];
-        <span class='ident'>result</span>.<span class='ident'>take</span>().<span class='ident'>unwrap</span>()
+    <span class="kw">fn</span> <span class="ident">dequeue</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">T</span> {
+        <span class="kw">let</span> <span class="ident">start</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">start</span>;
+        <span class="self">self</span>.<span class="ident">size</span> <span class="op">-=</span> <span class="number">1</span>;
+        <span class="self">self</span>.<span class="ident">start</span> <span class="op">=</span> (<span class="self">self</span>.<span class="ident">start</span> <span class="op">+</span> <span class="number">1</span>) <span class="op">%</span> <span class="self">self</span>.<span class="ident">buf</span>.<span class="ident">len</span>();
+        <span class="kw">let</span> <span class="ident">result</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>.<span class="ident">buf</span>[<span class="ident">start</span>];
+        <span class="ident">result</span>.<span class="ident">take</span>().<span class="ident">unwrap</span>()
     }
 
-    <span class='kw'>fn</span> <span class='ident'>size</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> { <span class='self'>self</span>.<span class='ident'>size</span> }
-    <span class='kw'>fn</span> <span class='ident'>cap</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> { <span class='self'>self</span>.<span class='ident'>buf</span>.<span class='ident'>len</span>() }
+    <span class="kw">fn</span> <span class="ident">size</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">usize</span> { <span class="self">self</span>.<span class="ident">size</span> }
+    <span class="kw">fn</span> <span class="ident">cap</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">usize</span> { <span class="self">self</span>.<span class="ident">buf</span>.<span class="ident">len</span>() }
 }
 
-<span class='comment'>////////////////////////////////////////////////////////////////////////////////</span>
-<span class='comment'>// Queue, a simple queue to enqueue threads with (stack-allocated nodes)</span>
-<span class='comment'>////////////////////////////////////////////////////////////////////////////////</span>
+<span class="comment">////////////////////////////////////////////////////////////////////////////////</span>
+<span class="comment">// Queue, a simple queue to enqueue threads with (stack-allocated nodes)</span>
+<span class="comment">////////////////////////////////////////////////////////////////////////////////</span>
 
-<span class='kw'>impl</span> <span class='ident'>Queue</span> {
-    <span class='kw'>fn</span> <span class='ident'>enqueue</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>node</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Node</span>) <span class='op'>-&gt;</span> <span class='ident'>WaitToken</span> {
-        <span class='kw'>let</span> (<span class='ident'>wait_token</span>, <span class='ident'>signal_token</span>) <span class='op'>=</span> <span class='ident'>blocking</span>::<span class='ident'>tokens</span>();
-        <span class='ident'>node</span>.<span class='ident'>token</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='ident'>signal_token</span>);
-        <span class='ident'>node</span>.<span class='ident'>next</span> <span class='op'>=</span> <span class='ident'>ptr</span>::<span class='ident'>null_mut</span>();
+<span class="kw">impl</span> <span class="ident">Queue</span> {
+    <span class="kw">fn</span> <span class="ident">enqueue</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">node</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Node</span>) <span class="op">-&gt;</span> <span class="ident">WaitToken</span> {
+        <span class="kw">let</span> (<span class="ident">wait_token</span>, <span class="ident">signal_token</span>) <span class="op">=</span> <span class="ident">blocking</span>::<span class="ident">tokens</span>();
+        <span class="ident">node</span>.<span class="ident">token</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="ident">signal_token</span>);
+        <span class="ident">node</span>.<span class="ident">next</span> <span class="op">=</span> <span class="ident">ptr</span>::<span class="ident">null_mut</span>();
 
-        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>tail</span>.<span class='ident'>is_null</span>() {
-            <span class='self'>self</span>.<span class='ident'>head</span> <span class='op'>=</span> <span class='ident'>node</span> <span class='kw'>as</span> <span class='kw-2'>*</span><span class='kw-2'>mut</span> <span class='ident'>Node</span>;
-            <span class='self'>self</span>.<span class='ident'>tail</span> <span class='op'>=</span> <span class='ident'>node</span> <span class='kw'>as</span> <span class='kw-2'>*</span><span class='kw-2'>mut</span> <span class='ident'>Node</span>;
-        } <span class='kw'>else</span> {
-            <span class='kw'>unsafe</span> {
-                (<span class='kw-2'>*</span><span class='self'>self</span>.<span class='ident'>tail</span>).<span class='ident'>next</span> <span class='op'>=</span> <span class='ident'>node</span> <span class='kw'>as</span> <span class='kw-2'>*</span><span class='kw-2'>mut</span> <span class='ident'>Node</span>;
-                <span class='self'>self</span>.<span class='ident'>tail</span> <span class='op'>=</span> <span class='ident'>node</span> <span class='kw'>as</span> <span class='kw-2'>*</span><span class='kw-2'>mut</span> <span class='ident'>Node</span>;
+        <span class="kw">if</span> <span class="self">self</span>.<span class="ident">tail</span>.<span class="ident">is_null</span>() {
+            <span class="self">self</span>.<span class="ident">head</span> <span class="op">=</span> <span class="ident">node</span> <span class="kw">as</span> <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">Node</span>;
+            <span class="self">self</span>.<span class="ident">tail</span> <span class="op">=</span> <span class="ident">node</span> <span class="kw">as</span> <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">Node</span>;
+        } <span class="kw">else</span> {
+            <span class="kw">unsafe</span> {
+                (<span class="kw-2">*</span><span class="self">self</span>.<span class="ident">tail</span>).<span class="ident">next</span> <span class="op">=</span> <span class="ident">node</span> <span class="kw">as</span> <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">Node</span>;
+                <span class="self">self</span>.<span class="ident">tail</span> <span class="op">=</span> <span class="ident">node</span> <span class="kw">as</span> <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">Node</span>;
             }
         }
 
-        <span class='ident'>wait_token</span>
+        <span class="ident">wait_token</span>
     }
 
-    <span class='kw'>fn</span> <span class='ident'>dequeue</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>SignalToken</span><span class='op'>&gt;</span> {
-        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>head</span>.<span class='ident'>is_null</span>() {
-            <span class='kw'>return</span> <span class='prelude-val'>None</span>
+    <span class="kw">fn</span> <span class="ident">dequeue</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">SignalToken</span><span class="op">&gt;</span> {
+        <span class="kw">if</span> <span class="self">self</span>.<span class="ident">head</span>.<span class="ident">is_null</span>() {
+            <span class="kw">return</span> <span class="prelude-val">None</span>
         }
-        <span class='kw'>let</span> <span class='ident'>node</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>head</span>;
-        <span class='self'>self</span>.<span class='ident'>head</span> <span class='op'>=</span> <span class='kw'>unsafe</span> { (<span class='kw-2'>*</span><span class='ident'>node</span>).<span class='ident'>next</span> };
-        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>head</span>.<span class='ident'>is_null</span>() {
-            <span class='self'>self</span>.<span class='ident'>tail</span> <span class='op'>=</span> <span class='ident'>ptr</span>::<span class='ident'>null_mut</span>();
+        <span class="kw">let</span> <span class="ident">node</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">head</span>;
+        <span class="self">self</span>.<span class="ident">head</span> <span class="op">=</span> <span class="kw">unsafe</span> { (<span class="kw-2">*</span><span class="ident">node</span>).<span class="ident">next</span> };
+        <span class="kw">if</span> <span class="self">self</span>.<span class="ident">head</span>.<span class="ident">is_null</span>() {
+            <span class="self">self</span>.<span class="ident">tail</span> <span class="op">=</span> <span class="ident">ptr</span>::<span class="ident">null_mut</span>();
         }
-        <span class='kw'>unsafe</span> {
-            (<span class='kw-2'>*</span><span class='ident'>node</span>).<span class='ident'>next</span> <span class='op'>=</span> <span class='ident'>ptr</span>::<span class='ident'>null_mut</span>();
-            <span class='prelude-val'>Some</span>((<span class='kw-2'>*</span><span class='ident'>node</span>).<span class='ident'>token</span>.<span class='ident'>take</span>().<span class='ident'>unwrap</span>())
+        <span class="kw">unsafe</span> {
+            (<span class="kw-2">*</span><span class="ident">node</span>).<span class="ident">next</span> <span class="op">=</span> <span class="ident">ptr</span>::<span class="ident">null_mut</span>();
+            <span class="prelude-val">Some</span>((<span class="kw-2">*</span><span class="ident">node</span>).<span class="ident">token</span>.<span class="ident">take</span>().<span class="ident">unwrap</span>())
         }
     }
 }

@@ -221,181 +221,181 @@
 <span id="176">176</span>
 <span id="177">177</span>
 <span id="178">178</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='doccomment'>//! Freshening is the process of replacing unknown variables with fresh types. The idea is that</span>
-<span class='doccomment'>//! the type, after freshening, contains no inference variables but instead contains either a</span>
-<span class='doccomment'>//! value for each variable or fresh &quot;arbitrary&quot; types wherever a variable would have been.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! Freshening is used primarily to get a good type for inserting into a cache. The result</span>
-<span class='doccomment'>//! summarizes what the type inferencer knows &quot;so far&quot;. The primary place it is used right now is</span>
-<span class='doccomment'>//! in the trait matching algorithm, which needs to be able to cache whether an `impl` self type</span>
-<span class='doccomment'>//! matches some other type X -- *without* affecting `X`. That means if that if the type `X` is in</span>
-<span class='doccomment'>//! fact an unbound type variable, we want the match to be regarded as ambiguous, because depending</span>
-<span class='doccomment'>//! on what type that type variable is ultimately assigned, the match may or may not succeed.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! Note that you should be careful not to allow the output of freshening to leak to the user in</span>
-<span class='doccomment'>//! error messages or in any other form. Freshening is only really useful as an internal detail.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! __An important detail concerning regions.__ The freshener also replaces *all* regions with</span>
-<span class='doccomment'>//! &#39;erased. The reason behind this is that, in general, we do not take region relationships into</span>
-<span class='doccomment'>//! account when making type-overloaded decisions. This is important because of the design of the</span>
-<span class='doccomment'>//! region inferencer, which is not based on unification but rather on accumulating and then</span>
-<span class='doccomment'>//! solving a set of constraints. In contrast, the type inferencer assigns a value to each type</span>
-<span class='doccomment'>//! variable only once, and it does so as soon as it can, so it is reasonable to ask what the type</span>
-<span class='doccomment'>//! inferencer knows &quot;so far&quot;.</span>
+<span class="doccomment">//! Freshening is the process of replacing unknown variables with fresh types. The idea is that</span>
+<span class="doccomment">//! the type, after freshening, contains no inference variables but instead contains either a</span>
+<span class="doccomment">//! value for each variable or fresh &quot;arbitrary&quot; types wherever a variable would have been.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Freshening is used primarily to get a good type for inserting into a cache. The result</span>
+<span class="doccomment">//! summarizes what the type inferencer knows &quot;so far&quot;. The primary place it is used right now is</span>
+<span class="doccomment">//! in the trait matching algorithm, which needs to be able to cache whether an `impl` self type</span>
+<span class="doccomment">//! matches some other type X -- *without* affecting `X`. That means if that if the type `X` is in</span>
+<span class="doccomment">//! fact an unbound type variable, we want the match to be regarded as ambiguous, because depending</span>
+<span class="doccomment">//! on what type that type variable is ultimately assigned, the match may or may not succeed.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Note that you should be careful not to allow the output of freshening to leak to the user in</span>
+<span class="doccomment">//! error messages or in any other form. Freshening is only really useful as an internal detail.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! __An important detail concerning regions.__ The freshener also replaces *all* regions with</span>
+<span class="doccomment">//! &#39;erased. The reason behind this is that, in general, we do not take region relationships into</span>
+<span class="doccomment">//! account when making type-overloaded decisions. This is important because of the design of the</span>
+<span class="doccomment">//! region inferencer, which is not based on unification but rather on accumulating and then</span>
+<span class="doccomment">//! solving a set of constraints. In contrast, the type inferencer assigns a value to each type</span>
+<span class="doccomment">//! variable only once, and it does so as soon as it can, so it is reasonable to ask what the type</span>
+<span class="doccomment">//! inferencer knows &quot;so far&quot;.</span>
 
-<span class='kw'>use</span> <span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>Ty</span>, <span class='ident'>TyCtxt</span>, <span class='ident'>TypeFoldable</span>};
-<span class='kw'>use</span> <span class='ident'>ty</span>::<span class='ident'>fold</span>::<span class='ident'>TypeFolder</span>;
-<span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>nodemap</span>::<span class='ident'>FxHashMap</span>;
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>collections</span>::<span class='ident'>hash_map</span>::<span class='ident'>Entry</span>;
+<span class="kw">use</span> <span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">Ty</span>, <span class="ident">TyCtxt</span>, <span class="ident">TypeFoldable</span>};
+<span class="kw">use</span> <span class="ident">ty</span>::<span class="ident">fold</span>::<span class="ident">TypeFolder</span>;
+<span class="kw">use</span> <span class="ident">util</span>::<span class="ident">nodemap</span>::<span class="ident">FxHashMap</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">collections</span>::<span class="ident">hash_map</span>::<span class="ident">Entry</span>;
 
-<span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>InferCtxt</span>;
-<span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>unify_key</span>::<span class='ident'>ToType</span>;
+<span class="kw">use</span> <span class="kw">super</span>::<span class="ident">InferCtxt</span>;
+<span class="kw">use</span> <span class="kw">super</span>::<span class="ident">unify_key</span>::<span class="ident">ToType</span>;
 
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>TypeFreshener</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>: <span class='lifetime'>&#39;a</span><span class='op'>+</span><span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span>: <span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-    <span class='ident'>infcx</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>InferCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>freshen_count</span>: <span class='ident'>u32</span>,
-    <span class='ident'>freshen_map</span>: <span class='ident'>FxHashMap</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>InferTy</span>, <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">TypeFreshener</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>: <span class="lifetime">&#39;a</span><span class="op">+</span><span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span>: <span class="lifetime">&#39;a</span><span class="op">&gt;</span> {
+    <span class="ident">infcx</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">InferCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">freshen_count</span>: <span class="ident">u32</span>,
+    <span class="ident">freshen_map</span>: <span class="ident">FxHashMap</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">InferTy</span>, <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>TypeFreshener</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>infcx</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>InferCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-               <span class='op'>-&gt;</span> <span class='ident'>TypeFreshener</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='ident'>TypeFreshener</span> {
-            <span class='ident'>infcx</span>: <span class='ident'>infcx</span>,
-            <span class='ident'>freshen_count</span>: <span class='number'>0</span>,
-            <span class='ident'>freshen_map</span>: <span class='ident'>FxHashMap</span>(),
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">TypeFreshener</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">new</span>(<span class="ident">infcx</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">InferCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+               <span class="op">-&gt;</span> <span class="ident">TypeFreshener</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="ident">TypeFreshener</span> {
+            <span class="ident">infcx</span>: <span class="ident">infcx</span>,
+            <span class="ident">freshen_count</span>: <span class="number">0</span>,
+            <span class="ident">freshen_map</span>: <span class="ident">FxHashMap</span>(),
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>freshen</span><span class='op'>&lt;</span><span class='ident'>F</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                  <span class='ident'>opt_ty</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
-                  <span class='ident'>key</span>: <span class='ident'>ty</span>::<span class='ident'>InferTy</span>,
-                  <span class='ident'>freshener</span>: <span class='ident'>F</span>)
-                  <span class='op'>-&gt;</span> <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='kw'>where</span>
-        <span class='ident'>F</span>: <span class='ident'>FnOnce</span>(<span class='ident'>u32</span>) <span class='op'>-&gt;</span> <span class='ident'>ty</span>::<span class='ident'>InferTy</span>,
+    <span class="kw">fn</span> <span class="ident">freshen</span><span class="op">&lt;</span><span class="ident">F</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                  <span class="ident">opt_ty</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,
+                  <span class="ident">key</span>: <span class="ident">ty</span>::<span class="ident">InferTy</span>,
+                  <span class="ident">freshener</span>: <span class="ident">F</span>)
+                  <span class="op">-&gt;</span> <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="kw">where</span>
+        <span class="ident">F</span>: <span class="ident">FnOnce</span>(<span class="ident">u32</span>) <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">InferTy</span>,
     {
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>ty</span>) <span class='op'>=</span> <span class='ident'>opt_ty</span> {
-            <span class='kw'>return</span> <span class='ident'>ty</span>.<span class='ident'>fold_with</span>(<span class='self'>self</span>);
+        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">ty</span>) <span class="op">=</span> <span class="ident">opt_ty</span> {
+            <span class="kw">return</span> <span class="ident">ty</span>.<span class="ident">fold_with</span>(<span class="self">self</span>);
         }
 
-        <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>freshen_map</span>.<span class='ident'>entry</span>(<span class='ident'>key</span>) {
-            <span class='ident'>Entry</span>::<span class='ident'>Occupied</span>(<span class='ident'>entry</span>) <span class='op'>=&gt;</span> <span class='kw-2'>*</span><span class='ident'>entry</span>.<span class='ident'>get</span>(),
-            <span class='ident'>Entry</span>::<span class='ident'>Vacant</span>(<span class='ident'>entry</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>let</span> <span class='ident'>index</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>freshen_count</span>;
-                <span class='self'>self</span>.<span class='ident'>freshen_count</span> <span class='op'>+=</span> <span class='number'>1</span>;
-                <span class='kw'>let</span> <span class='ident'>t</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>tcx</span>.<span class='ident'>mk_infer</span>(<span class='ident'>freshener</span>(<span class='ident'>index</span>));
-                <span class='ident'>entry</span>.<span class='ident'>insert</span>(<span class='ident'>t</span>);
-                <span class='ident'>t</span>
+        <span class="kw">match</span> <span class="self">self</span>.<span class="ident">freshen_map</span>.<span class="ident">entry</span>(<span class="ident">key</span>) {
+            <span class="ident">Entry</span>::<span class="ident">Occupied</span>(<span class="ident">entry</span>) <span class="op">=&gt;</span> <span class="kw-2">*</span><span class="ident">entry</span>.<span class="ident">get</span>(),
+            <span class="ident">Entry</span>::<span class="ident">Vacant</span>(<span class="ident">entry</span>) <span class="op">=&gt;</span> {
+                <span class="kw">let</span> <span class="ident">index</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">freshen_count</span>;
+                <span class="self">self</span>.<span class="ident">freshen_count</span> <span class="op">+=</span> <span class="number">1</span>;
+                <span class="kw">let</span> <span class="ident">t</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">tcx</span>.<span class="ident">mk_infer</span>(<span class="ident">freshener</span>(<span class="ident">index</span>));
+                <span class="ident">entry</span>.<span class="ident">insert</span>(<span class="ident">t</span>);
+                <span class="ident">t</span>
             }
         }
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>TypeFolder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>TypeFreshener</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>tcx</span><span class='op'>&lt;</span><span class='lifetime'>&#39;b</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;b</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;b</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>tcx</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">TypeFolder</span><span class="op">&lt;</span><span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">TypeFreshener</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">tcx</span><span class="op">&lt;</span><span class="lifetime">&#39;b</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;b</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;b</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">tcx</span>
     }
 
-    <span class='kw'>fn</span> <span class='ident'>fold_region</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>r</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span> {
-        <span class='kw'>match</span> <span class='kw-2'>*</span><span class='ident'>r</span> {
-            <span class='ident'>ty</span>::<span class='ident'>ReEarlyBound</span>(..) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>ReLateBound</span>(..) <span class='op'>=&gt;</span> {
-                <span class='comment'>// leave bound regions alone</span>
-                <span class='ident'>r</span>
+    <span class="kw">fn</span> <span class="ident">fold_region</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">r</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span> {
+        <span class="kw">match</span> <span class="kw-2">*</span><span class="ident">r</span> {
+            <span class="ident">ty</span>::<span class="ident">ReEarlyBound</span>(..) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">ReLateBound</span>(..) <span class="op">=&gt;</span> {
+                <span class="comment">// leave bound regions alone</span>
+                <span class="ident">r</span>
             }
 
-            <span class='ident'>ty</span>::<span class='ident'>ReStatic</span> <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>ReFree</span>(_) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>ReScope</span>(_) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>ReVar</span>(_) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>ReSkolemized</span>(..) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>ReEmpty</span> <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>ReErased</span> <span class='op'>=&gt;</span> {
-                <span class='comment'>// replace all free regions with &#39;erased</span>
-                <span class='self'>self</span>.<span class='ident'>tcx</span>().<span class='ident'>mk_region</span>(<span class='ident'>ty</span>::<span class='ident'>ReErased</span>)
+            <span class="ident">ty</span>::<span class="ident">ReStatic</span> <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">ReFree</span>(_) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">ReScope</span>(_) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">ReVar</span>(_) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">ReSkolemized</span>(..) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">ReEmpty</span> <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">ReErased</span> <span class="op">=&gt;</span> {
+                <span class="comment">// replace all free regions with &#39;erased</span>
+                <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">mk_region</span>(<span class="ident">ty</span>::<span class="ident">ReErased</span>)
             }
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>fold_ty</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>t</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>t</span>.<span class='ident'>needs_infer</span>() <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='ident'>t</span>.<span class='ident'>has_erasable_regions</span>() {
-            <span class='kw'>return</span> <span class='ident'>t</span>;
+    <span class="kw">fn</span> <span class="ident">fold_ty</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">t</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="kw">if</span> <span class="op">!</span><span class="ident">t</span>.<span class="ident">needs_infer</span>() <span class="op">&amp;&amp;</span> <span class="op">!</span><span class="ident">t</span>.<span class="ident">has_erasable_regions</span>() {
+            <span class="kw">return</span> <span class="ident">t</span>;
         }
 
-        <span class='kw'>let</span> <span class='ident'>tcx</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>tcx</span>;
+        <span class="kw">let</span> <span class="ident">tcx</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">tcx</span>;
 
-        <span class='kw'>match</span> <span class='ident'>t</span>.<span class='ident'>sty</span> {
-            <span class='ident'>ty</span>::<span class='ident'>TyInfer</span>(<span class='ident'>ty</span>::<span class='ident'>TyVar</span>(<span class='ident'>v</span>)) <span class='op'>=&gt;</span> {
-                <span class='kw'>let</span> <span class='ident'>opt_ty</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>type_variables</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>probe</span>(<span class='ident'>v</span>);
-                <span class='self'>self</span>.<span class='ident'>freshen</span>(
-                    <span class='ident'>opt_ty</span>,
-                    <span class='ident'>ty</span>::<span class='ident'>TyVar</span>(<span class='ident'>v</span>),
-                    <span class='ident'>ty</span>::<span class='ident'>FreshTy</span>)
+        <span class="kw">match</span> <span class="ident">t</span>.<span class="ident">sty</span> {
+            <span class="ident">ty</span>::<span class="ident">TyInfer</span>(<span class="ident">ty</span>::<span class="ident">TyVar</span>(<span class="ident">v</span>)) <span class="op">=&gt;</span> {
+                <span class="kw">let</span> <span class="ident">opt_ty</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">type_variables</span>.<span class="ident">borrow_mut</span>().<span class="ident">probe</span>(<span class="ident">v</span>);
+                <span class="self">self</span>.<span class="ident">freshen</span>(
+                    <span class="ident">opt_ty</span>,
+                    <span class="ident">ty</span>::<span class="ident">TyVar</span>(<span class="ident">v</span>),
+                    <span class="ident">ty</span>::<span class="ident">FreshTy</span>)
             }
 
-            <span class='ident'>ty</span>::<span class='ident'>TyInfer</span>(<span class='ident'>ty</span>::<span class='ident'>IntVar</span>(<span class='ident'>v</span>)) <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>freshen</span>(
-                    <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>int_unification_table</span>.<span class='ident'>borrow_mut</span>()
-                                                    .<span class='ident'>probe</span>(<span class='ident'>v</span>)
-                                                    .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>v</span><span class='op'>|</span> <span class='ident'>v</span>.<span class='ident'>to_type</span>(<span class='ident'>tcx</span>)),
-                    <span class='ident'>ty</span>::<span class='ident'>IntVar</span>(<span class='ident'>v</span>),
-                    <span class='ident'>ty</span>::<span class='ident'>FreshIntTy</span>)
+            <span class="ident">ty</span>::<span class="ident">TyInfer</span>(<span class="ident">ty</span>::<span class="ident">IntVar</span>(<span class="ident">v</span>)) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">freshen</span>(
+                    <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">int_unification_table</span>.<span class="ident">borrow_mut</span>()
+                                                    .<span class="ident">probe</span>(<span class="ident">v</span>)
+                                                    .<span class="ident">map</span>(<span class="op">|</span><span class="ident">v</span><span class="op">|</span> <span class="ident">v</span>.<span class="ident">to_type</span>(<span class="ident">tcx</span>)),
+                    <span class="ident">ty</span>::<span class="ident">IntVar</span>(<span class="ident">v</span>),
+                    <span class="ident">ty</span>::<span class="ident">FreshIntTy</span>)
             }
 
-            <span class='ident'>ty</span>::<span class='ident'>TyInfer</span>(<span class='ident'>ty</span>::<span class='ident'>FloatVar</span>(<span class='ident'>v</span>)) <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>freshen</span>(
-                    <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>float_unification_table</span>.<span class='ident'>borrow_mut</span>()
-                                                      .<span class='ident'>probe</span>(<span class='ident'>v</span>)
-                                                      .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>v</span><span class='op'>|</span> <span class='ident'>v</span>.<span class='ident'>to_type</span>(<span class='ident'>tcx</span>)),
-                    <span class='ident'>ty</span>::<span class='ident'>FloatVar</span>(<span class='ident'>v</span>),
-                    <span class='ident'>ty</span>::<span class='ident'>FreshFloatTy</span>)
+            <span class="ident">ty</span>::<span class="ident">TyInfer</span>(<span class="ident">ty</span>::<span class="ident">FloatVar</span>(<span class="ident">v</span>)) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">freshen</span>(
+                    <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">float_unification_table</span>.<span class="ident">borrow_mut</span>()
+                                                      .<span class="ident">probe</span>(<span class="ident">v</span>)
+                                                      .<span class="ident">map</span>(<span class="op">|</span><span class="ident">v</span><span class="op">|</span> <span class="ident">v</span>.<span class="ident">to_type</span>(<span class="ident">tcx</span>)),
+                    <span class="ident">ty</span>::<span class="ident">FloatVar</span>(<span class="ident">v</span>),
+                    <span class="ident">ty</span>::<span class="ident">FreshFloatTy</span>)
             }
 
-            <span class='ident'>ty</span>::<span class='ident'>TyInfer</span>(<span class='ident'>ty</span>::<span class='ident'>FreshTy</span>(<span class='ident'>c</span>)) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TyInfer</span>(<span class='ident'>ty</span>::<span class='ident'>FreshIntTy</span>(<span class='ident'>c</span>)) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TyInfer</span>(<span class='ident'>ty</span>::<span class='ident'>FreshFloatTy</span>(<span class='ident'>c</span>)) <span class='op'>=&gt;</span> {
-                <span class='kw'>if</span> <span class='ident'>c</span> <span class='op'>&gt;=</span> <span class='self'>self</span>.<span class='ident'>freshen_count</span> {
-                    <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;Encountered a freshend type with id {} \
+            <span class="ident">ty</span>::<span class="ident">TyInfer</span>(<span class="ident">ty</span>::<span class="ident">FreshTy</span>(<span class="ident">c</span>)) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyInfer</span>(<span class="ident">ty</span>::<span class="ident">FreshIntTy</span>(<span class="ident">c</span>)) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyInfer</span>(<span class="ident">ty</span>::<span class="ident">FreshFloatTy</span>(<span class="ident">c</span>)) <span class="op">=&gt;</span> {
+                <span class="kw">if</span> <span class="ident">c</span> <span class="op">&gt;=</span> <span class="self">self</span>.<span class="ident">freshen_count</span> {
+                    <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;Encountered a freshend type with id {} \
                           but our counter is only at {}&quot;</span>,
-                         <span class='ident'>c</span>,
-                         <span class='self'>self</span>.<span class='ident'>freshen_count</span>);
+                         <span class="ident">c</span>,
+                         <span class="self">self</span>.<span class="ident">freshen_count</span>);
                 }
-                <span class='ident'>t</span>
+                <span class="ident">t</span>
             }
 
-            <span class='ident'>ty</span>::<span class='ident'>TyBool</span> <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TyChar</span> <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TyInt</span>(..) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TyUint</span>(..) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TyFloat</span>(..) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TyAdt</span>(..) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TyStr</span> <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TyError</span> <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TyArray</span>(..) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TySlice</span>(..) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TyRawPtr</span>(..) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TyRef</span>(..) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TyFnDef</span>(..) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TyFnPtr</span>(_) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TyDynamic</span>(..) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TyClosure</span>(..) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TyNever</span> <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TyTuple</span>(..) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TyProjection</span>(..) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TyParam</span>(..) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TyAnon</span>(..) <span class='op'>=&gt;</span> {
-                <span class='ident'>t</span>.<span class='ident'>super_fold_with</span>(<span class='self'>self</span>)
+            <span class="ident">ty</span>::<span class="ident">TyBool</span> <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyChar</span> <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyInt</span>(..) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyUint</span>(..) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyFloat</span>(..) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyAdt</span>(..) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyStr</span> <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyError</span> <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyArray</span>(..) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TySlice</span>(..) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyRawPtr</span>(..) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyRef</span>(..) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyFnDef</span>(..) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyFnPtr</span>(_) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyDynamic</span>(..) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyClosure</span>(..) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyNever</span> <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyTuple</span>(..) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyProjection</span>(..) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyParam</span>(..) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyAnon</span>(..) <span class="op">=&gt;</span> {
+                <span class="ident">t</span>.<span class="ident">super_fold_with</span>(<span class="self">self</span>)
             }
         }
     }

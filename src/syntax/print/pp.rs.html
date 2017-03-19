@@ -694,657 +694,657 @@
 <span id="649">649</span>
 <span id="650">650</span>
 <span id="651">651</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2012 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2012 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='doccomment'>//! This pretty-printer is a direct reimplementation of Philip Karlton&#39;s</span>
-<span class='doccomment'>//! Mesa pretty-printer, as described in appendix A of</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! ````ignore</span>
-<span class='doccomment'>//! STAN-CS-79-770: &quot;Pretty Printing&quot;, by Derek C. Oppen.</span>
-<span class='doccomment'>//! Stanford Department of Computer Science, 1979.</span>
-<span class='doccomment'>//! ````</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! The algorithm&#39;s aim is to break a stream into as few lines as possible</span>
-<span class='doccomment'>//! while respecting the indentation-consistency requirements of the enclosing</span>
-<span class='doccomment'>//! block, and avoiding breaking at silly places on block boundaries, for</span>
-<span class='doccomment'>//! example, between &quot;x&quot; and &quot;)&quot; in &quot;x)&quot;.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! I am implementing this algorithm because it comes with 20 pages of</span>
-<span class='doccomment'>//! documentation explaining its theory, and because it addresses the set of</span>
-<span class='doccomment'>//! concerns I&#39;ve seen other pretty-printers fall down on. Weirdly. Even though</span>
-<span class='doccomment'>//! it&#39;s 32 years old. What can I say?</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! Despite some redundancies and quirks in the way it&#39;s implemented in that</span>
-<span class='doccomment'>//! paper, I&#39;ve opted to keep the implementation here as similar as I can,</span>
-<span class='doccomment'>//! changing only what was blatantly wrong, a typo, or sufficiently</span>
-<span class='doccomment'>//! non-idiomatic rust that it really stuck out.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! In particular you&#39;ll see a certain amount of churn related to INTEGER vs.</span>
-<span class='doccomment'>//! CARDINAL in the Mesa implementation. Mesa apparently interconverts the two</span>
-<span class='doccomment'>//! somewhat readily? In any case, I&#39;ve used usize for indices-in-buffers and</span>
-<span class='doccomment'>//! ints for character-sizes-and-indentation-offsets. This respects the need</span>
-<span class='doccomment'>//! for ints to &quot;go negative&quot; while carrying a pending-calculation balance, and</span>
-<span class='doccomment'>//! helps differentiate all the numbers flying around internally (slightly).</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! I also inverted the indentation arithmetic used in the print stack, since</span>
-<span class='doccomment'>//! the Mesa implementation (somewhat randomly) stores the offset on the print</span>
-<span class='doccomment'>//! stack in terms of margin-col rather than col itself. I store col.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! I also implemented a small change in the String token, in that I store an</span>
-<span class='doccomment'>//! explicit length for the string. For most tokens this is just the length of</span>
-<span class='doccomment'>//! the accompanying string. But it&#39;s necessary to permit it to differ, for</span>
-<span class='doccomment'>//! encoding things that are supposed to &quot;go on their own line&quot; -- certain</span>
-<span class='doccomment'>//! classes of comment and blank-line -- where relying on adjacent</span>
-<span class='doccomment'>//! hardbreak-like Break tokens with long blankness indication doesn&#39;t actually</span>
-<span class='doccomment'>//! work. To see why, consider when there is a &quot;thing that should be on its own</span>
-<span class='doccomment'>//! line&quot; between two long blocks, say functions. If you put a hardbreak after</span>
-<span class='doccomment'>//! each function (or before each) and the breaking algorithm decides to break</span>
-<span class='doccomment'>//! there anyways (because the functions themselves are long) you wind up with</span>
-<span class='doccomment'>//! extra blank lines. If you don&#39;t put hardbreaks you can wind up with the</span>
-<span class='doccomment'>//! &quot;thing which should be on its own line&quot; not getting its own line in the</span>
-<span class='doccomment'>//! rare case of &quot;really small functions&quot; or such. This re-occurs with comments</span>
-<span class='doccomment'>//! and explicit blank lines. So in those cases we use a string with a payload</span>
-<span class='doccomment'>//! we want isolated to a line and an explicit length that&#39;s huge, surrounded</span>
-<span class='doccomment'>//! by two zero-length breaks. The algorithm will try its best to fit it on a</span>
-<span class='doccomment'>//! line (which it can&#39;t) and so naturally place the content on its own line to</span>
-<span class='doccomment'>//! avoid combining it with other lines and making matters even worse.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! # Explanation</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! In case you do not have the paper, here is an explanation of what&#39;s going</span>
-<span class='doccomment'>//! on.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! There is a stream of input tokens flowing through this printer.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! The printer buffers up to 3N tokens inside itself, where N is linewidth.</span>
-<span class='doccomment'>//! Yes, linewidth is chars and tokens are multi-char, but in the worst</span>
-<span class='doccomment'>//! case every token worth buffering is 1 char long, so it&#39;s ok.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! Tokens are String, Break, and Begin/End to delimit blocks.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! Begin tokens can carry an offset, saying &quot;how far to indent when you break</span>
-<span class='doccomment'>//! inside here&quot;, as well as a flag indicating &quot;consistent&quot; or &quot;inconsistent&quot;</span>
-<span class='doccomment'>//! breaking. Consistent breaking means that after the first break, no attempt</span>
-<span class='doccomment'>//! will be made to flow subsequent breaks together onto lines. Inconsistent</span>
-<span class='doccomment'>//! is the opposite. Inconsistent breaking example would be, say:</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! ```</span>
-<span class='doccomment'>//! foo(hello, there, good, friends)</span>
-<span class='doccomment'>//! ```</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! breaking inconsistently to become</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! ```</span>
-<span class='doccomment'>//! foo(hello, there</span>
-<span class='doccomment'>//!     good, friends);</span>
-<span class='doccomment'>//! ```</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! whereas a consistent breaking would yield:</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! ```</span>
-<span class='doccomment'>//! foo(hello,</span>
-<span class='doccomment'>//!     there</span>
-<span class='doccomment'>//!     good,</span>
-<span class='doccomment'>//!     friends);</span>
-<span class='doccomment'>//! ```</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! That is, in the consistent-break blocks we value vertical alignment</span>
-<span class='doccomment'>//! more than the ability to cram stuff onto a line. But in all cases if it</span>
-<span class='doccomment'>//! can make a block a one-liner, it&#39;ll do so.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! Carrying on with high-level logic:</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! The buffered tokens go through a ring-buffer, &#39;tokens&#39;. The &#39;left&#39; and</span>
-<span class='doccomment'>//! &#39;right&#39; indices denote the active portion of the ring buffer as well as</span>
-<span class='doccomment'>//! describing hypothetical points-in-the-infinite-stream at most 3N tokens</span>
-<span class='doccomment'>//! apart (i.e. &quot;not wrapped to ring-buffer boundaries&quot;). The paper will switch</span>
-<span class='doccomment'>//! between using &#39;left&#39; and &#39;right&#39; terms to denote the wrapped-to-ring-buffer</span>
-<span class='doccomment'>//! and point-in-infinite-stream senses freely.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! There is a parallel ring buffer, &#39;size&#39;, that holds the calculated size of</span>
-<span class='doccomment'>//! each token. Why calculated? Because for Begin/End pairs, the &quot;size&quot;</span>
-<span class='doccomment'>//! includes everything between the pair. That is, the &quot;size&quot; of Begin is</span>
-<span class='doccomment'>//! actually the sum of the sizes of everything between Begin and the paired</span>
-<span class='doccomment'>//! End that follows. Since that is arbitrarily far in the future, &#39;size&#39; is</span>
-<span class='doccomment'>//! being rewritten regularly while the printer runs; in fact most of the</span>
-<span class='doccomment'>//! machinery is here to work out &#39;size&#39; entries on the fly (and give up when</span>
-<span class='doccomment'>//! they&#39;re so obviously over-long that &quot;infinity&quot; is a good enough</span>
-<span class='doccomment'>//! approximation for purposes of line breaking).</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! The &quot;input side&quot; of the printer is managed as an abstract process called</span>
-<span class='doccomment'>//! SCAN, which uses &#39;scan_stack&#39;, to manage calculating &#39;size&#39;. SCAN is, in</span>
-<span class='doccomment'>//! other words, the process of calculating &#39;size&#39; entries.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! The &quot;output side&quot; of the printer is managed by an abstract process called</span>
-<span class='doccomment'>//! PRINT, which uses &#39;print_stack&#39;, &#39;margin&#39; and &#39;space&#39; to figure out what to</span>
-<span class='doccomment'>//! do with each token/size pair it consumes as it goes. It&#39;s trying to consume</span>
-<span class='doccomment'>//! the entire buffered window, but can&#39;t output anything until the size is &gt;=</span>
-<span class='doccomment'>//! 0 (sizes are set to negative while they&#39;re pending calculation).</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! So SCAN takes input and buffers tokens and pending calculations, while</span>
-<span class='doccomment'>//! PRINT gobbles up completed calculations and tokens from the buffer. The</span>
-<span class='doccomment'>//! theory is that the two can never get more than 3N tokens apart, because</span>
-<span class='doccomment'>//! once there&#39;s &quot;obviously&quot; too much data to fit on a line, in a size</span>
-<span class='doccomment'>//! calculation, SCAN will write &quot;infinity&quot; to the size and let PRINT consume</span>
-<span class='doccomment'>//! it.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! In this implementation (following the paper, again) the SCAN process is</span>
-<span class='doccomment'>//! the method called `Printer::pretty_print`, and the &#39;PRINT&#39; process is the method</span>
-<span class='doccomment'>//! called `Printer::print`.</span>
+<span class="doccomment">//! This pretty-printer is a direct reimplementation of Philip Karlton&#39;s</span>
+<span class="doccomment">//! Mesa pretty-printer, as described in appendix A of</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! ````ignore</span>
+<span class="doccomment">//! STAN-CS-79-770: &quot;Pretty Printing&quot;, by Derek C. Oppen.</span>
+<span class="doccomment">//! Stanford Department of Computer Science, 1979.</span>
+<span class="doccomment">//! ````</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! The algorithm&#39;s aim is to break a stream into as few lines as possible</span>
+<span class="doccomment">//! while respecting the indentation-consistency requirements of the enclosing</span>
+<span class="doccomment">//! block, and avoiding breaking at silly places on block boundaries, for</span>
+<span class="doccomment">//! example, between &quot;x&quot; and &quot;)&quot; in &quot;x)&quot;.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! I am implementing this algorithm because it comes with 20 pages of</span>
+<span class="doccomment">//! documentation explaining its theory, and because it addresses the set of</span>
+<span class="doccomment">//! concerns I&#39;ve seen other pretty-printers fall down on. Weirdly. Even though</span>
+<span class="doccomment">//! it&#39;s 32 years old. What can I say?</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Despite some redundancies and quirks in the way it&#39;s implemented in that</span>
+<span class="doccomment">//! paper, I&#39;ve opted to keep the implementation here as similar as I can,</span>
+<span class="doccomment">//! changing only what was blatantly wrong, a typo, or sufficiently</span>
+<span class="doccomment">//! non-idiomatic rust that it really stuck out.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! In particular you&#39;ll see a certain amount of churn related to INTEGER vs.</span>
+<span class="doccomment">//! CARDINAL in the Mesa implementation. Mesa apparently interconverts the two</span>
+<span class="doccomment">//! somewhat readily? In any case, I&#39;ve used usize for indices-in-buffers and</span>
+<span class="doccomment">//! ints for character-sizes-and-indentation-offsets. This respects the need</span>
+<span class="doccomment">//! for ints to &quot;go negative&quot; while carrying a pending-calculation balance, and</span>
+<span class="doccomment">//! helps differentiate all the numbers flying around internally (slightly).</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! I also inverted the indentation arithmetic used in the print stack, since</span>
+<span class="doccomment">//! the Mesa implementation (somewhat randomly) stores the offset on the print</span>
+<span class="doccomment">//! stack in terms of margin-col rather than col itself. I store col.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! I also implemented a small change in the String token, in that I store an</span>
+<span class="doccomment">//! explicit length for the string. For most tokens this is just the length of</span>
+<span class="doccomment">//! the accompanying string. But it&#39;s necessary to permit it to differ, for</span>
+<span class="doccomment">//! encoding things that are supposed to &quot;go on their own line&quot; -- certain</span>
+<span class="doccomment">//! classes of comment and blank-line -- where relying on adjacent</span>
+<span class="doccomment">//! hardbreak-like Break tokens with long blankness indication doesn&#39;t actually</span>
+<span class="doccomment">//! work. To see why, consider when there is a &quot;thing that should be on its own</span>
+<span class="doccomment">//! line&quot; between two long blocks, say functions. If you put a hardbreak after</span>
+<span class="doccomment">//! each function (or before each) and the breaking algorithm decides to break</span>
+<span class="doccomment">//! there anyways (because the functions themselves are long) you wind up with</span>
+<span class="doccomment">//! extra blank lines. If you don&#39;t put hardbreaks you can wind up with the</span>
+<span class="doccomment">//! &quot;thing which should be on its own line&quot; not getting its own line in the</span>
+<span class="doccomment">//! rare case of &quot;really small functions&quot; or such. This re-occurs with comments</span>
+<span class="doccomment">//! and explicit blank lines. So in those cases we use a string with a payload</span>
+<span class="doccomment">//! we want isolated to a line and an explicit length that&#39;s huge, surrounded</span>
+<span class="doccomment">//! by two zero-length breaks. The algorithm will try its best to fit it on a</span>
+<span class="doccomment">//! line (which it can&#39;t) and so naturally place the content on its own line to</span>
+<span class="doccomment">//! avoid combining it with other lines and making matters even worse.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! # Explanation</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! In case you do not have the paper, here is an explanation of what&#39;s going</span>
+<span class="doccomment">//! on.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! There is a stream of input tokens flowing through this printer.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! The printer buffers up to 3N tokens inside itself, where N is linewidth.</span>
+<span class="doccomment">//! Yes, linewidth is chars and tokens are multi-char, but in the worst</span>
+<span class="doccomment">//! case every token worth buffering is 1 char long, so it&#39;s ok.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Tokens are String, Break, and Begin/End to delimit blocks.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Begin tokens can carry an offset, saying &quot;how far to indent when you break</span>
+<span class="doccomment">//! inside here&quot;, as well as a flag indicating &quot;consistent&quot; or &quot;inconsistent&quot;</span>
+<span class="doccomment">//! breaking. Consistent breaking means that after the first break, no attempt</span>
+<span class="doccomment">//! will be made to flow subsequent breaks together onto lines. Inconsistent</span>
+<span class="doccomment">//! is the opposite. Inconsistent breaking example would be, say:</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! ```</span>
+<span class="doccomment">//! foo(hello, there, good, friends)</span>
+<span class="doccomment">//! ```</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! breaking inconsistently to become</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! ```</span>
+<span class="doccomment">//! foo(hello, there</span>
+<span class="doccomment">//!     good, friends);</span>
+<span class="doccomment">//! ```</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! whereas a consistent breaking would yield:</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! ```</span>
+<span class="doccomment">//! foo(hello,</span>
+<span class="doccomment">//!     there</span>
+<span class="doccomment">//!     good,</span>
+<span class="doccomment">//!     friends);</span>
+<span class="doccomment">//! ```</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! That is, in the consistent-break blocks we value vertical alignment</span>
+<span class="doccomment">//! more than the ability to cram stuff onto a line. But in all cases if it</span>
+<span class="doccomment">//! can make a block a one-liner, it&#39;ll do so.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Carrying on with high-level logic:</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! The buffered tokens go through a ring-buffer, &#39;tokens&#39;. The &#39;left&#39; and</span>
+<span class="doccomment">//! &#39;right&#39; indices denote the active portion of the ring buffer as well as</span>
+<span class="doccomment">//! describing hypothetical points-in-the-infinite-stream at most 3N tokens</span>
+<span class="doccomment">//! apart (i.e. &quot;not wrapped to ring-buffer boundaries&quot;). The paper will switch</span>
+<span class="doccomment">//! between using &#39;left&#39; and &#39;right&#39; terms to denote the wrapped-to-ring-buffer</span>
+<span class="doccomment">//! and point-in-infinite-stream senses freely.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! There is a parallel ring buffer, &#39;size&#39;, that holds the calculated size of</span>
+<span class="doccomment">//! each token. Why calculated? Because for Begin/End pairs, the &quot;size&quot;</span>
+<span class="doccomment">//! includes everything between the pair. That is, the &quot;size&quot; of Begin is</span>
+<span class="doccomment">//! actually the sum of the sizes of everything between Begin and the paired</span>
+<span class="doccomment">//! End that follows. Since that is arbitrarily far in the future, &#39;size&#39; is</span>
+<span class="doccomment">//! being rewritten regularly while the printer runs; in fact most of the</span>
+<span class="doccomment">//! machinery is here to work out &#39;size&#39; entries on the fly (and give up when</span>
+<span class="doccomment">//! they&#39;re so obviously over-long that &quot;infinity&quot; is a good enough</span>
+<span class="doccomment">//! approximation for purposes of line breaking).</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! The &quot;input side&quot; of the printer is managed as an abstract process called</span>
+<span class="doccomment">//! SCAN, which uses &#39;scan_stack&#39;, to manage calculating &#39;size&#39;. SCAN is, in</span>
+<span class="doccomment">//! other words, the process of calculating &#39;size&#39; entries.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! The &quot;output side&quot; of the printer is managed by an abstract process called</span>
+<span class="doccomment">//! PRINT, which uses &#39;print_stack&#39;, &#39;margin&#39; and &#39;space&#39; to figure out what to</span>
+<span class="doccomment">//! do with each token/size pair it consumes as it goes. It&#39;s trying to consume</span>
+<span class="doccomment">//! the entire buffered window, but can&#39;t output anything until the size is &gt;=</span>
+<span class="doccomment">//! 0 (sizes are set to negative while they&#39;re pending calculation).</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! So SCAN takes input and buffers tokens and pending calculations, while</span>
+<span class="doccomment">//! PRINT gobbles up completed calculations and tokens from the buffer. The</span>
+<span class="doccomment">//! theory is that the two can never get more than 3N tokens apart, because</span>
+<span class="doccomment">//! once there&#39;s &quot;obviously&quot; too much data to fit on a line, in a size</span>
+<span class="doccomment">//! calculation, SCAN will write &quot;infinity&quot; to the size and let PRINT consume</span>
+<span class="doccomment">//! it.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! In this implementation (following the paper, again) the SCAN process is</span>
+<span class="doccomment">//! the method called `Printer::pretty_print`, and the &#39;PRINT&#39; process is the method</span>
+<span class="doccomment">//! called `Printer::print`.</span>
 
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>collections</span>::<span class='ident'>VecDeque</span>;
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>fmt</span>;
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>io</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">collections</span>::<span class="ident">VecDeque</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">fmt</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">io</span>;
 
-<span class='doccomment'>/// How to break. Described in more detail in the module docs.</span>
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Copy</span>, <span class='ident'>PartialEq</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>Breaks</span> {
-    <span class='ident'>Consistent</span>,
-    <span class='ident'>Inconsistent</span>,
+<span class="doccomment">/// How to break. Described in more detail in the module docs.</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">Copy</span>, <span class="ident">PartialEq</span>)]</span>
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">Breaks</span> {
+    <span class="ident">Consistent</span>,
+    <span class="ident">Inconsistent</span>,
 }
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Copy</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>BreakToken</span> {
-    <span class='ident'>offset</span>: <span class='ident'>isize</span>,
-    <span class='ident'>blank_space</span>: <span class='ident'>isize</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">Copy</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">BreakToken</span> {
+    <span class="ident">offset</span>: <span class="ident">isize</span>,
+    <span class="ident">blank_space</span>: <span class="ident">isize</span>
 }
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Copy</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>BeginToken</span> {
-    <span class='ident'>offset</span>: <span class='ident'>isize</span>,
-    <span class='ident'>breaks</span>: <span class='ident'>Breaks</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">Copy</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">BeginToken</span> {
+    <span class="ident">offset</span>: <span class="ident">isize</span>,
+    <span class="ident">breaks</span>: <span class="ident">Breaks</span>
 }
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>Token</span> {
-    <span class='ident'>String</span>(<span class='ident'>String</span>, <span class='ident'>isize</span>),
-    <span class='ident'>Break</span>(<span class='ident'>BreakToken</span>),
-    <span class='ident'>Begin</span>(<span class='ident'>BeginToken</span>),
-    <span class='ident'>End</span>,
-    <span class='ident'>Eof</span>,
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>)]</span>
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">Token</span> {
+    <span class="ident">String</span>(<span class="ident">String</span>, <span class="ident">isize</span>),
+    <span class="ident">Break</span>(<span class="ident">BreakToken</span>),
+    <span class="ident">Begin</span>(<span class="ident">BeginToken</span>),
+    <span class="ident">End</span>,
+    <span class="ident">Eof</span>,
 }
 
-<span class='kw'>impl</span> <span class='ident'>Token</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_eof</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-        <span class='kw'>match</span> <span class='kw-2'>*</span><span class='self'>self</span> {
-            <span class='ident'>Token</span>::<span class='ident'>Eof</span> <span class='op'>=&gt;</span> <span class='bool-val'>true</span>,
-            _ <span class='op'>=&gt;</span> <span class='bool-val'>false</span>,
+<span class="kw">impl</span> <span class="ident">Token</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">is_eof</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+        <span class="kw">match</span> <span class="kw-2">*</span><span class="self">self</span> {
+            <span class="ident">Token</span>::<span class="ident">Eof</span> <span class="op">=&gt;</span> <span class="bool-val">true</span>,
+            _ <span class="op">=&gt;</span> <span class="bool-val">false</span>,
         }
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_hardbreak_tok</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-        <span class='kw'>match</span> <span class='kw-2'>*</span><span class='self'>self</span> {
-            <span class='ident'>Token</span>::<span class='ident'>Break</span>(<span class='ident'>BreakToken</span> {
-                <span class='ident'>offset</span>: <span class='number'>0</span>,
-                <span class='ident'>blank_space</span>: <span class='ident'>bs</span>
-            }) <span class='kw'>if</span> <span class='ident'>bs</span> <span class='op'>==</span> <span class='ident'>SIZE_INFINITY</span> <span class='op'>=&gt;</span>
-                <span class='bool-val'>true</span>,
-            _ <span class='op'>=&gt;</span>
-                <span class='bool-val'>false</span>
-        }
-    }
-}
-
-<span class='kw'>impl</span> <span class='ident'>fmt</span>::<span class='ident'>Display</span> <span class='kw'>for</span> <span class='ident'>Token</span> {
-    <span class='kw'>fn</span> <span class='ident'>fmt</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>f</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>fmt</span>::<span class='ident'>Formatter</span>) <span class='op'>-&gt;</span> <span class='ident'>fmt</span>::<span class='prelude-ty'>Result</span> {
-        <span class='kw'>match</span> <span class='kw-2'>*</span><span class='self'>self</span> {
-            <span class='ident'>Token</span>::<span class='ident'>String</span>(<span class='kw-2'>ref</span> <span class='ident'>s</span>, <span class='ident'>len</span>) <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;STR({},{})&quot;</span>, <span class='ident'>s</span>, <span class='ident'>len</span>),
-            <span class='ident'>Token</span>::<span class='ident'>Break</span>(_) <span class='op'>=&gt;</span> <span class='ident'>f</span>.<span class='ident'>write_str</span>(<span class='string'>&quot;BREAK&quot;</span>),
-            <span class='ident'>Token</span>::<span class='ident'>Begin</span>(_) <span class='op'>=&gt;</span> <span class='ident'>f</span>.<span class='ident'>write_str</span>(<span class='string'>&quot;BEGIN&quot;</span>),
-            <span class='ident'>Token</span>::<span class='ident'>End</span> <span class='op'>=&gt;</span> <span class='ident'>f</span>.<span class='ident'>write_str</span>(<span class='string'>&quot;END&quot;</span>),
-            <span class='ident'>Token</span>::<span class='ident'>Eof</span> <span class='op'>=&gt;</span> <span class='ident'>f</span>.<span class='ident'>write_str</span>(<span class='string'>&quot;EOF&quot;</span>),
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">is_hardbreak_tok</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+        <span class="kw">match</span> <span class="kw-2">*</span><span class="self">self</span> {
+            <span class="ident">Token</span>::<span class="ident">Break</span>(<span class="ident">BreakToken</span> {
+                <span class="ident">offset</span>: <span class="number">0</span>,
+                <span class="ident">blank_space</span>: <span class="ident">bs</span>
+            }) <span class="kw">if</span> <span class="ident">bs</span> <span class="op">==</span> <span class="ident">SIZE_INFINITY</span> <span class="op">=&gt;</span>
+                <span class="bool-val">true</span>,
+            _ <span class="op">=&gt;</span>
+                <span class="bool-val">false</span>
         }
     }
 }
 
-<span class='kw'>fn</span> <span class='ident'>buf_str</span>(<span class='ident'>buf</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>BufEntry</span>], <span class='ident'>left</span>: <span class='ident'>usize</span>, <span class='ident'>right</span>: <span class='ident'>usize</span>, <span class='ident'>lim</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='ident'>String</span> {
-    <span class='kw'>let</span> <span class='ident'>n</span> <span class='op'>=</span> <span class='ident'>buf</span>.<span class='ident'>len</span>();
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>i</span> <span class='op'>=</span> <span class='ident'>left</span>;
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>l</span> <span class='op'>=</span> <span class='ident'>lim</span>;
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>s</span> <span class='op'>=</span> <span class='ident'>String</span>::<span class='ident'>from</span>(<span class='string'>&quot;[&quot;</span>);
-    <span class='kw'>while</span> <span class='ident'>i</span> <span class='op'>!=</span> <span class='ident'>right</span> <span class='op'>&amp;&amp;</span> <span class='ident'>l</span> <span class='op'>!=</span> <span class='number'>0</span> {
-        <span class='ident'>l</span> <span class='op'>-=</span> <span class='number'>1</span>;
-        <span class='kw'>if</span> <span class='ident'>i</span> <span class='op'>!=</span> <span class='ident'>left</span> {
-            <span class='ident'>s</span>.<span class='ident'>push_str</span>(<span class='string'>&quot;, &quot;</span>);
+<span class="kw">impl</span> <span class="ident">fmt</span>::<span class="ident">Display</span> <span class="kw">for</span> <span class="ident">Token</span> {
+    <span class="kw">fn</span> <span class="ident">fmt</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">f</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">fmt</span>::<span class="ident">Formatter</span>) <span class="op">-&gt;</span> <span class="ident">fmt</span>::<span class="prelude-ty">Result</span> {
+        <span class="kw">match</span> <span class="kw-2">*</span><span class="self">self</span> {
+            <span class="ident">Token</span>::<span class="ident">String</span>(<span class="kw-2">ref</span> <span class="ident">s</span>, <span class="ident">len</span>) <span class="op">=&gt;</span> <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;STR({},{})&quot;</span>, <span class="ident">s</span>, <span class="ident">len</span>),
+            <span class="ident">Token</span>::<span class="ident">Break</span>(_) <span class="op">=&gt;</span> <span class="ident">f</span>.<span class="ident">write_str</span>(<span class="string">&quot;BREAK&quot;</span>),
+            <span class="ident">Token</span>::<span class="ident">Begin</span>(_) <span class="op">=&gt;</span> <span class="ident">f</span>.<span class="ident">write_str</span>(<span class="string">&quot;BEGIN&quot;</span>),
+            <span class="ident">Token</span>::<span class="ident">End</span> <span class="op">=&gt;</span> <span class="ident">f</span>.<span class="ident">write_str</span>(<span class="string">&quot;END&quot;</span>),
+            <span class="ident">Token</span>::<span class="ident">Eof</span> <span class="op">=&gt;</span> <span class="ident">f</span>.<span class="ident">write_str</span>(<span class="string">&quot;EOF&quot;</span>),
         }
-        <span class='ident'>s</span>.<span class='ident'>push_str</span>(<span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;{}={}&quot;</span>, <span class='ident'>buf</span>[<span class='ident'>i</span>].<span class='ident'>size</span>, <span class='kw-2'>&amp;</span><span class='ident'>buf</span>[<span class='ident'>i</span>].<span class='ident'>token</span>));
-        <span class='ident'>i</span> <span class='op'>+=</span> <span class='number'>1</span>;
-        <span class='ident'>i</span> <span class='op'>%=</span> <span class='ident'>n</span>;
-    }
-    <span class='ident'>s</span>.<span class='ident'>push</span>(<span class='string'>&#39;]&#39;</span>);
-    <span class='ident'>s</span>
-}
-
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Copy</span>, <span class='ident'>Clone</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>PrintStackBreak</span> {
-    <span class='ident'>Fits</span>,
-    <span class='ident'>Broken</span>(<span class='ident'>Breaks</span>),
-}
-
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Copy</span>, <span class='ident'>Clone</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>PrintStackElem</span> {
-    <span class='ident'>offset</span>: <span class='ident'>isize</span>,
-    <span class='ident'>pbreak</span>: <span class='ident'>PrintStackBreak</span>
-}
-
-<span class='kw'>const</span> <span class='ident'>SIZE_INFINITY</span>: <span class='ident'>isize</span> <span class='op'>=</span> <span class='number'>0xffff</span>;
-
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>mk_printer</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='ident'>out</span>: <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>io</span>::<span class='ident'>Write</span><span class='op'>+</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>, <span class='ident'>linewidth</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='ident'>Printer</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-    <span class='comment'>// Yes 55, it makes the ring buffers big enough to never fall behind.</span>
-    <span class='kw'>let</span> <span class='ident'>n</span>: <span class='ident'>usize</span> <span class='op'>=</span> <span class='number'>55</span> <span class='op'>*</span> <span class='ident'>linewidth</span>;
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;mk_printer {}&quot;</span>, <span class='ident'>linewidth</span>);
-    <span class='ident'>Printer</span> {
-        <span class='ident'>out</span>: <span class='ident'>out</span>,
-        <span class='ident'>buf_len</span>: <span class='ident'>n</span>,
-        <span class='ident'>margin</span>: <span class='ident'>linewidth</span> <span class='kw'>as</span> <span class='ident'>isize</span>,
-        <span class='ident'>space</span>: <span class='ident'>linewidth</span> <span class='kw'>as</span> <span class='ident'>isize</span>,
-        <span class='ident'>left</span>: <span class='number'>0</span>,
-        <span class='ident'>right</span>: <span class='number'>0</span>,
-        <span class='ident'>buf</span>: <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>BufEntry</span> { <span class='ident'>token</span>: <span class='ident'>Token</span>::<span class='ident'>Eof</span>, <span class='ident'>size</span>: <span class='number'>0</span> }; <span class='ident'>n</span>],
-        <span class='ident'>left_total</span>: <span class='number'>0</span>,
-        <span class='ident'>right_total</span>: <span class='number'>0</span>,
-        <span class='ident'>scan_stack</span>: <span class='ident'>VecDeque</span>::<span class='ident'>new</span>(),
-        <span class='ident'>print_stack</span>: <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
-        <span class='ident'>pending_indentation</span>: <span class='number'>0</span>
     }
 }
 
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>Printer</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='ident'>out</span>: <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>io</span>::<span class='ident'>Write</span><span class='op'>+</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>,
-    <span class='ident'>buf_len</span>: <span class='ident'>usize</span>,
-    <span class='doccomment'>/// Width of lines we&#39;re constrained to</span>
-    <span class='ident'>margin</span>: <span class='ident'>isize</span>,
-    <span class='doccomment'>/// Number of spaces left on line</span>
-    <span class='ident'>space</span>: <span class='ident'>isize</span>,
-    <span class='doccomment'>/// Index of left side of input stream</span>
-    <span class='ident'>left</span>: <span class='ident'>usize</span>,
-    <span class='doccomment'>/// Index of right side of input stream</span>
-    <span class='ident'>right</span>: <span class='ident'>usize</span>,
-    <span class='doccomment'>/// Ring-buffer of tokens and calculated sizes</span>
-    <span class='ident'>buf</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>BufEntry</span><span class='op'>&gt;</span>,
-    <span class='doccomment'>/// Running size of stream &quot;...left&quot;</span>
-    <span class='ident'>left_total</span>: <span class='ident'>isize</span>,
-    <span class='doccomment'>/// Running size of stream &quot;...right&quot;</span>
-    <span class='ident'>right_total</span>: <span class='ident'>isize</span>,
-    <span class='doccomment'>/// Pseudo-stack, really a ring too. Holds the</span>
-    <span class='doccomment'>/// primary-ring-buffers index of the Begin that started the</span>
-    <span class='doccomment'>/// current block, possibly with the most recent Break after that</span>
-    <span class='doccomment'>/// Begin (if there is any) on top of it. Stuff is flushed off the</span>
-    <span class='doccomment'>/// bottom as it becomes irrelevant due to the primary ring-buffer</span>
-    <span class='doccomment'>/// advancing.</span>
-    <span class='ident'>scan_stack</span>: <span class='ident'>VecDeque</span><span class='op'>&lt;</span><span class='ident'>usize</span><span class='op'>&gt;</span>,
-    <span class='doccomment'>/// Stack of blocks-in-progress being flushed by print</span>
-    <span class='ident'>print_stack</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>PrintStackElem</span><span class='op'>&gt;</span> ,
-    <span class='doccomment'>/// Buffered indentation to avoid writing trailing whitespace</span>
-    <span class='ident'>pending_indentation</span>: <span class='ident'>isize</span>,
+<span class="kw">fn</span> <span class="ident">buf_str</span>(<span class="ident">buf</span>: <span class="kw-2">&amp;</span>[<span class="ident">BufEntry</span>], <span class="ident">left</span>: <span class="ident">usize</span>, <span class="ident">right</span>: <span class="ident">usize</span>, <span class="ident">lim</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">String</span> {
+    <span class="kw">let</span> <span class="ident">n</span> <span class="op">=</span> <span class="ident">buf</span>.<span class="ident">len</span>();
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">i</span> <span class="op">=</span> <span class="ident">left</span>;
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">l</span> <span class="op">=</span> <span class="ident">lim</span>;
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">s</span> <span class="op">=</span> <span class="ident">String</span>::<span class="ident">from</span>(<span class="string">&quot;[&quot;</span>);
+    <span class="kw">while</span> <span class="ident">i</span> <span class="op">!=</span> <span class="ident">right</span> <span class="op">&amp;&amp;</span> <span class="ident">l</span> <span class="op">!=</span> <span class="number">0</span> {
+        <span class="ident">l</span> <span class="op">-=</span> <span class="number">1</span>;
+        <span class="kw">if</span> <span class="ident">i</span> <span class="op">!=</span> <span class="ident">left</span> {
+            <span class="ident">s</span>.<span class="ident">push_str</span>(<span class="string">&quot;, &quot;</span>);
+        }
+        <span class="ident">s</span>.<span class="ident">push_str</span>(<span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;{}={}&quot;</span>, <span class="ident">buf</span>[<span class="ident">i</span>].<span class="ident">size</span>, <span class="kw-2">&amp;</span><span class="ident">buf</span>[<span class="ident">i</span>].<span class="ident">token</span>));
+        <span class="ident">i</span> <span class="op">+=</span> <span class="number">1</span>;
+        <span class="ident">i</span> <span class="op">%=</span> <span class="ident">n</span>;
+    }
+    <span class="ident">s</span>.<span class="ident">push</span>(<span class="string">&#39;]&#39;</span>);
+    <span class="ident">s</span>
 }
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>)]</span>
-<span class='kw'>struct</span> <span class='ident'>BufEntry</span> {
-    <span class='ident'>token</span>: <span class='ident'>Token</span>,
-    <span class='ident'>size</span>: <span class='ident'>isize</span>,
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Copy</span>, <span class="ident">Clone</span>)]</span>
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">PrintStackBreak</span> {
+    <span class="ident">Fits</span>,
+    <span class="ident">Broken</span>(<span class="ident">Breaks</span>),
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> <span class='ident'>Printer</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>last_token</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Token</span> {
-        <span class='self'>self</span>.<span class='ident'>buf</span>[<span class='self'>self</span>.<span class='ident'>right</span>].<span class='ident'>token</span>.<span class='ident'>clone</span>()
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Copy</span>, <span class="ident">Clone</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">PrintStackElem</span> {
+    <span class="ident">offset</span>: <span class="ident">isize</span>,
+    <span class="ident">pbreak</span>: <span class="ident">PrintStackBreak</span>
+}
+
+<span class="kw">const</span> <span class="ident">SIZE_INFINITY</span>: <span class="ident">isize</span> <span class="op">=</span> <span class="number">0xffff</span>;
+
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">mk_printer</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>(<span class="ident">out</span>: <span class="ident">Box</span><span class="op">&lt;</span><span class="ident">io</span>::<span class="ident">Write</span><span class="op">+</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>, <span class="ident">linewidth</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">Printer</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span> {
+    <span class="comment">// Yes 55, it makes the ring buffers big enough to never fall behind.</span>
+    <span class="kw">let</span> <span class="ident">n</span>: <span class="ident">usize</span> <span class="op">=</span> <span class="number">55</span> <span class="op">*</span> <span class="ident">linewidth</span>;
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;mk_printer {}&quot;</span>, <span class="ident">linewidth</span>);
+    <span class="ident">Printer</span> {
+        <span class="ident">out</span>: <span class="ident">out</span>,
+        <span class="ident">buf_len</span>: <span class="ident">n</span>,
+        <span class="ident">margin</span>: <span class="ident">linewidth</span> <span class="kw">as</span> <span class="ident">isize</span>,
+        <span class="ident">space</span>: <span class="ident">linewidth</span> <span class="kw">as</span> <span class="ident">isize</span>,
+        <span class="ident">left</span>: <span class="number">0</span>,
+        <span class="ident">right</span>: <span class="number">0</span>,
+        <span class="ident">buf</span>: <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">BufEntry</span> { <span class="ident">token</span>: <span class="ident">Token</span>::<span class="ident">Eof</span>, <span class="ident">size</span>: <span class="number">0</span> }; <span class="ident">n</span>],
+        <span class="ident">left_total</span>: <span class="number">0</span>,
+        <span class="ident">right_total</span>: <span class="number">0</span>,
+        <span class="ident">scan_stack</span>: <span class="ident">VecDeque</span>::<span class="ident">new</span>(),
+        <span class="ident">print_stack</span>: <span class="ident">Vec</span>::<span class="ident">new</span>(),
+        <span class="ident">pending_indentation</span>: <span class="number">0</span>
     }
-    <span class='doccomment'>/// be very careful with this!</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>replace_last_token</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>t</span>: <span class='ident'>Token</span>) {
-        <span class='self'>self</span>.<span class='ident'>buf</span>[<span class='self'>self</span>.<span class='ident'>right</span>].<span class='ident'>token</span> <span class='op'>=</span> <span class='ident'>t</span>;
+}
+
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">Printer</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="ident">out</span>: <span class="ident">Box</span><span class="op">&lt;</span><span class="ident">io</span>::<span class="ident">Write</span><span class="op">+</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>,
+    <span class="ident">buf_len</span>: <span class="ident">usize</span>,
+    <span class="doccomment">/// Width of lines we&#39;re constrained to</span>
+    <span class="ident">margin</span>: <span class="ident">isize</span>,
+    <span class="doccomment">/// Number of spaces left on line</span>
+    <span class="ident">space</span>: <span class="ident">isize</span>,
+    <span class="doccomment">/// Index of left side of input stream</span>
+    <span class="ident">left</span>: <span class="ident">usize</span>,
+    <span class="doccomment">/// Index of right side of input stream</span>
+    <span class="ident">right</span>: <span class="ident">usize</span>,
+    <span class="doccomment">/// Ring-buffer of tokens and calculated sizes</span>
+    <span class="ident">buf</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">BufEntry</span><span class="op">&gt;</span>,
+    <span class="doccomment">/// Running size of stream &quot;...left&quot;</span>
+    <span class="ident">left_total</span>: <span class="ident">isize</span>,
+    <span class="doccomment">/// Running size of stream &quot;...right&quot;</span>
+    <span class="ident">right_total</span>: <span class="ident">isize</span>,
+    <span class="doccomment">/// Pseudo-stack, really a ring too. Holds the</span>
+    <span class="doccomment">/// primary-ring-buffers index of the Begin that started the</span>
+    <span class="doccomment">/// current block, possibly with the most recent Break after that</span>
+    <span class="doccomment">/// Begin (if there is any) on top of it. Stuff is flushed off the</span>
+    <span class="doccomment">/// bottom as it becomes irrelevant due to the primary ring-buffer</span>
+    <span class="doccomment">/// advancing.</span>
+    <span class="ident">scan_stack</span>: <span class="ident">VecDeque</span><span class="op">&lt;</span><span class="ident">usize</span><span class="op">&gt;</span>,
+    <span class="doccomment">/// Stack of blocks-in-progress being flushed by print</span>
+    <span class="ident">print_stack</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">PrintStackElem</span><span class="op">&gt;</span> ,
+    <span class="doccomment">/// Buffered indentation to avoid writing trailing whitespace</span>
+    <span class="ident">pending_indentation</span>: <span class="ident">isize</span>,
+}
+
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>)]</span>
+<span class="kw">struct</span> <span class="ident">BufEntry</span> {
+    <span class="ident">token</span>: <span class="ident">Token</span>,
+    <span class="ident">size</span>: <span class="ident">isize</span>,
+}
+
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span> <span class="ident">Printer</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">last_token</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">Token</span> {
+        <span class="self">self</span>.<span class="ident">buf</span>[<span class="self">self</span>.<span class="ident">right</span>].<span class="ident">token</span>.<span class="ident">clone</span>()
     }
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>pretty_print</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>token</span>: <span class='ident'>Token</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;pp Vec&lt;{},{}&gt;&quot;</span>, <span class='self'>self</span>.<span class='ident'>left</span>, <span class='self'>self</span>.<span class='ident'>right</span>);
-        <span class='kw'>match</span> <span class='ident'>token</span> {
-          <span class='ident'>Token</span>::<span class='ident'>Eof</span> <span class='op'>=&gt;</span> {
-            <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>scan_stack</span>.<span class='ident'>is_empty</span>() {
-                <span class='self'>self</span>.<span class='ident'>check_stack</span>(<span class='number'>0</span>);
-                <span class='self'>self</span>.<span class='ident'>advance_left</span>()<span class='question-mark'>?</span>;
+    <span class="doccomment">/// be very careful with this!</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">replace_last_token</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">t</span>: <span class="ident">Token</span>) {
+        <span class="self">self</span>.<span class="ident">buf</span>[<span class="self">self</span>.<span class="ident">right</span>].<span class="ident">token</span> <span class="op">=</span> <span class="ident">t</span>;
+    }
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">pretty_print</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">token</span>: <span class="ident">Token</span>) <span class="op">-&gt;</span> <span class="ident">io</span>::<span class="prelude-ty">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;pp Vec&lt;{},{}&gt;&quot;</span>, <span class="self">self</span>.<span class="ident">left</span>, <span class="self">self</span>.<span class="ident">right</span>);
+        <span class="kw">match</span> <span class="ident">token</span> {
+          <span class="ident">Token</span>::<span class="ident">Eof</span> <span class="op">=&gt;</span> {
+            <span class="kw">if</span> <span class="op">!</span><span class="self">self</span>.<span class="ident">scan_stack</span>.<span class="ident">is_empty</span>() {
+                <span class="self">self</span>.<span class="ident">check_stack</span>(<span class="number">0</span>);
+                <span class="self">self</span>.<span class="ident">advance_left</span>()<span class="question-mark">?</span>;
             }
-            <span class='self'>self</span>.<span class='ident'>indent</span>(<span class='number'>0</span>);
-            <span class='prelude-val'>Ok</span>(())
+            <span class="self">self</span>.<span class="ident">indent</span>(<span class="number">0</span>);
+            <span class="prelude-val">Ok</span>(())
           }
-          <span class='ident'>Token</span>::<span class='ident'>Begin</span>(<span class='ident'>b</span>) <span class='op'>=&gt;</span> {
-            <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>scan_stack</span>.<span class='ident'>is_empty</span>() {
-                <span class='self'>self</span>.<span class='ident'>left_total</span> <span class='op'>=</span> <span class='number'>1</span>;
-                <span class='self'>self</span>.<span class='ident'>right_total</span> <span class='op'>=</span> <span class='number'>1</span>;
-                <span class='self'>self</span>.<span class='ident'>left</span> <span class='op'>=</span> <span class='number'>0</span>;
-                <span class='self'>self</span>.<span class='ident'>right</span> <span class='op'>=</span> <span class='number'>0</span>;
-            } <span class='kw'>else</span> { <span class='self'>self</span>.<span class='ident'>advance_right</span>(); }
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;pp Begin({})/buffer Vec&lt;{},{}&gt;&quot;</span>,
-                   <span class='ident'>b</span>.<span class='ident'>offset</span>, <span class='self'>self</span>.<span class='ident'>left</span>, <span class='self'>self</span>.<span class='ident'>right</span>);
-            <span class='self'>self</span>.<span class='ident'>buf</span>[<span class='self'>self</span>.<span class='ident'>right</span>] <span class='op'>=</span> <span class='ident'>BufEntry</span> { <span class='ident'>token</span>: <span class='ident'>token</span>, <span class='ident'>size</span>: <span class='op'>-</span><span class='self'>self</span>.<span class='ident'>right_total</span> };
-            <span class='kw'>let</span> <span class='ident'>right</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>right</span>;
-            <span class='self'>self</span>.<span class='ident'>scan_push</span>(<span class='ident'>right</span>);
-            <span class='prelude-val'>Ok</span>(())
+          <span class="ident">Token</span>::<span class="ident">Begin</span>(<span class="ident">b</span>) <span class="op">=&gt;</span> {
+            <span class="kw">if</span> <span class="self">self</span>.<span class="ident">scan_stack</span>.<span class="ident">is_empty</span>() {
+                <span class="self">self</span>.<span class="ident">left_total</span> <span class="op">=</span> <span class="number">1</span>;
+                <span class="self">self</span>.<span class="ident">right_total</span> <span class="op">=</span> <span class="number">1</span>;
+                <span class="self">self</span>.<span class="ident">left</span> <span class="op">=</span> <span class="number">0</span>;
+                <span class="self">self</span>.<span class="ident">right</span> <span class="op">=</span> <span class="number">0</span>;
+            } <span class="kw">else</span> { <span class="self">self</span>.<span class="ident">advance_right</span>(); }
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;pp Begin({})/buffer Vec&lt;{},{}&gt;&quot;</span>,
+                   <span class="ident">b</span>.<span class="ident">offset</span>, <span class="self">self</span>.<span class="ident">left</span>, <span class="self">self</span>.<span class="ident">right</span>);
+            <span class="self">self</span>.<span class="ident">buf</span>[<span class="self">self</span>.<span class="ident">right</span>] <span class="op">=</span> <span class="ident">BufEntry</span> { <span class="ident">token</span>: <span class="ident">token</span>, <span class="ident">size</span>: <span class="op">-</span><span class="self">self</span>.<span class="ident">right_total</span> };
+            <span class="kw">let</span> <span class="ident">right</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">right</span>;
+            <span class="self">self</span>.<span class="ident">scan_push</span>(<span class="ident">right</span>);
+            <span class="prelude-val">Ok</span>(())
           }
-          <span class='ident'>Token</span>::<span class='ident'>End</span> <span class='op'>=&gt;</span> {
-            <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>scan_stack</span>.<span class='ident'>is_empty</span>() {
-                <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;pp End/print Vec&lt;{},{}&gt;&quot;</span>, <span class='self'>self</span>.<span class='ident'>left</span>, <span class='self'>self</span>.<span class='ident'>right</span>);
-                <span class='self'>self</span>.<span class='ident'>print</span>(<span class='ident'>token</span>, <span class='number'>0</span>)
-            } <span class='kw'>else</span> {
-                <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;pp End/buffer Vec&lt;{},{}&gt;&quot;</span>, <span class='self'>self</span>.<span class='ident'>left</span>, <span class='self'>self</span>.<span class='ident'>right</span>);
-                <span class='self'>self</span>.<span class='ident'>advance_right</span>();
-                <span class='self'>self</span>.<span class='ident'>buf</span>[<span class='self'>self</span>.<span class='ident'>right</span>] <span class='op'>=</span> <span class='ident'>BufEntry</span> { <span class='ident'>token</span>: <span class='ident'>token</span>, <span class='ident'>size</span>: <span class='op'>-</span><span class='number'>1</span> };
-                <span class='kw'>let</span> <span class='ident'>right</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>right</span>;
-                <span class='self'>self</span>.<span class='ident'>scan_push</span>(<span class='ident'>right</span>);
-                <span class='prelude-val'>Ok</span>(())
-            }
-          }
-          <span class='ident'>Token</span>::<span class='ident'>Break</span>(<span class='ident'>b</span>) <span class='op'>=&gt;</span> {
-            <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>scan_stack</span>.<span class='ident'>is_empty</span>() {
-                <span class='self'>self</span>.<span class='ident'>left_total</span> <span class='op'>=</span> <span class='number'>1</span>;
-                <span class='self'>self</span>.<span class='ident'>right_total</span> <span class='op'>=</span> <span class='number'>1</span>;
-                <span class='self'>self</span>.<span class='ident'>left</span> <span class='op'>=</span> <span class='number'>0</span>;
-                <span class='self'>self</span>.<span class='ident'>right</span> <span class='op'>=</span> <span class='number'>0</span>;
-            } <span class='kw'>else</span> { <span class='self'>self</span>.<span class='ident'>advance_right</span>(); }
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;pp Break({})/buffer Vec&lt;{},{}&gt;&quot;</span>,
-                   <span class='ident'>b</span>.<span class='ident'>offset</span>, <span class='self'>self</span>.<span class='ident'>left</span>, <span class='self'>self</span>.<span class='ident'>right</span>);
-            <span class='self'>self</span>.<span class='ident'>check_stack</span>(<span class='number'>0</span>);
-            <span class='kw'>let</span> <span class='ident'>right</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>right</span>;
-            <span class='self'>self</span>.<span class='ident'>scan_push</span>(<span class='ident'>right</span>);
-            <span class='self'>self</span>.<span class='ident'>buf</span>[<span class='self'>self</span>.<span class='ident'>right</span>] <span class='op'>=</span> <span class='ident'>BufEntry</span> { <span class='ident'>token</span>: <span class='ident'>token</span>, <span class='ident'>size</span>: <span class='op'>-</span><span class='self'>self</span>.<span class='ident'>right_total</span> };
-            <span class='self'>self</span>.<span class='ident'>right_total</span> <span class='op'>+=</span> <span class='ident'>b</span>.<span class='ident'>blank_space</span>;
-            <span class='prelude-val'>Ok</span>(())
-          }
-          <span class='ident'>Token</span>::<span class='ident'>String</span>(<span class='ident'>s</span>, <span class='ident'>len</span>) <span class='op'>=&gt;</span> {
-            <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>scan_stack</span>.<span class='ident'>is_empty</span>() {
-                <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;pp String(&#39;{}&#39;)/print Vec&lt;{},{}&gt;&quot;</span>,
-                       <span class='ident'>s</span>, <span class='self'>self</span>.<span class='ident'>left</span>, <span class='self'>self</span>.<span class='ident'>right</span>);
-                <span class='self'>self</span>.<span class='ident'>print</span>(<span class='ident'>Token</span>::<span class='ident'>String</span>(<span class='ident'>s</span>, <span class='ident'>len</span>), <span class='ident'>len</span>)
-            } <span class='kw'>else</span> {
-                <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;pp String(&#39;{}&#39;)/buffer Vec&lt;{},{}&gt;&quot;</span>,
-                       <span class='ident'>s</span>, <span class='self'>self</span>.<span class='ident'>left</span>, <span class='self'>self</span>.<span class='ident'>right</span>);
-                <span class='self'>self</span>.<span class='ident'>advance_right</span>();
-                <span class='self'>self</span>.<span class='ident'>buf</span>[<span class='self'>self</span>.<span class='ident'>right</span>] <span class='op'>=</span> <span class='ident'>BufEntry</span> { <span class='ident'>token</span>: <span class='ident'>Token</span>::<span class='ident'>String</span>(<span class='ident'>s</span>, <span class='ident'>len</span>), <span class='ident'>size</span>: <span class='ident'>len</span> };
-                <span class='self'>self</span>.<span class='ident'>right_total</span> <span class='op'>+=</span> <span class='ident'>len</span>;
-                <span class='self'>self</span>.<span class='ident'>check_stream</span>()
+          <span class="ident">Token</span>::<span class="ident">End</span> <span class="op">=&gt;</span> {
+            <span class="kw">if</span> <span class="self">self</span>.<span class="ident">scan_stack</span>.<span class="ident">is_empty</span>() {
+                <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;pp End/print Vec&lt;{},{}&gt;&quot;</span>, <span class="self">self</span>.<span class="ident">left</span>, <span class="self">self</span>.<span class="ident">right</span>);
+                <span class="self">self</span>.<span class="ident">print</span>(<span class="ident">token</span>, <span class="number">0</span>)
+            } <span class="kw">else</span> {
+                <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;pp End/buffer Vec&lt;{},{}&gt;&quot;</span>, <span class="self">self</span>.<span class="ident">left</span>, <span class="self">self</span>.<span class="ident">right</span>);
+                <span class="self">self</span>.<span class="ident">advance_right</span>();
+                <span class="self">self</span>.<span class="ident">buf</span>[<span class="self">self</span>.<span class="ident">right</span>] <span class="op">=</span> <span class="ident">BufEntry</span> { <span class="ident">token</span>: <span class="ident">token</span>, <span class="ident">size</span>: <span class="op">-</span><span class="number">1</span> };
+                <span class="kw">let</span> <span class="ident">right</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">right</span>;
+                <span class="self">self</span>.<span class="ident">scan_push</span>(<span class="ident">right</span>);
+                <span class="prelude-val">Ok</span>(())
             }
           }
+          <span class="ident">Token</span>::<span class="ident">Break</span>(<span class="ident">b</span>) <span class="op">=&gt;</span> {
+            <span class="kw">if</span> <span class="self">self</span>.<span class="ident">scan_stack</span>.<span class="ident">is_empty</span>() {
+                <span class="self">self</span>.<span class="ident">left_total</span> <span class="op">=</span> <span class="number">1</span>;
+                <span class="self">self</span>.<span class="ident">right_total</span> <span class="op">=</span> <span class="number">1</span>;
+                <span class="self">self</span>.<span class="ident">left</span> <span class="op">=</span> <span class="number">0</span>;
+                <span class="self">self</span>.<span class="ident">right</span> <span class="op">=</span> <span class="number">0</span>;
+            } <span class="kw">else</span> { <span class="self">self</span>.<span class="ident">advance_right</span>(); }
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;pp Break({})/buffer Vec&lt;{},{}&gt;&quot;</span>,
+                   <span class="ident">b</span>.<span class="ident">offset</span>, <span class="self">self</span>.<span class="ident">left</span>, <span class="self">self</span>.<span class="ident">right</span>);
+            <span class="self">self</span>.<span class="ident">check_stack</span>(<span class="number">0</span>);
+            <span class="kw">let</span> <span class="ident">right</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">right</span>;
+            <span class="self">self</span>.<span class="ident">scan_push</span>(<span class="ident">right</span>);
+            <span class="self">self</span>.<span class="ident">buf</span>[<span class="self">self</span>.<span class="ident">right</span>] <span class="op">=</span> <span class="ident">BufEntry</span> { <span class="ident">token</span>: <span class="ident">token</span>, <span class="ident">size</span>: <span class="op">-</span><span class="self">self</span>.<span class="ident">right_total</span> };
+            <span class="self">self</span>.<span class="ident">right_total</span> <span class="op">+=</span> <span class="ident">b</span>.<span class="ident">blank_space</span>;
+            <span class="prelude-val">Ok</span>(())
+          }
+          <span class="ident">Token</span>::<span class="ident">String</span>(<span class="ident">s</span>, <span class="ident">len</span>) <span class="op">=&gt;</span> {
+            <span class="kw">if</span> <span class="self">self</span>.<span class="ident">scan_stack</span>.<span class="ident">is_empty</span>() {
+                <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;pp String(&#39;{}&#39;)/print Vec&lt;{},{}&gt;&quot;</span>,
+                       <span class="ident">s</span>, <span class="self">self</span>.<span class="ident">left</span>, <span class="self">self</span>.<span class="ident">right</span>);
+                <span class="self">self</span>.<span class="ident">print</span>(<span class="ident">Token</span>::<span class="ident">String</span>(<span class="ident">s</span>, <span class="ident">len</span>), <span class="ident">len</span>)
+            } <span class="kw">else</span> {
+                <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;pp String(&#39;{}&#39;)/buffer Vec&lt;{},{}&gt;&quot;</span>,
+                       <span class="ident">s</span>, <span class="self">self</span>.<span class="ident">left</span>, <span class="self">self</span>.<span class="ident">right</span>);
+                <span class="self">self</span>.<span class="ident">advance_right</span>();
+                <span class="self">self</span>.<span class="ident">buf</span>[<span class="self">self</span>.<span class="ident">right</span>] <span class="op">=</span> <span class="ident">BufEntry</span> { <span class="ident">token</span>: <span class="ident">Token</span>::<span class="ident">String</span>(<span class="ident">s</span>, <span class="ident">len</span>), <span class="ident">size</span>: <span class="ident">len</span> };
+                <span class="self">self</span>.<span class="ident">right_total</span> <span class="op">+=</span> <span class="ident">len</span>;
+                <span class="self">self</span>.<span class="ident">check_stream</span>()
+            }
+          }
         }
     }
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>check_stream</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;check_stream Vec&lt;{}, {}&gt; with left_total={}, right_total={}&quot;</span>,
-               <span class='self'>self</span>.<span class='ident'>left</span>, <span class='self'>self</span>.<span class='ident'>right</span>, <span class='self'>self</span>.<span class='ident'>left_total</span>, <span class='self'>self</span>.<span class='ident'>right_total</span>);
-        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>right_total</span> <span class='op'>-</span> <span class='self'>self</span>.<span class='ident'>left_total</span> <span class='op'>&gt;</span> <span class='self'>self</span>.<span class='ident'>space</span> {
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;scan window is {}, longer than space on line ({})&quot;</span>,
-                   <span class='self'>self</span>.<span class='ident'>right_total</span> <span class='op'>-</span> <span class='self'>self</span>.<span class='ident'>left_total</span>, <span class='self'>self</span>.<span class='ident'>space</span>);
-            <span class='kw'>if</span> <span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>left</span>) <span class='op'>==</span> <span class='self'>self</span>.<span class='ident'>scan_stack</span>.<span class='ident'>back</span>() {
-                <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;setting {} to infinity and popping&quot;</span>, <span class='self'>self</span>.<span class='ident'>left</span>);
-                <span class='kw'>let</span> <span class='ident'>scanned</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>scan_pop_bottom</span>();
-                <span class='self'>self</span>.<span class='ident'>buf</span>[<span class='ident'>scanned</span>].<span class='ident'>size</span> <span class='op'>=</span> <span class='ident'>SIZE_INFINITY</span>;
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">check_stream</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">io</span>::<span class="prelude-ty">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;check_stream Vec&lt;{}, {}&gt; with left_total={}, right_total={}&quot;</span>,
+               <span class="self">self</span>.<span class="ident">left</span>, <span class="self">self</span>.<span class="ident">right</span>, <span class="self">self</span>.<span class="ident">left_total</span>, <span class="self">self</span>.<span class="ident">right_total</span>);
+        <span class="kw">if</span> <span class="self">self</span>.<span class="ident">right_total</span> <span class="op">-</span> <span class="self">self</span>.<span class="ident">left_total</span> <span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">space</span> {
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;scan window is {}, longer than space on line ({})&quot;</span>,
+                   <span class="self">self</span>.<span class="ident">right_total</span> <span class="op">-</span> <span class="self">self</span>.<span class="ident">left_total</span>, <span class="self">self</span>.<span class="ident">space</span>);
+            <span class="kw">if</span> <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">left</span>) <span class="op">==</span> <span class="self">self</span>.<span class="ident">scan_stack</span>.<span class="ident">back</span>() {
+                <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;setting {} to infinity and popping&quot;</span>, <span class="self">self</span>.<span class="ident">left</span>);
+                <span class="kw">let</span> <span class="ident">scanned</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">scan_pop_bottom</span>();
+                <span class="self">self</span>.<span class="ident">buf</span>[<span class="ident">scanned</span>].<span class="ident">size</span> <span class="op">=</span> <span class="ident">SIZE_INFINITY</span>;
             }
-            <span class='self'>self</span>.<span class='ident'>advance_left</span>()<span class='question-mark'>?</span>;
-            <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>left</span> <span class='op'>!=</span> <span class='self'>self</span>.<span class='ident'>right</span> {
-                <span class='self'>self</span>.<span class='ident'>check_stream</span>()<span class='question-mark'>?</span>;
+            <span class="self">self</span>.<span class="ident">advance_left</span>()<span class="question-mark">?</span>;
+            <span class="kw">if</span> <span class="self">self</span>.<span class="ident">left</span> <span class="op">!=</span> <span class="self">self</span>.<span class="ident">right</span> {
+                <span class="self">self</span>.<span class="ident">check_stream</span>()<span class="question-mark">?</span>;
             }
         }
-        <span class='prelude-val'>Ok</span>(())
+        <span class="prelude-val">Ok</span>(())
     }
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>scan_push</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>x</span>: <span class='ident'>usize</span>) {
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;scan_push {}&quot;</span>, <span class='ident'>x</span>);
-        <span class='self'>self</span>.<span class='ident'>scan_stack</span>.<span class='ident'>push_front</span>(<span class='ident'>x</span>);
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">scan_push</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">x</span>: <span class="ident">usize</span>) {
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;scan_push {}&quot;</span>, <span class="ident">x</span>);
+        <span class="self">self</span>.<span class="ident">scan_stack</span>.<span class="ident">push_front</span>(<span class="ident">x</span>);
     }
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>scan_pop</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
-        <span class='self'>self</span>.<span class='ident'>scan_stack</span>.<span class='ident'>pop_front</span>().<span class='ident'>unwrap</span>()
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">scan_pop</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">usize</span> {
+        <span class="self">self</span>.<span class="ident">scan_stack</span>.<span class="ident">pop_front</span>().<span class="ident">unwrap</span>()
     }
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>scan_top</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
-        <span class='kw-2'>*</span><span class='self'>self</span>.<span class='ident'>scan_stack</span>.<span class='ident'>front</span>().<span class='ident'>unwrap</span>()
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">scan_top</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">usize</span> {
+        <span class="kw-2">*</span><span class="self">self</span>.<span class="ident">scan_stack</span>.<span class="ident">front</span>().<span class="ident">unwrap</span>()
     }
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>scan_pop_bottom</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
-        <span class='self'>self</span>.<span class='ident'>scan_stack</span>.<span class='ident'>pop_back</span>().<span class='ident'>unwrap</span>()
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">scan_pop_bottom</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">usize</span> {
+        <span class="self">self</span>.<span class="ident">scan_stack</span>.<span class="ident">pop_back</span>().<span class="ident">unwrap</span>()
     }
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>advance_right</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) {
-        <span class='self'>self</span>.<span class='ident'>right</span> <span class='op'>+=</span> <span class='number'>1</span>;
-        <span class='self'>self</span>.<span class='ident'>right</span> <span class='op'>%=</span> <span class='self'>self</span>.<span class='ident'>buf_len</span>;
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>right</span> <span class='op'>!=</span> <span class='self'>self</span>.<span class='ident'>left</span>);
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">advance_right</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) {
+        <span class="self">self</span>.<span class="ident">right</span> <span class="op">+=</span> <span class="number">1</span>;
+        <span class="self">self</span>.<span class="ident">right</span> <span class="op">%=</span> <span class="self">self</span>.<span class="ident">buf_len</span>;
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">right</span> <span class="op">!=</span> <span class="self">self</span>.<span class="ident">left</span>);
     }
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>advance_left</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;advance_left Vec&lt;{},{}&gt;, sizeof({})={}&quot;</span>, <span class='self'>self</span>.<span class='ident'>left</span>, <span class='self'>self</span>.<span class='ident'>right</span>,
-               <span class='self'>self</span>.<span class='ident'>left</span>, <span class='self'>self</span>.<span class='ident'>buf</span>[<span class='self'>self</span>.<span class='ident'>left</span>].<span class='ident'>size</span>);
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">advance_left</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">io</span>::<span class="prelude-ty">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;advance_left Vec&lt;{},{}&gt;, sizeof({})={}&quot;</span>, <span class="self">self</span>.<span class="ident">left</span>, <span class="self">self</span>.<span class="ident">right</span>,
+               <span class="self">self</span>.<span class="ident">left</span>, <span class="self">self</span>.<span class="ident">buf</span>[<span class="self">self</span>.<span class="ident">left</span>].<span class="ident">size</span>);
 
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>left_size</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>buf</span>[<span class='self'>self</span>.<span class='ident'>left</span>].<span class='ident'>size</span>;
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">left_size</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">buf</span>[<span class="self">self</span>.<span class="ident">left</span>].<span class="ident">size</span>;
 
-        <span class='kw'>while</span> <span class='ident'>left_size</span> <span class='op'>&gt;=</span> <span class='number'>0</span> {
-            <span class='kw'>let</span> <span class='ident'>left</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>buf</span>[<span class='self'>self</span>.<span class='ident'>left</span>].<span class='ident'>token</span>.<span class='ident'>clone</span>();
+        <span class="kw">while</span> <span class="ident">left_size</span> <span class="op">&gt;=</span> <span class="number">0</span> {
+            <span class="kw">let</span> <span class="ident">left</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">buf</span>[<span class="self">self</span>.<span class="ident">left</span>].<span class="ident">token</span>.<span class="ident">clone</span>();
 
-            <span class='kw'>let</span> <span class='ident'>len</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>left</span> {
-                <span class='ident'>Token</span>::<span class='ident'>Break</span>(<span class='ident'>b</span>) <span class='op'>=&gt;</span> <span class='ident'>b</span>.<span class='ident'>blank_space</span>,
-                <span class='ident'>Token</span>::<span class='ident'>String</span>(_, <span class='ident'>len</span>) <span class='op'>=&gt;</span> {
-                    <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>len</span>, <span class='ident'>left_size</span>);
-                    <span class='ident'>len</span>
+            <span class="kw">let</span> <span class="ident">len</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">left</span> {
+                <span class="ident">Token</span>::<span class="ident">Break</span>(<span class="ident">b</span>) <span class="op">=&gt;</span> <span class="ident">b</span>.<span class="ident">blank_space</span>,
+                <span class="ident">Token</span>::<span class="ident">String</span>(_, <span class="ident">len</span>) <span class="op">=&gt;</span> {
+                    <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">len</span>, <span class="ident">left_size</span>);
+                    <span class="ident">len</span>
                 }
-                _ <span class='op'>=&gt;</span> <span class='number'>0</span>
+                _ <span class="op">=&gt;</span> <span class="number">0</span>
             };
 
-            <span class='self'>self</span>.<span class='ident'>print</span>(<span class='ident'>left</span>, <span class='ident'>left_size</span>)<span class='question-mark'>?</span>;
+            <span class="self">self</span>.<span class="ident">print</span>(<span class="ident">left</span>, <span class="ident">left_size</span>)<span class="question-mark">?</span>;
 
-            <span class='self'>self</span>.<span class='ident'>left_total</span> <span class='op'>+=</span> <span class='ident'>len</span>;
+            <span class="self">self</span>.<span class="ident">left_total</span> <span class="op">+=</span> <span class="ident">len</span>;
 
-            <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>left</span> <span class='op'>==</span> <span class='self'>self</span>.<span class='ident'>right</span> {
-                <span class='kw'>break</span>;
+            <span class="kw">if</span> <span class="self">self</span>.<span class="ident">left</span> <span class="op">==</span> <span class="self">self</span>.<span class="ident">right</span> {
+                <span class="kw">break</span>;
             }
 
-            <span class='self'>self</span>.<span class='ident'>left</span> <span class='op'>+=</span> <span class='number'>1</span>;
-            <span class='self'>self</span>.<span class='ident'>left</span> <span class='op'>%=</span> <span class='self'>self</span>.<span class='ident'>buf_len</span>;
+            <span class="self">self</span>.<span class="ident">left</span> <span class="op">+=</span> <span class="number">1</span>;
+            <span class="self">self</span>.<span class="ident">left</span> <span class="op">%=</span> <span class="self">self</span>.<span class="ident">buf_len</span>;
 
-            <span class='ident'>left_size</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>buf</span>[<span class='self'>self</span>.<span class='ident'>left</span>].<span class='ident'>size</span>;
+            <span class="ident">left_size</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">buf</span>[<span class="self">self</span>.<span class="ident">left</span>].<span class="ident">size</span>;
         }
 
-        <span class='prelude-val'>Ok</span>(())
+        <span class="prelude-val">Ok</span>(())
     }
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>check_stack</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>k</span>: <span class='ident'>isize</span>) {
-        <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>scan_stack</span>.<span class='ident'>is_empty</span>() {
-            <span class='kw'>let</span> <span class='ident'>x</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>scan_top</span>();
-            <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>buf</span>[<span class='ident'>x</span>].<span class='ident'>token</span> {
-                <span class='ident'>Token</span>::<span class='ident'>Begin</span>(_) <span class='op'>=&gt;</span> {
-                    <span class='kw'>if</span> <span class='ident'>k</span> <span class='op'>&gt;</span> <span class='number'>0</span> {
-                        <span class='kw'>let</span> <span class='ident'>popped</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>scan_pop</span>();
-                        <span class='self'>self</span>.<span class='ident'>buf</span>[<span class='ident'>popped</span>].<span class='ident'>size</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>buf</span>[<span class='ident'>x</span>].<span class='ident'>size</span> <span class='op'>+</span> <span class='self'>self</span>.<span class='ident'>right_total</span>;
-                        <span class='self'>self</span>.<span class='ident'>check_stack</span>(<span class='ident'>k</span> <span class='op'>-</span> <span class='number'>1</span>);
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">check_stack</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">k</span>: <span class="ident">isize</span>) {
+        <span class="kw">if</span> <span class="op">!</span><span class="self">self</span>.<span class="ident">scan_stack</span>.<span class="ident">is_empty</span>() {
+            <span class="kw">let</span> <span class="ident">x</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">scan_top</span>();
+            <span class="kw">match</span> <span class="self">self</span>.<span class="ident">buf</span>[<span class="ident">x</span>].<span class="ident">token</span> {
+                <span class="ident">Token</span>::<span class="ident">Begin</span>(_) <span class="op">=&gt;</span> {
+                    <span class="kw">if</span> <span class="ident">k</span> <span class="op">&gt;</span> <span class="number">0</span> {
+                        <span class="kw">let</span> <span class="ident">popped</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">scan_pop</span>();
+                        <span class="self">self</span>.<span class="ident">buf</span>[<span class="ident">popped</span>].<span class="ident">size</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">buf</span>[<span class="ident">x</span>].<span class="ident">size</span> <span class="op">+</span> <span class="self">self</span>.<span class="ident">right_total</span>;
+                        <span class="self">self</span>.<span class="ident">check_stack</span>(<span class="ident">k</span> <span class="op">-</span> <span class="number">1</span>);
                     }
                 }
-                <span class='ident'>Token</span>::<span class='ident'>End</span> <span class='op'>=&gt;</span> {
-                    <span class='comment'>// paper says + not =, but that makes no sense.</span>
-                    <span class='kw'>let</span> <span class='ident'>popped</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>scan_pop</span>();
-                    <span class='self'>self</span>.<span class='ident'>buf</span>[<span class='ident'>popped</span>].<span class='ident'>size</span> <span class='op'>=</span> <span class='number'>1</span>;
-                    <span class='self'>self</span>.<span class='ident'>check_stack</span>(<span class='ident'>k</span> <span class='op'>+</span> <span class='number'>1</span>);
+                <span class="ident">Token</span>::<span class="ident">End</span> <span class="op">=&gt;</span> {
+                    <span class="comment">// paper says + not =, but that makes no sense.</span>
+                    <span class="kw">let</span> <span class="ident">popped</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">scan_pop</span>();
+                    <span class="self">self</span>.<span class="ident">buf</span>[<span class="ident">popped</span>].<span class="ident">size</span> <span class="op">=</span> <span class="number">1</span>;
+                    <span class="self">self</span>.<span class="ident">check_stack</span>(<span class="ident">k</span> <span class="op">+</span> <span class="number">1</span>);
                 }
-                _ <span class='op'>=&gt;</span> {
-                    <span class='kw'>let</span> <span class='ident'>popped</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>scan_pop</span>();
-                    <span class='self'>self</span>.<span class='ident'>buf</span>[<span class='ident'>popped</span>].<span class='ident'>size</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>buf</span>[<span class='ident'>x</span>].<span class='ident'>size</span> <span class='op'>+</span> <span class='self'>self</span>.<span class='ident'>right_total</span>;
-                    <span class='kw'>if</span> <span class='ident'>k</span> <span class='op'>&gt;</span> <span class='number'>0</span> {
-                        <span class='self'>self</span>.<span class='ident'>check_stack</span>(<span class='ident'>k</span>);
+                _ <span class="op">=&gt;</span> {
+                    <span class="kw">let</span> <span class="ident">popped</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">scan_pop</span>();
+                    <span class="self">self</span>.<span class="ident">buf</span>[<span class="ident">popped</span>].<span class="ident">size</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">buf</span>[<span class="ident">x</span>].<span class="ident">size</span> <span class="op">+</span> <span class="self">self</span>.<span class="ident">right_total</span>;
+                    <span class="kw">if</span> <span class="ident">k</span> <span class="op">&gt;</span> <span class="number">0</span> {
+                        <span class="self">self</span>.<span class="ident">check_stack</span>(<span class="ident">k</span>);
                     }
                 }
             }
         }
     }
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>print_newline</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>amount</span>: <span class='ident'>isize</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;NEWLINE {}&quot;</span>, <span class='ident'>amount</span>);
-        <span class='kw'>let</span> <span class='ident'>ret</span> <span class='op'>=</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>out</span>, <span class='string'>&quot;\n&quot;</span>);
-        <span class='self'>self</span>.<span class='ident'>pending_indentation</span> <span class='op'>=</span> <span class='number'>0</span>;
-        <span class='self'>self</span>.<span class='ident'>indent</span>(<span class='ident'>amount</span>);
-        <span class='ident'>ret</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">print_newline</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">amount</span>: <span class="ident">isize</span>) <span class="op">-&gt;</span> <span class="ident">io</span>::<span class="prelude-ty">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;NEWLINE {}&quot;</span>, <span class="ident">amount</span>);
+        <span class="kw">let</span> <span class="ident">ret</span> <span class="op">=</span> <span class="macro">write</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">out</span>, <span class="string">&quot;\n&quot;</span>);
+        <span class="self">self</span>.<span class="ident">pending_indentation</span> <span class="op">=</span> <span class="number">0</span>;
+        <span class="self">self</span>.<span class="ident">indent</span>(<span class="ident">amount</span>);
+        <span class="ident">ret</span>
     }
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>indent</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>amount</span>: <span class='ident'>isize</span>) {
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;INDENT {}&quot;</span>, <span class='ident'>amount</span>);
-        <span class='self'>self</span>.<span class='ident'>pending_indentation</span> <span class='op'>+=</span> <span class='ident'>amount</span>;
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">indent</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">amount</span>: <span class="ident">isize</span>) {
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;INDENT {}&quot;</span>, <span class="ident">amount</span>);
+        <span class="self">self</span>.<span class="ident">pending_indentation</span> <span class="op">+=</span> <span class="ident">amount</span>;
     }
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>get_top</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>PrintStackElem</span> {
-        <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>print_stack</span>.<span class='ident'>last</span>() {
-            <span class='prelude-val'>Some</span>(<span class='ident'>el</span>) <span class='op'>=&gt;</span> <span class='kw-2'>*</span><span class='ident'>el</span>,
-            <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='ident'>PrintStackElem</span> {
-                <span class='ident'>offset</span>: <span class='number'>0</span>,
-                <span class='ident'>pbreak</span>: <span class='ident'>PrintStackBreak</span>::<span class='ident'>Broken</span>(<span class='ident'>Breaks</span>::<span class='ident'>Inconsistent</span>)
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">get_top</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">PrintStackElem</span> {
+        <span class="kw">match</span> <span class="self">self</span>.<span class="ident">print_stack</span>.<span class="ident">last</span>() {
+            <span class="prelude-val">Some</span>(<span class="ident">el</span>) <span class="op">=&gt;</span> <span class="kw-2">*</span><span class="ident">el</span>,
+            <span class="prelude-val">None</span> <span class="op">=&gt;</span> <span class="ident">PrintStackElem</span> {
+                <span class="ident">offset</span>: <span class="number">0</span>,
+                <span class="ident">pbreak</span>: <span class="ident">PrintStackBreak</span>::<span class="ident">Broken</span>(<span class="ident">Breaks</span>::<span class="ident">Inconsistent</span>)
             }
         }
     }
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>print_str</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>s</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-        <span class='kw'>while</span> <span class='self'>self</span>.<span class='ident'>pending_indentation</span> <span class='op'>&gt;</span> <span class='number'>0</span> {
-            <span class='macro'>write</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>out</span>, <span class='string'>&quot; &quot;</span>)<span class='question-mark'>?</span>;
-            <span class='self'>self</span>.<span class='ident'>pending_indentation</span> <span class='op'>-=</span> <span class='number'>1</span>;
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">print_str</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">s</span>: <span class="kw-2">&amp;</span><span class="ident">str</span>) <span class="op">-&gt;</span> <span class="ident">io</span>::<span class="prelude-ty">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+        <span class="kw">while</span> <span class="self">self</span>.<span class="ident">pending_indentation</span> <span class="op">&gt;</span> <span class="number">0</span> {
+            <span class="macro">write</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">out</span>, <span class="string">&quot; &quot;</span>)<span class="question-mark">?</span>;
+            <span class="self">self</span>.<span class="ident">pending_indentation</span> <span class="op">-=</span> <span class="number">1</span>;
         }
-        <span class='macro'>write</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>out</span>, <span class='string'>&quot;{}&quot;</span>, <span class='ident'>s</span>)
+        <span class="macro">write</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">out</span>, <span class="string">&quot;{}&quot;</span>, <span class="ident">s</span>)
     }
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>print</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>token</span>: <span class='ident'>Token</span>, <span class='ident'>l</span>: <span class='ident'>isize</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;print {} {} (remaining line space={})&quot;</span>, <span class='ident'>token</span>, <span class='ident'>l</span>,
-               <span class='self'>self</span>.<span class='ident'>space</span>);
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;{}&quot;</span>, <span class='ident'>buf_str</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>buf</span>,
-                             <span class='self'>self</span>.<span class='ident'>left</span>,
-                             <span class='self'>self</span>.<span class='ident'>right</span>,
-                             <span class='number'>6</span>));
-        <span class='kw'>match</span> <span class='ident'>token</span> {
-          <span class='ident'>Token</span>::<span class='ident'>Begin</span>(<span class='ident'>b</span>) <span class='op'>=&gt;</span> {
-            <span class='kw'>if</span> <span class='ident'>l</span> <span class='op'>&gt;</span> <span class='self'>self</span>.<span class='ident'>space</span> {
-                <span class='kw'>let</span> <span class='ident'>col</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>margin</span> <span class='op'>-</span> <span class='self'>self</span>.<span class='ident'>space</span> <span class='op'>+</span> <span class='ident'>b</span>.<span class='ident'>offset</span>;
-                <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;print Begin -&gt; push broken block at col {}&quot;</span>, <span class='ident'>col</span>);
-                <span class='self'>self</span>.<span class='ident'>print_stack</span>.<span class='ident'>push</span>(<span class='ident'>PrintStackElem</span> {
-                    <span class='ident'>offset</span>: <span class='ident'>col</span>,
-                    <span class='ident'>pbreak</span>: <span class='ident'>PrintStackBreak</span>::<span class='ident'>Broken</span>(<span class='ident'>b</span>.<span class='ident'>breaks</span>)
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">print</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">token</span>: <span class="ident">Token</span>, <span class="ident">l</span>: <span class="ident">isize</span>) <span class="op">-&gt;</span> <span class="ident">io</span>::<span class="prelude-ty">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;print {} {} (remaining line space={})&quot;</span>, <span class="ident">token</span>, <span class="ident">l</span>,
+               <span class="self">self</span>.<span class="ident">space</span>);
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;{}&quot;</span>, <span class="ident">buf_str</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">buf</span>,
+                             <span class="self">self</span>.<span class="ident">left</span>,
+                             <span class="self">self</span>.<span class="ident">right</span>,
+                             <span class="number">6</span>));
+        <span class="kw">match</span> <span class="ident">token</span> {
+          <span class="ident">Token</span>::<span class="ident">Begin</span>(<span class="ident">b</span>) <span class="op">=&gt;</span> {
+            <span class="kw">if</span> <span class="ident">l</span> <span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">space</span> {
+                <span class="kw">let</span> <span class="ident">col</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">margin</span> <span class="op">-</span> <span class="self">self</span>.<span class="ident">space</span> <span class="op">+</span> <span class="ident">b</span>.<span class="ident">offset</span>;
+                <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;print Begin -&gt; push broken block at col {}&quot;</span>, <span class="ident">col</span>);
+                <span class="self">self</span>.<span class="ident">print_stack</span>.<span class="ident">push</span>(<span class="ident">PrintStackElem</span> {
+                    <span class="ident">offset</span>: <span class="ident">col</span>,
+                    <span class="ident">pbreak</span>: <span class="ident">PrintStackBreak</span>::<span class="ident">Broken</span>(<span class="ident">b</span>.<span class="ident">breaks</span>)
                 });
-            } <span class='kw'>else</span> {
-                <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;print Begin -&gt; push fitting block&quot;</span>);
-                <span class='self'>self</span>.<span class='ident'>print_stack</span>.<span class='ident'>push</span>(<span class='ident'>PrintStackElem</span> {
-                    <span class='ident'>offset</span>: <span class='number'>0</span>,
-                    <span class='ident'>pbreak</span>: <span class='ident'>PrintStackBreak</span>::<span class='ident'>Fits</span>
+            } <span class="kw">else</span> {
+                <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;print Begin -&gt; push fitting block&quot;</span>);
+                <span class="self">self</span>.<span class="ident">print_stack</span>.<span class="ident">push</span>(<span class="ident">PrintStackElem</span> {
+                    <span class="ident">offset</span>: <span class="number">0</span>,
+                    <span class="ident">pbreak</span>: <span class="ident">PrintStackBreak</span>::<span class="ident">Fits</span>
                 });
             }
-            <span class='prelude-val'>Ok</span>(())
+            <span class="prelude-val">Ok</span>(())
           }
-          <span class='ident'>Token</span>::<span class='ident'>End</span> <span class='op'>=&gt;</span> {
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;print End -&gt; pop End&quot;</span>);
-            <span class='kw'>let</span> <span class='ident'>print_stack</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>.<span class='ident'>print_stack</span>;
-            <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>print_stack</span>.<span class='ident'>is_empty</span>());
-            <span class='ident'>print_stack</span>.<span class='ident'>pop</span>().<span class='ident'>unwrap</span>();
-            <span class='prelude-val'>Ok</span>(())
+          <span class="ident">Token</span>::<span class="ident">End</span> <span class="op">=&gt;</span> {
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;print End -&gt; pop End&quot;</span>);
+            <span class="kw">let</span> <span class="ident">print_stack</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>.<span class="ident">print_stack</span>;
+            <span class="macro">assert</span><span class="macro">!</span>(<span class="op">!</span><span class="ident">print_stack</span>.<span class="ident">is_empty</span>());
+            <span class="ident">print_stack</span>.<span class="ident">pop</span>().<span class="ident">unwrap</span>();
+            <span class="prelude-val">Ok</span>(())
           }
-          <span class='ident'>Token</span>::<span class='ident'>Break</span>(<span class='ident'>b</span>) <span class='op'>=&gt;</span> {
-            <span class='kw'>let</span> <span class='ident'>top</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>get_top</span>();
-            <span class='kw'>match</span> <span class='ident'>top</span>.<span class='ident'>pbreak</span> {
-              <span class='ident'>PrintStackBreak</span>::<span class='ident'>Fits</span> <span class='op'>=&gt;</span> {
-                <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;print Break({}) in fitting block&quot;</span>, <span class='ident'>b</span>.<span class='ident'>blank_space</span>);
-                <span class='self'>self</span>.<span class='ident'>space</span> <span class='op'>-=</span> <span class='ident'>b</span>.<span class='ident'>blank_space</span>;
-                <span class='self'>self</span>.<span class='ident'>indent</span>(<span class='ident'>b</span>.<span class='ident'>blank_space</span>);
-                <span class='prelude-val'>Ok</span>(())
+          <span class="ident">Token</span>::<span class="ident">Break</span>(<span class="ident">b</span>) <span class="op">=&gt;</span> {
+            <span class="kw">let</span> <span class="ident">top</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">get_top</span>();
+            <span class="kw">match</span> <span class="ident">top</span>.<span class="ident">pbreak</span> {
+              <span class="ident">PrintStackBreak</span>::<span class="ident">Fits</span> <span class="op">=&gt;</span> {
+                <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;print Break({}) in fitting block&quot;</span>, <span class="ident">b</span>.<span class="ident">blank_space</span>);
+                <span class="self">self</span>.<span class="ident">space</span> <span class="op">-=</span> <span class="ident">b</span>.<span class="ident">blank_space</span>;
+                <span class="self">self</span>.<span class="ident">indent</span>(<span class="ident">b</span>.<span class="ident">blank_space</span>);
+                <span class="prelude-val">Ok</span>(())
               }
-              <span class='ident'>PrintStackBreak</span>::<span class='ident'>Broken</span>(<span class='ident'>Breaks</span>::<span class='ident'>Consistent</span>) <span class='op'>=&gt;</span> {
-                <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;print Break({}+{}) in consistent block&quot;</span>,
-                       <span class='ident'>top</span>.<span class='ident'>offset</span>, <span class='ident'>b</span>.<span class='ident'>offset</span>);
-                <span class='kw'>let</span> <span class='ident'>ret</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>print_newline</span>(<span class='ident'>top</span>.<span class='ident'>offset</span> <span class='op'>+</span> <span class='ident'>b</span>.<span class='ident'>offset</span>);
-                <span class='self'>self</span>.<span class='ident'>space</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>margin</span> <span class='op'>-</span> (<span class='ident'>top</span>.<span class='ident'>offset</span> <span class='op'>+</span> <span class='ident'>b</span>.<span class='ident'>offset</span>);
-                <span class='ident'>ret</span>
+              <span class="ident">PrintStackBreak</span>::<span class="ident">Broken</span>(<span class="ident">Breaks</span>::<span class="ident">Consistent</span>) <span class="op">=&gt;</span> {
+                <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;print Break({}+{}) in consistent block&quot;</span>,
+                       <span class="ident">top</span>.<span class="ident">offset</span>, <span class="ident">b</span>.<span class="ident">offset</span>);
+                <span class="kw">let</span> <span class="ident">ret</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">print_newline</span>(<span class="ident">top</span>.<span class="ident">offset</span> <span class="op">+</span> <span class="ident">b</span>.<span class="ident">offset</span>);
+                <span class="self">self</span>.<span class="ident">space</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">margin</span> <span class="op">-</span> (<span class="ident">top</span>.<span class="ident">offset</span> <span class="op">+</span> <span class="ident">b</span>.<span class="ident">offset</span>);
+                <span class="ident">ret</span>
               }
-              <span class='ident'>PrintStackBreak</span>::<span class='ident'>Broken</span>(<span class='ident'>Breaks</span>::<span class='ident'>Inconsistent</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>if</span> <span class='ident'>l</span> <span class='op'>&gt;</span> <span class='self'>self</span>.<span class='ident'>space</span> {
-                    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;print Break({}+{}) w/ newline in inconsistent&quot;</span>,
-                           <span class='ident'>top</span>.<span class='ident'>offset</span>, <span class='ident'>b</span>.<span class='ident'>offset</span>);
-                    <span class='kw'>let</span> <span class='ident'>ret</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>print_newline</span>(<span class='ident'>top</span>.<span class='ident'>offset</span> <span class='op'>+</span> <span class='ident'>b</span>.<span class='ident'>offset</span>);
-                    <span class='self'>self</span>.<span class='ident'>space</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>margin</span> <span class='op'>-</span> (<span class='ident'>top</span>.<span class='ident'>offset</span> <span class='op'>+</span> <span class='ident'>b</span>.<span class='ident'>offset</span>);
-                    <span class='ident'>ret</span>
-                } <span class='kw'>else</span> {
-                    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;print Break({}) w/o newline in inconsistent&quot;</span>,
-                           <span class='ident'>b</span>.<span class='ident'>blank_space</span>);
-                    <span class='self'>self</span>.<span class='ident'>indent</span>(<span class='ident'>b</span>.<span class='ident'>blank_space</span>);
-                    <span class='self'>self</span>.<span class='ident'>space</span> <span class='op'>-=</span> <span class='ident'>b</span>.<span class='ident'>blank_space</span>;
-                    <span class='prelude-val'>Ok</span>(())
+              <span class="ident">PrintStackBreak</span>::<span class="ident">Broken</span>(<span class="ident">Breaks</span>::<span class="ident">Inconsistent</span>) <span class="op">=&gt;</span> {
+                <span class="kw">if</span> <span class="ident">l</span> <span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">space</span> {
+                    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;print Break({}+{}) w/ newline in inconsistent&quot;</span>,
+                           <span class="ident">top</span>.<span class="ident">offset</span>, <span class="ident">b</span>.<span class="ident">offset</span>);
+                    <span class="kw">let</span> <span class="ident">ret</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">print_newline</span>(<span class="ident">top</span>.<span class="ident">offset</span> <span class="op">+</span> <span class="ident">b</span>.<span class="ident">offset</span>);
+                    <span class="self">self</span>.<span class="ident">space</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">margin</span> <span class="op">-</span> (<span class="ident">top</span>.<span class="ident">offset</span> <span class="op">+</span> <span class="ident">b</span>.<span class="ident">offset</span>);
+                    <span class="ident">ret</span>
+                } <span class="kw">else</span> {
+                    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;print Break({}) w/o newline in inconsistent&quot;</span>,
+                           <span class="ident">b</span>.<span class="ident">blank_space</span>);
+                    <span class="self">self</span>.<span class="ident">indent</span>(<span class="ident">b</span>.<span class="ident">blank_space</span>);
+                    <span class="self">self</span>.<span class="ident">space</span> <span class="op">-=</span> <span class="ident">b</span>.<span class="ident">blank_space</span>;
+                    <span class="prelude-val">Ok</span>(())
                 }
               }
             }
           }
-          <span class='ident'>Token</span>::<span class='ident'>String</span>(<span class='kw-2'>ref</span> <span class='ident'>s</span>, <span class='ident'>len</span>) <span class='op'>=&gt;</span> {
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;print String({})&quot;</span>, <span class='ident'>s</span>);
-            <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>l</span>, <span class='ident'>len</span>);
-            <span class='comment'>// assert!(l &lt;= space);</span>
-            <span class='self'>self</span>.<span class='ident'>space</span> <span class='op'>-=</span> <span class='ident'>len</span>;
-            <span class='self'>self</span>.<span class='ident'>print_str</span>(<span class='ident'>s</span>)
+          <span class="ident">Token</span>::<span class="ident">String</span>(<span class="kw-2">ref</span> <span class="ident">s</span>, <span class="ident">len</span>) <span class="op">=&gt;</span> {
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;print String({})&quot;</span>, <span class="ident">s</span>);
+            <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">l</span>, <span class="ident">len</span>);
+            <span class="comment">// assert!(l &lt;= space);</span>
+            <span class="self">self</span>.<span class="ident">space</span> <span class="op">-=</span> <span class="ident">len</span>;
+            <span class="self">self</span>.<span class="ident">print_str</span>(<span class="ident">s</span>)
           }
-          <span class='ident'>Token</span>::<span class='ident'>Eof</span> <span class='op'>=&gt;</span> {
-            <span class='comment'>// Eof should never get here.</span>
-            <span class='macro'>panic</span><span class='macro'>!</span>();
+          <span class="ident">Token</span>::<span class="ident">Eof</span> <span class="op">=&gt;</span> {
+            <span class="comment">// Eof should never get here.</span>
+            <span class="macro">panic</span><span class="macro">!</span>();
           }
         }
     }
 }
 
-<span class='comment'>// Convenience functions to talk to the printer.</span>
+<span class="comment">// Convenience functions to talk to the printer.</span>
 
-<span class='doccomment'>/// &quot;raw box&quot;</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>rbox</span>(<span class='ident'>p</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Printer</span>, <span class='ident'>indent</span>: <span class='ident'>usize</span>, <span class='ident'>b</span>: <span class='ident'>Breaks</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-    <span class='ident'>p</span>.<span class='ident'>pretty_print</span>(<span class='ident'>Token</span>::<span class='ident'>Begin</span>(<span class='ident'>BeginToken</span> {
-        <span class='ident'>offset</span>: <span class='ident'>indent</span> <span class='kw'>as</span> <span class='ident'>isize</span>,
-        <span class='ident'>breaks</span>: <span class='ident'>b</span>
+<span class="doccomment">/// &quot;raw box&quot;</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">rbox</span>(<span class="ident">p</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Printer</span>, <span class="ident">indent</span>: <span class="ident">usize</span>, <span class="ident">b</span>: <span class="ident">Breaks</span>) <span class="op">-&gt;</span> <span class="ident">io</span>::<span class="prelude-ty">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+    <span class="ident">p</span>.<span class="ident">pretty_print</span>(<span class="ident">Token</span>::<span class="ident">Begin</span>(<span class="ident">BeginToken</span> {
+        <span class="ident">offset</span>: <span class="ident">indent</span> <span class="kw">as</span> <span class="ident">isize</span>,
+        <span class="ident">breaks</span>: <span class="ident">b</span>
     }))
 }
 
-<span class='doccomment'>/// Inconsistent breaking box</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>ibox</span>(<span class='ident'>p</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Printer</span>, <span class='ident'>indent</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-    <span class='ident'>rbox</span>(<span class='ident'>p</span>, <span class='ident'>indent</span>, <span class='ident'>Breaks</span>::<span class='ident'>Inconsistent</span>)
+<span class="doccomment">/// Inconsistent breaking box</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">ibox</span>(<span class="ident">p</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Printer</span>, <span class="ident">indent</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">io</span>::<span class="prelude-ty">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+    <span class="ident">rbox</span>(<span class="ident">p</span>, <span class="ident">indent</span>, <span class="ident">Breaks</span>::<span class="ident">Inconsistent</span>)
 }
 
-<span class='doccomment'>/// Consistent breaking box</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>cbox</span>(<span class='ident'>p</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Printer</span>, <span class='ident'>indent</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-    <span class='ident'>rbox</span>(<span class='ident'>p</span>, <span class='ident'>indent</span>, <span class='ident'>Breaks</span>::<span class='ident'>Consistent</span>)
+<span class="doccomment">/// Consistent breaking box</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">cbox</span>(<span class="ident">p</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Printer</span>, <span class="ident">indent</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">io</span>::<span class="prelude-ty">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+    <span class="ident">rbox</span>(<span class="ident">p</span>, <span class="ident">indent</span>, <span class="ident">Breaks</span>::<span class="ident">Consistent</span>)
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>break_offset</span>(<span class='ident'>p</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Printer</span>, <span class='ident'>n</span>: <span class='ident'>usize</span>, <span class='ident'>off</span>: <span class='ident'>isize</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-    <span class='ident'>p</span>.<span class='ident'>pretty_print</span>(<span class='ident'>Token</span>::<span class='ident'>Break</span>(<span class='ident'>BreakToken</span> {
-        <span class='ident'>offset</span>: <span class='ident'>off</span>,
-        <span class='ident'>blank_space</span>: <span class='ident'>n</span> <span class='kw'>as</span> <span class='ident'>isize</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">break_offset</span>(<span class="ident">p</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Printer</span>, <span class="ident">n</span>: <span class="ident">usize</span>, <span class="ident">off</span>: <span class="ident">isize</span>) <span class="op">-&gt;</span> <span class="ident">io</span>::<span class="prelude-ty">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+    <span class="ident">p</span>.<span class="ident">pretty_print</span>(<span class="ident">Token</span>::<span class="ident">Break</span>(<span class="ident">BreakToken</span> {
+        <span class="ident">offset</span>: <span class="ident">off</span>,
+        <span class="ident">blank_space</span>: <span class="ident">n</span> <span class="kw">as</span> <span class="ident">isize</span>
     }))
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>end</span>(<span class='ident'>p</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Printer</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-    <span class='ident'>p</span>.<span class='ident'>pretty_print</span>(<span class='ident'>Token</span>::<span class='ident'>End</span>)
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">end</span>(<span class="ident">p</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Printer</span>) <span class="op">-&gt;</span> <span class="ident">io</span>::<span class="prelude-ty">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+    <span class="ident">p</span>.<span class="ident">pretty_print</span>(<span class="ident">Token</span>::<span class="ident">End</span>)
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>eof</span>(<span class='ident'>p</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Printer</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-    <span class='ident'>p</span>.<span class='ident'>pretty_print</span>(<span class='ident'>Token</span>::<span class='ident'>Eof</span>)
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">eof</span>(<span class="ident">p</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Printer</span>) <span class="op">-&gt;</span> <span class="ident">io</span>::<span class="prelude-ty">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+    <span class="ident">p</span>.<span class="ident">pretty_print</span>(<span class="ident">Token</span>::<span class="ident">Eof</span>)
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>word</span>(<span class='ident'>p</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Printer</span>, <span class='ident'>wrd</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-    <span class='ident'>p</span>.<span class='ident'>pretty_print</span>(<span class='ident'>Token</span>::<span class='ident'>String</span>(<span class='ident'>wrd</span>.<span class='ident'>to_string</span>(), <span class='ident'>wrd</span>.<span class='ident'>len</span>() <span class='kw'>as</span> <span class='ident'>isize</span>))
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">word</span>(<span class="ident">p</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Printer</span>, <span class="ident">wrd</span>: <span class="kw-2">&amp;</span><span class="ident">str</span>) <span class="op">-&gt;</span> <span class="ident">io</span>::<span class="prelude-ty">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+    <span class="ident">p</span>.<span class="ident">pretty_print</span>(<span class="ident">Token</span>::<span class="ident">String</span>(<span class="ident">wrd</span>.<span class="ident">to_string</span>(), <span class="ident">wrd</span>.<span class="ident">len</span>() <span class="kw">as</span> <span class="ident">isize</span>))
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>huge_word</span>(<span class='ident'>p</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Printer</span>, <span class='ident'>wrd</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-    <span class='ident'>p</span>.<span class='ident'>pretty_print</span>(<span class='ident'>Token</span>::<span class='ident'>String</span>(<span class='ident'>wrd</span>.<span class='ident'>to_string</span>(), <span class='ident'>SIZE_INFINITY</span>))
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">huge_word</span>(<span class="ident">p</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Printer</span>, <span class="ident">wrd</span>: <span class="kw-2">&amp;</span><span class="ident">str</span>) <span class="op">-&gt;</span> <span class="ident">io</span>::<span class="prelude-ty">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+    <span class="ident">p</span>.<span class="ident">pretty_print</span>(<span class="ident">Token</span>::<span class="ident">String</span>(<span class="ident">wrd</span>.<span class="ident">to_string</span>(), <span class="ident">SIZE_INFINITY</span>))
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>zero_word</span>(<span class='ident'>p</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Printer</span>, <span class='ident'>wrd</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-    <span class='ident'>p</span>.<span class='ident'>pretty_print</span>(<span class='ident'>Token</span>::<span class='ident'>String</span>(<span class='ident'>wrd</span>.<span class='ident'>to_string</span>(), <span class='number'>0</span>))
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">zero_word</span>(<span class="ident">p</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Printer</span>, <span class="ident">wrd</span>: <span class="kw-2">&amp;</span><span class="ident">str</span>) <span class="op">-&gt;</span> <span class="ident">io</span>::<span class="prelude-ty">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+    <span class="ident">p</span>.<span class="ident">pretty_print</span>(<span class="ident">Token</span>::<span class="ident">String</span>(<span class="ident">wrd</span>.<span class="ident">to_string</span>(), <span class="number">0</span>))
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>spaces</span>(<span class='ident'>p</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Printer</span>, <span class='ident'>n</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-    <span class='ident'>break_offset</span>(<span class='ident'>p</span>, <span class='ident'>n</span>, <span class='number'>0</span>)
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">spaces</span>(<span class="ident">p</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Printer</span>, <span class="ident">n</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">io</span>::<span class="prelude-ty">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+    <span class="ident">break_offset</span>(<span class="ident">p</span>, <span class="ident">n</span>, <span class="number">0</span>)
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>zerobreak</span>(<span class='ident'>p</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Printer</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-    <span class='ident'>spaces</span>(<span class='ident'>p</span>, <span class='number'>0</span>)
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">zerobreak</span>(<span class="ident">p</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Printer</span>) <span class="op">-&gt;</span> <span class="ident">io</span>::<span class="prelude-ty">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+    <span class="ident">spaces</span>(<span class="ident">p</span>, <span class="number">0</span>)
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>space</span>(<span class='ident'>p</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Printer</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-    <span class='ident'>spaces</span>(<span class='ident'>p</span>, <span class='number'>1</span>)
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">space</span>(<span class="ident">p</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Printer</span>) <span class="op">-&gt;</span> <span class="ident">io</span>::<span class="prelude-ty">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+    <span class="ident">spaces</span>(<span class="ident">p</span>, <span class="number">1</span>)
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>hardbreak</span>(<span class='ident'>p</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Printer</span>) <span class='op'>-&gt;</span> <span class='ident'>io</span>::<span class='prelude-ty'>Result</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
-    <span class='ident'>spaces</span>(<span class='ident'>p</span>, <span class='ident'>SIZE_INFINITY</span> <span class='kw'>as</span> <span class='ident'>usize</span>)
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">hardbreak</span>(<span class="ident">p</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Printer</span>) <span class="op">-&gt;</span> <span class="ident">io</span>::<span class="prelude-ty">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+    <span class="ident">spaces</span>(<span class="ident">p</span>, <span class="ident">SIZE_INFINITY</span> <span class="kw">as</span> <span class="ident">usize</span>)
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>hardbreak_tok_offset</span>(<span class='ident'>off</span>: <span class='ident'>isize</span>) <span class='op'>-&gt;</span> <span class='ident'>Token</span> {
-    <span class='ident'>Token</span>::<span class='ident'>Break</span>(<span class='ident'>BreakToken</span> {<span class='ident'>offset</span>: <span class='ident'>off</span>, <span class='ident'>blank_space</span>: <span class='ident'>SIZE_INFINITY</span>})
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">hardbreak_tok_offset</span>(<span class="ident">off</span>: <span class="ident">isize</span>) <span class="op">-&gt;</span> <span class="ident">Token</span> {
+    <span class="ident">Token</span>::<span class="ident">Break</span>(<span class="ident">BreakToken</span> {<span class="ident">offset</span>: <span class="ident">off</span>, <span class="ident">blank_space</span>: <span class="ident">SIZE_INFINITY</span>})
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>hardbreak_tok</span>() <span class='op'>-&gt;</span> <span class='ident'>Token</span> {
-    <span class='ident'>hardbreak_tok_offset</span>(<span class='number'>0</span>)
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">hardbreak_tok</span>() <span class="op">-&gt;</span> <span class="ident">Token</span> {
+    <span class="ident">hardbreak_tok_offset</span>(<span class="number">0</span>)
 }
 </pre>
 </section>

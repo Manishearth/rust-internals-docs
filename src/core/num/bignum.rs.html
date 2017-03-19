@@ -538,501 +538,501 @@
 <span id="493">493</span>
 <span id="494">494</span>
 <span id="495">495</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2015 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2015 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='doccomment'>//! Custom arbitrary-precision number (bignum) implementation.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! This is designed to avoid the heap allocation at expense of stack memory.</span>
-<span class='doccomment'>//! The most used bignum type, `Big32x40`, is limited by 32 × 40 = 1,280 bits</span>
-<span class='doccomment'>//! and will take at most 160 bytes of stack memory. This is more than enough</span>
-<span class='doccomment'>//! for round-tripping all possible finite `f64` values.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! In principle it is possible to have multiple bignum types for different</span>
-<span class='doccomment'>//! inputs, but we don&#39;t do so to avoid the code bloat. Each bignum is still</span>
-<span class='doccomment'>//! tracked for the actual usages, so it normally doesn&#39;t matter.</span>
+<span class="doccomment">//! Custom arbitrary-precision number (bignum) implementation.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! This is designed to avoid the heap allocation at expense of stack memory.</span>
+<span class="doccomment">//! The most used bignum type, `Big32x40`, is limited by 32 × 40 = 1,280 bits</span>
+<span class="doccomment">//! and will take at most 160 bytes of stack memory. This is more than enough</span>
+<span class="doccomment">//! for round-tripping all possible finite `f64` values.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! In principle it is possible to have multiple bignum types for different</span>
+<span class="doccomment">//! inputs, but we don&#39;t do so to avoid the code bloat. Each bignum is still</span>
+<span class="doccomment">//! tracked for the actual usages, so it normally doesn&#39;t matter.</span>
 
-<span class='comment'>// This module is only for dec2flt and flt2dec, and only public because of libcoretest.</span>
-<span class='comment'>// It is not intended to ever be stabilized.</span>
-<span class='attribute'>#<span class='op'>!</span>[<span class='ident'>doc</span>(<span class='ident'>hidden</span>)]</span>
-<span class='attribute'>#<span class='op'>!</span>[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;core_private_bignum&quot;</span>,
-            <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;internal routines only exposed for testing&quot;</span>,
-            <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;0&quot;</span>)]</span>
-<span class='attribute'>#<span class='op'>!</span>[<span class='ident'>macro_use</span>]</span>
+<span class="comment">// This module is only for dec2flt and flt2dec, and only public because of libcoretest.</span>
+<span class="comment">// It is not intended to ever be stabilized.</span>
+<span class="attribute">#<span class="op">!</span>[<span class="ident">doc</span>(<span class="ident">hidden</span>)]</span>
+<span class="attribute">#<span class="op">!</span>[<span class="ident">unstable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;core_private_bignum&quot;</span>,
+            <span class="ident">reason</span> <span class="op">=</span> <span class="string">&quot;internal routines only exposed for testing&quot;</span>,
+            <span class="ident">issue</span> <span class="op">=</span> <span class="string">&quot;0&quot;</span>)]</span>
+<span class="attribute">#<span class="op">!</span>[<span class="ident">macro_use</span>]</span>
 
-<span class='kw'>use</span> <span class='ident'>mem</span>;
-<span class='kw'>use</span> <span class='ident'>intrinsics</span>;
+<span class="kw">use</span> <span class="ident">mem</span>;
+<span class="kw">use</span> <span class="ident">intrinsics</span>;
 
-<span class='doccomment'>/// Arithmetic operations required by bignums.</span>
-<span class='kw'>pub</span> <span class='kw'>trait</span> <span class='ident'>FullOps</span>: <span class='ident'>Sized</span> {
-    <span class='doccomment'>/// Returns `(carry&#39;, v&#39;)` such that `carry&#39; * 2^W + v&#39; = self + other + carry`,</span>
-    <span class='doccomment'>/// where `W` is the number of bits in `Self`.</span>
-    <span class='kw'>fn</span> <span class='ident'>full_add</span>(<span class='self'>self</span>, <span class='ident'>other</span>: <span class='self'>Self</span>, <span class='ident'>carry</span>: <span class='ident'>bool</span>) <span class='op'>-&gt;</span> (<span class='ident'>bool</span> <span class='comment'>/* carry */</span>, <span class='self'>Self</span>);
+<span class="doccomment">/// Arithmetic operations required by bignums.</span>
+<span class="kw">pub</span> <span class="kw">trait</span> <span class="ident">FullOps</span>: <span class="ident">Sized</span> {
+    <span class="doccomment">/// Returns `(carry&#39;, v&#39;)` such that `carry&#39; * 2^W + v&#39; = self + other + carry`,</span>
+    <span class="doccomment">/// where `W` is the number of bits in `Self`.</span>
+    <span class="kw">fn</span> <span class="ident">full_add</span>(<span class="self">self</span>, <span class="ident">other</span>: <span class="self">Self</span>, <span class="ident">carry</span>: <span class="ident">bool</span>) <span class="op">-&gt;</span> (<span class="ident">bool</span> <span class="comment">/* carry */</span>, <span class="self">Self</span>);
 
-    <span class='doccomment'>/// Returns `(carry&#39;, v&#39;)` such that `carry&#39; * 2^W + v&#39; = self * other + carry`,</span>
-    <span class='doccomment'>/// where `W` is the number of bits in `Self`.</span>
-    <span class='kw'>fn</span> <span class='ident'>full_mul</span>(<span class='self'>self</span>, <span class='ident'>other</span>: <span class='self'>Self</span>, <span class='ident'>carry</span>: <span class='self'>Self</span>) <span class='op'>-&gt;</span> (<span class='self'>Self</span> <span class='comment'>/* carry */</span>, <span class='self'>Self</span>);
+    <span class="doccomment">/// Returns `(carry&#39;, v&#39;)` such that `carry&#39; * 2^W + v&#39; = self * other + carry`,</span>
+    <span class="doccomment">/// where `W` is the number of bits in `Self`.</span>
+    <span class="kw">fn</span> <span class="ident">full_mul</span>(<span class="self">self</span>, <span class="ident">other</span>: <span class="self">Self</span>, <span class="ident">carry</span>: <span class="self">Self</span>) <span class="op">-&gt;</span> (<span class="self">Self</span> <span class="comment">/* carry */</span>, <span class="self">Self</span>);
 
-    <span class='doccomment'>/// Returns `(carry&#39;, v&#39;)` such that `carry&#39; * 2^W + v&#39; = self * other + other2 + carry`,</span>
-    <span class='doccomment'>/// where `W` is the number of bits in `Self`.</span>
-    <span class='kw'>fn</span> <span class='ident'>full_mul_add</span>(<span class='self'>self</span>, <span class='ident'>other</span>: <span class='self'>Self</span>, <span class='ident'>other2</span>: <span class='self'>Self</span>, <span class='ident'>carry</span>: <span class='self'>Self</span>) <span class='op'>-&gt;</span> (<span class='self'>Self</span> <span class='comment'>/* carry */</span>, <span class='self'>Self</span>);
+    <span class="doccomment">/// Returns `(carry&#39;, v&#39;)` such that `carry&#39; * 2^W + v&#39; = self * other + other2 + carry`,</span>
+    <span class="doccomment">/// where `W` is the number of bits in `Self`.</span>
+    <span class="kw">fn</span> <span class="ident">full_mul_add</span>(<span class="self">self</span>, <span class="ident">other</span>: <span class="self">Self</span>, <span class="ident">other2</span>: <span class="self">Self</span>, <span class="ident">carry</span>: <span class="self">Self</span>) <span class="op">-&gt;</span> (<span class="self">Self</span> <span class="comment">/* carry */</span>, <span class="self">Self</span>);
 
-    <span class='doccomment'>/// Returns `(quo, rem)` such that `borrow * 2^W + self = quo * other + rem`</span>
-    <span class='doccomment'>/// and `0 &lt;= rem &lt; other`, where `W` is the number of bits in `Self`.</span>
-    <span class='kw'>fn</span> <span class='ident'>full_div_rem</span>(<span class='self'>self</span>,
-                    <span class='ident'>other</span>: <span class='self'>Self</span>,
-                    <span class='ident'>borrow</span>: <span class='self'>Self</span>)
-                    <span class='op'>-&gt;</span> (<span class='self'>Self</span> <span class='comment'>/* quotient */</span>, <span class='self'>Self</span> <span class='comment'>/* remainder */</span>);
+    <span class="doccomment">/// Returns `(quo, rem)` such that `borrow * 2^W + self = quo * other + rem`</span>
+    <span class="doccomment">/// and `0 &lt;= rem &lt; other`, where `W` is the number of bits in `Self`.</span>
+    <span class="kw">fn</span> <span class="ident">full_div_rem</span>(<span class="self">self</span>,
+                    <span class="ident">other</span>: <span class="self">Self</span>,
+                    <span class="ident">borrow</span>: <span class="self">Self</span>)
+                    <span class="op">-&gt;</span> (<span class="self">Self</span> <span class="comment">/* quotient */</span>, <span class="self">Self</span> <span class="comment">/* remainder */</span>);
 }
 
-<span class='macro'>macro_rules</span><span class='macro'>!</span> <span class='ident'>impl_full_ops</span> {
-    ($(<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>:<span class='ident'>ty</span>: <span class='ident'>add</span>(<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>addfn</span>:<span class='ident'>path</span>), <span class='ident'>mul</span><span class='op'>/</span><span class='ident'>div</span>(<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>bigty</span>:<span class='ident'>ident</span>);)<span class='kw-2'>*</span>) <span class='op'>=&gt;</span> (
+<span class="macro">macro_rules</span><span class="macro">!</span> <span class="ident">impl_full_ops</span> {
+    ($(<span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>:<span class="ident">ty</span>: <span class="ident">add</span>(<span class="macro-nonterminal">$</span><span class="macro-nonterminal">addfn</span>:<span class="ident">path</span>), <span class="ident">mul</span><span class="op">/</span><span class="ident">div</span>(<span class="macro-nonterminal">$</span><span class="macro-nonterminal">bigty</span>:<span class="ident">ident</span>);)<span class="kw-2">*</span>) <span class="op">=&gt;</span> (
         $(
-            <span class='kw'>impl</span> <span class='ident'>FullOps</span> <span class='kw'>for</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span> {
-                <span class='kw'>fn</span> <span class='ident'>full_add</span>(<span class='self'>self</span>, <span class='ident'>other</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>, <span class='ident'>carry</span>: <span class='ident'>bool</span>) <span class='op'>-&gt;</span> (<span class='ident'>bool</span>, <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>) {
-                    <span class='comment'>// this cannot overflow, the output is between 0 and 2*2^nbits - 1</span>
-                    <span class='comment'>// FIXME will LLVM optimize this into ADC or similar???</span>
-                    <span class='kw'>let</span> (<span class='ident'>v</span>, <span class='ident'>carry1</span>) <span class='op'>=</span> <span class='kw'>unsafe</span> { <span class='ident'>intrinsics</span>::<span class='ident'>add_with_overflow</span>(<span class='self'>self</span>, <span class='ident'>other</span>) };
-                    <span class='kw'>let</span> (<span class='ident'>v</span>, <span class='ident'>carry2</span>) <span class='op'>=</span> <span class='kw'>unsafe</span> {
-                        <span class='ident'>intrinsics</span>::<span class='ident'>add_with_overflow</span>(<span class='ident'>v</span>, <span class='kw'>if</span> <span class='ident'>carry</span> {<span class='number'>1</span>} <span class='kw'>else</span> {<span class='number'>0</span>})
+            <span class="kw">impl</span> <span class="ident">FullOps</span> <span class="kw">for</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span> {
+                <span class="kw">fn</span> <span class="ident">full_add</span>(<span class="self">self</span>, <span class="ident">other</span>: <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>, <span class="ident">carry</span>: <span class="ident">bool</span>) <span class="op">-&gt;</span> (<span class="ident">bool</span>, <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>) {
+                    <span class="comment">// this cannot overflow, the output is between 0 and 2*2^nbits - 1</span>
+                    <span class="comment">// FIXME will LLVM optimize this into ADC or similar???</span>
+                    <span class="kw">let</span> (<span class="ident">v</span>, <span class="ident">carry1</span>) <span class="op">=</span> <span class="kw">unsafe</span> { <span class="ident">intrinsics</span>::<span class="ident">add_with_overflow</span>(<span class="self">self</span>, <span class="ident">other</span>) };
+                    <span class="kw">let</span> (<span class="ident">v</span>, <span class="ident">carry2</span>) <span class="op">=</span> <span class="kw">unsafe</span> {
+                        <span class="ident">intrinsics</span>::<span class="ident">add_with_overflow</span>(<span class="ident">v</span>, <span class="kw">if</span> <span class="ident">carry</span> {<span class="number">1</span>} <span class="kw">else</span> {<span class="number">0</span>})
                     };
-                    (<span class='ident'>carry1</span> <span class='op'>||</span> <span class='ident'>carry2</span>, <span class='ident'>v</span>)
+                    (<span class="ident">carry1</span> <span class="op">||</span> <span class="ident">carry2</span>, <span class="ident">v</span>)
                 }
 
-                <span class='kw'>fn</span> <span class='ident'>full_mul</span>(<span class='self'>self</span>, <span class='ident'>other</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>, <span class='ident'>carry</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>) <span class='op'>-&gt;</span> (<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>, <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>) {
-                    <span class='comment'>// this cannot overflow, the output is between 0 and 2^nbits * (2^nbits - 1)</span>
-                    <span class='kw'>let</span> <span class='ident'>nbits</span> <span class='op'>=</span> <span class='ident'>mem</span>::<span class='ident'>size_of</span>::<span class='op'>&lt;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span><span class='op'>&gt;</span>() <span class='op'>*</span> <span class='number'>8</span>;
-                    <span class='kw'>let</span> <span class='ident'>v</span> <span class='op'>=</span> (<span class='self'>self</span> <span class='kw'>as</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>bigty</span>) <span class='op'>*</span> (<span class='ident'>other</span> <span class='kw'>as</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>bigty</span>) <span class='op'>+</span> (<span class='ident'>carry</span> <span class='kw'>as</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>bigty</span>);
-                    ((<span class='ident'>v</span> <span class='op'>&gt;&gt;</span> <span class='ident'>nbits</span>) <span class='kw'>as</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>, <span class='ident'>v</span> <span class='kw'>as</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>)
+                <span class="kw">fn</span> <span class="ident">full_mul</span>(<span class="self">self</span>, <span class="ident">other</span>: <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>, <span class="ident">carry</span>: <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>) <span class="op">-&gt;</span> (<span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>, <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>) {
+                    <span class="comment">// this cannot overflow, the output is between 0 and 2^nbits * (2^nbits - 1)</span>
+                    <span class="kw">let</span> <span class="ident">nbits</span> <span class="op">=</span> <span class="ident">mem</span>::<span class="ident">size_of</span>::<span class="op">&lt;</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span><span class="op">&gt;</span>() <span class="op">*</span> <span class="number">8</span>;
+                    <span class="kw">let</span> <span class="ident">v</span> <span class="op">=</span> (<span class="self">self</span> <span class="kw">as</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">bigty</span>) <span class="op">*</span> (<span class="ident">other</span> <span class="kw">as</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">bigty</span>) <span class="op">+</span> (<span class="ident">carry</span> <span class="kw">as</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">bigty</span>);
+                    ((<span class="ident">v</span> <span class="op">&gt;&gt;</span> <span class="ident">nbits</span>) <span class="kw">as</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>, <span class="ident">v</span> <span class="kw">as</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>)
                 }
 
-                <span class='kw'>fn</span> <span class='ident'>full_mul_add</span>(<span class='self'>self</span>, <span class='ident'>other</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>, <span class='ident'>other2</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>, <span class='ident'>carry</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>) <span class='op'>-&gt;</span> (<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>, <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>) {
-                    <span class='comment'>// this cannot overflow, the output is between 0 and 2^(2*nbits) - 1</span>
-                    <span class='kw'>let</span> <span class='ident'>nbits</span> <span class='op'>=</span> <span class='ident'>mem</span>::<span class='ident'>size_of</span>::<span class='op'>&lt;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span><span class='op'>&gt;</span>() <span class='op'>*</span> <span class='number'>8</span>;
-                    <span class='kw'>let</span> <span class='ident'>v</span> <span class='op'>=</span> (<span class='self'>self</span> <span class='kw'>as</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>bigty</span>) <span class='op'>*</span> (<span class='ident'>other</span> <span class='kw'>as</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>bigty</span>) <span class='op'>+</span> (<span class='ident'>other2</span> <span class='kw'>as</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>bigty</span>) <span class='op'>+</span>
-                            (<span class='ident'>carry</span> <span class='kw'>as</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>bigty</span>);
-                    ((<span class='ident'>v</span> <span class='op'>&gt;&gt;</span> <span class='ident'>nbits</span>) <span class='kw'>as</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>, <span class='ident'>v</span> <span class='kw'>as</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>)
+                <span class="kw">fn</span> <span class="ident">full_mul_add</span>(<span class="self">self</span>, <span class="ident">other</span>: <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>, <span class="ident">other2</span>: <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>, <span class="ident">carry</span>: <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>) <span class="op">-&gt;</span> (<span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>, <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>) {
+                    <span class="comment">// this cannot overflow, the output is between 0 and 2^(2*nbits) - 1</span>
+                    <span class="kw">let</span> <span class="ident">nbits</span> <span class="op">=</span> <span class="ident">mem</span>::<span class="ident">size_of</span>::<span class="op">&lt;</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span><span class="op">&gt;</span>() <span class="op">*</span> <span class="number">8</span>;
+                    <span class="kw">let</span> <span class="ident">v</span> <span class="op">=</span> (<span class="self">self</span> <span class="kw">as</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">bigty</span>) <span class="op">*</span> (<span class="ident">other</span> <span class="kw">as</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">bigty</span>) <span class="op">+</span> (<span class="ident">other2</span> <span class="kw">as</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">bigty</span>) <span class="op">+</span>
+                            (<span class="ident">carry</span> <span class="kw">as</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">bigty</span>);
+                    ((<span class="ident">v</span> <span class="op">&gt;&gt;</span> <span class="ident">nbits</span>) <span class="kw">as</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>, <span class="ident">v</span> <span class="kw">as</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>)
                 }
 
-                <span class='kw'>fn</span> <span class='ident'>full_div_rem</span>(<span class='self'>self</span>, <span class='ident'>other</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>, <span class='ident'>borrow</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>) <span class='op'>-&gt;</span> (<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>, <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>) {
-                    <span class='macro'>debug_assert</span><span class='macro'>!</span>(<span class='ident'>borrow</span> <span class='op'>&lt;</span> <span class='ident'>other</span>);
-                    <span class='comment'>// this cannot overflow, the dividend is between 0 and other * 2^nbits - 1</span>
-                    <span class='kw'>let</span> <span class='ident'>nbits</span> <span class='op'>=</span> <span class='ident'>mem</span>::<span class='ident'>size_of</span>::<span class='op'>&lt;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span><span class='op'>&gt;</span>() <span class='op'>*</span> <span class='number'>8</span>;
-                    <span class='kw'>let</span> <span class='ident'>lhs</span> <span class='op'>=</span> ((<span class='ident'>borrow</span> <span class='kw'>as</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>bigty</span>) <span class='op'>&lt;&lt;</span> <span class='ident'>nbits</span>) <span class='op'>|</span> (<span class='self'>self</span> <span class='kw'>as</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>bigty</span>);
-                    <span class='kw'>let</span> <span class='ident'>rhs</span> <span class='op'>=</span> <span class='ident'>other</span> <span class='kw'>as</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>bigty</span>;
-                    ((<span class='ident'>lhs</span> <span class='op'>/</span> <span class='ident'>rhs</span>) <span class='kw'>as</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>, (<span class='ident'>lhs</span> <span class='op'>%</span> <span class='ident'>rhs</span>) <span class='kw'>as</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>)
+                <span class="kw">fn</span> <span class="ident">full_div_rem</span>(<span class="self">self</span>, <span class="ident">other</span>: <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>, <span class="ident">borrow</span>: <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>) <span class="op">-&gt;</span> (<span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>, <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>) {
+                    <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="ident">borrow</span> <span class="op">&lt;</span> <span class="ident">other</span>);
+                    <span class="comment">// this cannot overflow, the dividend is between 0 and other * 2^nbits - 1</span>
+                    <span class="kw">let</span> <span class="ident">nbits</span> <span class="op">=</span> <span class="ident">mem</span>::<span class="ident">size_of</span>::<span class="op">&lt;</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span><span class="op">&gt;</span>() <span class="op">*</span> <span class="number">8</span>;
+                    <span class="kw">let</span> <span class="ident">lhs</span> <span class="op">=</span> ((<span class="ident">borrow</span> <span class="kw">as</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">bigty</span>) <span class="op">&lt;&lt;</span> <span class="ident">nbits</span>) <span class="op">|</span> (<span class="self">self</span> <span class="kw">as</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">bigty</span>);
+                    <span class="kw">let</span> <span class="ident">rhs</span> <span class="op">=</span> <span class="ident">other</span> <span class="kw">as</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">bigty</span>;
+                    ((<span class="ident">lhs</span> <span class="op">/</span> <span class="ident">rhs</span>) <span class="kw">as</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>, (<span class="ident">lhs</span> <span class="op">%</span> <span class="ident">rhs</span>) <span class="kw">as</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>)
                 }
             }
-        )<span class='op'>*</span>
+        )<span class="op">*</span>
     )
 }
 
-<span class='macro'>impl_full_ops</span><span class='macro'>!</span> {
-    <span class='ident'>u8</span>:  <span class='ident'>add</span>(<span class='ident'>intrinsics</span>::<span class='ident'>u8_add_with_overflow</span>),  <span class='ident'>mul</span><span class='op'>/</span><span class='ident'>div</span>(<span class='ident'>u16</span>);
-    <span class='ident'>u16</span>: <span class='ident'>add</span>(<span class='ident'>intrinsics</span>::<span class='ident'>u16_add_with_overflow</span>), <span class='ident'>mul</span><span class='op'>/</span><span class='ident'>div</span>(<span class='ident'>u32</span>);
-    <span class='ident'>u32</span>: <span class='ident'>add</span>(<span class='ident'>intrinsics</span>::<span class='ident'>u32_add_with_overflow</span>), <span class='ident'>mul</span><span class='op'>/</span><span class='ident'>div</span>(<span class='ident'>u64</span>);
-<span class='comment'>//  u64: add(intrinsics::u64_add_with_overflow), mul/div(u128); // see RFC #521 for enabling this.</span>
+<span class="macro">impl_full_ops</span><span class="macro">!</span> {
+    <span class="ident">u8</span>:  <span class="ident">add</span>(<span class="ident">intrinsics</span>::<span class="ident">u8_add_with_overflow</span>),  <span class="ident">mul</span><span class="op">/</span><span class="ident">div</span>(<span class="ident">u16</span>);
+    <span class="ident">u16</span>: <span class="ident">add</span>(<span class="ident">intrinsics</span>::<span class="ident">u16_add_with_overflow</span>), <span class="ident">mul</span><span class="op">/</span><span class="ident">div</span>(<span class="ident">u32</span>);
+    <span class="ident">u32</span>: <span class="ident">add</span>(<span class="ident">intrinsics</span>::<span class="ident">u32_add_with_overflow</span>), <span class="ident">mul</span><span class="op">/</span><span class="ident">div</span>(<span class="ident">u64</span>);
+<span class="comment">//  u64: add(intrinsics::u64_add_with_overflow), mul/div(u128); // see RFC #521 for enabling this.</span>
 }
 
-<span class='doccomment'>/// Table of powers of 5 representable in digits. Specifically, the largest {u8, u16, u32} value</span>
-<span class='doccomment'>/// that&#39;s a power of five, plus the corresponding exponent. Used in `mul_pow5`.</span>
-<span class='kw'>const</span> <span class='ident'>SMALL_POW5</span>: [(<span class='ident'>u64</span>, <span class='ident'>usize</span>); <span class='number'>3</span>] <span class='op'>=</span> [(<span class='number'>125</span>, <span class='number'>3</span>), (<span class='number'>15625</span>, <span class='number'>6</span>), (<span class='number'>1_220_703_125</span>, <span class='number'>13</span>)];
+<span class="doccomment">/// Table of powers of 5 representable in digits. Specifically, the largest {u8, u16, u32} value</span>
+<span class="doccomment">/// that&#39;s a power of five, plus the corresponding exponent. Used in `mul_pow5`.</span>
+<span class="kw">const</span> <span class="ident">SMALL_POW5</span>: [(<span class="ident">u64</span>, <span class="ident">usize</span>); <span class="number">3</span>] <span class="op">=</span> [(<span class="number">125</span>, <span class="number">3</span>), (<span class="number">15625</span>, <span class="number">6</span>), (<span class="number">1_220_703_125</span>, <span class="number">13</span>)];
 
-<span class='macro'>macro_rules</span><span class='macro'>!</span> <span class='ident'>define_bignum</span> {
-    (<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span>:<span class='ident'>ident</span>: <span class='kw'>type</span><span class='op'>=</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>:<span class='ident'>ty</span>, <span class='ident'>n</span><span class='op'>=</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>n</span>:<span class='ident'>expr</span>) <span class='op'>=&gt;</span> (
-        <span class='doccomment'>/// Stack-allocated arbitrary-precision (up to certain limit) integer.</span>
-        <span class='doccomment'>///</span>
-        <span class='doccomment'>/// This is backed by a fixed-size array of given type (&quot;digit&quot;).</span>
-        <span class='doccomment'>/// While the array is not very large (normally some hundred bytes),</span>
-        <span class='doccomment'>/// copying it recklessly may result in the performance hit.</span>
-        <span class='doccomment'>/// Thus this is intentionally not `Copy`.</span>
-        <span class='doccomment'>///</span>
-        <span class='doccomment'>/// All operations available to bignums panic in the case of over/underflows.</span>
-        <span class='doccomment'>/// The caller is responsible to use large enough bignum types.</span>
-        <span class='kw'>pub</span> <span class='kw'>struct</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> {
-            <span class='doccomment'>/// One plus the offset to the maximum &quot;digit&quot; in use.</span>
-            <span class='doccomment'>/// This does not decrease, so be aware of the computation order.</span>
-            <span class='doccomment'>/// `base[size..]` should be zero.</span>
-            <span class='ident'>size</span>: <span class='ident'>usize</span>,
-            <span class='doccomment'>/// Digits. `[a, b, c, ...]` represents `a + b*2^W + c*2^(2W) + ...`</span>
-            <span class='doccomment'>/// where `W` is the number of bits in the digit type.</span>
-            <span class='ident'>base</span>: [<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>; <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>n</span>]
+<span class="macro">macro_rules</span><span class="macro">!</span> <span class="ident">define_bignum</span> {
+    (<span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span>:<span class="ident">ident</span>: <span class="kw">type</span><span class="op">=</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>:<span class="ident">ty</span>, <span class="ident">n</span><span class="op">=</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">n</span>:<span class="ident">expr</span>) <span class="op">=&gt;</span> (
+        <span class="doccomment">/// Stack-allocated arbitrary-precision (up to certain limit) integer.</span>
+        <span class="doccomment">///</span>
+        <span class="doccomment">/// This is backed by a fixed-size array of given type (&quot;digit&quot;).</span>
+        <span class="doccomment">/// While the array is not very large (normally some hundred bytes),</span>
+        <span class="doccomment">/// copying it recklessly may result in the performance hit.</span>
+        <span class="doccomment">/// Thus this is intentionally not `Copy`.</span>
+        <span class="doccomment">///</span>
+        <span class="doccomment">/// All operations available to bignums panic in the case of over/underflows.</span>
+        <span class="doccomment">/// The caller is responsible to use large enough bignum types.</span>
+        <span class="kw">pub</span> <span class="kw">struct</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span> {
+            <span class="doccomment">/// One plus the offset to the maximum &quot;digit&quot; in use.</span>
+            <span class="doccomment">/// This does not decrease, so be aware of the computation order.</span>
+            <span class="doccomment">/// `base[size..]` should be zero.</span>
+            <span class="ident">size</span>: <span class="ident">usize</span>,
+            <span class="doccomment">/// Digits. `[a, b, c, ...]` represents `a + b*2^W + c*2^(2W) + ...`</span>
+            <span class="doccomment">/// where `W` is the number of bits in the digit type.</span>
+            <span class="ident">base</span>: [<span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>; <span class="macro-nonterminal">$</span><span class="macro-nonterminal">n</span>]
         }
 
-        <span class='kw'>impl</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> {
-            <span class='doccomment'>/// Makes a bignum from one digit.</span>
-            <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>from_small</span>(<span class='ident'>v</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>) <span class='op'>-&gt;</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> {
-                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>base</span> <span class='op'>=</span> [<span class='number'>0</span>; <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>n</span>];
-                <span class='ident'>base</span>[<span class='number'>0</span>] <span class='op'>=</span> <span class='ident'>v</span>;
-                <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> { <span class='ident'>size</span>: <span class='number'>1</span>, <span class='ident'>base</span>: <span class='ident'>base</span> }
+        <span class="kw">impl</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span> {
+            <span class="doccomment">/// Makes a bignum from one digit.</span>
+            <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">from_small</span>(<span class="ident">v</span>: <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>) <span class="op">-&gt;</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span> {
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">base</span> <span class="op">=</span> [<span class="number">0</span>; <span class="macro-nonterminal">$</span><span class="macro-nonterminal">n</span>];
+                <span class="ident">base</span>[<span class="number">0</span>] <span class="op">=</span> <span class="ident">v</span>;
+                <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span> { <span class="ident">size</span>: <span class="number">1</span>, <span class="ident">base</span>: <span class="ident">base</span> }
             }
 
-            <span class='doccomment'>/// Makes a bignum from `u64` value.</span>
-            <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>from_u64</span>(<span class='kw-2'>mut</span> <span class='ident'>v</span>: <span class='ident'>u64</span>) <span class='op'>-&gt;</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> {
-                <span class='kw'>use</span> <span class='ident'>mem</span>;
+            <span class="doccomment">/// Makes a bignum from `u64` value.</span>
+            <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">from_u64</span>(<span class="kw-2">mut</span> <span class="ident">v</span>: <span class="ident">u64</span>) <span class="op">-&gt;</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span> {
+                <span class="kw">use</span> <span class="ident">mem</span>;
 
-                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>base</span> <span class='op'>=</span> [<span class='number'>0</span>; <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>n</span>];
-                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>sz</span> <span class='op'>=</span> <span class='number'>0</span>;
-                <span class='kw'>while</span> <span class='ident'>v</span> <span class='op'>&gt;</span> <span class='number'>0</span> {
-                    <span class='ident'>base</span>[<span class='ident'>sz</span>] <span class='op'>=</span> <span class='ident'>v</span> <span class='kw'>as</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>;
-                    <span class='ident'>v</span> <span class='op'>&gt;&gt;=</span> <span class='ident'>mem</span>::<span class='ident'>size_of</span>::<span class='op'>&lt;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span><span class='op'>&gt;</span>() <span class='op'>*</span> <span class='number'>8</span>;
-                    <span class='ident'>sz</span> <span class='op'>+=</span> <span class='number'>1</span>;
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">base</span> <span class="op">=</span> [<span class="number">0</span>; <span class="macro-nonterminal">$</span><span class="macro-nonterminal">n</span>];
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">sz</span> <span class="op">=</span> <span class="number">0</span>;
+                <span class="kw">while</span> <span class="ident">v</span> <span class="op">&gt;</span> <span class="number">0</span> {
+                    <span class="ident">base</span>[<span class="ident">sz</span>] <span class="op">=</span> <span class="ident">v</span> <span class="kw">as</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>;
+                    <span class="ident">v</span> <span class="op">&gt;&gt;=</span> <span class="ident">mem</span>::<span class="ident">size_of</span>::<span class="op">&lt;</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span><span class="op">&gt;</span>() <span class="op">*</span> <span class="number">8</span>;
+                    <span class="ident">sz</span> <span class="op">+=</span> <span class="number">1</span>;
                 }
-                <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> { <span class='ident'>size</span>: <span class='ident'>sz</span>, <span class='ident'>base</span>: <span class='ident'>base</span> }
+                <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span> { <span class="ident">size</span>: <span class="ident">sz</span>, <span class="ident">base</span>: <span class="ident">base</span> }
             }
 
-            <span class='doccomment'>/// Return the internal digits as a slice `[a, b, c, ...]` such that the numeric</span>
-            <span class='doccomment'>/// value is `a + b * 2^W + c * 2^(2W) + ...` where `W` is the number of bits in</span>
-            <span class='doccomment'>/// the digit type.</span>
-            <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>digits</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span>[<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>] {
-                <span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>base</span>[..<span class='self'>self</span>.<span class='ident'>size</span>]
+            <span class="doccomment">/// Return the internal digits as a slice `[a, b, c, ...]` such that the numeric</span>
+            <span class="doccomment">/// value is `a + b * 2^W + c * 2^(2W) + ...` where `W` is the number of bits in</span>
+            <span class="doccomment">/// the digit type.</span>
+            <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">digits</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span>[<span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>] {
+                <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">base</span>[..<span class="self">self</span>.<span class="ident">size</span>]
             }
 
-            <span class='doccomment'>/// Return the `i`-th bit where bit 0 is the least significant one.</span>
-            <span class='doccomment'>/// In other words, the bit with weight `2^i`.</span>
-            <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>get_bit</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>i</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='ident'>u8</span> {
-                <span class='kw'>use</span> <span class='ident'>mem</span>;
+            <span class="doccomment">/// Return the `i`-th bit where bit 0 is the least significant one.</span>
+            <span class="doccomment">/// In other words, the bit with weight `2^i`.</span>
+            <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">get_bit</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">i</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">u8</span> {
+                <span class="kw">use</span> <span class="ident">mem</span>;
 
-                <span class='kw'>let</span> <span class='ident'>digitbits</span> <span class='op'>=</span> <span class='ident'>mem</span>::<span class='ident'>size_of</span>::<span class='op'>&lt;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span><span class='op'>&gt;</span>() <span class='op'>*</span> <span class='number'>8</span>;
-                <span class='kw'>let</span> <span class='ident'>d</span> <span class='op'>=</span> <span class='ident'>i</span> <span class='op'>/</span> <span class='ident'>digitbits</span>;
-                <span class='kw'>let</span> <span class='ident'>b</span> <span class='op'>=</span> <span class='ident'>i</span> <span class='op'>%</span> <span class='ident'>digitbits</span>;
-                ((<span class='self'>self</span>.<span class='ident'>base</span>[<span class='ident'>d</span>] <span class='op'>&gt;&gt;</span> <span class='ident'>b</span>) <span class='op'>&amp;</span> <span class='number'>1</span>) <span class='kw'>as</span> <span class='ident'>u8</span>
+                <span class="kw">let</span> <span class="ident">digitbits</span> <span class="op">=</span> <span class="ident">mem</span>::<span class="ident">size_of</span>::<span class="op">&lt;</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span><span class="op">&gt;</span>() <span class="op">*</span> <span class="number">8</span>;
+                <span class="kw">let</span> <span class="ident">d</span> <span class="op">=</span> <span class="ident">i</span> <span class="op">/</span> <span class="ident">digitbits</span>;
+                <span class="kw">let</span> <span class="ident">b</span> <span class="op">=</span> <span class="ident">i</span> <span class="op">%</span> <span class="ident">digitbits</span>;
+                ((<span class="self">self</span>.<span class="ident">base</span>[<span class="ident">d</span>] <span class="op">&gt;&gt;</span> <span class="ident">b</span>) <span class="op">&amp;</span> <span class="number">1</span>) <span class="kw">as</span> <span class="ident">u8</span>
             }
 
-            <span class='doccomment'>/// Returns true if the bignum is zero.</span>
-            <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_zero</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-                <span class='self'>self</span>.<span class='ident'>digits</span>().<span class='ident'>iter</span>().<span class='ident'>all</span>(<span class='op'>|</span><span class='kw-2'>&amp;</span><span class='ident'>v</span><span class='op'>|</span> <span class='ident'>v</span> <span class='op'>==</span> <span class='number'>0</span>)
+            <span class="doccomment">/// Returns true if the bignum is zero.</span>
+            <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">is_zero</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+                <span class="self">self</span>.<span class="ident">digits</span>().<span class="ident">iter</span>().<span class="ident">all</span>(<span class="op">|</span><span class="kw-2">&amp;</span><span class="ident">v</span><span class="op">|</span> <span class="ident">v</span> <span class="op">==</span> <span class="number">0</span>)
             }
 
-            <span class='doccomment'>/// Returns the number of bits necessary to represent this value. Note that zero</span>
-            <span class='doccomment'>/// is considered to need 0 bits.</span>
-            <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>bit_length</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
-                <span class='kw'>use</span> <span class='ident'>mem</span>;
+            <span class="doccomment">/// Returns the number of bits necessary to represent this value. Note that zero</span>
+            <span class="doccomment">/// is considered to need 0 bits.</span>
+            <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">bit_length</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">usize</span> {
+                <span class="kw">use</span> <span class="ident">mem</span>;
 
-                <span class='comment'>// Skip over the most significant digits which are zero.</span>
-                <span class='kw'>let</span> <span class='ident'>digits</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>digits</span>();
-                <span class='kw'>let</span> <span class='ident'>zeros</span> <span class='op'>=</span> <span class='ident'>digits</span>.<span class='ident'>iter</span>().<span class='ident'>rev</span>().<span class='ident'>take_while</span>(<span class='op'>|</span><span class='op'>&amp;&amp;</span><span class='ident'>x</span><span class='op'>|</span> <span class='ident'>x</span> <span class='op'>==</span> <span class='number'>0</span>).<span class='ident'>count</span>();
-                <span class='kw'>let</span> <span class='ident'>end</span> <span class='op'>=</span> <span class='ident'>digits</span>.<span class='ident'>len</span>() <span class='op'>-</span> <span class='ident'>zeros</span>;
-                <span class='kw'>let</span> <span class='ident'>nonzero</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='ident'>digits</span>[..<span class='ident'>end</span>];
+                <span class="comment">// Skip over the most significant digits which are zero.</span>
+                <span class="kw">let</span> <span class="ident">digits</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">digits</span>();
+                <span class="kw">let</span> <span class="ident">zeros</span> <span class="op">=</span> <span class="ident">digits</span>.<span class="ident">iter</span>().<span class="ident">rev</span>().<span class="ident">take_while</span>(<span class="op">|</span><span class="op">&amp;&amp;</span><span class="ident">x</span><span class="op">|</span> <span class="ident">x</span> <span class="op">==</span> <span class="number">0</span>).<span class="ident">count</span>();
+                <span class="kw">let</span> <span class="ident">end</span> <span class="op">=</span> <span class="ident">digits</span>.<span class="ident">len</span>() <span class="op">-</span> <span class="ident">zeros</span>;
+                <span class="kw">let</span> <span class="ident">nonzero</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="ident">digits</span>[..<span class="ident">end</span>];
 
-                <span class='kw'>if</span> <span class='ident'>nonzero</span>.<span class='ident'>is_empty</span>() {
-                    <span class='comment'>// There are no non-zero digits, i.e. the number is zero.</span>
-                    <span class='kw'>return</span> <span class='number'>0</span>;
+                <span class="kw">if</span> <span class="ident">nonzero</span>.<span class="ident">is_empty</span>() {
+                    <span class="comment">// There are no non-zero digits, i.e. the number is zero.</span>
+                    <span class="kw">return</span> <span class="number">0</span>;
                 }
-                <span class='comment'>// This could be optimized with leading_zeros() and bit shifts, but that&#39;s</span>
-                <span class='comment'>// probably not worth the hassle.</span>
-                <span class='kw'>let</span> <span class='ident'>digitbits</span> <span class='op'>=</span> <span class='ident'>mem</span>::<span class='ident'>size_of</span>::<span class='op'>&lt;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span><span class='op'>&gt;</span>()<span class='op'>*</span> <span class='number'>8</span>;
-                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>i</span> <span class='op'>=</span> <span class='ident'>nonzero</span>.<span class='ident'>len</span>() <span class='op'>*</span> <span class='ident'>digitbits</span> <span class='op'>-</span> <span class='number'>1</span>;
-                <span class='kw'>while</span> <span class='self'>self</span>.<span class='ident'>get_bit</span>(<span class='ident'>i</span>) <span class='op'>==</span> <span class='number'>0</span> {
-                    <span class='ident'>i</span> <span class='op'>-=</span> <span class='number'>1</span>;
+                <span class="comment">// This could be optimized with leading_zeros() and bit shifts, but that&#39;s</span>
+                <span class="comment">// probably not worth the hassle.</span>
+                <span class="kw">let</span> <span class="ident">digitbits</span> <span class="op">=</span> <span class="ident">mem</span>::<span class="ident">size_of</span>::<span class="op">&lt;</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span><span class="op">&gt;</span>()<span class="op">*</span> <span class="number">8</span>;
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">i</span> <span class="op">=</span> <span class="ident">nonzero</span>.<span class="ident">len</span>() <span class="op">*</span> <span class="ident">digitbits</span> <span class="op">-</span> <span class="number">1</span>;
+                <span class="kw">while</span> <span class="self">self</span>.<span class="ident">get_bit</span>(<span class="ident">i</span>) <span class="op">==</span> <span class="number">0</span> {
+                    <span class="ident">i</span> <span class="op">-=</span> <span class="number">1</span>;
                 }
-                <span class='ident'>i</span> <span class='op'>+</span> <span class='number'>1</span>
+                <span class="ident">i</span> <span class="op">+</span> <span class="number">1</span>
             }
 
-            <span class='doccomment'>/// Adds `other` to itself and returns its own mutable reference.</span>
-            <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>add</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>other</span>: <span class='kw-2'>&amp;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> {
-                <span class='kw'>use</span> <span class='ident'>cmp</span>;
-                <span class='kw'>use</span> <span class='ident'>num</span>::<span class='ident'>bignum</span>::<span class='ident'>FullOps</span>;
+            <span class="doccomment">/// Adds `other` to itself and returns its own mutable reference.</span>
+            <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">add</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">other</span>: <span class="kw-2">&amp;</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="kw-2">mut</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span> {
+                <span class="kw">use</span> <span class="ident">cmp</span>;
+                <span class="kw">use</span> <span class="ident">num</span>::<span class="ident">bignum</span>::<span class="ident">FullOps</span>;
 
-                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>sz</span> <span class='op'>=</span> <span class='ident'>cmp</span>::<span class='ident'>max</span>(<span class='self'>self</span>.<span class='ident'>size</span>, <span class='ident'>other</span>.<span class='ident'>size</span>);
-                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>carry</span> <span class='op'>=</span> <span class='bool-val'>false</span>;
-                <span class='kw'>for</span> (<span class='ident'>a</span>, <span class='ident'>b</span>) <span class='kw'>in</span> <span class='self'>self</span>.<span class='ident'>base</span>[..<span class='ident'>sz</span>].<span class='ident'>iter_mut</span>().<span class='ident'>zip</span>(<span class='kw-2'>&amp;</span><span class='ident'>other</span>.<span class='ident'>base</span>[..<span class='ident'>sz</span>]) {
-                    <span class='kw'>let</span> (<span class='ident'>c</span>, <span class='ident'>v</span>) <span class='op'>=</span> (<span class='kw-2'>*</span><span class='ident'>a</span>).<span class='ident'>full_add</span>(<span class='kw-2'>*</span><span class='ident'>b</span>, <span class='ident'>carry</span>);
-                    <span class='kw-2'>*</span><span class='ident'>a</span> <span class='op'>=</span> <span class='ident'>v</span>;
-                    <span class='ident'>carry</span> <span class='op'>=</span> <span class='ident'>c</span>;
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">sz</span> <span class="op">=</span> <span class="ident">cmp</span>::<span class="ident">max</span>(<span class="self">self</span>.<span class="ident">size</span>, <span class="ident">other</span>.<span class="ident">size</span>);
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">carry</span> <span class="op">=</span> <span class="bool-val">false</span>;
+                <span class="kw">for</span> (<span class="ident">a</span>, <span class="ident">b</span>) <span class="kw">in</span> <span class="self">self</span>.<span class="ident">base</span>[..<span class="ident">sz</span>].<span class="ident">iter_mut</span>().<span class="ident">zip</span>(<span class="kw-2">&amp;</span><span class="ident">other</span>.<span class="ident">base</span>[..<span class="ident">sz</span>]) {
+                    <span class="kw">let</span> (<span class="ident">c</span>, <span class="ident">v</span>) <span class="op">=</span> (<span class="kw-2">*</span><span class="ident">a</span>).<span class="ident">full_add</span>(<span class="kw-2">*</span><span class="ident">b</span>, <span class="ident">carry</span>);
+                    <span class="kw-2">*</span><span class="ident">a</span> <span class="op">=</span> <span class="ident">v</span>;
+                    <span class="ident">carry</span> <span class="op">=</span> <span class="ident">c</span>;
                 }
-                <span class='kw'>if</span> <span class='ident'>carry</span> {
-                    <span class='self'>self</span>.<span class='ident'>base</span>[<span class='ident'>sz</span>] <span class='op'>=</span> <span class='number'>1</span>;
-                    <span class='ident'>sz</span> <span class='op'>+=</span> <span class='number'>1</span>;
+                <span class="kw">if</span> <span class="ident">carry</span> {
+                    <span class="self">self</span>.<span class="ident">base</span>[<span class="ident">sz</span>] <span class="op">=</span> <span class="number">1</span>;
+                    <span class="ident">sz</span> <span class="op">+=</span> <span class="number">1</span>;
                 }
-                <span class='self'>self</span>.<span class='ident'>size</span> <span class='op'>=</span> <span class='ident'>sz</span>;
-                <span class='self'>self</span>
+                <span class="self">self</span>.<span class="ident">size</span> <span class="op">=</span> <span class="ident">sz</span>;
+                <span class="self">self</span>
             }
 
-            <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>add_small</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>other</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> {
-                <span class='kw'>use</span> <span class='ident'>num</span>::<span class='ident'>bignum</span>::<span class='ident'>FullOps</span>;
+            <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">add_small</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">other</span>: <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span> {
+                <span class="kw">use</span> <span class="ident">num</span>::<span class="ident">bignum</span>::<span class="ident">FullOps</span>;
 
-                <span class='kw'>let</span> (<span class='kw-2'>mut</span> <span class='ident'>carry</span>, <span class='ident'>v</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>base</span>[<span class='number'>0</span>].<span class='ident'>full_add</span>(<span class='ident'>other</span>, <span class='bool-val'>false</span>);
-                <span class='self'>self</span>.<span class='ident'>base</span>[<span class='number'>0</span>] <span class='op'>=</span> <span class='ident'>v</span>;
-                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>i</span> <span class='op'>=</span> <span class='number'>1</span>;
-                <span class='kw'>while</span> <span class='ident'>carry</span> {
-                    <span class='kw'>let</span> (<span class='ident'>c</span>, <span class='ident'>v</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>base</span>[<span class='ident'>i</span>].<span class='ident'>full_add</span>(<span class='number'>0</span>, <span class='ident'>carry</span>);
-                    <span class='self'>self</span>.<span class='ident'>base</span>[<span class='ident'>i</span>] <span class='op'>=</span> <span class='ident'>v</span>;
-                    <span class='ident'>carry</span> <span class='op'>=</span> <span class='ident'>c</span>;
-                    <span class='ident'>i</span> <span class='op'>+=</span> <span class='number'>1</span>;
+                <span class="kw">let</span> (<span class="kw-2">mut</span> <span class="ident">carry</span>, <span class="ident">v</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">base</span>[<span class="number">0</span>].<span class="ident">full_add</span>(<span class="ident">other</span>, <span class="bool-val">false</span>);
+                <span class="self">self</span>.<span class="ident">base</span>[<span class="number">0</span>] <span class="op">=</span> <span class="ident">v</span>;
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">i</span> <span class="op">=</span> <span class="number">1</span>;
+                <span class="kw">while</span> <span class="ident">carry</span> {
+                    <span class="kw">let</span> (<span class="ident">c</span>, <span class="ident">v</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">base</span>[<span class="ident">i</span>].<span class="ident">full_add</span>(<span class="number">0</span>, <span class="ident">carry</span>);
+                    <span class="self">self</span>.<span class="ident">base</span>[<span class="ident">i</span>] <span class="op">=</span> <span class="ident">v</span>;
+                    <span class="ident">carry</span> <span class="op">=</span> <span class="ident">c</span>;
+                    <span class="ident">i</span> <span class="op">+=</span> <span class="number">1</span>;
                 }
-                <span class='kw'>if</span> <span class='ident'>i</span> <span class='op'>&gt;</span> <span class='self'>self</span>.<span class='ident'>size</span> {
-                    <span class='self'>self</span>.<span class='ident'>size</span> <span class='op'>=</span> <span class='ident'>i</span>;
+                <span class="kw">if</span> <span class="ident">i</span> <span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">size</span> {
+                    <span class="self">self</span>.<span class="ident">size</span> <span class="op">=</span> <span class="ident">i</span>;
                 }
-                <span class='self'>self</span>
+                <span class="self">self</span>
             }
 
-            <span class='doccomment'>/// Subtracts `other` from itself and returns its own mutable reference.</span>
-            <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>sub</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>other</span>: <span class='kw-2'>&amp;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> {
-                <span class='kw'>use</span> <span class='ident'>cmp</span>;
-                <span class='kw'>use</span> <span class='ident'>num</span>::<span class='ident'>bignum</span>::<span class='ident'>FullOps</span>;
+            <span class="doccomment">/// Subtracts `other` from itself and returns its own mutable reference.</span>
+            <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">sub</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">other</span>: <span class="kw-2">&amp;</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="kw-2">mut</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span> {
+                <span class="kw">use</span> <span class="ident">cmp</span>;
+                <span class="kw">use</span> <span class="ident">num</span>::<span class="ident">bignum</span>::<span class="ident">FullOps</span>;
 
-                <span class='kw'>let</span> <span class='ident'>sz</span> <span class='op'>=</span> <span class='ident'>cmp</span>::<span class='ident'>max</span>(<span class='self'>self</span>.<span class='ident'>size</span>, <span class='ident'>other</span>.<span class='ident'>size</span>);
-                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>noborrow</span> <span class='op'>=</span> <span class='bool-val'>true</span>;
-                <span class='kw'>for</span> (<span class='ident'>a</span>, <span class='ident'>b</span>) <span class='kw'>in</span> <span class='self'>self</span>.<span class='ident'>base</span>[..<span class='ident'>sz</span>].<span class='ident'>iter_mut</span>().<span class='ident'>zip</span>(<span class='kw-2'>&amp;</span><span class='ident'>other</span>.<span class='ident'>base</span>[..<span class='ident'>sz</span>]) {
-                    <span class='kw'>let</span> (<span class='ident'>c</span>, <span class='ident'>v</span>) <span class='op'>=</span> (<span class='kw-2'>*</span><span class='ident'>a</span>).<span class='ident'>full_add</span>(<span class='op'>!</span><span class='kw-2'>*</span><span class='ident'>b</span>, <span class='ident'>noborrow</span>);
-                    <span class='kw-2'>*</span><span class='ident'>a</span> <span class='op'>=</span> <span class='ident'>v</span>;
-                    <span class='ident'>noborrow</span> <span class='op'>=</span> <span class='ident'>c</span>;
+                <span class="kw">let</span> <span class="ident">sz</span> <span class="op">=</span> <span class="ident">cmp</span>::<span class="ident">max</span>(<span class="self">self</span>.<span class="ident">size</span>, <span class="ident">other</span>.<span class="ident">size</span>);
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">noborrow</span> <span class="op">=</span> <span class="bool-val">true</span>;
+                <span class="kw">for</span> (<span class="ident">a</span>, <span class="ident">b</span>) <span class="kw">in</span> <span class="self">self</span>.<span class="ident">base</span>[..<span class="ident">sz</span>].<span class="ident">iter_mut</span>().<span class="ident">zip</span>(<span class="kw-2">&amp;</span><span class="ident">other</span>.<span class="ident">base</span>[..<span class="ident">sz</span>]) {
+                    <span class="kw">let</span> (<span class="ident">c</span>, <span class="ident">v</span>) <span class="op">=</span> (<span class="kw-2">*</span><span class="ident">a</span>).<span class="ident">full_add</span>(<span class="op">!</span><span class="kw-2">*</span><span class="ident">b</span>, <span class="ident">noborrow</span>);
+                    <span class="kw-2">*</span><span class="ident">a</span> <span class="op">=</span> <span class="ident">v</span>;
+                    <span class="ident">noborrow</span> <span class="op">=</span> <span class="ident">c</span>;
                 }
-                <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>noborrow</span>);
-                <span class='self'>self</span>.<span class='ident'>size</span> <span class='op'>=</span> <span class='ident'>sz</span>;
-                <span class='self'>self</span>
+                <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">noborrow</span>);
+                <span class="self">self</span>.<span class="ident">size</span> <span class="op">=</span> <span class="ident">sz</span>;
+                <span class="self">self</span>
             }
 
-            <span class='doccomment'>/// Multiplies itself by a digit-sized `other` and returns its own</span>
-            <span class='doccomment'>/// mutable reference.</span>
-            <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>mul_small</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>other</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> {
-                <span class='kw'>use</span> <span class='ident'>num</span>::<span class='ident'>bignum</span>::<span class='ident'>FullOps</span>;
+            <span class="doccomment">/// Multiplies itself by a digit-sized `other` and returns its own</span>
+            <span class="doccomment">/// mutable reference.</span>
+            <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">mul_small</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">other</span>: <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span> {
+                <span class="kw">use</span> <span class="ident">num</span>::<span class="ident">bignum</span>::<span class="ident">FullOps</span>;
 
-                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>sz</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>size</span>;
-                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>carry</span> <span class='op'>=</span> <span class='number'>0</span>;
-                <span class='kw'>for</span> <span class='ident'>a</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>.<span class='ident'>base</span>[..<span class='ident'>sz</span>] {
-                    <span class='kw'>let</span> (<span class='ident'>c</span>, <span class='ident'>v</span>) <span class='op'>=</span> (<span class='kw-2'>*</span><span class='ident'>a</span>).<span class='ident'>full_mul</span>(<span class='ident'>other</span>, <span class='ident'>carry</span>);
-                    <span class='kw-2'>*</span><span class='ident'>a</span> <span class='op'>=</span> <span class='ident'>v</span>;
-                    <span class='ident'>carry</span> <span class='op'>=</span> <span class='ident'>c</span>;
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">sz</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">size</span>;
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">carry</span> <span class="op">=</span> <span class="number">0</span>;
+                <span class="kw">for</span> <span class="ident">a</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>.<span class="ident">base</span>[..<span class="ident">sz</span>] {
+                    <span class="kw">let</span> (<span class="ident">c</span>, <span class="ident">v</span>) <span class="op">=</span> (<span class="kw-2">*</span><span class="ident">a</span>).<span class="ident">full_mul</span>(<span class="ident">other</span>, <span class="ident">carry</span>);
+                    <span class="kw-2">*</span><span class="ident">a</span> <span class="op">=</span> <span class="ident">v</span>;
+                    <span class="ident">carry</span> <span class="op">=</span> <span class="ident">c</span>;
                 }
-                <span class='kw'>if</span> <span class='ident'>carry</span> <span class='op'>&gt;</span> <span class='number'>0</span> {
-                    <span class='self'>self</span>.<span class='ident'>base</span>[<span class='ident'>sz</span>] <span class='op'>=</span> <span class='ident'>carry</span>;
-                    <span class='ident'>sz</span> <span class='op'>+=</span> <span class='number'>1</span>;
+                <span class="kw">if</span> <span class="ident">carry</span> <span class="op">&gt;</span> <span class="number">0</span> {
+                    <span class="self">self</span>.<span class="ident">base</span>[<span class="ident">sz</span>] <span class="op">=</span> <span class="ident">carry</span>;
+                    <span class="ident">sz</span> <span class="op">+=</span> <span class="number">1</span>;
                 }
-                <span class='self'>self</span>.<span class='ident'>size</span> <span class='op'>=</span> <span class='ident'>sz</span>;
-                <span class='self'>self</span>
+                <span class="self">self</span>.<span class="ident">size</span> <span class="op">=</span> <span class="ident">sz</span>;
+                <span class="self">self</span>
             }
 
-            <span class='doccomment'>/// Multiplies itself by `2^bits` and returns its own mutable reference.</span>
-            <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>mul_pow2</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>bits</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> {
-                <span class='kw'>use</span> <span class='ident'>mem</span>;
+            <span class="doccomment">/// Multiplies itself by `2^bits` and returns its own mutable reference.</span>
+            <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">mul_pow2</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">bits</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span> {
+                <span class="kw">use</span> <span class="ident">mem</span>;
 
-                <span class='kw'>let</span> <span class='ident'>digitbits</span> <span class='op'>=</span> <span class='ident'>mem</span>::<span class='ident'>size_of</span>::<span class='op'>&lt;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span><span class='op'>&gt;</span>() <span class='op'>*</span> <span class='number'>8</span>;
-                <span class='kw'>let</span> <span class='ident'>digits</span> <span class='op'>=</span> <span class='ident'>bits</span> <span class='op'>/</span> <span class='ident'>digitbits</span>;
-                <span class='kw'>let</span> <span class='ident'>bits</span> <span class='op'>=</span> <span class='ident'>bits</span> <span class='op'>%</span> <span class='ident'>digitbits</span>;
+                <span class="kw">let</span> <span class="ident">digitbits</span> <span class="op">=</span> <span class="ident">mem</span>::<span class="ident">size_of</span>::<span class="op">&lt;</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span><span class="op">&gt;</span>() <span class="op">*</span> <span class="number">8</span>;
+                <span class="kw">let</span> <span class="ident">digits</span> <span class="op">=</span> <span class="ident">bits</span> <span class="op">/</span> <span class="ident">digitbits</span>;
+                <span class="kw">let</span> <span class="ident">bits</span> <span class="op">=</span> <span class="ident">bits</span> <span class="op">%</span> <span class="ident">digitbits</span>;
 
-                <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>digits</span> <span class='op'>&lt;</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>n</span>);
-                <span class='macro'>debug_assert</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>base</span>[<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>n</span><span class='op'>-</span><span class='ident'>digits</span>..].<span class='ident'>iter</span>().<span class='ident'>all</span>(<span class='op'>|</span><span class='kw-2'>&amp;</span><span class='ident'>v</span><span class='op'>|</span> <span class='ident'>v</span> <span class='op'>==</span> <span class='number'>0</span>));
-                <span class='macro'>debug_assert</span><span class='macro'>!</span>(<span class='ident'>bits</span> <span class='op'>==</span> <span class='number'>0</span> <span class='op'>||</span> (<span class='self'>self</span>.<span class='ident'>base</span>[<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>n</span><span class='op'>-</span><span class='ident'>digits</span><span class='op'>-</span><span class='number'>1</span>] <span class='op'>&gt;&gt;</span> (<span class='ident'>digitbits</span> <span class='op'>-</span> <span class='ident'>bits</span>)) <span class='op'>==</span> <span class='number'>0</span>);
+                <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">digits</span> <span class="op">&lt;</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">n</span>);
+                <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">base</span>[<span class="macro-nonterminal">$</span><span class="macro-nonterminal">n</span><span class="op">-</span><span class="ident">digits</span>..].<span class="ident">iter</span>().<span class="ident">all</span>(<span class="op">|</span><span class="kw-2">&amp;</span><span class="ident">v</span><span class="op">|</span> <span class="ident">v</span> <span class="op">==</span> <span class="number">0</span>));
+                <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="ident">bits</span> <span class="op">==</span> <span class="number">0</span> <span class="op">||</span> (<span class="self">self</span>.<span class="ident">base</span>[<span class="macro-nonterminal">$</span><span class="macro-nonterminal">n</span><span class="op">-</span><span class="ident">digits</span><span class="op">-</span><span class="number">1</span>] <span class="op">&gt;&gt;</span> (<span class="ident">digitbits</span> <span class="op">-</span> <span class="ident">bits</span>)) <span class="op">==</span> <span class="number">0</span>);
 
-                <span class='comment'>// shift by `digits * digitbits` bits</span>
-                <span class='kw'>for</span> <span class='ident'>i</span> <span class='kw'>in</span> (<span class='number'>0</span>..<span class='self'>self</span>.<span class='ident'>size</span>).<span class='ident'>rev</span>() {
-                    <span class='self'>self</span>.<span class='ident'>base</span>[<span class='ident'>i</span><span class='op'>+</span><span class='ident'>digits</span>] <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>base</span>[<span class='ident'>i</span>];
+                <span class="comment">// shift by `digits * digitbits` bits</span>
+                <span class="kw">for</span> <span class="ident">i</span> <span class="kw">in</span> (<span class="number">0</span>..<span class="self">self</span>.<span class="ident">size</span>).<span class="ident">rev</span>() {
+                    <span class="self">self</span>.<span class="ident">base</span>[<span class="ident">i</span><span class="op">+</span><span class="ident">digits</span>] <span class="op">=</span> <span class="self">self</span>.<span class="ident">base</span>[<span class="ident">i</span>];
                 }
-                <span class='kw'>for</span> <span class='ident'>i</span> <span class='kw'>in</span> <span class='number'>0</span>..<span class='ident'>digits</span> {
-                    <span class='self'>self</span>.<span class='ident'>base</span>[<span class='ident'>i</span>] <span class='op'>=</span> <span class='number'>0</span>;
+                <span class="kw">for</span> <span class="ident">i</span> <span class="kw">in</span> <span class="number">0</span>..<span class="ident">digits</span> {
+                    <span class="self">self</span>.<span class="ident">base</span>[<span class="ident">i</span>] <span class="op">=</span> <span class="number">0</span>;
                 }
 
-                <span class='comment'>// shift by `bits` bits</span>
-                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>sz</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>size</span> <span class='op'>+</span> <span class='ident'>digits</span>;
-                <span class='kw'>if</span> <span class='ident'>bits</span> <span class='op'>&gt;</span> <span class='number'>0</span> {
-                    <span class='kw'>let</span> <span class='ident'>last</span> <span class='op'>=</span> <span class='ident'>sz</span>;
-                    <span class='kw'>let</span> <span class='ident'>overflow</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>base</span>[<span class='ident'>last</span><span class='op'>-</span><span class='number'>1</span>] <span class='op'>&gt;&gt;</span> (<span class='ident'>digitbits</span> <span class='op'>-</span> <span class='ident'>bits</span>);
-                    <span class='kw'>if</span> <span class='ident'>overflow</span> <span class='op'>&gt;</span> <span class='number'>0</span> {
-                        <span class='self'>self</span>.<span class='ident'>base</span>[<span class='ident'>last</span>] <span class='op'>=</span> <span class='ident'>overflow</span>;
-                        <span class='ident'>sz</span> <span class='op'>+=</span> <span class='number'>1</span>;
+                <span class="comment">// shift by `bits` bits</span>
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">sz</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">size</span> <span class="op">+</span> <span class="ident">digits</span>;
+                <span class="kw">if</span> <span class="ident">bits</span> <span class="op">&gt;</span> <span class="number">0</span> {
+                    <span class="kw">let</span> <span class="ident">last</span> <span class="op">=</span> <span class="ident">sz</span>;
+                    <span class="kw">let</span> <span class="ident">overflow</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">base</span>[<span class="ident">last</span><span class="op">-</span><span class="number">1</span>] <span class="op">&gt;&gt;</span> (<span class="ident">digitbits</span> <span class="op">-</span> <span class="ident">bits</span>);
+                    <span class="kw">if</span> <span class="ident">overflow</span> <span class="op">&gt;</span> <span class="number">0</span> {
+                        <span class="self">self</span>.<span class="ident">base</span>[<span class="ident">last</span>] <span class="op">=</span> <span class="ident">overflow</span>;
+                        <span class="ident">sz</span> <span class="op">+=</span> <span class="number">1</span>;
                     }
-                    <span class='kw'>for</span> <span class='ident'>i</span> <span class='kw'>in</span> (<span class='ident'>digits</span><span class='op'>+</span><span class='number'>1</span>..<span class='ident'>last</span>).<span class='ident'>rev</span>() {
-                        <span class='self'>self</span>.<span class='ident'>base</span>[<span class='ident'>i</span>] <span class='op'>=</span> (<span class='self'>self</span>.<span class='ident'>base</span>[<span class='ident'>i</span>] <span class='op'>&lt;&lt;</span> <span class='ident'>bits</span>) <span class='op'>|</span>
-                                       (<span class='self'>self</span>.<span class='ident'>base</span>[<span class='ident'>i</span><span class='op'>-</span><span class='number'>1</span>] <span class='op'>&gt;&gt;</span> (<span class='ident'>digitbits</span> <span class='op'>-</span> <span class='ident'>bits</span>));
+                    <span class="kw">for</span> <span class="ident">i</span> <span class="kw">in</span> (<span class="ident">digits</span><span class="op">+</span><span class="number">1</span>..<span class="ident">last</span>).<span class="ident">rev</span>() {
+                        <span class="self">self</span>.<span class="ident">base</span>[<span class="ident">i</span>] <span class="op">=</span> (<span class="self">self</span>.<span class="ident">base</span>[<span class="ident">i</span>] <span class="op">&lt;&lt;</span> <span class="ident">bits</span>) <span class="op">|</span>
+                                       (<span class="self">self</span>.<span class="ident">base</span>[<span class="ident">i</span><span class="op">-</span><span class="number">1</span>] <span class="op">&gt;&gt;</span> (<span class="ident">digitbits</span> <span class="op">-</span> <span class="ident">bits</span>));
                     }
-                    <span class='self'>self</span>.<span class='ident'>base</span>[<span class='ident'>digits</span>] <span class='op'>&lt;&lt;=</span> <span class='ident'>bits</span>;
-                    <span class='comment'>// self.base[..digits] is zero, no need to shift</span>
+                    <span class="self">self</span>.<span class="ident">base</span>[<span class="ident">digits</span>] <span class="op">&lt;&lt;=</span> <span class="ident">bits</span>;
+                    <span class="comment">// self.base[..digits] is zero, no need to shift</span>
                 }
 
-                <span class='self'>self</span>.<span class='ident'>size</span> <span class='op'>=</span> <span class='ident'>sz</span>;
-                <span class='self'>self</span>
+                <span class="self">self</span>.<span class="ident">size</span> <span class="op">=</span> <span class="ident">sz</span>;
+                <span class="self">self</span>
             }
 
-            <span class='doccomment'>/// Multiplies itself by `5^e` and returns its own mutable reference.</span>
-            <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>mul_pow5</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='kw-2'>mut</span> <span class='ident'>e</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> {
-                <span class='kw'>use</span> <span class='ident'>mem</span>;
-                <span class='kw'>use</span> <span class='ident'>num</span>::<span class='ident'>bignum</span>::<span class='ident'>SMALL_POW5</span>;
+            <span class="doccomment">/// Multiplies itself by `5^e` and returns its own mutable reference.</span>
+            <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">mul_pow5</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="kw-2">mut</span> <span class="ident">e</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span> {
+                <span class="kw">use</span> <span class="ident">mem</span>;
+                <span class="kw">use</span> <span class="ident">num</span>::<span class="ident">bignum</span>::<span class="ident">SMALL_POW5</span>;
 
-                <span class='comment'>// There are exactly n trailing zeros on 2^n, and the only relevant digit sizes</span>
-                <span class='comment'>// are consecutive powers of two, so this is well suited index for the table.</span>
-                <span class='kw'>let</span> <span class='ident'>table_index</span> <span class='op'>=</span> <span class='ident'>mem</span>::<span class='ident'>size_of</span>::<span class='op'>&lt;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span><span class='op'>&gt;</span>().<span class='ident'>trailing_zeros</span>() <span class='kw'>as</span> <span class='ident'>usize</span>;
-                <span class='kw'>let</span> (<span class='ident'>small_power</span>, <span class='ident'>small_e</span>) <span class='op'>=</span> <span class='ident'>SMALL_POW5</span>[<span class='ident'>table_index</span>];
-                <span class='kw'>let</span> <span class='ident'>small_power</span> <span class='op'>=</span> <span class='ident'>small_power</span> <span class='kw'>as</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>;
+                <span class="comment">// There are exactly n trailing zeros on 2^n, and the only relevant digit sizes</span>
+                <span class="comment">// are consecutive powers of two, so this is well suited index for the table.</span>
+                <span class="kw">let</span> <span class="ident">table_index</span> <span class="op">=</span> <span class="ident">mem</span>::<span class="ident">size_of</span>::<span class="op">&lt;</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span><span class="op">&gt;</span>().<span class="ident">trailing_zeros</span>() <span class="kw">as</span> <span class="ident">usize</span>;
+                <span class="kw">let</span> (<span class="ident">small_power</span>, <span class="ident">small_e</span>) <span class="op">=</span> <span class="ident">SMALL_POW5</span>[<span class="ident">table_index</span>];
+                <span class="kw">let</span> <span class="ident">small_power</span> <span class="op">=</span> <span class="ident">small_power</span> <span class="kw">as</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>;
 
-                <span class='comment'>// Multiply with the largest single-digit power as long as possible ...</span>
-                <span class='kw'>while</span> <span class='ident'>e</span> <span class='op'>&gt;=</span> <span class='ident'>small_e</span> {
-                    <span class='self'>self</span>.<span class='ident'>mul_small</span>(<span class='ident'>small_power</span>);
-                    <span class='ident'>e</span> <span class='op'>-=</span> <span class='ident'>small_e</span>;
+                <span class="comment">// Multiply with the largest single-digit power as long as possible ...</span>
+                <span class="kw">while</span> <span class="ident">e</span> <span class="op">&gt;=</span> <span class="ident">small_e</span> {
+                    <span class="self">self</span>.<span class="ident">mul_small</span>(<span class="ident">small_power</span>);
+                    <span class="ident">e</span> <span class="op">-=</span> <span class="ident">small_e</span>;
                 }
 
-                <span class='comment'>// ... then finish off the remainder.</span>
-                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>rest_power</span> <span class='op'>=</span> <span class='number'>1</span>;
-                <span class='kw'>for</span> _ <span class='kw'>in</span> <span class='number'>0</span>..<span class='ident'>e</span> {
-                    <span class='ident'>rest_power</span> <span class='op'>*=</span> <span class='number'>5</span>;
+                <span class="comment">// ... then finish off the remainder.</span>
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">rest_power</span> <span class="op">=</span> <span class="number">1</span>;
+                <span class="kw">for</span> _ <span class="kw">in</span> <span class="number">0</span>..<span class="ident">e</span> {
+                    <span class="ident">rest_power</span> <span class="op">*=</span> <span class="number">5</span>;
                 }
-                <span class='self'>self</span>.<span class='ident'>mul_small</span>(<span class='ident'>rest_power</span>);
+                <span class="self">self</span>.<span class="ident">mul_small</span>(<span class="ident">rest_power</span>);
 
-                <span class='self'>self</span>
+                <span class="self">self</span>
             }
 
 
-            <span class='doccomment'>/// Multiplies itself by a number described by `other[0] + other[1] * 2^W +</span>
-            <span class='doccomment'>/// other[2] * 2^(2W) + ...` (where `W` is the number of bits in the digit type)</span>
-            <span class='doccomment'>/// and returns its own mutable reference.</span>
-            <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>mul_digits</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>other</span>: <span class='kw-2'>&amp;</span>[<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>]) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> {
-                <span class='comment'>// the internal routine. works best when aa.len() &lt;= bb.len().</span>
-                <span class='kw'>fn</span> <span class='ident'>mul_inner</span>(<span class='ident'>ret</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> [<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>; <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>n</span>], <span class='ident'>aa</span>: <span class='kw-2'>&amp;</span>[<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>], <span class='ident'>bb</span>: <span class='kw-2'>&amp;</span>[<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>]) <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
-                    <span class='kw'>use</span> <span class='ident'>num</span>::<span class='ident'>bignum</span>::<span class='ident'>FullOps</span>;
+            <span class="doccomment">/// Multiplies itself by a number described by `other[0] + other[1] * 2^W +</span>
+            <span class="doccomment">/// other[2] * 2^(2W) + ...` (where `W` is the number of bits in the digit type)</span>
+            <span class="doccomment">/// and returns its own mutable reference.</span>
+            <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">mul_digits</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">other</span>: <span class="kw-2">&amp;</span>[<span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>]) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="kw-2">mut</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span> {
+                <span class="comment">// the internal routine. works best when aa.len() &lt;= bb.len().</span>
+                <span class="kw">fn</span> <span class="ident">mul_inner</span>(<span class="ident">ret</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> [<span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>; <span class="macro-nonterminal">$</span><span class="macro-nonterminal">n</span>], <span class="ident">aa</span>: <span class="kw-2">&amp;</span>[<span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>], <span class="ident">bb</span>: <span class="kw-2">&amp;</span>[<span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>]) <span class="op">-&gt;</span> <span class="ident">usize</span> {
+                    <span class="kw">use</span> <span class="ident">num</span>::<span class="ident">bignum</span>::<span class="ident">FullOps</span>;
 
-                    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>retsz</span> <span class='op'>=</span> <span class='number'>0</span>;
-                    <span class='kw'>for</span> (<span class='ident'>i</span>, <span class='kw-2'>&amp;</span><span class='ident'>a</span>) <span class='kw'>in</span> <span class='ident'>aa</span>.<span class='ident'>iter</span>().<span class='ident'>enumerate</span>() {
-                        <span class='kw'>if</span> <span class='ident'>a</span> <span class='op'>==</span> <span class='number'>0</span> { <span class='kw'>continue</span>; }
-                        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>sz</span> <span class='op'>=</span> <span class='ident'>bb</span>.<span class='ident'>len</span>();
-                        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>carry</span> <span class='op'>=</span> <span class='number'>0</span>;
-                        <span class='kw'>for</span> (<span class='ident'>j</span>, <span class='kw-2'>&amp;</span><span class='ident'>b</span>) <span class='kw'>in</span> <span class='ident'>bb</span>.<span class='ident'>iter</span>().<span class='ident'>enumerate</span>() {
-                            <span class='kw'>let</span> (<span class='ident'>c</span>, <span class='ident'>v</span>) <span class='op'>=</span> <span class='ident'>a</span>.<span class='ident'>full_mul_add</span>(<span class='ident'>b</span>, <span class='ident'>ret</span>[<span class='ident'>i</span> <span class='op'>+</span> <span class='ident'>j</span>], <span class='ident'>carry</span>);
-                            <span class='ident'>ret</span>[<span class='ident'>i</span> <span class='op'>+</span> <span class='ident'>j</span>] <span class='op'>=</span> <span class='ident'>v</span>;
-                            <span class='ident'>carry</span> <span class='op'>=</span> <span class='ident'>c</span>;
+                    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">retsz</span> <span class="op">=</span> <span class="number">0</span>;
+                    <span class="kw">for</span> (<span class="ident">i</span>, <span class="kw-2">&amp;</span><span class="ident">a</span>) <span class="kw">in</span> <span class="ident">aa</span>.<span class="ident">iter</span>().<span class="ident">enumerate</span>() {
+                        <span class="kw">if</span> <span class="ident">a</span> <span class="op">==</span> <span class="number">0</span> { <span class="kw">continue</span>; }
+                        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">sz</span> <span class="op">=</span> <span class="ident">bb</span>.<span class="ident">len</span>();
+                        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">carry</span> <span class="op">=</span> <span class="number">0</span>;
+                        <span class="kw">for</span> (<span class="ident">j</span>, <span class="kw-2">&amp;</span><span class="ident">b</span>) <span class="kw">in</span> <span class="ident">bb</span>.<span class="ident">iter</span>().<span class="ident">enumerate</span>() {
+                            <span class="kw">let</span> (<span class="ident">c</span>, <span class="ident">v</span>) <span class="op">=</span> <span class="ident">a</span>.<span class="ident">full_mul_add</span>(<span class="ident">b</span>, <span class="ident">ret</span>[<span class="ident">i</span> <span class="op">+</span> <span class="ident">j</span>], <span class="ident">carry</span>);
+                            <span class="ident">ret</span>[<span class="ident">i</span> <span class="op">+</span> <span class="ident">j</span>] <span class="op">=</span> <span class="ident">v</span>;
+                            <span class="ident">carry</span> <span class="op">=</span> <span class="ident">c</span>;
                         }
-                        <span class='kw'>if</span> <span class='ident'>carry</span> <span class='op'>&gt;</span> <span class='number'>0</span> {
-                            <span class='ident'>ret</span>[<span class='ident'>i</span> <span class='op'>+</span> <span class='ident'>sz</span>] <span class='op'>=</span> <span class='ident'>carry</span>;
-                            <span class='ident'>sz</span> <span class='op'>+=</span> <span class='number'>1</span>;
+                        <span class="kw">if</span> <span class="ident">carry</span> <span class="op">&gt;</span> <span class="number">0</span> {
+                            <span class="ident">ret</span>[<span class="ident">i</span> <span class="op">+</span> <span class="ident">sz</span>] <span class="op">=</span> <span class="ident">carry</span>;
+                            <span class="ident">sz</span> <span class="op">+=</span> <span class="number">1</span>;
                         }
-                        <span class='kw'>if</span> <span class='ident'>retsz</span> <span class='op'>&lt;</span> <span class='ident'>i</span> <span class='op'>+</span> <span class='ident'>sz</span> {
-                            <span class='ident'>retsz</span> <span class='op'>=</span> <span class='ident'>i</span> <span class='op'>+</span> <span class='ident'>sz</span>;
+                        <span class="kw">if</span> <span class="ident">retsz</span> <span class="op">&lt;</span> <span class="ident">i</span> <span class="op">+</span> <span class="ident">sz</span> {
+                            <span class="ident">retsz</span> <span class="op">=</span> <span class="ident">i</span> <span class="op">+</span> <span class="ident">sz</span>;
                         }
                     }
-                    <span class='ident'>retsz</span>
+                    <span class="ident">retsz</span>
                 }
 
-                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>ret</span> <span class='op'>=</span> [<span class='number'>0</span>; <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>n</span>];
-                <span class='kw'>let</span> <span class='ident'>retsz</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>size</span> <span class='op'>&lt;</span> <span class='ident'>other</span>.<span class='ident'>len</span>() {
-                    <span class='ident'>mul_inner</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>ret</span>, <span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>digits</span>(), <span class='ident'>other</span>)
-                } <span class='kw'>else</span> {
-                    <span class='ident'>mul_inner</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>ret</span>, <span class='ident'>other</span>, <span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>digits</span>())
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">ret</span> <span class="op">=</span> [<span class="number">0</span>; <span class="macro-nonterminal">$</span><span class="macro-nonterminal">n</span>];
+                <span class="kw">let</span> <span class="ident">retsz</span> <span class="op">=</span> <span class="kw">if</span> <span class="self">self</span>.<span class="ident">size</span> <span class="op">&lt;</span> <span class="ident">other</span>.<span class="ident">len</span>() {
+                    <span class="ident">mul_inner</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">ret</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">digits</span>(), <span class="ident">other</span>)
+                } <span class="kw">else</span> {
+                    <span class="ident">mul_inner</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">ret</span>, <span class="ident">other</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">digits</span>())
                 };
-                <span class='self'>self</span>.<span class='ident'>base</span> <span class='op'>=</span> <span class='ident'>ret</span>;
-                <span class='self'>self</span>.<span class='ident'>size</span> <span class='op'>=</span> <span class='ident'>retsz</span>;
-                <span class='self'>self</span>
+                <span class="self">self</span>.<span class="ident">base</span> <span class="op">=</span> <span class="ident">ret</span>;
+                <span class="self">self</span>.<span class="ident">size</span> <span class="op">=</span> <span class="ident">retsz</span>;
+                <span class="self">self</span>
             }
 
-            <span class='doccomment'>/// Divides itself by a digit-sized `other` and returns its own</span>
-            <span class='doccomment'>/// mutable reference *and* the remainder.</span>
-            <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>div_rem_small</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>other</span>: <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>) <span class='op'>-&gt;</span> (<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span>, <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>) {
-                <span class='kw'>use</span> <span class='ident'>num</span>::<span class='ident'>bignum</span>::<span class='ident'>FullOps</span>;
+            <span class="doccomment">/// Divides itself by a digit-sized `other` and returns its own</span>
+            <span class="doccomment">/// mutable reference *and* the remainder.</span>
+            <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">div_rem_small</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">other</span>: <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>) <span class="op">-&gt;</span> (<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span>, <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>) {
+                <span class="kw">use</span> <span class="ident">num</span>::<span class="ident">bignum</span>::<span class="ident">FullOps</span>;
 
-                <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>other</span> <span class='op'>&gt;</span> <span class='number'>0</span>);
+                <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">other</span> <span class="op">&gt;</span> <span class="number">0</span>);
 
-                <span class='kw'>let</span> <span class='ident'>sz</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>size</span>;
-                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>borrow</span> <span class='op'>=</span> <span class='number'>0</span>;
-                <span class='kw'>for</span> <span class='ident'>a</span> <span class='kw'>in</span> <span class='self'>self</span>.<span class='ident'>base</span>[..<span class='ident'>sz</span>].<span class='ident'>iter_mut</span>().<span class='ident'>rev</span>() {
-                    <span class='kw'>let</span> (<span class='ident'>q</span>, <span class='ident'>r</span>) <span class='op'>=</span> (<span class='kw-2'>*</span><span class='ident'>a</span>).<span class='ident'>full_div_rem</span>(<span class='ident'>other</span>, <span class='ident'>borrow</span>);
-                    <span class='kw-2'>*</span><span class='ident'>a</span> <span class='op'>=</span> <span class='ident'>q</span>;
-                    <span class='ident'>borrow</span> <span class='op'>=</span> <span class='ident'>r</span>;
+                <span class="kw">let</span> <span class="ident">sz</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">size</span>;
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">borrow</span> <span class="op">=</span> <span class="number">0</span>;
+                <span class="kw">for</span> <span class="ident">a</span> <span class="kw">in</span> <span class="self">self</span>.<span class="ident">base</span>[..<span class="ident">sz</span>].<span class="ident">iter_mut</span>().<span class="ident">rev</span>() {
+                    <span class="kw">let</span> (<span class="ident">q</span>, <span class="ident">r</span>) <span class="op">=</span> (<span class="kw-2">*</span><span class="ident">a</span>).<span class="ident">full_div_rem</span>(<span class="ident">other</span>, <span class="ident">borrow</span>);
+                    <span class="kw-2">*</span><span class="ident">a</span> <span class="op">=</span> <span class="ident">q</span>;
+                    <span class="ident">borrow</span> <span class="op">=</span> <span class="ident">r</span>;
                 }
-                (<span class='self'>self</span>, <span class='ident'>borrow</span>)
+                (<span class="self">self</span>, <span class="ident">borrow</span>)
             }
 
-            <span class='doccomment'>/// Divide self by another bignum, overwriting `q` with the quotient and `r` with the</span>
-            <span class='doccomment'>/// remainder.</span>
-            <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>div_rem</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>d</span>: <span class='kw-2'>&amp;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span>, <span class='ident'>q</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span>, <span class='ident'>r</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span>) {
-                <span class='kw'>use</span> <span class='ident'>mem</span>;
+            <span class="doccomment">/// Divide self by another bignum, overwriting `q` with the quotient and `r` with the</span>
+            <span class="doccomment">/// remainder.</span>
+            <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">div_rem</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">d</span>: <span class="kw-2">&amp;</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span>, <span class="ident">q</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span>, <span class="ident">r</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span>) {
+                <span class="kw">use</span> <span class="ident">mem</span>;
 
-                <span class='comment'>// Stupid slow base-2 long division taken from</span>
-                <span class='comment'>// https://en.wikipedia.org/wiki/Division_algorithm</span>
-                <span class='comment'>// FIXME use a greater base ($ty) for the long division.</span>
-                <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>d</span>.<span class='ident'>is_zero</span>());
-                <span class='kw'>let</span> <span class='ident'>digitbits</span> <span class='op'>=</span> <span class='ident'>mem</span>::<span class='ident'>size_of</span>::<span class='op'>&lt;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span><span class='op'>&gt;</span>() <span class='op'>*</span> <span class='number'>8</span>;
-                <span class='kw'>for</span> <span class='ident'>digit</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>q</span>.<span class='ident'>base</span>[..] {
-                    <span class='kw-2'>*</span><span class='ident'>digit</span> <span class='op'>=</span> <span class='number'>0</span>;
+                <span class="comment">// Stupid slow base-2 long division taken from</span>
+                <span class="comment">// https://en.wikipedia.org/wiki/Division_algorithm</span>
+                <span class="comment">// FIXME use a greater base ($ty) for the long division.</span>
+                <span class="macro">assert</span><span class="macro">!</span>(<span class="op">!</span><span class="ident">d</span>.<span class="ident">is_zero</span>());
+                <span class="kw">let</span> <span class="ident">digitbits</span> <span class="op">=</span> <span class="ident">mem</span>::<span class="ident">size_of</span>::<span class="op">&lt;</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span><span class="op">&gt;</span>() <span class="op">*</span> <span class="number">8</span>;
+                <span class="kw">for</span> <span class="ident">digit</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">q</span>.<span class="ident">base</span>[..] {
+                    <span class="kw-2">*</span><span class="ident">digit</span> <span class="op">=</span> <span class="number">0</span>;
                 }
-                <span class='kw'>for</span> <span class='ident'>digit</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>r</span>.<span class='ident'>base</span>[..] {
-                    <span class='kw-2'>*</span><span class='ident'>digit</span> <span class='op'>=</span> <span class='number'>0</span>;
+                <span class="kw">for</span> <span class="ident">digit</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">r</span>.<span class="ident">base</span>[..] {
+                    <span class="kw-2">*</span><span class="ident">digit</span> <span class="op">=</span> <span class="number">0</span>;
                 }
-                <span class='ident'>r</span>.<span class='ident'>size</span> <span class='op'>=</span> <span class='ident'>d</span>.<span class='ident'>size</span>;
-                <span class='ident'>q</span>.<span class='ident'>size</span> <span class='op'>=</span> <span class='number'>1</span>;
-                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>q_is_zero</span> <span class='op'>=</span> <span class='bool-val'>true</span>;
-                <span class='kw'>let</span> <span class='ident'>end</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>bit_length</span>();
-                <span class='kw'>for</span> <span class='ident'>i</span> <span class='kw'>in</span> (<span class='number'>0</span>..<span class='ident'>end</span>).<span class='ident'>rev</span>() {
-                    <span class='ident'>r</span>.<span class='ident'>mul_pow2</span>(<span class='number'>1</span>);
-                    <span class='ident'>r</span>.<span class='ident'>base</span>[<span class='number'>0</span>] <span class='op'>|=</span> <span class='self'>self</span>.<span class='ident'>get_bit</span>(<span class='ident'>i</span>) <span class='kw'>as</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span>;
-                    <span class='kw'>if</span> <span class='kw-2'>&amp;</span><span class='kw-2'>*</span><span class='ident'>r</span> <span class='op'>&gt;=</span> <span class='ident'>d</span> {
-                        <span class='ident'>r</span>.<span class='ident'>sub</span>(<span class='ident'>d</span>);
-                        <span class='comment'>// Set bit `i` of q to 1.</span>
-                        <span class='kw'>let</span> <span class='ident'>digit_idx</span> <span class='op'>=</span> <span class='ident'>i</span> <span class='op'>/</span> <span class='ident'>digitbits</span>;
-                        <span class='kw'>let</span> <span class='ident'>bit_idx</span> <span class='op'>=</span> <span class='ident'>i</span> <span class='op'>%</span> <span class='ident'>digitbits</span>;
-                        <span class='kw'>if</span> <span class='ident'>q_is_zero</span> {
-                            <span class='ident'>q</span>.<span class='ident'>size</span> <span class='op'>=</span> <span class='ident'>digit_idx</span> <span class='op'>+</span> <span class='number'>1</span>;
-                            <span class='ident'>q_is_zero</span> <span class='op'>=</span> <span class='bool-val'>false</span>;
+                <span class="ident">r</span>.<span class="ident">size</span> <span class="op">=</span> <span class="ident">d</span>.<span class="ident">size</span>;
+                <span class="ident">q</span>.<span class="ident">size</span> <span class="op">=</span> <span class="number">1</span>;
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">q_is_zero</span> <span class="op">=</span> <span class="bool-val">true</span>;
+                <span class="kw">let</span> <span class="ident">end</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">bit_length</span>();
+                <span class="kw">for</span> <span class="ident">i</span> <span class="kw">in</span> (<span class="number">0</span>..<span class="ident">end</span>).<span class="ident">rev</span>() {
+                    <span class="ident">r</span>.<span class="ident">mul_pow2</span>(<span class="number">1</span>);
+                    <span class="ident">r</span>.<span class="ident">base</span>[<span class="number">0</span>] <span class="op">|=</span> <span class="self">self</span>.<span class="ident">get_bit</span>(<span class="ident">i</span>) <span class="kw">as</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span>;
+                    <span class="kw">if</span> <span class="kw-2">&amp;</span><span class="kw-2">*</span><span class="ident">r</span> <span class="op">&gt;=</span> <span class="ident">d</span> {
+                        <span class="ident">r</span>.<span class="ident">sub</span>(<span class="ident">d</span>);
+                        <span class="comment">// Set bit `i` of q to 1.</span>
+                        <span class="kw">let</span> <span class="ident">digit_idx</span> <span class="op">=</span> <span class="ident">i</span> <span class="op">/</span> <span class="ident">digitbits</span>;
+                        <span class="kw">let</span> <span class="ident">bit_idx</span> <span class="op">=</span> <span class="ident">i</span> <span class="op">%</span> <span class="ident">digitbits</span>;
+                        <span class="kw">if</span> <span class="ident">q_is_zero</span> {
+                            <span class="ident">q</span>.<span class="ident">size</span> <span class="op">=</span> <span class="ident">digit_idx</span> <span class="op">+</span> <span class="number">1</span>;
+                            <span class="ident">q_is_zero</span> <span class="op">=</span> <span class="bool-val">false</span>;
                         }
-                        <span class='ident'>q</span>.<span class='ident'>base</span>[<span class='ident'>digit_idx</span>] <span class='op'>|=</span> <span class='number'>1</span> <span class='op'>&lt;&lt;</span> <span class='ident'>bit_idx</span>;
+                        <span class="ident">q</span>.<span class="ident">base</span>[<span class="ident">digit_idx</span>] <span class="op">|=</span> <span class="number">1</span> <span class="op">&lt;&lt;</span> <span class="ident">bit_idx</span>;
                     }
                 }
-                <span class='macro'>debug_assert</span><span class='macro'>!</span>(<span class='ident'>q</span>.<span class='ident'>base</span>[<span class='ident'>q</span>.<span class='ident'>size</span>..].<span class='ident'>iter</span>().<span class='ident'>all</span>(<span class='op'>|</span><span class='kw-2'>&amp;</span><span class='ident'>d</span><span class='op'>|</span> <span class='ident'>d</span> <span class='op'>==</span> <span class='number'>0</span>));
-                <span class='macro'>debug_assert</span><span class='macro'>!</span>(<span class='ident'>r</span>.<span class='ident'>base</span>[<span class='ident'>r</span>.<span class='ident'>size</span>..].<span class='ident'>iter</span>().<span class='ident'>all</span>(<span class='op'>|</span><span class='kw-2'>&amp;</span><span class='ident'>d</span><span class='op'>|</span> <span class='ident'>d</span> <span class='op'>==</span> <span class='number'>0</span>));
+                <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="ident">q</span>.<span class="ident">base</span>[<span class="ident">q</span>.<span class="ident">size</span>..].<span class="ident">iter</span>().<span class="ident">all</span>(<span class="op">|</span><span class="kw-2">&amp;</span><span class="ident">d</span><span class="op">|</span> <span class="ident">d</span> <span class="op">==</span> <span class="number">0</span>));
+                <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="ident">r</span>.<span class="ident">base</span>[<span class="ident">r</span>.<span class="ident">size</span>..].<span class="ident">iter</span>().<span class="ident">all</span>(<span class="op">|</span><span class="kw-2">&amp;</span><span class="ident">d</span><span class="op">|</span> <span class="ident">d</span> <span class="op">==</span> <span class="number">0</span>));
             }
         }
 
-        <span class='kw'>impl</span> ::<span class='ident'>cmp</span>::<span class='ident'>PartialEq</span> <span class='kw'>for</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> {
-            <span class='kw'>fn</span> <span class='ident'>eq</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>other</span>: <span class='kw-2'>&amp;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> { <span class='self'>self</span>.<span class='ident'>base</span>[..] <span class='op'>==</span> <span class='ident'>other</span>.<span class='ident'>base</span>[..] }
+        <span class="kw">impl</span> ::<span class="ident">cmp</span>::<span class="ident">PartialEq</span> <span class="kw">for</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span> {
+            <span class="kw">fn</span> <span class="ident">eq</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">other</span>: <span class="kw-2">&amp;</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> { <span class="self">self</span>.<span class="ident">base</span>[..] <span class="op">==</span> <span class="ident">other</span>.<span class="ident">base</span>[..] }
         }
 
-        <span class='kw'>impl</span> ::<span class='ident'>cmp</span>::<span class='ident'>Eq</span> <span class='kw'>for</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> {
+        <span class="kw">impl</span> ::<span class="ident">cmp</span>::<span class="ident">Eq</span> <span class="kw">for</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span> {
         }
 
-        <span class='kw'>impl</span> ::<span class='ident'>cmp</span>::<span class='ident'>PartialOrd</span> <span class='kw'>for</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> {
-            <span class='kw'>fn</span> <span class='ident'>partial_cmp</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>other</span>: <span class='kw-2'>&amp;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span>) <span class='op'>-&gt;</span> ::<span class='ident'>option</span>::<span class='prelude-ty'>Option</span><span class='op'>&lt;</span>::<span class='ident'>cmp</span>::<span class='ident'>Ordering</span><span class='op'>&gt;</span> {
-                ::<span class='ident'>option</span>::<span class='prelude-ty'>Option</span>::<span class='prelude-val'>Some</span>(<span class='self'>self</span>.<span class='ident'>cmp</span>(<span class='ident'>other</span>))
+        <span class="kw">impl</span> ::<span class="ident">cmp</span>::<span class="ident">PartialOrd</span> <span class="kw">for</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span> {
+            <span class="kw">fn</span> <span class="ident">partial_cmp</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">other</span>: <span class="kw-2">&amp;</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span>) <span class="op">-&gt;</span> ::<span class="ident">option</span>::<span class="prelude-ty">Option</span><span class="op">&lt;</span>::<span class="ident">cmp</span>::<span class="ident">Ordering</span><span class="op">&gt;</span> {
+                ::<span class="ident">option</span>::<span class="prelude-ty">Option</span>::<span class="prelude-val">Some</span>(<span class="self">self</span>.<span class="ident">cmp</span>(<span class="ident">other</span>))
             }
         }
 
-        <span class='kw'>impl</span> ::<span class='ident'>cmp</span>::<span class='ident'>Ord</span> <span class='kw'>for</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> {
-            <span class='kw'>fn</span> <span class='ident'>cmp</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>other</span>: <span class='kw-2'>&amp;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span>) <span class='op'>-&gt;</span> ::<span class='ident'>cmp</span>::<span class='ident'>Ordering</span> {
-                <span class='kw'>use</span> <span class='ident'>cmp</span>::<span class='ident'>max</span>;
-                <span class='kw'>let</span> <span class='ident'>sz</span> <span class='op'>=</span> <span class='ident'>max</span>(<span class='self'>self</span>.<span class='ident'>size</span>, <span class='ident'>other</span>.<span class='ident'>size</span>);
-                <span class='kw'>let</span> <span class='ident'>lhs</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>base</span>[..<span class='ident'>sz</span>].<span class='ident'>iter</span>().<span class='ident'>cloned</span>().<span class='ident'>rev</span>();
-                <span class='kw'>let</span> <span class='ident'>rhs</span> <span class='op'>=</span> <span class='ident'>other</span>.<span class='ident'>base</span>[..<span class='ident'>sz</span>].<span class='ident'>iter</span>().<span class='ident'>cloned</span>().<span class='ident'>rev</span>();
-                <span class='ident'>lhs</span>.<span class='ident'>cmp</span>(<span class='ident'>rhs</span>)
+        <span class="kw">impl</span> ::<span class="ident">cmp</span>::<span class="ident">Ord</span> <span class="kw">for</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span> {
+            <span class="kw">fn</span> <span class="ident">cmp</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">other</span>: <span class="kw-2">&amp;</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span>) <span class="op">-&gt;</span> ::<span class="ident">cmp</span>::<span class="ident">Ordering</span> {
+                <span class="kw">use</span> <span class="ident">cmp</span>::<span class="ident">max</span>;
+                <span class="kw">let</span> <span class="ident">sz</span> <span class="op">=</span> <span class="ident">max</span>(<span class="self">self</span>.<span class="ident">size</span>, <span class="ident">other</span>.<span class="ident">size</span>);
+                <span class="kw">let</span> <span class="ident">lhs</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">base</span>[..<span class="ident">sz</span>].<span class="ident">iter</span>().<span class="ident">cloned</span>().<span class="ident">rev</span>();
+                <span class="kw">let</span> <span class="ident">rhs</span> <span class="op">=</span> <span class="ident">other</span>.<span class="ident">base</span>[..<span class="ident">sz</span>].<span class="ident">iter</span>().<span class="ident">cloned</span>().<span class="ident">rev</span>();
+                <span class="ident">lhs</span>.<span class="ident">cmp</span>(<span class="ident">rhs</span>)
             }
         }
 
-        <span class='kw'>impl</span> ::<span class='ident'>clone</span>::<span class='ident'>Clone</span> <span class='kw'>for</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> {
-            <span class='kw'>fn</span> <span class='ident'>clone</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> {
-                <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> { <span class='ident'>size</span>: <span class='self'>self</span>.<span class='ident'>size</span>, <span class='ident'>base</span>: <span class='self'>self</span>.<span class='ident'>base</span> }
+        <span class="kw">impl</span> ::<span class="ident">clone</span>::<span class="ident">Clone</span> <span class="kw">for</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span> {
+            <span class="kw">fn</span> <span class="ident">clone</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span> {
+                <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span> { <span class="ident">size</span>: <span class="self">self</span>.<span class="ident">size</span>, <span class="ident">base</span>: <span class="self">self</span>.<span class="ident">base</span> }
             }
         }
 
-        <span class='kw'>impl</span> ::<span class='ident'>fmt</span>::<span class='ident'>Debug</span> <span class='kw'>for</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>name</span> {
-            <span class='kw'>fn</span> <span class='ident'>fmt</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>f</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> ::<span class='ident'>fmt</span>::<span class='ident'>Formatter</span>) <span class='op'>-&gt;</span> ::<span class='ident'>fmt</span>::<span class='prelude-ty'>Result</span> {
-                <span class='kw'>use</span> <span class='ident'>mem</span>;
+        <span class="kw">impl</span> ::<span class="ident">fmt</span>::<span class="ident">Debug</span> <span class="kw">for</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">name</span> {
+            <span class="kw">fn</span> <span class="ident">fmt</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">f</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> ::<span class="ident">fmt</span>::<span class="ident">Formatter</span>) <span class="op">-&gt;</span> ::<span class="ident">fmt</span>::<span class="prelude-ty">Result</span> {
+                <span class="kw">use</span> <span class="ident">mem</span>;
 
-                <span class='kw'>let</span> <span class='ident'>sz</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>size</span> <span class='op'>&lt;</span> <span class='number'>1</span> {<span class='number'>1</span>} <span class='kw'>else</span> {<span class='self'>self</span>.<span class='ident'>size</span>};
-                <span class='kw'>let</span> <span class='ident'>digitlen</span> <span class='op'>=</span> <span class='ident'>mem</span>::<span class='ident'>size_of</span>::<span class='op'>&lt;</span><span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>ty</span><span class='op'>&gt;</span>() <span class='op'>*</span> <span class='number'>2</span>;
+                <span class="kw">let</span> <span class="ident">sz</span> <span class="op">=</span> <span class="kw">if</span> <span class="self">self</span>.<span class="ident">size</span> <span class="op">&lt;</span> <span class="number">1</span> {<span class="number">1</span>} <span class="kw">else</span> {<span class="self">self</span>.<span class="ident">size</span>};
+                <span class="kw">let</span> <span class="ident">digitlen</span> <span class="op">=</span> <span class="ident">mem</span>::<span class="ident">size_of</span>::<span class="op">&lt;</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">ty</span><span class="op">&gt;</span>() <span class="op">*</span> <span class="number">2</span>;
 
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;{:#x}&quot;</span>, <span class='self'>self</span>.<span class='ident'>base</span>[<span class='ident'>sz</span><span class='op'>-</span><span class='number'>1</span>])<span class='question-mark'>?</span>;
-                <span class='kw'>for</span> <span class='kw-2'>&amp;</span><span class='ident'>v</span> <span class='kw'>in</span> <span class='self'>self</span>.<span class='ident'>base</span>[..<span class='ident'>sz</span><span class='op'>-</span><span class='number'>1</span>].<span class='ident'>iter</span>().<span class='ident'>rev</span>() {
-                    <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;_{:01$x}&quot;</span>, <span class='ident'>v</span>, <span class='ident'>digitlen</span>)<span class='question-mark'>?</span>;
+                <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;{:#x}&quot;</span>, <span class="self">self</span>.<span class="ident">base</span>[<span class="ident">sz</span><span class="op">-</span><span class="number">1</span>])<span class="question-mark">?</span>;
+                <span class="kw">for</span> <span class="kw-2">&amp;</span><span class="ident">v</span> <span class="kw">in</span> <span class="self">self</span>.<span class="ident">base</span>[..<span class="ident">sz</span><span class="op">-</span><span class="number">1</span>].<span class="ident">iter</span>().<span class="ident">rev</span>() {
+                    <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;_{:01$x}&quot;</span>, <span class="ident">v</span>, <span class="ident">digitlen</span>)<span class="question-mark">?</span>;
                 }
-                ::<span class='ident'>result</span>::<span class='prelude-ty'>Result</span>::<span class='prelude-val'>Ok</span>(())
+                ::<span class="ident">result</span>::<span class="prelude-ty">Result</span>::<span class="prelude-val">Ok</span>(())
             }
         }
     )
 }
 
-<span class='doccomment'>/// The digit type for `Big32x40`.</span>
-<span class='kw'>pub</span> <span class='kw'>type</span> <span class='ident'>Digit32</span> <span class='op'>=</span> <span class='ident'>u32</span>;
+<span class="doccomment">/// The digit type for `Big32x40`.</span>
+<span class="kw">pub</span> <span class="kw">type</span> <span class="ident">Digit32</span> <span class="op">=</span> <span class="ident">u32</span>;
 
-<span class='macro'>define_bignum</span><span class='macro'>!</span>(<span class='ident'>Big32x40</span>: <span class='kw'>type</span><span class='op'>=</span><span class='ident'>Digit32</span>, <span class='ident'>n</span><span class='op'>=</span><span class='number'>40</span>);
+<span class="macro">define_bignum</span><span class="macro">!</span>(<span class="ident">Big32x40</span>: <span class="kw">type</span><span class="op">=</span><span class="ident">Digit32</span>, <span class="ident">n</span><span class="op">=</span><span class="number">40</span>);
 
-<span class='comment'>// this one is used for testing only.</span>
-<span class='attribute'>#[<span class='ident'>doc</span>(<span class='ident'>hidden</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>mod</span> <span class='ident'>tests</span> {
-    <span class='macro'>define_bignum</span><span class='macro'>!</span>(<span class='ident'>Big8x3</span>: <span class='kw'>type</span><span class='op'>=</span><span class='ident'>u8</span>, <span class='ident'>n</span><span class='op'>=</span><span class='number'>3</span>);
+<span class="comment">// this one is used for testing only.</span>
+<span class="attribute">#[<span class="ident">doc</span>(<span class="ident">hidden</span>)]</span>
+<span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">tests</span> {
+    <span class="macro">define_bignum</span><span class="macro">!</span>(<span class="ident">Big8x3</span>: <span class="kw">type</span><span class="op">=</span><span class="ident">u8</span>, <span class="ident">n</span><span class="op">=</span><span class="number">3</span>);
 }
 </pre>
 </section>

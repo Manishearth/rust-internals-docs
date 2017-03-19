@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["SubjectNode",""]],"struct":[["RegionCtxt",""],["RepeatingScope",""]]});
+initSidebarItems({"struct":[["RegionCtxt",""],["RepeatingScope",""],["Subject",""]]});

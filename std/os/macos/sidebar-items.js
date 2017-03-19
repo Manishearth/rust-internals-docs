@@ -1,1 +1,1 @@
-initSidebarItems({"mod":[["fs",""],["raw","MacOS-specific raw type definitions"]]});
+initSidebarItems({"mod":[["fs",""],["raw","macOS-specific raw type definitions"]]});

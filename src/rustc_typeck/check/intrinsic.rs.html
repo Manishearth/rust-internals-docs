@@ -554,518 +554,514 @@
 <span id="509">509</span>
 <span id="510">510</span>
 <span id="511">511</span>
-<span id="512">512</span>
-<span id="513">513</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='doccomment'>//! Type-checking for the rust-intrinsic and platform-intrinsic</span>
-<span class='doccomment'>//! intrinsics that the compiler exposes.</span>
+<span class="doccomment">//! Type-checking for the rust-intrinsic and platform-intrinsic</span>
+<span class="doccomment">//! intrinsics that the compiler exposes.</span>
 
-<span class='kw'>use</span> <span class='ident'>intrinsics</span>;
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>traits</span>::{<span class='ident'>ObligationCause</span>, <span class='ident'>ObligationCauseCode</span>};
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::<span class='ident'>subst</span>::<span class='ident'>Substs</span>;
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>Ty</span>};
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>util</span>::<span class='ident'>nodemap</span>::<span class='ident'>FxHashMap</span>;
-<span class='kw'>use</span> {<span class='ident'>CrateCtxt</span>, <span class='ident'>require_same_types</span>};
+<span class="kw">use</span> <span class="ident">intrinsics</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">traits</span>::{<span class="ident">ObligationCause</span>, <span class="ident">ObligationCauseCode</span>};
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::<span class="ident">subst</span>::<span class="ident">Substs</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">TyCtxt</span>, <span class="ident">Ty</span>};
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">util</span>::<span class="ident">nodemap</span>::<span class="ident">FxHashMap</span>;
+<span class="kw">use</span> <span class="ident">require_same_types</span>;
 
-<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>abi</span>::<span class='ident'>Abi</span>;
-<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>;
-<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>symbol</span>::<span class='ident'>Symbol</span>;
-<span class='kw'>use</span> <span class='ident'>syntax_pos</span>::<span class='ident'>Span</span>;
+<span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">abi</span>::<span class="ident">Abi</span>;
+<span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">ast</span>;
+<span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">symbol</span>::<span class="ident">Symbol</span>;
+<span class="kw">use</span> <span class="ident">syntax_pos</span>::<span class="ident">Span</span>;
 
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">hir</span>;
 
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>iter</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">iter</span>;
 
-<span class='kw'>fn</span> <span class='ident'>equate_intrinsic_type</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                   <span class='ident'>it</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>ForeignItem</span>,
-                                   <span class='ident'>n_tps</span>: <span class='ident'>usize</span>,
-                                   <span class='ident'>abi</span>: <span class='ident'>Abi</span>,
-                                   <span class='ident'>inputs</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
-                                   <span class='ident'>output</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) {
-    <span class='kw'>let</span> <span class='ident'>tcx</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>;
-    <span class='kw'>let</span> <span class='ident'>def_id</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>hir</span>.<span class='ident'>local_def_id</span>(<span class='ident'>it</span>.<span class='ident'>id</span>);
+<span class="kw">fn</span> <span class="ident">equate_intrinsic_type</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                   <span class="ident">it</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">ForeignItem</span>,
+                                   <span class="ident">n_tps</span>: <span class="ident">usize</span>,
+                                   <span class="ident">abi</span>: <span class="ident">Abi</span>,
+                                   <span class="ident">inputs</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,
+                                   <span class="ident">output</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) {
+    <span class="kw">let</span> <span class="ident">def_id</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">local_def_id</span>(<span class="ident">it</span>.<span class="ident">id</span>);
 
-    <span class='kw'>let</span> <span class='ident'>substs</span> <span class='op'>=</span> <span class='ident'>Substs</span>::<span class='ident'>for_item</span>(<span class='ident'>tcx</span>, <span class='ident'>def_id</span>,
-                                  <span class='op'>|</span>_, _<span class='op'>|</span> <span class='ident'>tcx</span>.<span class='ident'>mk_region</span>(<span class='ident'>ty</span>::<span class='ident'>ReErased</span>),
-                                  <span class='op'>|</span><span class='ident'>def</span>, _<span class='op'>|</span> <span class='ident'>tcx</span>.<span class='ident'>mk_param_from_def</span>(<span class='ident'>def</span>));
+    <span class="kw">let</span> <span class="ident">substs</span> <span class="op">=</span> <span class="ident">Substs</span>::<span class="ident">for_item</span>(<span class="ident">tcx</span>, <span class="ident">def_id</span>,
+                                  <span class="op">|</span>_, _<span class="op">|</span> <span class="ident">tcx</span>.<span class="ident">mk_region</span>(<span class="ident">ty</span>::<span class="ident">ReErased</span>),
+                                  <span class="op">|</span><span class="ident">def</span>, _<span class="op">|</span> <span class="ident">tcx</span>.<span class="ident">mk_param_from_def</span>(<span class="ident">def</span>));
 
-    <span class='kw'>let</span> <span class='ident'>fty</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>mk_fn_def</span>(<span class='ident'>def_id</span>, <span class='ident'>substs</span>, <span class='ident'>tcx</span>.<span class='ident'>mk_bare_fn</span>(<span class='ident'>ty</span>::<span class='ident'>BareFnTy</span> {
-        <span class='ident'>unsafety</span>: <span class='ident'>hir</span>::<span class='ident'>Unsafety</span>::<span class='ident'>Unsafe</span>,
-        <span class='ident'>abi</span>: <span class='ident'>abi</span>,
-        <span class='ident'>sig</span>: <span class='ident'>ty</span>::<span class='ident'>Binder</span>(<span class='ident'>tcx</span>.<span class='ident'>mk_fn_sig</span>(<span class='ident'>inputs</span>.<span class='ident'>into_iter</span>(), <span class='ident'>output</span>, <span class='bool-val'>false</span>)),
-    }));
-    <span class='kw'>let</span> <span class='ident'>i_n_tps</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>item_generics</span>(<span class='ident'>def_id</span>).<span class='ident'>types</span>.<span class='ident'>len</span>();
-    <span class='kw'>if</span> <span class='ident'>i_n_tps</span> <span class='op'>!=</span> <span class='ident'>n_tps</span> {
-        <span class='kw'>let</span> <span class='ident'>span</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>it</span>.<span class='ident'>node</span> {
-            <span class='ident'>hir</span>::<span class='ident'>ForeignItemFn</span>(_, _, <span class='kw-2'>ref</span> <span class='ident'>generics</span>) <span class='op'>=&gt;</span> <span class='ident'>generics</span>.<span class='ident'>span</span>,
-            <span class='ident'>hir</span>::<span class='ident'>ForeignItemStatic</span>(..) <span class='op'>=&gt;</span> <span class='ident'>it</span>.<span class='ident'>span</span>
+    <span class="kw">let</span> <span class="ident">fty</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">mk_fn_def</span>(<span class="ident">def_id</span>, <span class="ident">substs</span>, <span class="ident">ty</span>::<span class="ident">Binder</span>(<span class="ident">tcx</span>.<span class="ident">mk_fn_sig</span>(
+        <span class="ident">inputs</span>.<span class="ident">into_iter</span>(),
+        <span class="ident">output</span>,
+        <span class="bool-val">false</span>,
+        <span class="ident">hir</span>::<span class="ident">Unsafety</span>::<span class="ident">Unsafe</span>,
+        <span class="ident">abi</span>
+    )));
+    <span class="kw">let</span> <span class="ident">i_n_tps</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">item_generics</span>(<span class="ident">def_id</span>).<span class="ident">types</span>.<span class="ident">len</span>();
+    <span class="kw">if</span> <span class="ident">i_n_tps</span> <span class="op">!=</span> <span class="ident">n_tps</span> {
+        <span class="kw">let</span> <span class="ident">span</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">it</span>.<span class="ident">node</span> {
+            <span class="ident">hir</span>::<span class="ident">ForeignItemFn</span>(_, _, <span class="kw-2">ref</span> <span class="ident">generics</span>) <span class="op">=&gt;</span> <span class="ident">generics</span>.<span class="ident">span</span>,
+            <span class="ident">hir</span>::<span class="ident">ForeignItemStatic</span>(..) <span class="op">=&gt;</span> <span class="ident">it</span>.<span class="ident">span</span>
         };
 
-        <span class='macro'>struct_span_err</span><span class='macro'>!</span>(<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>span</span>, <span class='ident'>E0094</span>,
-                        <span class='string'>&quot;intrinsic has wrong number of type \
+        <span class="macro">struct_span_err</span><span class="macro">!</span>(<span class="ident">tcx</span>.<span class="ident">sess</span>, <span class="ident">span</span>, <span class="ident">E0094</span>,
+                        <span class="string">&quot;intrinsic has wrong number of type \
                         parameters: found {}, expected {}&quot;</span>,
-                        <span class='ident'>i_n_tps</span>, <span class='ident'>n_tps</span>)
-            .<span class='ident'>span_label</span>(<span class='ident'>span</span>, <span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;expected {} type parameter&quot;</span>, <span class='ident'>n_tps</span>))
-            .<span class='ident'>emit</span>();
-    } <span class='kw'>else</span> {
-        <span class='ident'>require_same_types</span>(<span class='ident'>ccx</span>,
-                           <span class='kw-2'>&amp;</span><span class='ident'>ObligationCause</span>::<span class='ident'>new</span>(<span class='ident'>it</span>.<span class='ident'>span</span>,
-                                                 <span class='ident'>it</span>.<span class='ident'>id</span>,
-                                                 <span class='ident'>ObligationCauseCode</span>::<span class='ident'>IntrinsicType</span>),
-                           <span class='ident'>tcx</span>.<span class='ident'>item_type</span>(<span class='ident'>def_id</span>),
-                           <span class='ident'>fty</span>);
+                        <span class="ident">i_n_tps</span>, <span class="ident">n_tps</span>)
+            .<span class="ident">span_label</span>(<span class="ident">span</span>, <span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;expected {} type parameter&quot;</span>, <span class="ident">n_tps</span>))
+            .<span class="ident">emit</span>();
+    } <span class="kw">else</span> {
+        <span class="ident">require_same_types</span>(<span class="ident">tcx</span>,
+                           <span class="kw-2">&amp;</span><span class="ident">ObligationCause</span>::<span class="ident">new</span>(<span class="ident">it</span>.<span class="ident">span</span>,
+                                                 <span class="ident">it</span>.<span class="ident">id</span>,
+                                                 <span class="ident">ObligationCauseCode</span>::<span class="ident">IntrinsicType</span>),
+                           <span class="ident">tcx</span>.<span class="ident">item_type</span>(<span class="ident">def_id</span>),
+                           <span class="ident">fty</span>);
     }
 }
 
-<span class='doccomment'>/// Remember to add all intrinsics here, in librustc_trans/trans/intrinsic.rs,</span>
-<span class='doccomment'>/// and in libcore/intrinsics.rs</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>check_intrinsic_type</span>(<span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateCtxt</span>, <span class='ident'>it</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>ForeignItem</span>) {
-    <span class='kw'>fn</span> <span class='ident'>param</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>n</span>: <span class='ident'>u32</span>) <span class='op'>-&gt;</span> <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='kw'>let</span> <span class='ident'>name</span> <span class='op'>=</span> <span class='ident'>Symbol</span>::<span class='ident'>intern</span>(<span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;P{}&quot;</span>, <span class='ident'>n</span>));
-        <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>mk_param</span>(<span class='ident'>n</span>, <span class='ident'>name</span>)
-    }
+<span class="doccomment">/// Remember to add all intrinsics here, in librustc_trans/trans/intrinsic.rs,</span>
+<span class="doccomment">/// and in libcore/intrinsics.rs</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">check_intrinsic_type</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                      <span class="ident">it</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">ForeignItem</span>) {
+    <span class="kw">let</span> <span class="ident">param</span> <span class="op">=</span> <span class="op">|</span><span class="ident">n</span><span class="op">|</span> <span class="ident">tcx</span>.<span class="ident">mk_param</span>(<span class="ident">n</span>, <span class="ident">Symbol</span>::<span class="ident">intern</span>(<span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;P{}&quot;</span>, <span class="ident">n</span>)));
+    <span class="kw">let</span> <span class="ident">name</span> <span class="op">=</span> <span class="ident">it</span>.<span class="ident">name</span>.<span class="ident">as_str</span>();
+    <span class="kw">let</span> (<span class="ident">n_tps</span>, <span class="ident">inputs</span>, <span class="ident">output</span>) <span class="op">=</span> <span class="kw">if</span> <span class="ident">name</span>.<span class="ident">starts_with</span>(<span class="string">&quot;atomic_&quot;</span>) {
+        <span class="kw">let</span> <span class="ident">split</span> : <span class="ident">Vec</span><span class="op">&lt;</span><span class="kw-2">&amp;</span><span class="ident">str</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">name</span>.<span class="ident">split</span>(<span class="string">&#39;_&#39;</span>).<span class="ident">collect</span>();
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">split</span>.<span class="ident">len</span>() <span class="op">&gt;=</span> <span class="number">2</span>, <span class="string">&quot;Atomic intrinsic not correct format&quot;</span>);
 
-    <span class='kw'>let</span> <span class='ident'>tcx</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>;
-    <span class='kw'>let</span> <span class='ident'>name</span> <span class='op'>=</span> <span class='ident'>it</span>.<span class='ident'>name</span>.<span class='ident'>as_str</span>();
-    <span class='kw'>let</span> (<span class='ident'>n_tps</span>, <span class='ident'>inputs</span>, <span class='ident'>output</span>) <span class='op'>=</span> <span class='kw'>if</span> <span class='ident'>name</span>.<span class='ident'>starts_with</span>(<span class='string'>&quot;atomic_&quot;</span>) {
-        <span class='kw'>let</span> <span class='ident'>split</span> : <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='ident'>str</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>name</span>.<span class='ident'>split</span>(<span class='string'>&#39;_&#39;</span>).<span class='ident'>collect</span>();
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>split</span>.<span class='ident'>len</span>() <span class='op'>&gt;=</span> <span class='number'>2</span>, <span class='string'>&quot;Atomic intrinsic not correct format&quot;</span>);
+        <span class="comment">//We only care about the operation here</span>
+        <span class="kw">let</span> (<span class="ident">n_tps</span>, <span class="ident">inputs</span>, <span class="ident">output</span>) <span class="op">=</span> <span class="kw">match</span> <span class="ident">split</span>[<span class="number">1</span>] {
+            <span class="string">&quot;cxchg&quot;</span> <span class="op">|</span> <span class="string">&quot;cxchgweak&quot;</span> <span class="op">=&gt;</span> (<span class="number">1</span>, <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">tcx</span>.<span class="ident">mk_mut_ptr</span>(<span class="ident">param</span>(<span class="number">0</span>)),
+                                              <span class="ident">param</span>(<span class="number">0</span>),
+                                              <span class="ident">param</span>(<span class="number">0</span>)],
+                                      <span class="ident">tcx</span>.<span class="ident">intern_tup</span>(<span class="kw-2">&amp;</span>[<span class="ident">param</span>(<span class="number">0</span>), <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">bool</span>], <span class="bool-val">false</span>)),
+            <span class="string">&quot;load&quot;</span> <span class="op">=&gt;</span> (<span class="number">1</span>, <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">tcx</span>.<span class="ident">mk_imm_ptr</span>(<span class="ident">param</span>(<span class="number">0</span>))],
+                       <span class="ident">param</span>(<span class="number">0</span>)),
+            <span class="string">&quot;store&quot;</span> <span class="op">=&gt;</span> (<span class="number">1</span>, <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">tcx</span>.<span class="ident">mk_mut_ptr</span>(<span class="ident">param</span>(<span class="number">0</span>)), <span class="ident">param</span>(<span class="number">0</span>)],
+                        <span class="ident">tcx</span>.<span class="ident">mk_nil</span>()),
 
-        <span class='comment'>//We only care about the operation here</span>
-        <span class='kw'>let</span> (<span class='ident'>n_tps</span>, <span class='ident'>inputs</span>, <span class='ident'>output</span>) <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>split</span>[<span class='number'>1</span>] {
-            <span class='string'>&quot;cxchg&quot;</span> <span class='op'>|</span> <span class='string'>&quot;cxchgweak&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>1</span>, <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>tcx</span>.<span class='ident'>mk_mut_ptr</span>(<span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)),
-                                              <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>),
-                                              <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)],
-                                      <span class='ident'>tcx</span>.<span class='ident'>intern_tup</span>(<span class='kw-2'>&amp;</span>[<span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>), <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>bool</span>], <span class='bool-val'>false</span>)),
-            <span class='string'>&quot;load&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>1</span>, <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>tcx</span>.<span class='ident'>mk_imm_ptr</span>(<span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>))],
-                       <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)),
-            <span class='string'>&quot;store&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>1</span>, <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>tcx</span>.<span class='ident'>mk_mut_ptr</span>(<span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)), <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)],
-                        <span class='ident'>tcx</span>.<span class='ident'>mk_nil</span>()),
-
-            <span class='string'>&quot;xchg&quot;</span> <span class='op'>|</span> <span class='string'>&quot;xadd&quot;</span> <span class='op'>|</span> <span class='string'>&quot;xsub&quot;</span> <span class='op'>|</span> <span class='string'>&quot;and&quot;</span>  <span class='op'>|</span> <span class='string'>&quot;nand&quot;</span> <span class='op'>|</span> <span class='string'>&quot;or&quot;</span> <span class='op'>|</span> <span class='string'>&quot;xor&quot;</span> <span class='op'>|</span> <span class='string'>&quot;max&quot;</span> <span class='op'>|</span>
-            <span class='string'>&quot;min&quot;</span>  <span class='op'>|</span> <span class='string'>&quot;umax&quot;</span> <span class='op'>|</span> <span class='string'>&quot;umin&quot;</span> <span class='op'>=&gt;</span> {
-                (<span class='number'>1</span>, <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>tcx</span>.<span class='ident'>mk_mut_ptr</span>(<span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)), <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)],
-                 <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>))
+            <span class="string">&quot;xchg&quot;</span> <span class="op">|</span> <span class="string">&quot;xadd&quot;</span> <span class="op">|</span> <span class="string">&quot;xsub&quot;</span> <span class="op">|</span> <span class="string">&quot;and&quot;</span>  <span class="op">|</span> <span class="string">&quot;nand&quot;</span> <span class="op">|</span> <span class="string">&quot;or&quot;</span> <span class="op">|</span> <span class="string">&quot;xor&quot;</span> <span class="op">|</span> <span class="string">&quot;max&quot;</span> <span class="op">|</span>
+            <span class="string">&quot;min&quot;</span>  <span class="op">|</span> <span class="string">&quot;umax&quot;</span> <span class="op">|</span> <span class="string">&quot;umin&quot;</span> <span class="op">=&gt;</span> {
+                (<span class="number">1</span>, <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">tcx</span>.<span class="ident">mk_mut_ptr</span>(<span class="ident">param</span>(<span class="number">0</span>)), <span class="ident">param</span>(<span class="number">0</span>)],
+                 <span class="ident">param</span>(<span class="number">0</span>))
             }
-            <span class='string'>&quot;fence&quot;</span> <span class='op'>|</span> <span class='string'>&quot;singlethreadfence&quot;</span> <span class='op'>=&gt;</span> {
-                (<span class='number'>0</span>, <span class='ident'>Vec</span>::<span class='ident'>new</span>(), <span class='ident'>tcx</span>.<span class='ident'>mk_nil</span>())
+            <span class="string">&quot;fence&quot;</span> <span class="op">|</span> <span class="string">&quot;singlethreadfence&quot;</span> <span class="op">=&gt;</span> {
+                (<span class="number">0</span>, <span class="ident">Vec</span>::<span class="ident">new</span>(), <span class="ident">tcx</span>.<span class="ident">mk_nil</span>())
             }
-            <span class='ident'>op</span> <span class='op'>=&gt;</span> {
-                <span class='macro'>struct_span_err</span><span class='macro'>!</span>(<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>it</span>.<span class='ident'>span</span>, <span class='ident'>E0092</span>,
-                      <span class='string'>&quot;unrecognized atomic operation function: `{}`&quot;</span>, <span class='ident'>op</span>)
-                  .<span class='ident'>span_label</span>(<span class='ident'>it</span>.<span class='ident'>span</span>, <span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;unrecognized atomic operation&quot;</span>))
-                  .<span class='ident'>emit</span>();
-                <span class='kw'>return</span>;
+            <span class="ident">op</span> <span class="op">=&gt;</span> {
+                <span class="macro">struct_span_err</span><span class="macro">!</span>(<span class="ident">tcx</span>.<span class="ident">sess</span>, <span class="ident">it</span>.<span class="ident">span</span>, <span class="ident">E0092</span>,
+                      <span class="string">&quot;unrecognized atomic operation function: `{}`&quot;</span>, <span class="ident">op</span>)
+                  .<span class="ident">span_label</span>(<span class="ident">it</span>.<span class="ident">span</span>, <span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;unrecognized atomic operation&quot;</span>))
+                  .<span class="ident">emit</span>();
+                <span class="kw">return</span>;
             }
         };
-        (<span class='ident'>n_tps</span>, <span class='ident'>inputs</span>, <span class='ident'>output</span>)
-    } <span class='kw'>else</span> <span class='kw'>if</span> <span class='kw-2'>&amp;</span><span class='ident'>name</span>[..] <span class='op'>==</span> <span class='string'>&quot;abort&quot;</span> <span class='op'>||</span> <span class='kw-2'>&amp;</span><span class='ident'>name</span>[..] <span class='op'>==</span> <span class='string'>&quot;unreachable&quot;</span> {
-        (<span class='number'>0</span>, <span class='ident'>Vec</span>::<span class='ident'>new</span>(), <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>never</span>)
-    } <span class='kw'>else</span> {
-        <span class='kw'>let</span> (<span class='ident'>n_tps</span>, <span class='ident'>inputs</span>, <span class='ident'>output</span>) <span class='op'>=</span> <span class='kw'>match</span> <span class='kw-2'>&amp;</span><span class='ident'>name</span>[..] {
-            <span class='string'>&quot;breakpoint&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='ident'>Vec</span>::<span class='ident'>new</span>(), <span class='ident'>tcx</span>.<span class='ident'>mk_nil</span>()),
-            <span class='string'>&quot;size_of&quot;</span> <span class='op'>|</span>
-            <span class='string'>&quot;pref_align_of&quot;</span> <span class='op'>|</span> <span class='string'>&quot;min_align_of&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>1</span>, <span class='ident'>Vec</span>::<span class='ident'>new</span>(), <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>usize</span>),
-            <span class='string'>&quot;size_of_val&quot;</span> <span class='op'>|</span>  <span class='string'>&quot;min_align_of_val&quot;</span> <span class='op'>=&gt;</span> {
-                (<span class='number'>1</span>, <span class='macro'>vec</span><span class='macro'>!</span>[
-                    <span class='ident'>tcx</span>.<span class='ident'>mk_imm_ref</span>(<span class='ident'>tcx</span>.<span class='ident'>mk_region</span>(<span class='ident'>ty</span>::<span class='ident'>ReLateBound</span>(<span class='ident'>ty</span>::<span class='ident'>DebruijnIndex</span>::<span class='ident'>new</span>(<span class='number'>1</span>),
-                                                                  <span class='ident'>ty</span>::<span class='ident'>BrAnon</span>(<span class='number'>0</span>))),
-                                    <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>))
-                 ], <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>usize</span>)
+        (<span class="ident">n_tps</span>, <span class="ident">inputs</span>, <span class="ident">output</span>)
+    } <span class="kw">else</span> <span class="kw">if</span> <span class="kw-2">&amp;</span><span class="ident">name</span>[..] <span class="op">==</span> <span class="string">&quot;abort&quot;</span> <span class="op">||</span> <span class="kw-2">&amp;</span><span class="ident">name</span>[..] <span class="op">==</span> <span class="string">&quot;unreachable&quot;</span> {
+        (<span class="number">0</span>, <span class="ident">Vec</span>::<span class="ident">new</span>(), <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">never</span>)
+    } <span class="kw">else</span> {
+        <span class="kw">let</span> (<span class="ident">n_tps</span>, <span class="ident">inputs</span>, <span class="ident">output</span>) <span class="op">=</span> <span class="kw">match</span> <span class="kw-2">&amp;</span><span class="ident">name</span>[..] {
+            <span class="string">&quot;breakpoint&quot;</span> <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="ident">Vec</span>::<span class="ident">new</span>(), <span class="ident">tcx</span>.<span class="ident">mk_nil</span>()),
+            <span class="string">&quot;size_of&quot;</span> <span class="op">|</span>
+            <span class="string">&quot;pref_align_of&quot;</span> <span class="op">|</span> <span class="string">&quot;min_align_of&quot;</span> <span class="op">=&gt;</span> (<span class="number">1</span>, <span class="ident">Vec</span>::<span class="ident">new</span>(), <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">usize</span>),
+            <span class="string">&quot;size_of_val&quot;</span> <span class="op">|</span>  <span class="string">&quot;min_align_of_val&quot;</span> <span class="op">=&gt;</span> {
+                (<span class="number">1</span>, <span class="macro">vec</span><span class="macro">!</span>[
+                    <span class="ident">tcx</span>.<span class="ident">mk_imm_ref</span>(<span class="ident">tcx</span>.<span class="ident">mk_region</span>(<span class="ident">ty</span>::<span class="ident">ReLateBound</span>(<span class="ident">ty</span>::<span class="ident">DebruijnIndex</span>::<span class="ident">new</span>(<span class="number">1</span>),
+                                                                  <span class="ident">ty</span>::<span class="ident">BrAnon</span>(<span class="number">0</span>))),
+                                    <span class="ident">param</span>(<span class="number">0</span>))
+                 ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">usize</span>)
             }
-            <span class='string'>&quot;rustc_peek&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>1</span>, <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)], <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)),
-            <span class='string'>&quot;init&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>1</span>, <span class='ident'>Vec</span>::<span class='ident'>new</span>(), <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)),
-            <span class='string'>&quot;uninit&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>1</span>, <span class='ident'>Vec</span>::<span class='ident'>new</span>(), <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)),
-            <span class='string'>&quot;forget&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>1</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>) ], <span class='ident'>tcx</span>.<span class='ident'>mk_nil</span>()),
-            <span class='string'>&quot;transmute&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>2</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>) ], <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>1</span>)),
-            <span class='string'>&quot;move_val_init&quot;</span> <span class='op'>=&gt;</span> {
-                (<span class='number'>1</span>,
-                 <span class='macro'>vec</span><span class='macro'>!</span>[
-                    <span class='ident'>tcx</span>.<span class='ident'>mk_mut_ptr</span>(<span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)),
-                    <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)
+            <span class="string">&quot;rustc_peek&quot;</span> <span class="op">=&gt;</span> (<span class="number">1</span>, <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">param</span>(<span class="number">0</span>)], <span class="ident">param</span>(<span class="number">0</span>)),
+            <span class="string">&quot;init&quot;</span> <span class="op">=&gt;</span> (<span class="number">1</span>, <span class="ident">Vec</span>::<span class="ident">new</span>(), <span class="ident">param</span>(<span class="number">0</span>)),
+            <span class="string">&quot;uninit&quot;</span> <span class="op">=&gt;</span> (<span class="number">1</span>, <span class="ident">Vec</span>::<span class="ident">new</span>(), <span class="ident">param</span>(<span class="number">0</span>)),
+            <span class="string">&quot;forget&quot;</span> <span class="op">=&gt;</span> (<span class="number">1</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">param</span>(<span class="number">0</span>) ], <span class="ident">tcx</span>.<span class="ident">mk_nil</span>()),
+            <span class="string">&quot;transmute&quot;</span> <span class="op">=&gt;</span> (<span class="number">2</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">param</span>(<span class="number">0</span>) ], <span class="ident">param</span>(<span class="number">1</span>)),
+            <span class="string">&quot;move_val_init&quot;</span> <span class="op">=&gt;</span> {
+                (<span class="number">1</span>,
+                 <span class="macro">vec</span><span class="macro">!</span>[
+                    <span class="ident">tcx</span>.<span class="ident">mk_mut_ptr</span>(<span class="ident">param</span>(<span class="number">0</span>)),
+                    <span class="ident">param</span>(<span class="number">0</span>)
                   ],
-               <span class='ident'>tcx</span>.<span class='ident'>mk_nil</span>())
+               <span class="ident">tcx</span>.<span class="ident">mk_nil</span>())
             }
-            <span class='string'>&quot;drop_in_place&quot;</span> <span class='op'>=&gt;</span> {
-                (<span class='number'>1</span>, <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>tcx</span>.<span class='ident'>mk_mut_ptr</span>(<span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>))], <span class='ident'>tcx</span>.<span class='ident'>mk_nil</span>())
+            <span class="string">&quot;drop_in_place&quot;</span> <span class="op">=&gt;</span> {
+                (<span class="number">1</span>, <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">tcx</span>.<span class="ident">mk_mut_ptr</span>(<span class="ident">param</span>(<span class="number">0</span>))], <span class="ident">tcx</span>.<span class="ident">mk_nil</span>())
             }
-            <span class='string'>&quot;needs_drop&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>1</span>, <span class='ident'>Vec</span>::<span class='ident'>new</span>(), <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>bool</span>),
+            <span class="string">&quot;needs_drop&quot;</span> <span class="op">=&gt;</span> (<span class="number">1</span>, <span class="ident">Vec</span>::<span class="ident">new</span>(), <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">bool</span>),
 
-            <span class='string'>&quot;type_name&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>1</span>, <span class='ident'>Vec</span>::<span class='ident'>new</span>(), <span class='ident'>tcx</span>.<span class='ident'>mk_static_str</span>()),
-            <span class='string'>&quot;type_id&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>1</span>, <span class='ident'>Vec</span>::<span class='ident'>new</span>(), <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>u64</span>),
-            <span class='string'>&quot;offset&quot;</span> <span class='op'>|</span> <span class='string'>&quot;arith_offset&quot;</span> <span class='op'>=&gt;</span> {
-              (<span class='number'>1</span>,
-               <span class='macro'>vec</span><span class='macro'>!</span>[
-                  <span class='ident'>tcx</span>.<span class='ident'>mk_ptr</span>(<span class='ident'>ty</span>::<span class='ident'>TypeAndMut</span> {
-                      <span class='ident'>ty</span>: <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>),
-                      <span class='ident'>mutbl</span>: <span class='ident'>hir</span>::<span class='ident'>MutImmutable</span>
+            <span class="string">&quot;type_name&quot;</span> <span class="op">=&gt;</span> (<span class="number">1</span>, <span class="ident">Vec</span>::<span class="ident">new</span>(), <span class="ident">tcx</span>.<span class="ident">mk_static_str</span>()),
+            <span class="string">&quot;type_id&quot;</span> <span class="op">=&gt;</span> (<span class="number">1</span>, <span class="ident">Vec</span>::<span class="ident">new</span>(), <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">u64</span>),
+            <span class="string">&quot;offset&quot;</span> <span class="op">|</span> <span class="string">&quot;arith_offset&quot;</span> <span class="op">=&gt;</span> {
+              (<span class="number">1</span>,
+               <span class="macro">vec</span><span class="macro">!</span>[
+                  <span class="ident">tcx</span>.<span class="ident">mk_ptr</span>(<span class="ident">ty</span>::<span class="ident">TypeAndMut</span> {
+                      <span class="ident">ty</span>: <span class="ident">param</span>(<span class="number">0</span>),
+                      <span class="ident">mutbl</span>: <span class="ident">hir</span>::<span class="ident">MutImmutable</span>
                   }),
-                  <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>isize</span>
+                  <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">isize</span>
                ],
-               <span class='ident'>tcx</span>.<span class='ident'>mk_ptr</span>(<span class='ident'>ty</span>::<span class='ident'>TypeAndMut</span> {
-                   <span class='ident'>ty</span>: <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>),
-                   <span class='ident'>mutbl</span>: <span class='ident'>hir</span>::<span class='ident'>MutImmutable</span>
+               <span class="ident">tcx</span>.<span class="ident">mk_ptr</span>(<span class="ident">ty</span>::<span class="ident">TypeAndMut</span> {
+                   <span class="ident">ty</span>: <span class="ident">param</span>(<span class="number">0</span>),
+                   <span class="ident">mutbl</span>: <span class="ident">hir</span>::<span class="ident">MutImmutable</span>
                }))
             }
-            <span class='string'>&quot;copy&quot;</span> <span class='op'>|</span> <span class='string'>&quot;copy_nonoverlapping&quot;</span> <span class='op'>=&gt;</span> {
-              (<span class='number'>1</span>,
-               <span class='macro'>vec</span><span class='macro'>!</span>[
-                  <span class='ident'>tcx</span>.<span class='ident'>mk_ptr</span>(<span class='ident'>ty</span>::<span class='ident'>TypeAndMut</span> {
-                      <span class='ident'>ty</span>: <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>),
-                      <span class='ident'>mutbl</span>: <span class='ident'>hir</span>::<span class='ident'>MutImmutable</span>
+            <span class="string">&quot;copy&quot;</span> <span class="op">|</span> <span class="string">&quot;copy_nonoverlapping&quot;</span> <span class="op">=&gt;</span> {
+              (<span class="number">1</span>,
+               <span class="macro">vec</span><span class="macro">!</span>[
+                  <span class="ident">tcx</span>.<span class="ident">mk_ptr</span>(<span class="ident">ty</span>::<span class="ident">TypeAndMut</span> {
+                      <span class="ident">ty</span>: <span class="ident">param</span>(<span class="number">0</span>),
+                      <span class="ident">mutbl</span>: <span class="ident">hir</span>::<span class="ident">MutImmutable</span>
                   }),
-                  <span class='ident'>tcx</span>.<span class='ident'>mk_ptr</span>(<span class='ident'>ty</span>::<span class='ident'>TypeAndMut</span> {
-                      <span class='ident'>ty</span>: <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>),
-                      <span class='ident'>mutbl</span>: <span class='ident'>hir</span>::<span class='ident'>MutMutable</span>
+                  <span class="ident">tcx</span>.<span class="ident">mk_ptr</span>(<span class="ident">ty</span>::<span class="ident">TypeAndMut</span> {
+                      <span class="ident">ty</span>: <span class="ident">param</span>(<span class="number">0</span>),
+                      <span class="ident">mutbl</span>: <span class="ident">hir</span>::<span class="ident">MutMutable</span>
                   }),
-                  <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>usize</span>,
+                  <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">usize</span>,
                ],
-               <span class='ident'>tcx</span>.<span class='ident'>mk_nil</span>())
+               <span class="ident">tcx</span>.<span class="ident">mk_nil</span>())
             }
-            <span class='string'>&quot;volatile_copy_memory&quot;</span> <span class='op'>|</span> <span class='string'>&quot;volatile_copy_nonoverlapping_memory&quot;</span> <span class='op'>=&gt;</span> {
-              (<span class='number'>1</span>,
-               <span class='macro'>vec</span><span class='macro'>!</span>[
-                  <span class='ident'>tcx</span>.<span class='ident'>mk_ptr</span>(<span class='ident'>ty</span>::<span class='ident'>TypeAndMut</span> {
-                      <span class='ident'>ty</span>: <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>),
-                      <span class='ident'>mutbl</span>: <span class='ident'>hir</span>::<span class='ident'>MutMutable</span>
+            <span class="string">&quot;volatile_copy_memory&quot;</span> <span class="op">|</span> <span class="string">&quot;volatile_copy_nonoverlapping_memory&quot;</span> <span class="op">=&gt;</span> {
+              (<span class="number">1</span>,
+               <span class="macro">vec</span><span class="macro">!</span>[
+                  <span class="ident">tcx</span>.<span class="ident">mk_ptr</span>(<span class="ident">ty</span>::<span class="ident">TypeAndMut</span> {
+                      <span class="ident">ty</span>: <span class="ident">param</span>(<span class="number">0</span>),
+                      <span class="ident">mutbl</span>: <span class="ident">hir</span>::<span class="ident">MutMutable</span>
                   }),
-                  <span class='ident'>tcx</span>.<span class='ident'>mk_ptr</span>(<span class='ident'>ty</span>::<span class='ident'>TypeAndMut</span> {
-                      <span class='ident'>ty</span>: <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>),
-                      <span class='ident'>mutbl</span>: <span class='ident'>hir</span>::<span class='ident'>MutImmutable</span>
+                  <span class="ident">tcx</span>.<span class="ident">mk_ptr</span>(<span class="ident">ty</span>::<span class="ident">TypeAndMut</span> {
+                      <span class="ident">ty</span>: <span class="ident">param</span>(<span class="number">0</span>),
+                      <span class="ident">mutbl</span>: <span class="ident">hir</span>::<span class="ident">MutImmutable</span>
                   }),
-                  <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>usize</span>,
+                  <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">usize</span>,
                ],
-               <span class='ident'>tcx</span>.<span class='ident'>mk_nil</span>())
+               <span class="ident">tcx</span>.<span class="ident">mk_nil</span>())
             }
-            <span class='string'>&quot;write_bytes&quot;</span> <span class='op'>|</span> <span class='string'>&quot;volatile_set_memory&quot;</span> <span class='op'>=&gt;</span> {
-              (<span class='number'>1</span>,
-               <span class='macro'>vec</span><span class='macro'>!</span>[
-                  <span class='ident'>tcx</span>.<span class='ident'>mk_ptr</span>(<span class='ident'>ty</span>::<span class='ident'>TypeAndMut</span> {
-                      <span class='ident'>ty</span>: <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>),
-                      <span class='ident'>mutbl</span>: <span class='ident'>hir</span>::<span class='ident'>MutMutable</span>
+            <span class="string">&quot;write_bytes&quot;</span> <span class="op">|</span> <span class="string">&quot;volatile_set_memory&quot;</span> <span class="op">=&gt;</span> {
+              (<span class="number">1</span>,
+               <span class="macro">vec</span><span class="macro">!</span>[
+                  <span class="ident">tcx</span>.<span class="ident">mk_ptr</span>(<span class="ident">ty</span>::<span class="ident">TypeAndMut</span> {
+                      <span class="ident">ty</span>: <span class="ident">param</span>(<span class="number">0</span>),
+                      <span class="ident">mutbl</span>: <span class="ident">hir</span>::<span class="ident">MutMutable</span>
                   }),
-                  <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>u8</span>,
-                  <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>usize</span>,
+                  <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">u8</span>,
+                  <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">usize</span>,
                ],
-               <span class='ident'>tcx</span>.<span class='ident'>mk_nil</span>())
+               <span class="ident">tcx</span>.<span class="ident">mk_nil</span>())
             }
-            <span class='string'>&quot;sqrtf32&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>),
-            <span class='string'>&quot;sqrtf64&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>),
-            <span class='string'>&quot;powif32&quot;</span> <span class='op'>=&gt;</span> {
-               (<span class='number'>0</span>,
-                <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>, <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>i32</span> ],
-                <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>)
+            <span class="string">&quot;sqrtf32&quot;</span> <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>),
+            <span class="string">&quot;sqrtf64&quot;</span> <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>),
+            <span class="string">&quot;powif32&quot;</span> <span class="op">=&gt;</span> {
+               (<span class="number">0</span>,
+                <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>, <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">i32</span> ],
+                <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>)
             }
-            <span class='string'>&quot;powif64&quot;</span> <span class='op'>=&gt;</span> {
-               (<span class='number'>0</span>,
-                <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>, <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>i32</span> ],
-                <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>)
+            <span class="string">&quot;powif64&quot;</span> <span class="op">=&gt;</span> {
+               (<span class="number">0</span>,
+                <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>, <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">i32</span> ],
+                <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>)
             }
-            <span class='string'>&quot;sinf32&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>),
-            <span class='string'>&quot;sinf64&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>),
-            <span class='string'>&quot;cosf32&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>),
-            <span class='string'>&quot;cosf64&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>),
-            <span class='string'>&quot;powf32&quot;</span> <span class='op'>=&gt;</span> {
-               (<span class='number'>0</span>,
-                <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>, <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span> ],
-                <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>)
+            <span class="string">&quot;sinf32&quot;</span> <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>),
+            <span class="string">&quot;sinf64&quot;</span> <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>),
+            <span class="string">&quot;cosf32&quot;</span> <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>),
+            <span class="string">&quot;cosf64&quot;</span> <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>),
+            <span class="string">&quot;powf32&quot;</span> <span class="op">=&gt;</span> {
+               (<span class="number">0</span>,
+                <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>, <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span> ],
+                <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>)
             }
-            <span class='string'>&quot;powf64&quot;</span> <span class='op'>=&gt;</span> {
-               (<span class='number'>0</span>,
-                <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>, <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span> ],
-                <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>)
+            <span class="string">&quot;powf64&quot;</span> <span class="op">=&gt;</span> {
+               (<span class="number">0</span>,
+                <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>, <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span> ],
+                <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>)
             }
-            <span class='string'>&quot;expf32&quot;</span>   <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>),
-            <span class='string'>&quot;expf64&quot;</span>   <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>),
-            <span class='string'>&quot;exp2f32&quot;</span>  <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>),
-            <span class='string'>&quot;exp2f64&quot;</span>  <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>),
-            <span class='string'>&quot;logf32&quot;</span>   <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>),
-            <span class='string'>&quot;logf64&quot;</span>   <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>),
-            <span class='string'>&quot;log10f32&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>),
-            <span class='string'>&quot;log10f64&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>),
-            <span class='string'>&quot;log2f32&quot;</span>  <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>),
-            <span class='string'>&quot;log2f64&quot;</span>  <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>),
-            <span class='string'>&quot;fmaf32&quot;</span> <span class='op'>=&gt;</span> {
-                (<span class='number'>0</span>,
-                 <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>, <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>, <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span> ],
-                 <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>)
+            <span class="string">&quot;expf32&quot;</span>   <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>),
+            <span class="string">&quot;expf64&quot;</span>   <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>),
+            <span class="string">&quot;exp2f32&quot;</span>  <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>),
+            <span class="string">&quot;exp2f64&quot;</span>  <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>),
+            <span class="string">&quot;logf32&quot;</span>   <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>),
+            <span class="string">&quot;logf64&quot;</span>   <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>),
+            <span class="string">&quot;log10f32&quot;</span> <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>),
+            <span class="string">&quot;log10f64&quot;</span> <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>),
+            <span class="string">&quot;log2f32&quot;</span>  <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>),
+            <span class="string">&quot;log2f64&quot;</span>  <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>),
+            <span class="string">&quot;fmaf32&quot;</span> <span class="op">=&gt;</span> {
+                (<span class="number">0</span>,
+                 <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>, <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>, <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span> ],
+                 <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>)
             }
-            <span class='string'>&quot;fmaf64&quot;</span> <span class='op'>=&gt;</span> {
-                (<span class='number'>0</span>,
-                 <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>, <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>, <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span> ],
-                 <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>)
+            <span class="string">&quot;fmaf64&quot;</span> <span class="op">=&gt;</span> {
+                (<span class="number">0</span>,
+                 <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>, <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>, <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span> ],
+                 <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>)
             }
-            <span class='string'>&quot;fabsf32&quot;</span>      <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>),
-            <span class='string'>&quot;fabsf64&quot;</span>      <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>),
-            <span class='string'>&quot;copysignf32&quot;</span>  <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>, <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>),
-            <span class='string'>&quot;copysignf64&quot;</span>  <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>, <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>),
-            <span class='string'>&quot;floorf32&quot;</span>     <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>),
-            <span class='string'>&quot;floorf64&quot;</span>     <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>),
-            <span class='string'>&quot;ceilf32&quot;</span>      <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>),
-            <span class='string'>&quot;ceilf64&quot;</span>      <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>),
-            <span class='string'>&quot;truncf32&quot;</span>     <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>),
-            <span class='string'>&quot;truncf64&quot;</span>     <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>),
-            <span class='string'>&quot;rintf32&quot;</span>      <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>),
-            <span class='string'>&quot;rintf64&quot;</span>      <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>),
-            <span class='string'>&quot;nearbyintf32&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>),
-            <span class='string'>&quot;nearbyintf64&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>),
-            <span class='string'>&quot;roundf32&quot;</span>     <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f32</span>),
-            <span class='string'>&quot;roundf64&quot;</span>     <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span> ], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>f64</span>),
+            <span class="string">&quot;fabsf32&quot;</span>      <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>),
+            <span class="string">&quot;fabsf64&quot;</span>      <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>),
+            <span class="string">&quot;copysignf32&quot;</span>  <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>, <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>),
+            <span class="string">&quot;copysignf64&quot;</span>  <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>, <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>),
+            <span class="string">&quot;floorf32&quot;</span>     <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>),
+            <span class="string">&quot;floorf64&quot;</span>     <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>),
+            <span class="string">&quot;ceilf32&quot;</span>      <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>),
+            <span class="string">&quot;ceilf64&quot;</span>      <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>),
+            <span class="string">&quot;truncf32&quot;</span>     <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>),
+            <span class="string">&quot;truncf64&quot;</span>     <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>),
+            <span class="string">&quot;rintf32&quot;</span>      <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>),
+            <span class="string">&quot;rintf64&quot;</span>      <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>),
+            <span class="string">&quot;nearbyintf32&quot;</span> <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>),
+            <span class="string">&quot;nearbyintf64&quot;</span> <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>),
+            <span class="string">&quot;roundf32&quot;</span>     <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f32</span>),
+            <span class="string">&quot;roundf64&quot;</span>     <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span> ], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">f64</span>),
 
-            <span class='string'>&quot;volatile_load&quot;</span> <span class='op'>=&gt;</span>
-                (<span class='number'>1</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>mk_imm_ptr</span>(<span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)) ], <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)),
-            <span class='string'>&quot;volatile_store&quot;</span> <span class='op'>=&gt;</span>
-                (<span class='number'>1</span>, <span class='macro'>vec</span><span class='macro'>!</span>[ <span class='ident'>tcx</span>.<span class='ident'>mk_mut_ptr</span>(<span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)), <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>) ], <span class='ident'>tcx</span>.<span class='ident'>mk_nil</span>()),
+            <span class="string">&quot;volatile_load&quot;</span> <span class="op">=&gt;</span>
+                (<span class="number">1</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">mk_imm_ptr</span>(<span class="ident">param</span>(<span class="number">0</span>)) ], <span class="ident">param</span>(<span class="number">0</span>)),
+            <span class="string">&quot;volatile_store&quot;</span> <span class="op">=&gt;</span>
+                (<span class="number">1</span>, <span class="macro">vec</span><span class="macro">!</span>[ <span class="ident">tcx</span>.<span class="ident">mk_mut_ptr</span>(<span class="ident">param</span>(<span class="number">0</span>)), <span class="ident">param</span>(<span class="number">0</span>) ], <span class="ident">tcx</span>.<span class="ident">mk_nil</span>()),
 
-            <span class='string'>&quot;ctpop&quot;</span> <span class='op'>|</span> <span class='string'>&quot;ctlz&quot;</span> <span class='op'>|</span> <span class='string'>&quot;cttz&quot;</span> <span class='op'>|</span> <span class='string'>&quot;bswap&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>1</span>, <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)], <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)),
+            <span class="string">&quot;ctpop&quot;</span> <span class="op">|</span> <span class="string">&quot;ctlz&quot;</span> <span class="op">|</span> <span class="string">&quot;cttz&quot;</span> <span class="op">|</span> <span class="string">&quot;bswap&quot;</span> <span class="op">=&gt;</span> (<span class="number">1</span>, <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">param</span>(<span class="number">0</span>)], <span class="ident">param</span>(<span class="number">0</span>)),
 
-            <span class='string'>&quot;add_with_overflow&quot;</span> <span class='op'>|</span> <span class='string'>&quot;sub_with_overflow&quot;</span>  <span class='op'>|</span> <span class='string'>&quot;mul_with_overflow&quot;</span> <span class='op'>=&gt;</span>
-                (<span class='number'>1</span>, <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>), <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)],
-                <span class='ident'>tcx</span>.<span class='ident'>intern_tup</span>(<span class='kw-2'>&amp;</span>[<span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>), <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>bool</span>], <span class='bool-val'>false</span>)),
+            <span class="string">&quot;add_with_overflow&quot;</span> <span class="op">|</span> <span class="string">&quot;sub_with_overflow&quot;</span>  <span class="op">|</span> <span class="string">&quot;mul_with_overflow&quot;</span> <span class="op">=&gt;</span>
+                (<span class="number">1</span>, <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">param</span>(<span class="number">0</span>), <span class="ident">param</span>(<span class="number">0</span>)],
+                <span class="ident">tcx</span>.<span class="ident">intern_tup</span>(<span class="kw-2">&amp;</span>[<span class="ident">param</span>(<span class="number">0</span>), <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">bool</span>], <span class="bool-val">false</span>)),
 
-            <span class='string'>&quot;unchecked_div&quot;</span> <span class='op'>|</span> <span class='string'>&quot;unchecked_rem&quot;</span> <span class='op'>=&gt;</span>
-                (<span class='number'>1</span>, <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>), <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)], <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)),
+            <span class="string">&quot;unchecked_div&quot;</span> <span class="op">|</span> <span class="string">&quot;unchecked_rem&quot;</span> <span class="op">=&gt;</span>
+                (<span class="number">1</span>, <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">param</span>(<span class="number">0</span>), <span class="ident">param</span>(<span class="number">0</span>)], <span class="ident">param</span>(<span class="number">0</span>)),
 
-            <span class='string'>&quot;overflowing_add&quot;</span> <span class='op'>|</span> <span class='string'>&quot;overflowing_sub&quot;</span> <span class='op'>|</span> <span class='string'>&quot;overflowing_mul&quot;</span> <span class='op'>=&gt;</span>
-                (<span class='number'>1</span>, <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>), <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)], <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)),
-            <span class='string'>&quot;fadd_fast&quot;</span> <span class='op'>|</span> <span class='string'>&quot;fsub_fast&quot;</span> <span class='op'>|</span> <span class='string'>&quot;fmul_fast&quot;</span> <span class='op'>|</span> <span class='string'>&quot;fdiv_fast&quot;</span> <span class='op'>|</span> <span class='string'>&quot;frem_fast&quot;</span> <span class='op'>=&gt;</span>
-                (<span class='number'>1</span>, <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>), <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)], <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>)),
+            <span class="string">&quot;overflowing_add&quot;</span> <span class="op">|</span> <span class="string">&quot;overflowing_sub&quot;</span> <span class="op">|</span> <span class="string">&quot;overflowing_mul&quot;</span> <span class="op">=&gt;</span>
+                (<span class="number">1</span>, <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">param</span>(<span class="number">0</span>), <span class="ident">param</span>(<span class="number">0</span>)], <span class="ident">param</span>(<span class="number">0</span>)),
+            <span class="string">&quot;fadd_fast&quot;</span> <span class="op">|</span> <span class="string">&quot;fsub_fast&quot;</span> <span class="op">|</span> <span class="string">&quot;fmul_fast&quot;</span> <span class="op">|</span> <span class="string">&quot;fdiv_fast&quot;</span> <span class="op">|</span> <span class="string">&quot;frem_fast&quot;</span> <span class="op">=&gt;</span>
+                (<span class="number">1</span>, <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">param</span>(<span class="number">0</span>), <span class="ident">param</span>(<span class="number">0</span>)], <span class="ident">param</span>(<span class="number">0</span>)),
 
-            <span class='string'>&quot;assume&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>bool</span>], <span class='ident'>tcx</span>.<span class='ident'>mk_nil</span>()),
-            <span class='string'>&quot;likely&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>bool</span>], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>bool</span>),
-            <span class='string'>&quot;unlikely&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>bool</span>], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>bool</span>),
+            <span class="string">&quot;assume&quot;</span> <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">bool</span>], <span class="ident">tcx</span>.<span class="ident">mk_nil</span>()),
+            <span class="string">&quot;likely&quot;</span> <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">bool</span>], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">bool</span>),
+            <span class="string">&quot;unlikely&quot;</span> <span class="op">=&gt;</span> (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">bool</span>], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">bool</span>),
 
-            <span class='string'>&quot;discriminant_value&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>1</span>, <span class='macro'>vec</span><span class='macro'>!</span>[
-                    <span class='ident'>tcx</span>.<span class='ident'>mk_imm_ref</span>(<span class='ident'>tcx</span>.<span class='ident'>mk_region</span>(<span class='ident'>ty</span>::<span class='ident'>ReLateBound</span>(<span class='ident'>ty</span>::<span class='ident'>DebruijnIndex</span>::<span class='ident'>new</span>(<span class='number'>1</span>),
-                                                                  <span class='ident'>ty</span>::<span class='ident'>BrAnon</span>(<span class='number'>0</span>))),
-                                   <span class='ident'>param</span>(<span class='ident'>ccx</span>, <span class='number'>0</span>))], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>u64</span>),
+            <span class="string">&quot;discriminant_value&quot;</span> <span class="op">=&gt;</span> (<span class="number">1</span>, <span class="macro">vec</span><span class="macro">!</span>[
+                    <span class="ident">tcx</span>.<span class="ident">mk_imm_ref</span>(<span class="ident">tcx</span>.<span class="ident">mk_region</span>(<span class="ident">ty</span>::<span class="ident">ReLateBound</span>(<span class="ident">ty</span>::<span class="ident">DebruijnIndex</span>::<span class="ident">new</span>(<span class="number">1</span>),
+                                                                  <span class="ident">ty</span>::<span class="ident">BrAnon</span>(<span class="number">0</span>))),
+                                   <span class="ident">param</span>(<span class="number">0</span>))], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">u64</span>),
 
-            <span class='string'>&quot;try&quot;</span> <span class='op'>=&gt;</span> {
-                <span class='kw'>let</span> <span class='ident'>mut_u8</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>mk_mut_ptr</span>(<span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>u8</span>);
-                <span class='kw'>let</span> <span class='ident'>fn_ty</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>mk_bare_fn</span>(<span class='ident'>ty</span>::<span class='ident'>BareFnTy</span> {
-                    <span class='ident'>unsafety</span>: <span class='ident'>hir</span>::<span class='ident'>Unsafety</span>::<span class='ident'>Normal</span>,
-                    <span class='ident'>abi</span>: <span class='ident'>Abi</span>::<span class='ident'>Rust</span>,
-                    <span class='ident'>sig</span>: <span class='ident'>ty</span>::<span class='ident'>Binder</span>(<span class='ident'>tcx</span>.<span class='ident'>mk_fn_sig</span>(<span class='ident'>iter</span>::<span class='ident'>once</span>(<span class='ident'>mut_u8</span>), <span class='ident'>tcx</span>.<span class='ident'>mk_nil</span>(), <span class='bool-val'>false</span>)),
-                });
-                (<span class='number'>0</span>, <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>tcx</span>.<span class='ident'>mk_fn_ptr</span>(<span class='ident'>fn_ty</span>), <span class='ident'>mut_u8</span>, <span class='ident'>mut_u8</span>], <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>i32</span>)
+            <span class="string">&quot;try&quot;</span> <span class="op">=&gt;</span> {
+                <span class="kw">let</span> <span class="ident">mut_u8</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">mk_mut_ptr</span>(<span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">u8</span>);
+                <span class="kw">let</span> <span class="ident">fn_ty</span> <span class="op">=</span> <span class="ident">ty</span>::<span class="ident">Binder</span>(<span class="ident">tcx</span>.<span class="ident">mk_fn_sig</span>(
+                    <span class="ident">iter</span>::<span class="ident">once</span>(<span class="ident">mut_u8</span>),
+                    <span class="ident">tcx</span>.<span class="ident">mk_nil</span>(),
+                    <span class="bool-val">false</span>,
+                    <span class="ident">hir</span>::<span class="ident">Unsafety</span>::<span class="ident">Normal</span>,
+                    <span class="ident">Abi</span>::<span class="ident">Rust</span>,
+                ));
+                (<span class="number">0</span>, <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">tcx</span>.<span class="ident">mk_fn_ptr</span>(<span class="ident">fn_ty</span>), <span class="ident">mut_u8</span>, <span class="ident">mut_u8</span>], <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">i32</span>)
             }
 
-            <span class='kw-2'>ref</span> <span class='ident'>other</span> <span class='op'>=&gt;</span> {
-                <span class='macro'>struct_span_err</span><span class='macro'>!</span>(<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>it</span>.<span class='ident'>span</span>, <span class='ident'>E0093</span>,
-                                <span class='string'>&quot;unrecognized intrinsic function: `{}`&quot;</span>,
-                                <span class='kw-2'>*</span><span class='ident'>other</span>)
-                                .<span class='ident'>span_label</span>(<span class='ident'>it</span>.<span class='ident'>span</span>, <span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;unrecognized intrinsic&quot;</span>))
-                                .<span class='ident'>emit</span>();
-                <span class='kw'>return</span>;
+            <span class="kw-2">ref</span> <span class="ident">other</span> <span class="op">=&gt;</span> {
+                <span class="macro">struct_span_err</span><span class="macro">!</span>(<span class="ident">tcx</span>.<span class="ident">sess</span>, <span class="ident">it</span>.<span class="ident">span</span>, <span class="ident">E0093</span>,
+                                <span class="string">&quot;unrecognized intrinsic function: `{}`&quot;</span>,
+                                <span class="kw-2">*</span><span class="ident">other</span>)
+                                .<span class="ident">span_label</span>(<span class="ident">it</span>.<span class="ident">span</span>, <span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;unrecognized intrinsic&quot;</span>))
+                                .<span class="ident">emit</span>();
+                <span class="kw">return</span>;
             }
         };
-        (<span class='ident'>n_tps</span>, <span class='ident'>inputs</span>, <span class='ident'>output</span>)
+        (<span class="ident">n_tps</span>, <span class="ident">inputs</span>, <span class="ident">output</span>)
     };
-    <span class='ident'>equate_intrinsic_type</span>(<span class='ident'>ccx</span>, <span class='ident'>it</span>, <span class='ident'>n_tps</span>, <span class='ident'>Abi</span>::<span class='ident'>RustIntrinsic</span>, <span class='ident'>inputs</span>, <span class='ident'>output</span>)
+    <span class="ident">equate_intrinsic_type</span>(<span class="ident">tcx</span>, <span class="ident">it</span>, <span class="ident">n_tps</span>, <span class="ident">Abi</span>::<span class="ident">RustIntrinsic</span>, <span class="ident">inputs</span>, <span class="ident">output</span>)
 }
 
-<span class='doccomment'>/// Type-check `extern &quot;platform-intrinsic&quot; { ... }` functions.</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>check_platform_intrinsic_type</span>(<span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateCtxt</span>,
-                                     <span class='ident'>it</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>ForeignItem</span>) {
-    <span class='kw'>let</span> <span class='ident'>param</span> <span class='op'>=</span> <span class='op'>|</span><span class='ident'>n</span><span class='op'>|</span> {
-        <span class='kw'>let</span> <span class='ident'>name</span> <span class='op'>=</span> <span class='ident'>Symbol</span>::<span class='ident'>intern</span>(<span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;P{}&quot;</span>, <span class='ident'>n</span>));
-        <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>mk_param</span>(<span class='ident'>n</span>, <span class='ident'>name</span>)
+<span class="doccomment">/// Type-check `extern &quot;platform-intrinsic&quot; { ... }` functions.</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">check_platform_intrinsic_type</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                               <span class="ident">it</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">ForeignItem</span>) {
+    <span class="kw">let</span> <span class="ident">param</span> <span class="op">=</span> <span class="op">|</span><span class="ident">n</span><span class="op">|</span> {
+        <span class="kw">let</span> <span class="ident">name</span> <span class="op">=</span> <span class="ident">Symbol</span>::<span class="ident">intern</span>(<span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;P{}&quot;</span>, <span class="ident">n</span>));
+        <span class="ident">tcx</span>.<span class="ident">mk_param</span>(<span class="ident">n</span>, <span class="ident">name</span>)
     };
 
-    <span class='kw'>let</span> <span class='ident'>tcx</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>;
-    <span class='kw'>let</span> <span class='ident'>def_id</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>hir</span>.<span class='ident'>local_def_id</span>(<span class='ident'>it</span>.<span class='ident'>id</span>);
-    <span class='kw'>let</span> <span class='ident'>i_n_tps</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>item_generics</span>(<span class='ident'>def_id</span>).<span class='ident'>types</span>.<span class='ident'>len</span>();
-    <span class='kw'>let</span> <span class='ident'>name</span> <span class='op'>=</span> <span class='ident'>it</span>.<span class='ident'>name</span>.<span class='ident'>as_str</span>();
+    <span class="kw">let</span> <span class="ident">def_id</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">local_def_id</span>(<span class="ident">it</span>.<span class="ident">id</span>);
+    <span class="kw">let</span> <span class="ident">i_n_tps</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">item_generics</span>(<span class="ident">def_id</span>).<span class="ident">types</span>.<span class="ident">len</span>();
+    <span class="kw">let</span> <span class="ident">name</span> <span class="op">=</span> <span class="ident">it</span>.<span class="ident">name</span>.<span class="ident">as_str</span>();
 
-    <span class='kw'>let</span> (<span class='ident'>n_tps</span>, <span class='ident'>inputs</span>, <span class='ident'>output</span>) <span class='op'>=</span> <span class='kw'>match</span> <span class='kw-2'>&amp;</span><span class='kw-2'>*</span><span class='ident'>name</span> {
-        <span class='string'>&quot;simd_eq&quot;</span> <span class='op'>|</span> <span class='string'>&quot;simd_ne&quot;</span> <span class='op'>|</span> <span class='string'>&quot;simd_lt&quot;</span> <span class='op'>|</span> <span class='string'>&quot;simd_le&quot;</span> <span class='op'>|</span> <span class='string'>&quot;simd_gt&quot;</span> <span class='op'>|</span> <span class='string'>&quot;simd_ge&quot;</span> <span class='op'>=&gt;</span> {
-            (<span class='number'>2</span>, <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>param</span>(<span class='number'>0</span>), <span class='ident'>param</span>(<span class='number'>0</span>)], <span class='ident'>param</span>(<span class='number'>1</span>))
+    <span class="kw">let</span> (<span class="ident">n_tps</span>, <span class="ident">inputs</span>, <span class="ident">output</span>) <span class="op">=</span> <span class="kw">match</span> <span class="kw-2">&amp;</span><span class="kw-2">*</span><span class="ident">name</span> {
+        <span class="string">&quot;simd_eq&quot;</span> <span class="op">|</span> <span class="string">&quot;simd_ne&quot;</span> <span class="op">|</span> <span class="string">&quot;simd_lt&quot;</span> <span class="op">|</span> <span class="string">&quot;simd_le&quot;</span> <span class="op">|</span> <span class="string">&quot;simd_gt&quot;</span> <span class="op">|</span> <span class="string">&quot;simd_ge&quot;</span> <span class="op">=&gt;</span> {
+            (<span class="number">2</span>, <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">param</span>(<span class="number">0</span>), <span class="ident">param</span>(<span class="number">0</span>)], <span class="ident">param</span>(<span class="number">1</span>))
         }
-        <span class='string'>&quot;simd_add&quot;</span> <span class='op'>|</span> <span class='string'>&quot;simd_sub&quot;</span> <span class='op'>|</span> <span class='string'>&quot;simd_mul&quot;</span> <span class='op'>|</span>
-        <span class='string'>&quot;simd_div&quot;</span> <span class='op'>|</span> <span class='string'>&quot;simd_shl&quot;</span> <span class='op'>|</span> <span class='string'>&quot;simd_shr&quot;</span> <span class='op'>|</span>
-        <span class='string'>&quot;simd_and&quot;</span> <span class='op'>|</span> <span class='string'>&quot;simd_or&quot;</span> <span class='op'>|</span> <span class='string'>&quot;simd_xor&quot;</span> <span class='op'>=&gt;</span> {
-            (<span class='number'>1</span>, <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>param</span>(<span class='number'>0</span>), <span class='ident'>param</span>(<span class='number'>0</span>)], <span class='ident'>param</span>(<span class='number'>0</span>))
+        <span class="string">&quot;simd_add&quot;</span> <span class="op">|</span> <span class="string">&quot;simd_sub&quot;</span> <span class="op">|</span> <span class="string">&quot;simd_mul&quot;</span> <span class="op">|</span>
+        <span class="string">&quot;simd_div&quot;</span> <span class="op">|</span> <span class="string">&quot;simd_shl&quot;</span> <span class="op">|</span> <span class="string">&quot;simd_shr&quot;</span> <span class="op">|</span>
+        <span class="string">&quot;simd_and&quot;</span> <span class="op">|</span> <span class="string">&quot;simd_or&quot;</span> <span class="op">|</span> <span class="string">&quot;simd_xor&quot;</span> <span class="op">=&gt;</span> {
+            (<span class="number">1</span>, <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">param</span>(<span class="number">0</span>), <span class="ident">param</span>(<span class="number">0</span>)], <span class="ident">param</span>(<span class="number">0</span>))
         }
-        <span class='string'>&quot;simd_insert&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>2</span>, <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>param</span>(<span class='number'>0</span>), <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>u32</span>, <span class='ident'>param</span>(<span class='number'>1</span>)], <span class='ident'>param</span>(<span class='number'>0</span>)),
-        <span class='string'>&quot;simd_extract&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>2</span>, <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>param</span>(<span class='number'>0</span>), <span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>u32</span>], <span class='ident'>param</span>(<span class='number'>1</span>)),
-        <span class='string'>&quot;simd_cast&quot;</span> <span class='op'>=&gt;</span> (<span class='number'>2</span>, <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>param</span>(<span class='number'>0</span>)], <span class='ident'>param</span>(<span class='number'>1</span>)),
-        <span class='ident'>name</span> <span class='kw'>if</span> <span class='ident'>name</span>.<span class='ident'>starts_with</span>(<span class='string'>&quot;simd_shuffle&quot;</span>) <span class='op'>=&gt;</span> {
-            <span class='kw'>match</span> <span class='ident'>name</span>[<span class='string'>&quot;simd_shuffle&quot;</span>.<span class='ident'>len</span>()..].<span class='ident'>parse</span>() {
-                <span class='prelude-val'>Ok</span>(<span class='ident'>n</span>) <span class='op'>=&gt;</span> {
-                    <span class='kw'>let</span> <span class='ident'>params</span> <span class='op'>=</span> <span class='macro'>vec</span><span class='macro'>!</span>[<span class='ident'>param</span>(<span class='number'>0</span>), <span class='ident'>param</span>(<span class='number'>0</span>),
-                                      <span class='ident'>tcx</span>.<span class='ident'>mk_ty</span>(<span class='ident'>ty</span>::<span class='ident'>TyArray</span>(<span class='ident'>tcx</span>.<span class='ident'>types</span>.<span class='ident'>u32</span>, <span class='ident'>n</span>))];
-                    (<span class='number'>2</span>, <span class='ident'>params</span>, <span class='ident'>param</span>(<span class='number'>1</span>))
+        <span class="string">&quot;simd_insert&quot;</span> <span class="op">=&gt;</span> (<span class="number">2</span>, <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">param</span>(<span class="number">0</span>), <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">u32</span>, <span class="ident">param</span>(<span class="number">1</span>)], <span class="ident">param</span>(<span class="number">0</span>)),
+        <span class="string">&quot;simd_extract&quot;</span> <span class="op">=&gt;</span> (<span class="number">2</span>, <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">param</span>(<span class="number">0</span>), <span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">u32</span>], <span class="ident">param</span>(<span class="number">1</span>)),
+        <span class="string">&quot;simd_cast&quot;</span> <span class="op">=&gt;</span> (<span class="number">2</span>, <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">param</span>(<span class="number">0</span>)], <span class="ident">param</span>(<span class="number">1</span>)),
+        <span class="ident">name</span> <span class="kw">if</span> <span class="ident">name</span>.<span class="ident">starts_with</span>(<span class="string">&quot;simd_shuffle&quot;</span>) <span class="op">=&gt;</span> {
+            <span class="kw">match</span> <span class="ident">name</span>[<span class="string">&quot;simd_shuffle&quot;</span>.<span class="ident">len</span>()..].<span class="ident">parse</span>() {
+                <span class="prelude-val">Ok</span>(<span class="ident">n</span>) <span class="op">=&gt;</span> {
+                    <span class="kw">let</span> <span class="ident">params</span> <span class="op">=</span> <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">param</span>(<span class="number">0</span>), <span class="ident">param</span>(<span class="number">0</span>),
+                                      <span class="ident">tcx</span>.<span class="ident">mk_ty</span>(<span class="ident">ty</span>::<span class="ident">TyArray</span>(<span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">u32</span>, <span class="ident">n</span>))];
+                    (<span class="number">2</span>, <span class="ident">params</span>, <span class="ident">param</span>(<span class="number">1</span>))
                 }
-                <span class='prelude-val'>Err</span>(_) <span class='op'>=&gt;</span> {
-                    <span class='macro'>span_err</span><span class='macro'>!</span>(<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>it</span>.<span class='ident'>span</span>, <span class='ident'>E0439</span>,
-                              <span class='string'>&quot;invalid `simd_shuffle`, needs length: `{}`&quot;</span>, <span class='ident'>name</span>);
-                    <span class='kw'>return</span>
+                <span class="prelude-val">Err</span>(_) <span class="op">=&gt;</span> {
+                    <span class="macro">span_err</span><span class="macro">!</span>(<span class="ident">tcx</span>.<span class="ident">sess</span>, <span class="ident">it</span>.<span class="ident">span</span>, <span class="ident">E0439</span>,
+                              <span class="string">&quot;invalid `simd_shuffle`, needs length: `{}`&quot;</span>, <span class="ident">name</span>);
+                    <span class="kw">return</span>
                 }
             }
         }
-        _ <span class='op'>=&gt;</span> {
-            <span class='kw'>match</span> <span class='ident'>intrinsics</span>::<span class='ident'>Intrinsic</span>::<span class='ident'>find</span>(<span class='kw-2'>&amp;</span><span class='ident'>name</span>) {
-                <span class='prelude-val'>Some</span>(<span class='ident'>intr</span>) <span class='op'>=&gt;</span> {
-                    <span class='comment'>// this function is a platform specific intrinsic</span>
-                    <span class='kw'>if</span> <span class='ident'>i_n_tps</span> <span class='op'>!=</span> <span class='number'>0</span> {
-                        <span class='macro'>span_err</span><span class='macro'>!</span>(<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>it</span>.<span class='ident'>span</span>, <span class='ident'>E0440</span>,
-                                  <span class='string'>&quot;platform-specific intrinsic has wrong number of type \
+        _ <span class="op">=&gt;</span> {
+            <span class="kw">match</span> <span class="ident">intrinsics</span>::<span class="ident">Intrinsic</span>::<span class="ident">find</span>(<span class="kw-2">&amp;</span><span class="ident">name</span>) {
+                <span class="prelude-val">Some</span>(<span class="ident">intr</span>) <span class="op">=&gt;</span> {
+                    <span class="comment">// this function is a platform specific intrinsic</span>
+                    <span class="kw">if</span> <span class="ident">i_n_tps</span> <span class="op">!=</span> <span class="number">0</span> {
+                        <span class="macro">span_err</span><span class="macro">!</span>(<span class="ident">tcx</span>.<span class="ident">sess</span>, <span class="ident">it</span>.<span class="ident">span</span>, <span class="ident">E0440</span>,
+                                  <span class="string">&quot;platform-specific intrinsic has wrong number of type \
                                    parameters: found {}, expected 0&quot;</span>,
-                                  <span class='ident'>i_n_tps</span>);
-                        <span class='kw'>return</span>
+                                  <span class="ident">i_n_tps</span>);
+                        <span class="kw">return</span>
                     }
 
-                    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>structural_to_nomimal</span> <span class='op'>=</span> <span class='ident'>FxHashMap</span>();
+                    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">structural_to_nomimal</span> <span class="op">=</span> <span class="ident">FxHashMap</span>();
 
-                    <span class='kw'>let</span> <span class='ident'>sig</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>item_type</span>(<span class='ident'>def_id</span>).<span class='ident'>fn_sig</span>();
-                    <span class='kw'>let</span> <span class='ident'>sig</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>no_late_bound_regions</span>(<span class='ident'>sig</span>).<span class='ident'>unwrap</span>();
-                    <span class='kw'>if</span> <span class='ident'>intr</span>.<span class='ident'>inputs</span>.<span class='ident'>len</span>() <span class='op'>!=</span> <span class='ident'>sig</span>.<span class='ident'>inputs</span>().<span class='ident'>len</span>() {
-                        <span class='macro'>span_err</span><span class='macro'>!</span>(<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>it</span>.<span class='ident'>span</span>, <span class='ident'>E0444</span>,
-                                  <span class='string'>&quot;platform-specific intrinsic has invalid number of \
+                    <span class="kw">let</span> <span class="ident">sig</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">item_type</span>(<span class="ident">def_id</span>).<span class="ident">fn_sig</span>();
+                    <span class="kw">let</span> <span class="ident">sig</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">no_late_bound_regions</span>(<span class="kw-2">&amp;</span><span class="ident">sig</span>).<span class="ident">unwrap</span>();
+                    <span class="kw">if</span> <span class="ident">intr</span>.<span class="ident">inputs</span>.<span class="ident">len</span>() <span class="op">!=</span> <span class="ident">sig</span>.<span class="ident">inputs</span>().<span class="ident">len</span>() {
+                        <span class="macro">span_err</span><span class="macro">!</span>(<span class="ident">tcx</span>.<span class="ident">sess</span>, <span class="ident">it</span>.<span class="ident">span</span>, <span class="ident">E0444</span>,
+                                  <span class="string">&quot;platform-specific intrinsic has invalid number of \
                                    arguments: found {}, expected {}&quot;</span>,
-                                  <span class='ident'>sig</span>.<span class='ident'>inputs</span>().<span class='ident'>len</span>(), <span class='ident'>intr</span>.<span class='ident'>inputs</span>.<span class='ident'>len</span>());
-                        <span class='kw'>return</span>
+                                  <span class="ident">sig</span>.<span class="ident">inputs</span>().<span class="ident">len</span>(), <span class="ident">intr</span>.<span class="ident">inputs</span>.<span class="ident">len</span>());
+                        <span class="kw">return</span>
                     }
-                    <span class='kw'>let</span> <span class='ident'>input_pairs</span> <span class='op'>=</span> <span class='ident'>intr</span>.<span class='ident'>inputs</span>.<span class='ident'>iter</span>().<span class='ident'>zip</span>(<span class='ident'>sig</span>.<span class='ident'>inputs</span>());
-                    <span class='kw'>for</span> (<span class='ident'>i</span>, (<span class='ident'>expected_arg</span>, <span class='ident'>arg</span>)) <span class='kw'>in</span> <span class='ident'>input_pairs</span>.<span class='ident'>enumerate</span>() {
-                        <span class='ident'>match_intrinsic_type_to_type</span>(<span class='ident'>ccx</span>, <span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;argument {}&quot;</span>, <span class='ident'>i</span> <span class='op'>+</span> <span class='number'>1</span>), <span class='ident'>it</span>.<span class='ident'>span</span>,
-                                                     <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>structural_to_nomimal</span>, <span class='ident'>expected_arg</span>, <span class='ident'>arg</span>);
+                    <span class="kw">let</span> <span class="ident">input_pairs</span> <span class="op">=</span> <span class="ident">intr</span>.<span class="ident">inputs</span>.<span class="ident">iter</span>().<span class="ident">zip</span>(<span class="ident">sig</span>.<span class="ident">inputs</span>());
+                    <span class="kw">for</span> (<span class="ident">i</span>, (<span class="ident">expected_arg</span>, <span class="ident">arg</span>)) <span class="kw">in</span> <span class="ident">input_pairs</span>.<span class="ident">enumerate</span>() {
+                        <span class="ident">match_intrinsic_type_to_type</span>(<span class="ident">tcx</span>, <span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;argument {}&quot;</span>, <span class="ident">i</span> <span class="op">+</span> <span class="number">1</span>), <span class="ident">it</span>.<span class="ident">span</span>,
+                                                     <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">structural_to_nomimal</span>, <span class="ident">expected_arg</span>, <span class="ident">arg</span>);
                     }
-                    <span class='ident'>match_intrinsic_type_to_type</span>(<span class='ident'>ccx</span>, <span class='string'>&quot;return value&quot;</span>, <span class='ident'>it</span>.<span class='ident'>span</span>,
-                                                 <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>structural_to_nomimal</span>,
-                                                 <span class='kw-2'>&amp;</span><span class='ident'>intr</span>.<span class='ident'>output</span>, <span class='ident'>sig</span>.<span class='ident'>output</span>());
-                    <span class='kw'>return</span>
+                    <span class="ident">match_intrinsic_type_to_type</span>(<span class="ident">tcx</span>, <span class="string">&quot;return value&quot;</span>, <span class="ident">it</span>.<span class="ident">span</span>,
+                                                 <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">structural_to_nomimal</span>,
+                                                 <span class="kw-2">&amp;</span><span class="ident">intr</span>.<span class="ident">output</span>, <span class="ident">sig</span>.<span class="ident">output</span>());
+                    <span class="kw">return</span>
                 }
-                <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> {
-                    <span class='macro'>span_err</span><span class='macro'>!</span>(<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>it</span>.<span class='ident'>span</span>, <span class='ident'>E0441</span>,
-                              <span class='string'>&quot;unrecognized platform-specific intrinsic function: `{}`&quot;</span>, <span class='ident'>name</span>);
-                    <span class='kw'>return</span>;
+                <span class="prelude-val">None</span> <span class="op">=&gt;</span> {
+                    <span class="macro">span_err</span><span class="macro">!</span>(<span class="ident">tcx</span>.<span class="ident">sess</span>, <span class="ident">it</span>.<span class="ident">span</span>, <span class="ident">E0441</span>,
+                              <span class="string">&quot;unrecognized platform-specific intrinsic function: `{}`&quot;</span>, <span class="ident">name</span>);
+                    <span class="kw">return</span>;
                 }
             }
         }
     };
 
-    <span class='ident'>equate_intrinsic_type</span>(<span class='ident'>ccx</span>, <span class='ident'>it</span>, <span class='ident'>n_tps</span>, <span class='ident'>Abi</span>::<span class='ident'>PlatformIntrinsic</span>,
-                          <span class='ident'>inputs</span>, <span class='ident'>output</span>)
+    <span class="ident">equate_intrinsic_type</span>(<span class="ident">tcx</span>, <span class="ident">it</span>, <span class="ident">n_tps</span>, <span class="ident">Abi</span>::<span class="ident">PlatformIntrinsic</span>,
+                          <span class="ident">inputs</span>, <span class="ident">output</span>)
 }
 
-<span class='comment'>// walk the expected type and the actual type in lock step, checking they&#39;re</span>
-<span class='comment'>// the same, in a kinda-structural way, i.e. `Vector`s have to be simd structs with</span>
-<span class='comment'>// exactly the right element type</span>
-<span class='kw'>fn</span> <span class='ident'>match_intrinsic_type_to_type</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(
-        <span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-        <span class='ident'>position</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>,
-        <span class='ident'>span</span>: <span class='ident'>Span</span>,
-        <span class='ident'>structural_to_nominal</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>FxHashMap</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>intrinsics</span>::<span class='ident'>Type</span>, <span class='ident'>ty</span>::<span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
-        <span class='ident'>expected</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>intrinsics</span>::<span class='ident'>Type</span>, <span class='ident'>t</span>: <span class='ident'>ty</span>::<span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
+<span class="comment">// walk the expected type and the actual type in lock step, checking they&#39;re</span>
+<span class="comment">// the same, in a kinda-structural way, i.e. `Vector`s have to be simd structs with</span>
+<span class="comment">// exactly the right element type</span>
+<span class="kw">fn</span> <span class="ident">match_intrinsic_type_to_type</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(
+        <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+        <span class="ident">position</span>: <span class="kw-2">&amp;</span><span class="ident">str</span>,
+        <span class="ident">span</span>: <span class="ident">Span</span>,
+        <span class="ident">structural_to_nominal</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">FxHashMap</span><span class="op">&lt;</span><span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">intrinsics</span>::<span class="ident">Type</span>, <span class="ident">ty</span>::<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,
+        <span class="ident">expected</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">intrinsics</span>::<span class="ident">Type</span>, <span class="ident">t</span>: <span class="ident">ty</span>::<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
 {
-    <span class='kw'>use</span> <span class='ident'>intrinsics</span>::<span class='ident'>Type</span>::<span class='kw-2'>*</span>;
+    <span class="kw">use</span> <span class="ident">intrinsics</span>::<span class="ident">Type</span>::<span class="kw-2">*</span>;
 
-    <span class='kw'>let</span> <span class='ident'>simple_error</span> <span class='op'>=</span> <span class='op'>|</span><span class='ident'>real</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>, <span class='ident'>expected</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span><span class='op'>|</span> {
-        <span class='macro'>span_err</span><span class='macro'>!</span>(<span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>span</span>, <span class='ident'>E0442</span>,
-                  <span class='string'>&quot;intrinsic {} has wrong type: found {}, expected {}&quot;</span>,
-                  <span class='ident'>position</span>, <span class='ident'>real</span>, <span class='ident'>expected</span>)
+    <span class="kw">let</span> <span class="ident">simple_error</span> <span class="op">=</span> <span class="op">|</span><span class="ident">real</span>: <span class="kw-2">&amp;</span><span class="ident">str</span>, <span class="ident">expected</span>: <span class="kw-2">&amp;</span><span class="ident">str</span><span class="op">|</span> {
+        <span class="macro">span_err</span><span class="macro">!</span>(<span class="ident">tcx</span>.<span class="ident">sess</span>, <span class="ident">span</span>, <span class="ident">E0442</span>,
+                  <span class="string">&quot;intrinsic {} has wrong type: found {}, expected {}&quot;</span>,
+                  <span class="ident">position</span>, <span class="ident">real</span>, <span class="ident">expected</span>)
     };
 
-    <span class='kw'>match</span> <span class='kw-2'>*</span><span class='ident'>expected</span> {
-        <span class='ident'>Void</span> <span class='op'>=&gt;</span> <span class='kw'>match</span> <span class='ident'>t</span>.<span class='ident'>sty</span> {
-            <span class='ident'>ty</span>::<span class='ident'>TyTuple</span>(<span class='kw-2'>ref</span> <span class='ident'>v</span>, _) <span class='kw'>if</span> <span class='ident'>v</span>.<span class='ident'>is_empty</span>() <span class='op'>=&gt;</span> {},
-            _ <span class='op'>=&gt;</span> <span class='ident'>simple_error</span>(<span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;`{}`&quot;</span>, <span class='ident'>t</span>), <span class='string'>&quot;()&quot;</span>),
+    <span class="kw">match</span> <span class="kw-2">*</span><span class="ident">expected</span> {
+        <span class="ident">Void</span> <span class="op">=&gt;</span> <span class="kw">match</span> <span class="ident">t</span>.<span class="ident">sty</span> {
+            <span class="ident">ty</span>::<span class="ident">TyTuple</span>(<span class="kw-2">ref</span> <span class="ident">v</span>, _) <span class="kw">if</span> <span class="ident">v</span>.<span class="ident">is_empty</span>() <span class="op">=&gt;</span> {},
+            _ <span class="op">=&gt;</span> <span class="ident">simple_error</span>(<span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;`{}`&quot;</span>, <span class="ident">t</span>), <span class="string">&quot;()&quot;</span>),
         },
-        <span class='comment'>// (The width we pass to LLVM doesn&#39;t concern the type checker.)</span>
-        <span class='ident'>Integer</span>(<span class='ident'>signed</span>, <span class='ident'>bits</span>, <span class='ident'>_llvm_width</span>) <span class='op'>=&gt;</span> <span class='kw'>match</span> (<span class='ident'>signed</span>, <span class='ident'>bits</span>, <span class='kw-2'>&amp;</span><span class='ident'>t</span>.<span class='ident'>sty</span>) {
-            (<span class='bool-val'>true</span>,  <span class='number'>8</span>,  <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>TyInt</span>(<span class='ident'>ast</span>::<span class='ident'>IntTy</span>::<span class='ident'>I8</span>)) <span class='op'>|</span>
-            (<span class='bool-val'>false</span>, <span class='number'>8</span>,  <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>TyUint</span>(<span class='ident'>ast</span>::<span class='ident'>UintTy</span>::<span class='ident'>U8</span>)) <span class='op'>|</span>
-            (<span class='bool-val'>true</span>,  <span class='number'>16</span>, <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>TyInt</span>(<span class='ident'>ast</span>::<span class='ident'>IntTy</span>::<span class='ident'>I16</span>)) <span class='op'>|</span>
-            (<span class='bool-val'>false</span>, <span class='number'>16</span>, <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>TyUint</span>(<span class='ident'>ast</span>::<span class='ident'>UintTy</span>::<span class='ident'>U16</span>)) <span class='op'>|</span>
-            (<span class='bool-val'>true</span>,  <span class='number'>32</span>, <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>TyInt</span>(<span class='ident'>ast</span>::<span class='ident'>IntTy</span>::<span class='ident'>I32</span>)) <span class='op'>|</span>
-            (<span class='bool-val'>false</span>, <span class='number'>32</span>, <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>TyUint</span>(<span class='ident'>ast</span>::<span class='ident'>UintTy</span>::<span class='ident'>U32</span>)) <span class='op'>|</span>
-            (<span class='bool-val'>true</span>,  <span class='number'>64</span>, <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>TyInt</span>(<span class='ident'>ast</span>::<span class='ident'>IntTy</span>::<span class='ident'>I64</span>)) <span class='op'>|</span>
-            (<span class='bool-val'>false</span>, <span class='number'>64</span>, <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>TyUint</span>(<span class='ident'>ast</span>::<span class='ident'>UintTy</span>::<span class='ident'>U64</span>)) <span class='op'>|</span>
-            (<span class='bool-val'>true</span>,  <span class='number'>128</span>, <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>TyInt</span>(<span class='ident'>ast</span>::<span class='ident'>IntTy</span>::<span class='ident'>I128</span>)) <span class='op'>|</span>
-            (<span class='bool-val'>false</span>, <span class='number'>128</span>, <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>TyUint</span>(<span class='ident'>ast</span>::<span class='ident'>UintTy</span>::<span class='ident'>U128</span>)) <span class='op'>=&gt;</span> {},
-            _ <span class='op'>=&gt;</span> <span class='ident'>simple_error</span>(<span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;`{}`&quot;</span>, <span class='ident'>t</span>),
-                              <span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;`{}{n}`&quot;</span>,
-                                       <span class='kw'>if</span> <span class='ident'>signed</span> {<span class='string'>&quot;i&quot;</span>} <span class='kw'>else</span> {<span class='string'>&quot;u&quot;</span>},
-                                       <span class='ident'>n</span> <span class='op'>=</span> <span class='ident'>bits</span>)),
+        <span class="comment">// (The width we pass to LLVM doesn&#39;t concern the type checker.)</span>
+        <span class="ident">Integer</span>(<span class="ident">signed</span>, <span class="ident">bits</span>, <span class="ident">_llvm_width</span>) <span class="op">=&gt;</span> <span class="kw">match</span> (<span class="ident">signed</span>, <span class="ident">bits</span>, <span class="kw-2">&amp;</span><span class="ident">t</span>.<span class="ident">sty</span>) {
+            (<span class="bool-val">true</span>,  <span class="number">8</span>,  <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TyInt</span>(<span class="ident">ast</span>::<span class="ident">IntTy</span>::<span class="ident">I8</span>)) <span class="op">|</span>
+            (<span class="bool-val">false</span>, <span class="number">8</span>,  <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TyUint</span>(<span class="ident">ast</span>::<span class="ident">UintTy</span>::<span class="ident">U8</span>)) <span class="op">|</span>
+            (<span class="bool-val">true</span>,  <span class="number">16</span>, <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TyInt</span>(<span class="ident">ast</span>::<span class="ident">IntTy</span>::<span class="ident">I16</span>)) <span class="op">|</span>
+            (<span class="bool-val">false</span>, <span class="number">16</span>, <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TyUint</span>(<span class="ident">ast</span>::<span class="ident">UintTy</span>::<span class="ident">U16</span>)) <span class="op">|</span>
+            (<span class="bool-val">true</span>,  <span class="number">32</span>, <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TyInt</span>(<span class="ident">ast</span>::<span class="ident">IntTy</span>::<span class="ident">I32</span>)) <span class="op">|</span>
+            (<span class="bool-val">false</span>, <span class="number">32</span>, <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TyUint</span>(<span class="ident">ast</span>::<span class="ident">UintTy</span>::<span class="ident">U32</span>)) <span class="op">|</span>
+            (<span class="bool-val">true</span>,  <span class="number">64</span>, <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TyInt</span>(<span class="ident">ast</span>::<span class="ident">IntTy</span>::<span class="ident">I64</span>)) <span class="op">|</span>
+            (<span class="bool-val">false</span>, <span class="number">64</span>, <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TyUint</span>(<span class="ident">ast</span>::<span class="ident">UintTy</span>::<span class="ident">U64</span>)) <span class="op">|</span>
+            (<span class="bool-val">true</span>,  <span class="number">128</span>, <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TyInt</span>(<span class="ident">ast</span>::<span class="ident">IntTy</span>::<span class="ident">I128</span>)) <span class="op">|</span>
+            (<span class="bool-val">false</span>, <span class="number">128</span>, <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TyUint</span>(<span class="ident">ast</span>::<span class="ident">UintTy</span>::<span class="ident">U128</span>)) <span class="op">=&gt;</span> {},
+            _ <span class="op">=&gt;</span> <span class="ident">simple_error</span>(<span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;`{}`&quot;</span>, <span class="ident">t</span>),
+                              <span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;`{}{n}`&quot;</span>,
+                                       <span class="kw">if</span> <span class="ident">signed</span> {<span class="string">&quot;i&quot;</span>} <span class="kw">else</span> {<span class="string">&quot;u&quot;</span>},
+                                       <span class="ident">n</span> <span class="op">=</span> <span class="ident">bits</span>)),
         },
-        <span class='ident'>Float</span>(<span class='ident'>bits</span>) <span class='op'>=&gt;</span> <span class='kw'>match</span> (<span class='ident'>bits</span>, <span class='kw-2'>&amp;</span><span class='ident'>t</span>.<span class='ident'>sty</span>) {
-            (<span class='number'>32</span>, <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>TyFloat</span>(<span class='ident'>ast</span>::<span class='ident'>FloatTy</span>::<span class='ident'>F32</span>)) <span class='op'>|</span>
-            (<span class='number'>64</span>, <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>TyFloat</span>(<span class='ident'>ast</span>::<span class='ident'>FloatTy</span>::<span class='ident'>F64</span>)) <span class='op'>=&gt;</span> {},
-            _ <span class='op'>=&gt;</span> <span class='ident'>simple_error</span>(<span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;`{}`&quot;</span>, <span class='ident'>t</span>),
-                              <span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;`f{n}`&quot;</span>, <span class='ident'>n</span> <span class='op'>=</span> <span class='ident'>bits</span>)),
+        <span class="ident">Float</span>(<span class="ident">bits</span>) <span class="op">=&gt;</span> <span class="kw">match</span> (<span class="ident">bits</span>, <span class="kw-2">&amp;</span><span class="ident">t</span>.<span class="ident">sty</span>) {
+            (<span class="number">32</span>, <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TyFloat</span>(<span class="ident">ast</span>::<span class="ident">FloatTy</span>::<span class="ident">F32</span>)) <span class="op">|</span>
+            (<span class="number">64</span>, <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TyFloat</span>(<span class="ident">ast</span>::<span class="ident">FloatTy</span>::<span class="ident">F64</span>)) <span class="op">=&gt;</span> {},
+            _ <span class="op">=&gt;</span> <span class="ident">simple_error</span>(<span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;`{}`&quot;</span>, <span class="ident">t</span>),
+                              <span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;`f{n}`&quot;</span>, <span class="ident">n</span> <span class="op">=</span> <span class="ident">bits</span>)),
         },
-        <span class='ident'>Pointer</span>(<span class='kw-2'>ref</span> <span class='ident'>inner_expected</span>, <span class='kw-2'>ref</span> <span class='ident'>_llvm_type</span>, <span class='ident'>const_</span>) <span class='op'>=&gt;</span> {
-            <span class='kw'>match</span> <span class='ident'>t</span>.<span class='ident'>sty</span> {
-                <span class='ident'>ty</span>::<span class='ident'>TyRawPtr</span>(<span class='ident'>ty</span>::<span class='ident'>TypeAndMut</span> { <span class='ident'>ty</span>, <span class='ident'>mutbl</span> }) <span class='op'>=&gt;</span> {
-                    <span class='kw'>if</span> (<span class='ident'>mutbl</span> <span class='op'>==</span> <span class='ident'>hir</span>::<span class='ident'>MutImmutable</span>) <span class='op'>!=</span> <span class='ident'>const_</span> {
-                        <span class='ident'>simple_error</span>(<span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;`{}`&quot;</span>, <span class='ident'>t</span>),
-                                     <span class='kw'>if</span> <span class='ident'>const_</span> {<span class='string'>&quot;const pointer&quot;</span>} <span class='kw'>else</span> {<span class='string'>&quot;mut pointer&quot;</span>})
+        <span class="ident">Pointer</span>(<span class="kw-2">ref</span> <span class="ident">inner_expected</span>, <span class="kw-2">ref</span> <span class="ident">_llvm_type</span>, <span class="ident">const_</span>) <span class="op">=&gt;</span> {
+            <span class="kw">match</span> <span class="ident">t</span>.<span class="ident">sty</span> {
+                <span class="ident">ty</span>::<span class="ident">TyRawPtr</span>(<span class="ident">ty</span>::<span class="ident">TypeAndMut</span> { <span class="ident">ty</span>, <span class="ident">mutbl</span> }) <span class="op">=&gt;</span> {
+                    <span class="kw">if</span> (<span class="ident">mutbl</span> <span class="op">==</span> <span class="ident">hir</span>::<span class="ident">MutImmutable</span>) <span class="op">!=</span> <span class="ident">const_</span> {
+                        <span class="ident">simple_error</span>(<span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;`{}`&quot;</span>, <span class="ident">t</span>),
+                                     <span class="kw">if</span> <span class="ident">const_</span> {<span class="string">&quot;const pointer&quot;</span>} <span class="kw">else</span> {<span class="string">&quot;mut pointer&quot;</span>})
                     }
-                    <span class='ident'>match_intrinsic_type_to_type</span>(<span class='ident'>ccx</span>, <span class='ident'>position</span>, <span class='ident'>span</span>, <span class='ident'>structural_to_nominal</span>,
-                                                 <span class='ident'>inner_expected</span>, <span class='ident'>ty</span>)
+                    <span class="ident">match_intrinsic_type_to_type</span>(<span class="ident">tcx</span>, <span class="ident">position</span>, <span class="ident">span</span>, <span class="ident">structural_to_nominal</span>,
+                                                 <span class="ident">inner_expected</span>, <span class="ident">ty</span>)
                 }
-                _ <span class='op'>=&gt;</span> <span class='ident'>simple_error</span>(<span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;`{}`&quot;</span>, <span class='ident'>t</span>), <span class='string'>&quot;raw pointer&quot;</span>),
+                _ <span class="op">=&gt;</span> <span class="ident">simple_error</span>(<span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;`{}`&quot;</span>, <span class="ident">t</span>), <span class="string">&quot;raw pointer&quot;</span>),
             }
         }
-        <span class='ident'>Vector</span>(<span class='kw-2'>ref</span> <span class='ident'>inner_expected</span>, <span class='kw-2'>ref</span> <span class='ident'>_llvm_type</span>, <span class='ident'>len</span>) <span class='op'>=&gt;</span> {
-            <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>t</span>.<span class='ident'>is_simd</span>() {
-                <span class='ident'>simple_error</span>(<span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;non-simd type `{}`&quot;</span>, <span class='ident'>t</span>), <span class='string'>&quot;simd type&quot;</span>);
-                <span class='kw'>return</span>;
+        <span class="ident">Vector</span>(<span class="kw-2">ref</span> <span class="ident">inner_expected</span>, <span class="kw-2">ref</span> <span class="ident">_llvm_type</span>, <span class="ident">len</span>) <span class="op">=&gt;</span> {
+            <span class="kw">if</span> <span class="op">!</span><span class="ident">t</span>.<span class="ident">is_simd</span>() {
+                <span class="ident">simple_error</span>(<span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;non-simd type `{}`&quot;</span>, <span class="ident">t</span>), <span class="string">&quot;simd type&quot;</span>);
+                <span class="kw">return</span>;
             }
-            <span class='kw'>let</span> <span class='ident'>t_len</span> <span class='op'>=</span> <span class='ident'>t</span>.<span class='ident'>simd_size</span>(<span class='ident'>ccx</span>.<span class='ident'>tcx</span>);
-            <span class='kw'>if</span> <span class='ident'>len</span> <span class='kw'>as</span> <span class='ident'>usize</span> <span class='op'>!=</span> <span class='ident'>t_len</span> {
-                <span class='ident'>simple_error</span>(<span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;vector with length {}&quot;</span>, <span class='ident'>t_len</span>),
-                             <span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;length {}&quot;</span>, <span class='ident'>len</span>));
-                <span class='kw'>return</span>;
+            <span class="kw">let</span> <span class="ident">t_len</span> <span class="op">=</span> <span class="ident">t</span>.<span class="ident">simd_size</span>(<span class="ident">tcx</span>);
+            <span class="kw">if</span> <span class="ident">len</span> <span class="kw">as</span> <span class="ident">usize</span> <span class="op">!=</span> <span class="ident">t_len</span> {
+                <span class="ident">simple_error</span>(<span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;vector with length {}&quot;</span>, <span class="ident">t_len</span>),
+                             <span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;length {}&quot;</span>, <span class="ident">len</span>));
+                <span class="kw">return</span>;
             }
-            <span class='kw'>let</span> <span class='ident'>t_ty</span> <span class='op'>=</span> <span class='ident'>t</span>.<span class='ident'>simd_type</span>(<span class='ident'>ccx</span>.<span class='ident'>tcx</span>);
+            <span class="kw">let</span> <span class="ident">t_ty</span> <span class="op">=</span> <span class="ident">t</span>.<span class="ident">simd_type</span>(<span class="ident">tcx</span>);
             {
-                <span class='comment'>// check that a given structural type always has the same an intrinsic definition</span>
-                <span class='kw'>let</span> <span class='ident'>previous</span> <span class='op'>=</span> <span class='ident'>structural_to_nominal</span>.<span class='ident'>entry</span>(<span class='ident'>expected</span>).<span class='ident'>or_insert</span>(<span class='ident'>t</span>);
-                <span class='kw'>if</span> <span class='kw-2'>*</span><span class='ident'>previous</span> <span class='op'>!=</span> <span class='ident'>t</span> {
-                    <span class='comment'>// this gets its own error code because it is non-trivial</span>
-                    <span class='macro'>span_err</span><span class='macro'>!</span>(<span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>span</span>, <span class='ident'>E0443</span>,
-                              <span class='string'>&quot;intrinsic {} has wrong type: found `{}`, expected `{}` which \
+                <span class="comment">// check that a given structural type always has the same an intrinsic definition</span>
+                <span class="kw">let</span> <span class="ident">previous</span> <span class="op">=</span> <span class="ident">structural_to_nominal</span>.<span class="ident">entry</span>(<span class="ident">expected</span>).<span class="ident">or_insert</span>(<span class="ident">t</span>);
+                <span class="kw">if</span> <span class="kw-2">*</span><span class="ident">previous</span> <span class="op">!=</span> <span class="ident">t</span> {
+                    <span class="comment">// this gets its own error code because it is non-trivial</span>
+                    <span class="macro">span_err</span><span class="macro">!</span>(<span class="ident">tcx</span>.<span class="ident">sess</span>, <span class="ident">span</span>, <span class="ident">E0443</span>,
+                              <span class="string">&quot;intrinsic {} has wrong type: found `{}`, expected `{}` which \
                                was used for this vector type previously in this signature&quot;</span>,
-                              <span class='ident'>position</span>,
-                              <span class='ident'>t</span>,
-                              <span class='kw-2'>*</span><span class='ident'>previous</span>);
-                    <span class='kw'>return</span>;
+                              <span class="ident">position</span>,
+                              <span class="ident">t</span>,
+                              <span class="kw-2">*</span><span class="ident">previous</span>);
+                    <span class="kw">return</span>;
                 }
             }
-            <span class='ident'>match_intrinsic_type_to_type</span>(<span class='ident'>ccx</span>,
-                                         <span class='ident'>position</span>,
-                                         <span class='ident'>span</span>,
-                                         <span class='ident'>structural_to_nominal</span>,
-                                         <span class='ident'>inner_expected</span>,
-                                         <span class='ident'>t_ty</span>)
+            <span class="ident">match_intrinsic_type_to_type</span>(<span class="ident">tcx</span>,
+                                         <span class="ident">position</span>,
+                                         <span class="ident">span</span>,
+                                         <span class="ident">structural_to_nominal</span>,
+                                         <span class="ident">inner_expected</span>,
+                                         <span class="ident">t_ty</span>)
         }
-        <span class='ident'>Aggregate</span>(<span class='ident'>_flatten</span>, <span class='kw-2'>ref</span> <span class='ident'>expected_contents</span>) <span class='op'>=&gt;</span> {
-            <span class='kw'>match</span> <span class='ident'>t</span>.<span class='ident'>sty</span> {
-                <span class='ident'>ty</span>::<span class='ident'>TyTuple</span>(<span class='ident'>contents</span>, _) <span class='op'>=&gt;</span> {
-                    <span class='kw'>if</span> <span class='ident'>contents</span>.<span class='ident'>len</span>() <span class='op'>!=</span> <span class='ident'>expected_contents</span>.<span class='ident'>len</span>() {
-                        <span class='ident'>simple_error</span>(<span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;tuple with length {}&quot;</span>, <span class='ident'>contents</span>.<span class='ident'>len</span>()),
-                                     <span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;tuple with length {}&quot;</span>, <span class='ident'>expected_contents</span>.<span class='ident'>len</span>()));
-                        <span class='kw'>return</span>
+        <span class="ident">Aggregate</span>(<span class="ident">_flatten</span>, <span class="kw-2">ref</span> <span class="ident">expected_contents</span>) <span class="op">=&gt;</span> {
+            <span class="kw">match</span> <span class="ident">t</span>.<span class="ident">sty</span> {
+                <span class="ident">ty</span>::<span class="ident">TyTuple</span>(<span class="ident">contents</span>, _) <span class="op">=&gt;</span> {
+                    <span class="kw">if</span> <span class="ident">contents</span>.<span class="ident">len</span>() <span class="op">!=</span> <span class="ident">expected_contents</span>.<span class="ident">len</span>() {
+                        <span class="ident">simple_error</span>(<span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;tuple with length {}&quot;</span>, <span class="ident">contents</span>.<span class="ident">len</span>()),
+                                     <span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;tuple with length {}&quot;</span>, <span class="ident">expected_contents</span>.<span class="ident">len</span>()));
+                        <span class="kw">return</span>
                     }
-                    <span class='kw'>for</span> (<span class='ident'>e</span>, <span class='ident'>c</span>) <span class='kw'>in</span> <span class='ident'>expected_contents</span>.<span class='ident'>iter</span>().<span class='ident'>zip</span>(<span class='ident'>contents</span>) {
-                        <span class='ident'>match_intrinsic_type_to_type</span>(<span class='ident'>ccx</span>, <span class='ident'>position</span>, <span class='ident'>span</span>, <span class='ident'>structural_to_nominal</span>,
-                                                     <span class='ident'>e</span>, <span class='ident'>c</span>)
+                    <span class="kw">for</span> (<span class="ident">e</span>, <span class="ident">c</span>) <span class="kw">in</span> <span class="ident">expected_contents</span>.<span class="ident">iter</span>().<span class="ident">zip</span>(<span class="ident">contents</span>) {
+                        <span class="ident">match_intrinsic_type_to_type</span>(<span class="ident">tcx</span>, <span class="ident">position</span>, <span class="ident">span</span>, <span class="ident">structural_to_nominal</span>,
+                                                     <span class="ident">e</span>, <span class="ident">c</span>)
                     }
                 }
-                _ <span class='op'>=&gt;</span> <span class='ident'>simple_error</span>(<span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;`{}`&quot;</span>, <span class='ident'>t</span>),
-                                  <span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;tuple&quot;</span>)),
+                _ <span class="op">=&gt;</span> <span class="ident">simple_error</span>(<span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;`{}`&quot;</span>, <span class="ident">t</span>),
+                                  <span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;tuple&quot;</span>)),
             }
         }
     }

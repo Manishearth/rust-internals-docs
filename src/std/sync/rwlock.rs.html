@@ -709,670 +709,670 @@
 <span id="664">664</span>
 <span id="665">665</span>
 <span id="666">666</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='kw'>use</span> <span class='ident'>cell</span>::<span class='ident'>UnsafeCell</span>;
-<span class='kw'>use</span> <span class='ident'>fmt</span>;
-<span class='kw'>use</span> <span class='ident'>marker</span>;
-<span class='kw'>use</span> <span class='ident'>mem</span>;
-<span class='kw'>use</span> <span class='ident'>ops</span>::{<span class='ident'>Deref</span>, <span class='ident'>DerefMut</span>};
-<span class='kw'>use</span> <span class='ident'>ptr</span>;
-<span class='kw'>use</span> <span class='ident'>sys_common</span>::<span class='ident'>poison</span>::{<span class='self'>self</span>, <span class='ident'>LockResult</span>, <span class='ident'>TryLockError</span>, <span class='ident'>TryLockResult</span>};
-<span class='kw'>use</span> <span class='ident'>sys_common</span>::<span class='ident'>rwlock</span> <span class='kw'>as</span> <span class='ident'>sys</span>;
+<span class="kw">use</span> <span class="ident">cell</span>::<span class="ident">UnsafeCell</span>;
+<span class="kw">use</span> <span class="ident">fmt</span>;
+<span class="kw">use</span> <span class="ident">marker</span>;
+<span class="kw">use</span> <span class="ident">mem</span>;
+<span class="kw">use</span> <span class="ident">ops</span>::{<span class="ident">Deref</span>, <span class="ident">DerefMut</span>};
+<span class="kw">use</span> <span class="ident">ptr</span>;
+<span class="kw">use</span> <span class="ident">sys_common</span>::<span class="ident">poison</span>::{<span class="self">self</span>, <span class="ident">LockResult</span>, <span class="ident">TryLockError</span>, <span class="ident">TryLockResult</span>};
+<span class="kw">use</span> <span class="ident">sys_common</span>::<span class="ident">rwlock</span> <span class="kw">as</span> <span class="ident">sys</span>;
 
-<span class='doccomment'>/// A reader-writer lock</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This type of lock allows a number of readers or at most one writer at any</span>
-<span class='doccomment'>/// point in time. The write portion of this lock typically allows modification</span>
-<span class='doccomment'>/// of the underlying data (exclusive access) and the read portion of this lock</span>
-<span class='doccomment'>/// typically allows for read-only access (shared access).</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// The priority policy of the lock is dependent on the underlying operating</span>
-<span class='doccomment'>/// system&#39;s implementation, and this type does not guarantee that any</span>
-<span class='doccomment'>/// particular policy will be used.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// The type parameter `T` represents the data that this lock protects. It is</span>
-<span class='doccomment'>/// required that `T` satisfies `Send` to be shared across threads and `Sync` to</span>
-<span class='doccomment'>/// allow concurrent access through readers. The RAII guards returned from the</span>
-<span class='doccomment'>/// locking methods implement `Deref` (and `DerefMut` for the `write` methods)</span>
-<span class='doccomment'>/// to allow access to the contained of the lock.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Poisoning</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// An `RwLock`, like `Mutex`, will become poisoned on a panic. Note, however,</span>
-<span class='doccomment'>/// that an `RwLock` may only be poisoned if a panic occurs while it is locked</span>
-<span class='doccomment'>/// exclusively (write mode). If a panic occurs in any reader, then the lock</span>
-<span class='doccomment'>/// will not be poisoned.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Examples</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// use std::sync::RwLock;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// let lock = RwLock::new(5);</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// // many reader locks can be held at once</span>
-<span class='doccomment'>/// {</span>
-<span class='doccomment'>///     let r1 = lock.read().unwrap();</span>
-<span class='doccomment'>///     let r2 = lock.read().unwrap();</span>
-<span class='doccomment'>///     assert_eq!(*r1, 5);</span>
-<span class='doccomment'>///     assert_eq!(*r2, 5);</span>
-<span class='doccomment'>/// } // read locks are dropped at this point</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// // only one write lock may be held, however</span>
-<span class='doccomment'>/// {</span>
-<span class='doccomment'>///     let mut w = lock.write().unwrap();</span>
-<span class='doccomment'>///     *w += 1;</span>
-<span class='doccomment'>///     assert_eq!(*w, 6);</span>
-<span class='doccomment'>/// } // write lock is dropped here</span>
-<span class='doccomment'>/// ```</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>RwLock</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> {
-    <span class='ident'>inner</span>: <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>sys</span>::<span class='ident'>RWLock</span><span class='op'>&gt;</span>,
-    <span class='ident'>poison</span>: <span class='ident'>poison</span>::<span class='ident'>Flag</span>,
-    <span class='ident'>data</span>: <span class='ident'>UnsafeCell</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>,
+<span class="doccomment">/// A reader-writer lock</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This type of lock allows a number of readers or at most one writer at any</span>
+<span class="doccomment">/// point in time. The write portion of this lock typically allows modification</span>
+<span class="doccomment">/// of the underlying data (exclusive access) and the read portion of this lock</span>
+<span class="doccomment">/// typically allows for read-only access (shared access).</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// The priority policy of the lock is dependent on the underlying operating</span>
+<span class="doccomment">/// system&#39;s implementation, and this type does not guarantee that any</span>
+<span class="doccomment">/// particular policy will be used.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// The type parameter `T` represents the data that this lock protects. It is</span>
+<span class="doccomment">/// required that `T` satisfies `Send` to be shared across threads and `Sync` to</span>
+<span class="doccomment">/// allow concurrent access through readers. The RAII guards returned from the</span>
+<span class="doccomment">/// locking methods implement `Deref` (and `DerefMut` for the `write` methods)</span>
+<span class="doccomment">/// to allow access to the contained of the lock.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Poisoning</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// An `RwLock`, like `Mutex`, will become poisoned on a panic. Note, however,</span>
+<span class="doccomment">/// that an `RwLock` may only be poisoned if a panic occurs while it is locked</span>
+<span class="doccomment">/// exclusively (write mode). If a panic occurs in any reader, then the lock</span>
+<span class="doccomment">/// will not be poisoned.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// use std::sync::RwLock;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// let lock = RwLock::new(5);</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// // many reader locks can be held at once</span>
+<span class="doccomment">/// {</span>
+<span class="doccomment">///     let r1 = lock.read().unwrap();</span>
+<span class="doccomment">///     let r2 = lock.read().unwrap();</span>
+<span class="doccomment">///     assert_eq!(*r1, 5);</span>
+<span class="doccomment">///     assert_eq!(*r2, 5);</span>
+<span class="doccomment">/// } // read locks are dropped at this point</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// // only one write lock may be held, however</span>
+<span class="doccomment">/// {</span>
+<span class="doccomment">///     let mut w = lock.write().unwrap();</span>
+<span class="doccomment">///     *w += 1;</span>
+<span class="doccomment">///     assert_eq!(*w, 6);</span>
+<span class="doccomment">/// } // write lock is dropped here</span>
+<span class="doccomment">/// ```</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">RwLock</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> {
+    <span class="ident">inner</span>: <span class="ident">Box</span><span class="op">&lt;</span><span class="ident">sys</span>::<span class="ident">RWLock</span><span class="op">&gt;</span>,
+    <span class="ident">poison</span>: <span class="ident">poison</span>::<span class="ident">Flag</span>,
+    <span class="ident">data</span>: <span class="ident">UnsafeCell</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>,
 }
 
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>unsafe</span> <span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span> <span class='op'>+</span> <span class='ident'>Send</span> <span class='op'>+</span> <span class='ident'>Sync</span><span class='op'>&gt;</span> <span class='ident'>Send</span> <span class='kw'>for</span> <span class='ident'>RwLock</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {}
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>unsafe</span> <span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span> <span class='op'>+</span> <span class='ident'>Send</span> <span class='op'>+</span> <span class='ident'>Sync</span><span class='op'>&gt;</span> <span class='ident'>Sync</span> <span class='kw'>for</span> <span class='ident'>RwLock</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {}
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">unsafe</span> <span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span> <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="ident">Sync</span><span class="op">&gt;</span> <span class="ident">Send</span> <span class="kw">for</span> <span class="ident">RwLock</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {}
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">unsafe</span> <span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span> <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="ident">Sync</span><span class="op">&gt;</span> <span class="ident">Sync</span> <span class="kw">for</span> <span class="ident">RwLock</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {}
 
-<span class='doccomment'>/// RAII structure used to release the shared read access of a lock when</span>
-<span class='doccomment'>/// dropped.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This structure is created by the [`read()`] and [`try_read()`] methods on</span>
-<span class='doccomment'>/// [`RwLock`].</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// [`read()`]: struct.RwLock.html#method.read</span>
-<span class='doccomment'>/// [`try_read()`]: struct.RwLock.html#method.try_read</span>
-<span class='doccomment'>/// [`RwLock`]: struct.RwLock.html</span>
-<span class='attribute'>#[<span class='ident'>must_use</span>]</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>RwLockReadGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span> <span class='op'>+</span> <span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-    <span class='ident'>__lock</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>RwLock</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>,
+<span class="doccomment">/// RAII structure used to release the shared read access of a lock when</span>
+<span class="doccomment">/// dropped.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This structure is created by the [`read`] and [`try_read`] methods on</span>
+<span class="doccomment">/// [`RwLock`].</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [`read`]: struct.RwLock.html#method.read</span>
+<span class="doccomment">/// [`try_read`]: struct.RwLock.html#method.try_read</span>
+<span class="doccomment">/// [`RwLock`]: struct.RwLock.html</span>
+<span class="attribute">#[<span class="ident">must_use</span>]</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">RwLockReadGuard</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span> <span class="op">+</span> <span class="lifetime">&#39;a</span><span class="op">&gt;</span> {
+    <span class="ident">__lock</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">RwLock</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>,
 }
 
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='op'>!</span><span class='ident'>marker</span>::<span class='ident'>Send</span> <span class='kw'>for</span> <span class='ident'>RwLockReadGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>T</span><span class='op'>&gt;</span> {}
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="op">!</span><span class="ident">marker</span>::<span class="ident">Send</span> <span class="kw">for</span> <span class="ident">RwLockReadGuard</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">T</span><span class="op">&gt;</span> {}
 
-<span class='doccomment'>/// RAII structure used to release the exclusive write access of a lock when</span>
-<span class='doccomment'>/// dropped.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This structure is created by the [`write()`] and [`try_write()`] methods</span>
-<span class='doccomment'>/// on [`RwLock`].</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// [`write()`]: struct.RwLock.html#method.write</span>
-<span class='doccomment'>/// [`try_write()`]: struct.RwLock.html#method.try_write</span>
-<span class='doccomment'>/// [`RwLock`]: struct.RwLock.html</span>
-<span class='attribute'>#[<span class='ident'>must_use</span>]</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>RwLockWriteGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span> <span class='op'>+</span> <span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-    <span class='ident'>__lock</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>RwLock</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>,
-    <span class='ident'>__poison</span>: <span class='ident'>poison</span>::<span class='ident'>Guard</span>,
+<span class="doccomment">/// RAII structure used to release the exclusive write access of a lock when</span>
+<span class="doccomment">/// dropped.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This structure is created by the [`write`] and [`try_write`] methods</span>
+<span class="doccomment">/// on [`RwLock`].</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [`write`]: struct.RwLock.html#method.write</span>
+<span class="doccomment">/// [`try_write`]: struct.RwLock.html#method.try_write</span>
+<span class="doccomment">/// [`RwLock`]: struct.RwLock.html</span>
+<span class="attribute">#[<span class="ident">must_use</span>]</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">RwLockWriteGuard</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span> <span class="op">+</span> <span class="lifetime">&#39;a</span><span class="op">&gt;</span> {
+    <span class="ident">__lock</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">RwLock</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>,
+    <span class="ident">__poison</span>: <span class="ident">poison</span>::<span class="ident">Guard</span>,
 }
 
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='op'>!</span><span class='ident'>marker</span>::<span class='ident'>Send</span> <span class='kw'>for</span> <span class='ident'>RwLockWriteGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>T</span><span class='op'>&gt;</span> {}
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="op">!</span><span class="ident">marker</span>::<span class="ident">Send</span> <span class="kw">for</span> <span class="ident">RwLockWriteGuard</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">T</span><span class="op">&gt;</span> {}
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>RwLock</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='doccomment'>/// Creates a new instance of an `RwLock&lt;T&gt;` which is unlocked.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// # Examples</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// ```</span>
-    <span class='doccomment'>/// use std::sync::RwLock;</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// let lock = RwLock::new(5);</span>
-    <span class='doccomment'>/// ```</span>
-    <span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>t</span>: <span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='ident'>RwLock</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-        <span class='ident'>RwLock</span> {
-            <span class='ident'>inner</span>: <span class='kw'>box</span> <span class='ident'>sys</span>::<span class='ident'>RWLock</span>::<span class='ident'>new</span>(),
-            <span class='ident'>poison</span>: <span class='ident'>poison</span>::<span class='ident'>Flag</span>::<span class='ident'>new</span>(),
-            <span class='ident'>data</span>: <span class='ident'>UnsafeCell</span>::<span class='ident'>new</span>(<span class='ident'>t</span>),
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">RwLock</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// Creates a new instance of an `RwLock&lt;T&gt;` which is unlocked.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// # Examples</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// ```</span>
+    <span class="doccomment">/// use std::sync::RwLock;</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// let lock = RwLock::new(5);</span>
+    <span class="doccomment">/// ```</span>
+    <span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">new</span>(<span class="ident">t</span>: <span class="ident">T</span>) <span class="op">-&gt;</span> <span class="ident">RwLock</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+        <span class="ident">RwLock</span> {
+            <span class="ident">inner</span>: <span class="kw">box</span> <span class="ident">sys</span>::<span class="ident">RWLock</span>::<span class="ident">new</span>(),
+            <span class="ident">poison</span>: <span class="ident">poison</span>::<span class="ident">Flag</span>::<span class="ident">new</span>(),
+            <span class="ident">data</span>: <span class="ident">UnsafeCell</span>::<span class="ident">new</span>(<span class="ident">t</span>),
         }
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>RwLock</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='doccomment'>/// Locks this rwlock with shared read access, blocking the current thread</span>
-    <span class='doccomment'>/// until it can be acquired.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// The calling thread will be blocked until there are no more writers which</span>
-    <span class='doccomment'>/// hold the lock. There may be other readers currently inside the lock when</span>
-    <span class='doccomment'>/// this method returns. This method does not provide any guarantees with</span>
-    <span class='doccomment'>/// respect to the ordering of whether contentious readers or writers will</span>
-    <span class='doccomment'>/// acquire the lock first.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// Returns an RAII guard which will release this thread&#39;s shared access</span>
-    <span class='doccomment'>/// once it is dropped.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// # Errors</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// This function will return an error if the RwLock is poisoned. An RwLock</span>
-    <span class='doccomment'>/// is poisoned whenever a writer panics while holding an exclusive lock.</span>
-    <span class='doccomment'>/// The failure will occur immediately after the lock has been acquired.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// # Panics</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// This function might panic when called if the lock is already held by the current thread.</span>
-    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>read</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>LockResult</span><span class='op'>&lt;</span><span class='ident'>RwLockReadGuard</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span> {
-        <span class='kw'>unsafe</span> {
-            <span class='self'>self</span>.<span class='ident'>inner</span>.<span class='ident'>read</span>();
-            <span class='ident'>RwLockReadGuard</span>::<span class='ident'>new</span>(<span class='self'>self</span>)
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="ident">RwLock</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// Locks this rwlock with shared read access, blocking the current thread</span>
+    <span class="doccomment">/// until it can be acquired.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// The calling thread will be blocked until there are no more writers which</span>
+    <span class="doccomment">/// hold the lock. There may be other readers currently inside the lock when</span>
+    <span class="doccomment">/// this method returns. This method does not provide any guarantees with</span>
+    <span class="doccomment">/// respect to the ordering of whether contentious readers or writers will</span>
+    <span class="doccomment">/// acquire the lock first.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Returns an RAII guard which will release this thread&#39;s shared access</span>
+    <span class="doccomment">/// once it is dropped.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// # Errors</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This function will return an error if the RwLock is poisoned. An RwLock</span>
+    <span class="doccomment">/// is poisoned whenever a writer panics while holding an exclusive lock.</span>
+    <span class="doccomment">/// The failure will occur immediately after the lock has been acquired.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// # Panics</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This function might panic when called if the lock is already held by the current thread.</span>
+    <span class="attribute">#[<span class="ident">inline</span>]</span>
+    <span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">read</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">LockResult</span><span class="op">&lt;</span><span class="ident">RwLockReadGuard</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span> {
+        <span class="kw">unsafe</span> {
+            <span class="self">self</span>.<span class="ident">inner</span>.<span class="ident">read</span>();
+            <span class="ident">RwLockReadGuard</span>::<span class="ident">new</span>(<span class="self">self</span>)
         }
     }
 
-    <span class='doccomment'>/// Attempts to acquire this rwlock with shared read access.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// If the access could not be granted at this time, then `Err` is returned.</span>
-    <span class='doccomment'>/// Otherwise, an RAII guard is returned which will release the shared access</span>
-    <span class='doccomment'>/// when it is dropped.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// This function does not block.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// This function does not provide any guarantees with respect to the ordering</span>
-    <span class='doccomment'>/// of whether contentious readers or writers will acquire the lock first.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// # Errors</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// This function will return an error if the RwLock is poisoned. An RwLock</span>
-    <span class='doccomment'>/// is poisoned whenever a writer panics while holding an exclusive lock. An</span>
-    <span class='doccomment'>/// error will only be returned if the lock would have otherwise been</span>
-    <span class='doccomment'>/// acquired.</span>
-    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>try_read</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>TryLockResult</span><span class='op'>&lt;</span><span class='ident'>RwLockReadGuard</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span> {
-        <span class='kw'>unsafe</span> {
-            <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>inner</span>.<span class='ident'>try_read</span>() {
-                <span class='prelude-val'>Ok</span>(<span class='ident'>RwLockReadGuard</span>::<span class='ident'>new</span>(<span class='self'>self</span>)<span class='question-mark'>?</span>)
-            } <span class='kw'>else</span> {
-                <span class='prelude-val'>Err</span>(<span class='ident'>TryLockError</span>::<span class='ident'>WouldBlock</span>)
+    <span class="doccomment">/// Attempts to acquire this rwlock with shared read access.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// If the access could not be granted at this time, then `Err` is returned.</span>
+    <span class="doccomment">/// Otherwise, an RAII guard is returned which will release the shared access</span>
+    <span class="doccomment">/// when it is dropped.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This function does not block.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This function does not provide any guarantees with respect to the ordering</span>
+    <span class="doccomment">/// of whether contentious readers or writers will acquire the lock first.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// # Errors</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This function will return an error if the RwLock is poisoned. An RwLock</span>
+    <span class="doccomment">/// is poisoned whenever a writer panics while holding an exclusive lock. An</span>
+    <span class="doccomment">/// error will only be returned if the lock would have otherwise been</span>
+    <span class="doccomment">/// acquired.</span>
+    <span class="attribute">#[<span class="ident">inline</span>]</span>
+    <span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">try_read</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">TryLockResult</span><span class="op">&lt;</span><span class="ident">RwLockReadGuard</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span> {
+        <span class="kw">unsafe</span> {
+            <span class="kw">if</span> <span class="self">self</span>.<span class="ident">inner</span>.<span class="ident">try_read</span>() {
+                <span class="prelude-val">Ok</span>(<span class="ident">RwLockReadGuard</span>::<span class="ident">new</span>(<span class="self">self</span>)<span class="question-mark">?</span>)
+            } <span class="kw">else</span> {
+                <span class="prelude-val">Err</span>(<span class="ident">TryLockError</span>::<span class="ident">WouldBlock</span>)
             }
         }
     }
 
-    <span class='doccomment'>/// Locks this rwlock with exclusive write access, blocking the current</span>
-    <span class='doccomment'>/// thread until it can be acquired.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// This function will not return while other writers or other readers</span>
-    <span class='doccomment'>/// currently have access to the lock.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// Returns an RAII guard which will drop the write access of this rwlock</span>
-    <span class='doccomment'>/// when dropped.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// # Errors</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// This function will return an error if the RwLock is poisoned. An RwLock</span>
-    <span class='doccomment'>/// is poisoned whenever a writer panics while holding an exclusive lock.</span>
-    <span class='doccomment'>/// An error will be returned when the lock is acquired.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// # Panics</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// This function might panic when called if the lock is already held by the current thread.</span>
-    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>write</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>LockResult</span><span class='op'>&lt;</span><span class='ident'>RwLockWriteGuard</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span> {
-        <span class='kw'>unsafe</span> {
-            <span class='self'>self</span>.<span class='ident'>inner</span>.<span class='ident'>write</span>();
-            <span class='ident'>RwLockWriteGuard</span>::<span class='ident'>new</span>(<span class='self'>self</span>)
+    <span class="doccomment">/// Locks this rwlock with exclusive write access, blocking the current</span>
+    <span class="doccomment">/// thread until it can be acquired.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This function will not return while other writers or other readers</span>
+    <span class="doccomment">/// currently have access to the lock.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Returns an RAII guard which will drop the write access of this rwlock</span>
+    <span class="doccomment">/// when dropped.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// # Errors</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This function will return an error if the RwLock is poisoned. An RwLock</span>
+    <span class="doccomment">/// is poisoned whenever a writer panics while holding an exclusive lock.</span>
+    <span class="doccomment">/// An error will be returned when the lock is acquired.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// # Panics</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This function might panic when called if the lock is already held by the current thread.</span>
+    <span class="attribute">#[<span class="ident">inline</span>]</span>
+    <span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">write</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">LockResult</span><span class="op">&lt;</span><span class="ident">RwLockWriteGuard</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span> {
+        <span class="kw">unsafe</span> {
+            <span class="self">self</span>.<span class="ident">inner</span>.<span class="ident">write</span>();
+            <span class="ident">RwLockWriteGuard</span>::<span class="ident">new</span>(<span class="self">self</span>)
         }
     }
 
-    <span class='doccomment'>/// Attempts to lock this rwlock with exclusive write access.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// If the lock could not be acquired at this time, then `Err` is returned.</span>
-    <span class='doccomment'>/// Otherwise, an RAII guard is returned which will release the lock when</span>
-    <span class='doccomment'>/// it is dropped.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// This function does not block.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// This function does not provide any guarantees with respect to the ordering</span>
-    <span class='doccomment'>/// of whether contentious readers or writers will acquire the lock first.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// # Errors</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// This function will return an error if the RwLock is poisoned. An RwLock</span>
-    <span class='doccomment'>/// is poisoned whenever a writer panics while holding an exclusive lock. An</span>
-    <span class='doccomment'>/// error will only be returned if the lock would have otherwise been</span>
-    <span class='doccomment'>/// acquired.</span>
-    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>try_write</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>TryLockResult</span><span class='op'>&lt;</span><span class='ident'>RwLockWriteGuard</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span> {
-        <span class='kw'>unsafe</span> {
-            <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>inner</span>.<span class='ident'>try_write</span>() {
-                <span class='prelude-val'>Ok</span>(<span class='ident'>RwLockWriteGuard</span>::<span class='ident'>new</span>(<span class='self'>self</span>)<span class='question-mark'>?</span>)
-            } <span class='kw'>else</span> {
-                <span class='prelude-val'>Err</span>(<span class='ident'>TryLockError</span>::<span class='ident'>WouldBlock</span>)
+    <span class="doccomment">/// Attempts to lock this rwlock with exclusive write access.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// If the lock could not be acquired at this time, then `Err` is returned.</span>
+    <span class="doccomment">/// Otherwise, an RAII guard is returned which will release the lock when</span>
+    <span class="doccomment">/// it is dropped.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This function does not block.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This function does not provide any guarantees with respect to the ordering</span>
+    <span class="doccomment">/// of whether contentious readers or writers will acquire the lock first.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// # Errors</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This function will return an error if the RwLock is poisoned. An RwLock</span>
+    <span class="doccomment">/// is poisoned whenever a writer panics while holding an exclusive lock. An</span>
+    <span class="doccomment">/// error will only be returned if the lock would have otherwise been</span>
+    <span class="doccomment">/// acquired.</span>
+    <span class="attribute">#[<span class="ident">inline</span>]</span>
+    <span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">try_write</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">TryLockResult</span><span class="op">&lt;</span><span class="ident">RwLockWriteGuard</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span> {
+        <span class="kw">unsafe</span> {
+            <span class="kw">if</span> <span class="self">self</span>.<span class="ident">inner</span>.<span class="ident">try_write</span>() {
+                <span class="prelude-val">Ok</span>(<span class="ident">RwLockWriteGuard</span>::<span class="ident">new</span>(<span class="self">self</span>)<span class="question-mark">?</span>)
+            } <span class="kw">else</span> {
+                <span class="prelude-val">Err</span>(<span class="ident">TryLockError</span>::<span class="ident">WouldBlock</span>)
             }
         }
     }
 
-    <span class='doccomment'>/// Determines whether the lock is poisoned.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// If another thread is active, the lock can still become poisoned at any</span>
-    <span class='doccomment'>/// time.  You should not trust a `false` value for program correctness</span>
-    <span class='doccomment'>/// without additional synchronization.</span>
-    <span class='attribute'>#[<span class='ident'>inline</span>]</span>
-    <span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;sync_poison&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.2.0&quot;</span>)]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>is_poisoned</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-        <span class='self'>self</span>.<span class='ident'>poison</span>.<span class='ident'>get</span>()
+    <span class="doccomment">/// Determines whether the lock is poisoned.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// If another thread is active, the lock can still become poisoned at any</span>
+    <span class="doccomment">/// time.  You should not trust a `false` value for program correctness</span>
+    <span class="doccomment">/// without additional synchronization.</span>
+    <span class="attribute">#[<span class="ident">inline</span>]</span>
+    <span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;sync_poison&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.2.0&quot;</span>)]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">is_poisoned</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+        <span class="self">self</span>.<span class="ident">poison</span>.<span class="ident">get</span>()
     }
 
-    <span class='doccomment'>/// Consumes this `RwLock`, returning the underlying data.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// # Errors</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// This function will return an error if the RwLock is poisoned. An RwLock</span>
-    <span class='doccomment'>/// is poisoned whenever a writer panics while holding an exclusive lock. An</span>
-    <span class='doccomment'>/// error will only be returned if the lock would have otherwise been</span>
-    <span class='doccomment'>/// acquired.</span>
-    <span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rwlock_into_inner&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.6.0&quot;</span>)]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>into_inner</span>(<span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>LockResult</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='kw'>where</span> <span class='ident'>T</span>: <span class='ident'>Sized</span> {
-        <span class='comment'>// We know statically that there are no outstanding references to</span>
-        <span class='comment'>// `self` so there&#39;s no need to lock the inner lock.</span>
-        <span class='comment'>//</span>
-        <span class='comment'>// To get the inner value, we&#39;d like to call `data.into_inner()`,</span>
-        <span class='comment'>// but because `RwLock` impl-s `Drop`, we can&#39;t move out of it, so</span>
-        <span class='comment'>// we&#39;ll have to destructure it manually instead.</span>
-        <span class='kw'>unsafe</span> {
-            <span class='comment'>// Like `let RwLock { inner, poison, data } = self`.</span>
-            <span class='kw'>let</span> (<span class='ident'>inner</span>, <span class='ident'>poison</span>, <span class='ident'>data</span>) <span class='op'>=</span> {
-                <span class='kw'>let</span> <span class='ident'>RwLock</span> { <span class='kw-2'>ref</span> <span class='ident'>inner</span>, <span class='kw-2'>ref</span> <span class='ident'>poison</span>, <span class='kw-2'>ref</span> <span class='ident'>data</span> } <span class='op'>=</span> <span class='self'>self</span>;
-                (<span class='ident'>ptr</span>::<span class='ident'>read</span>(<span class='ident'>inner</span>), <span class='ident'>ptr</span>::<span class='ident'>read</span>(<span class='ident'>poison</span>), <span class='ident'>ptr</span>::<span class='ident'>read</span>(<span class='ident'>data</span>))
+    <span class="doccomment">/// Consumes this `RwLock`, returning the underlying data.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// # Errors</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This function will return an error if the RwLock is poisoned. An RwLock</span>
+    <span class="doccomment">/// is poisoned whenever a writer panics while holding an exclusive lock. An</span>
+    <span class="doccomment">/// error will only be returned if the lock would have otherwise been</span>
+    <span class="doccomment">/// acquired.</span>
+    <span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rwlock_into_inner&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.6.0&quot;</span>)]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">into_inner</span>(<span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">LockResult</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="kw">where</span> <span class="ident">T</span>: <span class="ident">Sized</span> {
+        <span class="comment">// We know statically that there are no outstanding references to</span>
+        <span class="comment">// `self` so there&#39;s no need to lock the inner lock.</span>
+        <span class="comment">//</span>
+        <span class="comment">// To get the inner value, we&#39;d like to call `data.into_inner()`,</span>
+        <span class="comment">// but because `RwLock` impl-s `Drop`, we can&#39;t move out of it, so</span>
+        <span class="comment">// we&#39;ll have to destructure it manually instead.</span>
+        <span class="kw">unsafe</span> {
+            <span class="comment">// Like `let RwLock { inner, poison, data } = self`.</span>
+            <span class="kw">let</span> (<span class="ident">inner</span>, <span class="ident">poison</span>, <span class="ident">data</span>) <span class="op">=</span> {
+                <span class="kw">let</span> <span class="ident">RwLock</span> { <span class="kw-2">ref</span> <span class="ident">inner</span>, <span class="kw-2">ref</span> <span class="ident">poison</span>, <span class="kw-2">ref</span> <span class="ident">data</span> } <span class="op">=</span> <span class="self">self</span>;
+                (<span class="ident">ptr</span>::<span class="ident">read</span>(<span class="ident">inner</span>), <span class="ident">ptr</span>::<span class="ident">read</span>(<span class="ident">poison</span>), <span class="ident">ptr</span>::<span class="ident">read</span>(<span class="ident">data</span>))
             };
-            <span class='ident'>mem</span>::<span class='ident'>forget</span>(<span class='self'>self</span>);
-            <span class='ident'>inner</span>.<span class='ident'>destroy</span>();  <span class='comment'>// Keep in sync with the `Drop` impl.</span>
-            <span class='ident'>drop</span>(<span class='ident'>inner</span>);
+            <span class="ident">mem</span>::<span class="ident">forget</span>(<span class="self">self</span>);
+            <span class="ident">inner</span>.<span class="ident">destroy</span>();  <span class="comment">// Keep in sync with the `Drop` impl.</span>
+            <span class="ident">drop</span>(<span class="ident">inner</span>);
 
-            <span class='ident'>poison</span>::<span class='ident'>map_result</span>(<span class='ident'>poison</span>.<span class='ident'>borrow</span>(), <span class='op'>|</span>_<span class='op'>|</span> <span class='ident'>data</span>.<span class='ident'>into_inner</span>())
+            <span class="ident">poison</span>::<span class="ident">map_result</span>(<span class="ident">poison</span>.<span class="ident">borrow</span>(), <span class="op">|</span>_<span class="op">|</span> <span class="ident">data</span>.<span class="ident">into_inner</span>())
         }
     }
 
-    <span class='doccomment'>/// Returns a mutable reference to the underlying data.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// Since this call borrows the `RwLock` mutably, no actual locking needs to</span>
-    <span class='doccomment'>/// take place---the mutable borrow statically guarantees no locks exist.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// # Errors</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// This function will return an error if the RwLock is poisoned. An RwLock</span>
-    <span class='doccomment'>/// is poisoned whenever a writer panics while holding an exclusive lock. An</span>
-    <span class='doccomment'>/// error will only be returned if the lock would have otherwise been</span>
-    <span class='doccomment'>/// acquired.</span>
-    <span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rwlock_get_mut&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.6.0&quot;</span>)]</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>get_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>LockResult</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>T</span><span class='op'>&gt;</span> {
-        <span class='comment'>// We know statically that there are no other references to `self`, so</span>
-        <span class='comment'>// there&#39;s no need to lock the inner lock.</span>
-        <span class='kw'>let</span> <span class='ident'>data</span> <span class='op'>=</span> <span class='kw'>unsafe</span> { <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='kw-2'>*</span><span class='self'>self</span>.<span class='ident'>data</span>.<span class='ident'>get</span>() };
-        <span class='ident'>poison</span>::<span class='ident'>map_result</span>(<span class='self'>self</span>.<span class='ident'>poison</span>.<span class='ident'>borrow</span>(), <span class='op'>|</span>_<span class='op'>|</span> <span class='ident'>data</span>)
+    <span class="doccomment">/// Returns a mutable reference to the underlying data.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Since this call borrows the `RwLock` mutably, no actual locking needs to</span>
+    <span class="doccomment">/// take place---the mutable borrow statically guarantees no locks exist.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// # Errors</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This function will return an error if the RwLock is poisoned. An RwLock</span>
+    <span class="doccomment">/// is poisoned whenever a writer panics while holding an exclusive lock. An</span>
+    <span class="doccomment">/// error will only be returned if the lock would have otherwise been</span>
+    <span class="doccomment">/// acquired.</span>
+    <span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rwlock_get_mut&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.6.0&quot;</span>)]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">get_mut</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">LockResult</span><span class="op">&lt;</span><span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">T</span><span class="op">&gt;</span> {
+        <span class="comment">// We know statically that there are no other references to `self`, so</span>
+        <span class="comment">// there&#39;s no need to lock the inner lock.</span>
+        <span class="kw">let</span> <span class="ident">data</span> <span class="op">=</span> <span class="kw">unsafe</span> { <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="kw-2">*</span><span class="self">self</span>.<span class="ident">data</span>.<span class="ident">get</span>() };
+        <span class="ident">poison</span>::<span class="ident">map_result</span>(<span class="self">self</span>.<span class="ident">poison</span>.<span class="ident">borrow</span>(), <span class="op">|</span>_<span class="op">|</span> <span class="ident">data</span>)
     }
 }
 
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>unsafe</span> <span class='kw'>impl</span><span class='op'>&lt;</span><span class='attribute'>#[<span class='ident'>may_dangle</span>]</span> <span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>Drop</span> <span class='kw'>for</span> <span class='ident'>RwLock</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>drop</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) {
-        <span class='comment'>// IMPORTANT: This code needs to be kept in sync with `RwLock::into_inner`.</span>
-        <span class='kw'>unsafe</span> { <span class='self'>self</span>.<span class='ident'>inner</span>.<span class='ident'>destroy</span>() }
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">unsafe</span> <span class="kw">impl</span><span class="op">&lt;</span><span class="attribute">#[<span class="ident">may_dangle</span>]</span> <span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="ident">Drop</span> <span class="kw">for</span> <span class="ident">RwLock</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">drop</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) {
+        <span class="comment">// IMPORTANT: This code needs to be kept in sync with `RwLock::into_inner`.</span>
+        <span class="kw">unsafe</span> { <span class="self">self</span>.<span class="ident">inner</span>.<span class="ident">destroy</span>() }
     }
 }
 
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span> <span class='op'>+</span> <span class='ident'>fmt</span>::<span class='ident'>Debug</span><span class='op'>&gt;</span> <span class='ident'>fmt</span>::<span class='ident'>Debug</span> <span class='kw'>for</span> <span class='ident'>RwLock</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>fmt</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>f</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>fmt</span>::<span class='ident'>Formatter</span>) <span class='op'>-&gt;</span> <span class='ident'>fmt</span>::<span class='prelude-ty'>Result</span> {
-        <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>try_read</span>() {
-            <span class='prelude-val'>Ok</span>(<span class='ident'>guard</span>) <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;RwLock {{ data: {:?} }}&quot;</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>*</span><span class='ident'>guard</span>),
-            <span class='prelude-val'>Err</span>(<span class='ident'>TryLockError</span>::<span class='ident'>Poisoned</span>(<span class='ident'>err</span>)) <span class='op'>=&gt;</span> {
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;RwLock {{ data: Poisoned({:?}) }}&quot;</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>*</span><span class='kw-2'>*</span><span class='ident'>err</span>.<span class='ident'>get_ref</span>())
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span> <span class="op">+</span> <span class="ident">fmt</span>::<span class="ident">Debug</span><span class="op">&gt;</span> <span class="ident">fmt</span>::<span class="ident">Debug</span> <span class="kw">for</span> <span class="ident">RwLock</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">fmt</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">f</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">fmt</span>::<span class="ident">Formatter</span>) <span class="op">-&gt;</span> <span class="ident">fmt</span>::<span class="prelude-ty">Result</span> {
+        <span class="kw">match</span> <span class="self">self</span>.<span class="ident">try_read</span>() {
+            <span class="prelude-val">Ok</span>(<span class="ident">guard</span>) <span class="op">=&gt;</span> <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;RwLock {{ data: {:?} }}&quot;</span>, <span class="kw-2">&amp;</span><span class="kw-2">*</span><span class="ident">guard</span>),
+            <span class="prelude-val">Err</span>(<span class="ident">TryLockError</span>::<span class="ident">Poisoned</span>(<span class="ident">err</span>)) <span class="op">=&gt;</span> {
+                <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;RwLock {{ data: Poisoned({:?}) }}&quot;</span>, <span class="kw-2">&amp;</span><span class="kw-2">*</span><span class="kw-2">*</span><span class="ident">err</span>.<span class="ident">get_ref</span>())
             },
-            <span class='prelude-val'>Err</span>(<span class='ident'>TryLockError</span>::<span class='ident'>WouldBlock</span>) <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;RwLock {{ &lt;locked&gt; }}&quot;</span>)
+            <span class="prelude-val">Err</span>(<span class="ident">TryLockError</span>::<span class="ident">WouldBlock</span>) <span class="op">=&gt;</span> <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;RwLock {{ &lt;locked&gt; }}&quot;</span>)
         }
     }
 }
 
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rw_lock_default&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='ident'>Default</span><span class='op'>&gt;</span> <span class='ident'>Default</span> <span class='kw'>for</span> <span class='ident'>RwLock</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='doccomment'>/// Creates a new `RwLock&lt;T&gt;`, with the `Default` value for T.</span>
-    <span class='kw'>fn</span> <span class='ident'>default</span>() <span class='op'>-&gt;</span> <span class='ident'>RwLock</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-        <span class='ident'>RwLock</span>::<span class='ident'>new</span>(<span class='ident'>Default</span>::<span class='ident'>default</span>())
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rw_lock_default&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="ident">Default</span><span class="op">&gt;</span> <span class="ident">Default</span> <span class="kw">for</span> <span class="ident">RwLock</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// Creates a new `RwLock&lt;T&gt;`, with the `Default` value for T.</span>
+    <span class="kw">fn</span> <span class="ident">default</span>() <span class="op">-&gt;</span> <span class="ident">RwLock</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+        <span class="ident">RwLock</span>::<span class="ident">new</span>(<span class="ident">Default</span>::<span class="ident">default</span>())
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;rwlock</span>, <span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>RwLockReadGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;rwlock</span>, <span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>unsafe</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>lock</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;rwlock</span> <span class='ident'>RwLock</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>)
-                  <span class='op'>-&gt;</span> <span class='ident'>LockResult</span><span class='op'>&lt;</span><span class='ident'>RwLockReadGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;rwlock</span>, <span class='ident'>T</span><span class='op'>&gt;&gt;</span> {
-        <span class='ident'>poison</span>::<span class='ident'>map_result</span>(<span class='ident'>lock</span>.<span class='ident'>poison</span>.<span class='ident'>borrow</span>(), <span class='op'>|</span>_<span class='op'>|</span> {
-            <span class='ident'>RwLockReadGuard</span> {
-                <span class='ident'>__lock</span>: <span class='ident'>lock</span>,
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;rwlock</span>, <span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="ident">RwLockReadGuard</span><span class="op">&lt;</span><span class="lifetime">&#39;rwlock</span>, <span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">unsafe</span> <span class="kw">fn</span> <span class="ident">new</span>(<span class="ident">lock</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;rwlock</span> <span class="ident">RwLock</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>)
+                  <span class="op">-&gt;</span> <span class="ident">LockResult</span><span class="op">&lt;</span><span class="ident">RwLockReadGuard</span><span class="op">&lt;</span><span class="lifetime">&#39;rwlock</span>, <span class="ident">T</span><span class="op">&gt;&gt;</span> {
+        <span class="ident">poison</span>::<span class="ident">map_result</span>(<span class="ident">lock</span>.<span class="ident">poison</span>.<span class="ident">borrow</span>(), <span class="op">|</span>_<span class="op">|</span> {
+            <span class="ident">RwLockReadGuard</span> {
+                <span class="ident">__lock</span>: <span class="ident">lock</span>,
             }
         })
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;rwlock</span>, <span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>RwLockWriteGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;rwlock</span>, <span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>unsafe</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>lock</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;rwlock</span> <span class='ident'>RwLock</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>)
-                  <span class='op'>-&gt;</span> <span class='ident'>LockResult</span><span class='op'>&lt;</span><span class='ident'>RwLockWriteGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;rwlock</span>, <span class='ident'>T</span><span class='op'>&gt;&gt;</span> {
-        <span class='ident'>poison</span>::<span class='ident'>map_result</span>(<span class='ident'>lock</span>.<span class='ident'>poison</span>.<span class='ident'>borrow</span>(), <span class='op'>|</span><span class='ident'>guard</span><span class='op'>|</span> {
-            <span class='ident'>RwLockWriteGuard</span> {
-                <span class='ident'>__lock</span>: <span class='ident'>lock</span>,
-                <span class='ident'>__poison</span>: <span class='ident'>guard</span>,
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;rwlock</span>, <span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="ident">RwLockWriteGuard</span><span class="op">&lt;</span><span class="lifetime">&#39;rwlock</span>, <span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">unsafe</span> <span class="kw">fn</span> <span class="ident">new</span>(<span class="ident">lock</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;rwlock</span> <span class="ident">RwLock</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>)
+                  <span class="op">-&gt;</span> <span class="ident">LockResult</span><span class="op">&lt;</span><span class="ident">RwLockWriteGuard</span><span class="op">&lt;</span><span class="lifetime">&#39;rwlock</span>, <span class="ident">T</span><span class="op">&gt;&gt;</span> {
+        <span class="ident">poison</span>::<span class="ident">map_result</span>(<span class="ident">lock</span>.<span class="ident">poison</span>.<span class="ident">borrow</span>(), <span class="op">|</span><span class="ident">guard</span><span class="op">|</span> {
+            <span class="ident">RwLockWriteGuard</span> {
+                <span class="ident">__lock</span>: <span class="ident">lock</span>,
+                <span class="ident">__poison</span>: <span class="ident">guard</span>,
             }
         })
     }
 }
 
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;std_debug&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.16.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>T</span>: <span class='ident'>fmt</span>::<span class='ident'>Debug</span><span class='op'>&gt;</span> <span class='ident'>fmt</span>::<span class='ident'>Debug</span> <span class='kw'>for</span> <span class='ident'>RwLockReadGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>fmt</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>f</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>fmt</span>::<span class='ident'>Formatter</span>) <span class='op'>-&gt;</span> <span class='ident'>fmt</span>::<span class='prelude-ty'>Result</span> {
-        <span class='ident'>f</span>.<span class='ident'>debug_struct</span>(<span class='string'>&quot;RwLockReadGuard&quot;</span>)
-            .<span class='ident'>field</span>(<span class='string'>&quot;lock&quot;</span>, <span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>__lock</span>)
-            .<span class='ident'>finish</span>()
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;std_debug&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.16.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">T</span>: <span class="ident">fmt</span>::<span class="ident">Debug</span><span class="op">&gt;</span> <span class="ident">fmt</span>::<span class="ident">Debug</span> <span class="kw">for</span> <span class="ident">RwLockReadGuard</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">fmt</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">f</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">fmt</span>::<span class="ident">Formatter</span>) <span class="op">-&gt;</span> <span class="ident">fmt</span>::<span class="prelude-ty">Result</span> {
+        <span class="ident">f</span>.<span class="ident">debug_struct</span>(<span class="string">&quot;RwLockReadGuard&quot;</span>)
+            .<span class="ident">field</span>(<span class="string">&quot;lock&quot;</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">__lock</span>)
+            .<span class="ident">finish</span>()
     }
 }
 
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;std_debug&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.16.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>T</span>: <span class='ident'>fmt</span>::<span class='ident'>Debug</span><span class='op'>&gt;</span> <span class='ident'>fmt</span>::<span class='ident'>Debug</span> <span class='kw'>for</span> <span class='ident'>RwLockWriteGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>fmt</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>f</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>fmt</span>::<span class='ident'>Formatter</span>) <span class='op'>-&gt;</span> <span class='ident'>fmt</span>::<span class='prelude-ty'>Result</span> {
-        <span class='ident'>f</span>.<span class='ident'>debug_struct</span>(<span class='string'>&quot;RwLockWriteGuard&quot;</span>)
-            .<span class='ident'>field</span>(<span class='string'>&quot;lock&quot;</span>, <span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>__lock</span>)
-            .<span class='ident'>finish</span>()
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;std_debug&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.16.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">T</span>: <span class="ident">fmt</span>::<span class="ident">Debug</span><span class="op">&gt;</span> <span class="ident">fmt</span>::<span class="ident">Debug</span> <span class="kw">for</span> <span class="ident">RwLockWriteGuard</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">fmt</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">f</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">fmt</span>::<span class="ident">Formatter</span>) <span class="op">-&gt;</span> <span class="ident">fmt</span>::<span class="prelude-ty">Result</span> {
+        <span class="ident">f</span>.<span class="ident">debug_struct</span>(<span class="string">&quot;RwLockWriteGuard&quot;</span>)
+            .<span class="ident">field</span>(<span class="string">&quot;lock&quot;</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">__lock</span>)
+            .<span class="ident">finish</span>()
     }
 }
 
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;rwlock</span>, <span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>Deref</span> <span class='kw'>for</span> <span class='ident'>RwLockReadGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;rwlock</span>, <span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>type</span> <span class='ident'>Target</span> <span class='op'>=</span> <span class='ident'>T</span>;
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;rwlock</span>, <span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="ident">Deref</span> <span class="kw">for</span> <span class="ident">RwLockReadGuard</span><span class="op">&lt;</span><span class="lifetime">&#39;rwlock</span>, <span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">type</span> <span class="ident">Target</span> <span class="op">=</span> <span class="ident">T</span>;
 
-    <span class='kw'>fn</span> <span class='ident'>deref</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='ident'>T</span> {
-        <span class='kw'>unsafe</span> { <span class='kw-2'>&amp;</span><span class='kw-2'>*</span><span class='self'>self</span>.<span class='ident'>__lock</span>.<span class='ident'>data</span>.<span class='ident'>get</span>() }
+    <span class="kw">fn</span> <span class="ident">deref</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="ident">T</span> {
+        <span class="kw">unsafe</span> { <span class="kw-2">&amp;</span><span class="kw-2">*</span><span class="self">self</span>.<span class="ident">__lock</span>.<span class="ident">data</span>.<span class="ident">get</span>() }
     }
 }
 
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;rwlock</span>, <span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>Deref</span> <span class='kw'>for</span> <span class='ident'>RwLockWriteGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;rwlock</span>, <span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>type</span> <span class='ident'>Target</span> <span class='op'>=</span> <span class='ident'>T</span>;
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;rwlock</span>, <span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="ident">Deref</span> <span class="kw">for</span> <span class="ident">RwLockWriteGuard</span><span class="op">&lt;</span><span class="lifetime">&#39;rwlock</span>, <span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">type</span> <span class="ident">Target</span> <span class="op">=</span> <span class="ident">T</span>;
 
-    <span class='kw'>fn</span> <span class='ident'>deref</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='ident'>T</span> {
-        <span class='kw'>unsafe</span> { <span class='kw-2'>&amp;</span><span class='kw-2'>*</span><span class='self'>self</span>.<span class='ident'>__lock</span>.<span class='ident'>data</span>.<span class='ident'>get</span>() }
+    <span class="kw">fn</span> <span class="ident">deref</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="ident">T</span> {
+        <span class="kw">unsafe</span> { <span class="kw-2">&amp;</span><span class="kw-2">*</span><span class="self">self</span>.<span class="ident">__lock</span>.<span class="ident">data</span>.<span class="ident">get</span>() }
     }
 }
 
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;rwlock</span>, <span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>DerefMut</span> <span class='kw'>for</span> <span class='ident'>RwLockWriteGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;rwlock</span>, <span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>deref_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>T</span> {
-        <span class='kw'>unsafe</span> { <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='kw-2'>*</span><span class='self'>self</span>.<span class='ident'>__lock</span>.<span class='ident'>data</span>.<span class='ident'>get</span>() }
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;rwlock</span>, <span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="ident">DerefMut</span> <span class="kw">for</span> <span class="ident">RwLockWriteGuard</span><span class="op">&lt;</span><span class="lifetime">&#39;rwlock</span>, <span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">deref_mut</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">T</span> {
+        <span class="kw">unsafe</span> { <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="kw-2">*</span><span class="self">self</span>.<span class="ident">__lock</span>.<span class="ident">data</span>.<span class="ident">get</span>() }
     }
 }
 
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>Drop</span> <span class='kw'>for</span> <span class='ident'>RwLockReadGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>drop</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) {
-        <span class='kw'>unsafe</span> { <span class='self'>self</span>.<span class='ident'>__lock</span>.<span class='ident'>inner</span>.<span class='ident'>read_unlock</span>(); }
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="ident">Drop</span> <span class="kw">for</span> <span class="ident">RwLockReadGuard</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">drop</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) {
+        <span class="kw">unsafe</span> { <span class="self">self</span>.<span class="ident">__lock</span>.<span class="ident">inner</span>.<span class="ident">read_unlock</span>(); }
     }
 }
 
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>Drop</span> <span class='kw'>for</span> <span class='ident'>RwLockWriteGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>drop</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) {
-        <span class='self'>self</span>.<span class='ident'>__lock</span>.<span class='ident'>poison</span>.<span class='ident'>done</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>__poison</span>);
-        <span class='kw'>unsafe</span> { <span class='self'>self</span>.<span class='ident'>__lock</span>.<span class='ident'>inner</span>.<span class='ident'>write_unlock</span>(); }
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="ident">Drop</span> <span class="kw">for</span> <span class="ident">RwLockWriteGuard</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">drop</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) {
+        <span class="self">self</span>.<span class="ident">__lock</span>.<span class="ident">poison</span>.<span class="ident">done</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">__poison</span>);
+        <span class="kw">unsafe</span> { <span class="self">self</span>.<span class="ident">__lock</span>.<span class="ident">inner</span>.<span class="ident">write_unlock</span>(); }
     }
 }
 
-<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>all</span>(<span class='ident'>test</span>, <span class='ident'>not</span>(<span class='ident'>target_os</span> <span class='op'>=</span> <span class='string'>&quot;emscripten&quot;</span>)))]</span>
-<span class='kw'>mod</span> <span class='ident'>tests</span> {
-    <span class='attribute'>#<span class='op'>!</span>[<span class='ident'>allow</span>(<span class='ident'>deprecated</span>)]</span> <span class='comment'>// rand</span>
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">all</span>(<span class="ident">test</span>, <span class="ident">not</span>(<span class="ident">target_os</span> <span class="op">=</span> <span class="string">&quot;emscripten&quot;</span>)))]</span>
+<span class="kw">mod</span> <span class="ident">tests</span> {
+    <span class="attribute">#<span class="op">!</span>[<span class="ident">allow</span>(<span class="ident">deprecated</span>)]</span> <span class="comment">// rand</span>
 
-    <span class='kw'>use</span> <span class='ident'>rand</span>::{<span class='self'>self</span>, <span class='ident'>Rng</span>};
-    <span class='kw'>use</span> <span class='ident'>sync</span>::<span class='ident'>mpsc</span>::<span class='ident'>channel</span>;
-    <span class='kw'>use</span> <span class='ident'>thread</span>;
-    <span class='kw'>use</span> <span class='ident'>sync</span>::{<span class='ident'>Arc</span>, <span class='ident'>RwLock</span>, <span class='ident'>TryLockError</span>};
-    <span class='kw'>use</span> <span class='ident'>sync</span>::<span class='ident'>atomic</span>::{<span class='ident'>AtomicUsize</span>, <span class='ident'>Ordering</span>};
+    <span class="kw">use</span> <span class="ident">rand</span>::{<span class="self">self</span>, <span class="ident">Rng</span>};
+    <span class="kw">use</span> <span class="ident">sync</span>::<span class="ident">mpsc</span>::<span class="ident">channel</span>;
+    <span class="kw">use</span> <span class="ident">thread</span>;
+    <span class="kw">use</span> <span class="ident">sync</span>::{<span class="ident">Arc</span>, <span class="ident">RwLock</span>, <span class="ident">TryLockError</span>};
+    <span class="kw">use</span> <span class="ident">sync</span>::<span class="ident">atomic</span>::{<span class="ident">AtomicUsize</span>, <span class="ident">Ordering</span>};
 
-    <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Eq</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Debug</span>)]</span>
-    <span class='kw'>struct</span> <span class='ident'>NonCopy</span>(<span class='ident'>i32</span>);
+    <span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Eq</span>, <span class="ident">PartialEq</span>, <span class="ident">Debug</span>)]</span>
+    <span class="kw">struct</span> <span class="ident">NonCopy</span>(<span class="ident">i32</span>);
 
-    <span class='attribute'>#[<span class='ident'>test</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>smoke</span>() {
-        <span class='kw'>let</span> <span class='ident'>l</span> <span class='op'>=</span> <span class='ident'>RwLock</span>::<span class='ident'>new</span>(());
-        <span class='ident'>drop</span>(<span class='ident'>l</span>.<span class='ident'>read</span>().<span class='ident'>unwrap</span>());
-        <span class='ident'>drop</span>(<span class='ident'>l</span>.<span class='ident'>write</span>().<span class='ident'>unwrap</span>());
-        <span class='ident'>drop</span>((<span class='ident'>l</span>.<span class='ident'>read</span>().<span class='ident'>unwrap</span>(), <span class='ident'>l</span>.<span class='ident'>read</span>().<span class='ident'>unwrap</span>()));
-        <span class='ident'>drop</span>(<span class='ident'>l</span>.<span class='ident'>write</span>().<span class='ident'>unwrap</span>());
+    <span class="attribute">#[<span class="ident">test</span>]</span>
+    <span class="kw">fn</span> <span class="ident">smoke</span>() {
+        <span class="kw">let</span> <span class="ident">l</span> <span class="op">=</span> <span class="ident">RwLock</span>::<span class="ident">new</span>(());
+        <span class="ident">drop</span>(<span class="ident">l</span>.<span class="ident">read</span>().<span class="ident">unwrap</span>());
+        <span class="ident">drop</span>(<span class="ident">l</span>.<span class="ident">write</span>().<span class="ident">unwrap</span>());
+        <span class="ident">drop</span>((<span class="ident">l</span>.<span class="ident">read</span>().<span class="ident">unwrap</span>(), <span class="ident">l</span>.<span class="ident">read</span>().<span class="ident">unwrap</span>()));
+        <span class="ident">drop</span>(<span class="ident">l</span>.<span class="ident">write</span>().<span class="ident">unwrap</span>());
     }
 
-    <span class='attribute'>#[<span class='ident'>test</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>frob</span>() {
-        <span class='kw'>const</span> <span class='ident'>N</span>: <span class='ident'>usize</span> <span class='op'>=</span> <span class='number'>10</span>;
-        <span class='kw'>const</span> <span class='ident'>M</span>: <span class='ident'>usize</span> <span class='op'>=</span> <span class='number'>1000</span>;
+    <span class="attribute">#[<span class="ident">test</span>]</span>
+    <span class="kw">fn</span> <span class="ident">frob</span>() {
+        <span class="kw">const</span> <span class="ident">N</span>: <span class="ident">usize</span> <span class="op">=</span> <span class="number">10</span>;
+        <span class="kw">const</span> <span class="ident">M</span>: <span class="ident">usize</span> <span class="op">=</span> <span class="number">1000</span>;
 
-        <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='ident'>Arc</span>::<span class='ident'>new</span>(<span class='ident'>RwLock</span>::<span class='ident'>new</span>(()));
+        <span class="kw">let</span> <span class="ident">r</span> <span class="op">=</span> <span class="ident">Arc</span>::<span class="ident">new</span>(<span class="ident">RwLock</span>::<span class="ident">new</span>(()));
 
-        <span class='kw'>let</span> (<span class='ident'>tx</span>, <span class='ident'>rx</span>) <span class='op'>=</span> <span class='ident'>channel</span>::<span class='op'>&lt;</span>()<span class='op'>&gt;</span>();
-        <span class='kw'>for</span> _ <span class='kw'>in</span> <span class='number'>0</span>..<span class='ident'>N</span> {
-            <span class='kw'>let</span> <span class='ident'>tx</span> <span class='op'>=</span> <span class='ident'>tx</span>.<span class='ident'>clone</span>();
-            <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='ident'>r</span>.<span class='ident'>clone</span>();
-            <span class='ident'>thread</span>::<span class='ident'>spawn</span>(<span class='kw'>move</span> <span class='op'>||</span> {
-                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>rng</span> <span class='op'>=</span> <span class='ident'>rand</span>::<span class='ident'>thread_rng</span>();
-                <span class='kw'>for</span> _ <span class='kw'>in</span> <span class='number'>0</span>..<span class='ident'>M</span> {
-                    <span class='kw'>if</span> <span class='ident'>rng</span>.<span class='ident'>gen_weighted_bool</span>(<span class='ident'>N</span>) {
-                        <span class='ident'>drop</span>(<span class='ident'>r</span>.<span class='ident'>write</span>().<span class='ident'>unwrap</span>());
-                    } <span class='kw'>else</span> {
-                        <span class='ident'>drop</span>(<span class='ident'>r</span>.<span class='ident'>read</span>().<span class='ident'>unwrap</span>());
+        <span class="kw">let</span> (<span class="ident">tx</span>, <span class="ident">rx</span>) <span class="op">=</span> <span class="ident">channel</span>::<span class="op">&lt;</span>()<span class="op">&gt;</span>();
+        <span class="kw">for</span> _ <span class="kw">in</span> <span class="number">0</span>..<span class="ident">N</span> {
+            <span class="kw">let</span> <span class="ident">tx</span> <span class="op">=</span> <span class="ident">tx</span>.<span class="ident">clone</span>();
+            <span class="kw">let</span> <span class="ident">r</span> <span class="op">=</span> <span class="ident">r</span>.<span class="ident">clone</span>();
+            <span class="ident">thread</span>::<span class="ident">spawn</span>(<span class="kw">move</span> <span class="op">||</span> {
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">rng</span> <span class="op">=</span> <span class="ident">rand</span>::<span class="ident">thread_rng</span>();
+                <span class="kw">for</span> _ <span class="kw">in</span> <span class="number">0</span>..<span class="ident">M</span> {
+                    <span class="kw">if</span> <span class="ident">rng</span>.<span class="ident">gen_weighted_bool</span>(<span class="ident">N</span>) {
+                        <span class="ident">drop</span>(<span class="ident">r</span>.<span class="ident">write</span>().<span class="ident">unwrap</span>());
+                    } <span class="kw">else</span> {
+                        <span class="ident">drop</span>(<span class="ident">r</span>.<span class="ident">read</span>().<span class="ident">unwrap</span>());
                     }
                 }
-                <span class='ident'>drop</span>(<span class='ident'>tx</span>);
+                <span class="ident">drop</span>(<span class="ident">tx</span>);
             });
         }
-        <span class='ident'>drop</span>(<span class='ident'>tx</span>);
-        <span class='kw'>let</span> _ <span class='op'>=</span> <span class='ident'>rx</span>.<span class='ident'>recv</span>();
+        <span class="ident">drop</span>(<span class="ident">tx</span>);
+        <span class="kw">let</span> _ <span class="op">=</span> <span class="ident">rx</span>.<span class="ident">recv</span>();
     }
 
-    <span class='attribute'>#[<span class='ident'>test</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>test_rw_arc_poison_wr</span>() {
-        <span class='kw'>let</span> <span class='ident'>arc</span> <span class='op'>=</span> <span class='ident'>Arc</span>::<span class='ident'>new</span>(<span class='ident'>RwLock</span>::<span class='ident'>new</span>(<span class='number'>1</span>));
-        <span class='kw'>let</span> <span class='ident'>arc2</span> <span class='op'>=</span> <span class='ident'>arc</span>.<span class='ident'>clone</span>();
-        <span class='kw'>let</span> _: <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(), _<span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>thread</span>::<span class='ident'>spawn</span>(<span class='kw'>move</span><span class='op'>||</span> {
-            <span class='kw'>let</span> <span class='ident'>_lock</span> <span class='op'>=</span> <span class='ident'>arc2</span>.<span class='ident'>write</span>().<span class='ident'>unwrap</span>();
-            <span class='macro'>panic</span><span class='macro'>!</span>();
-        }).<span class='ident'>join</span>();
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>arc</span>.<span class='ident'>read</span>().<span class='ident'>is_err</span>());
+    <span class="attribute">#[<span class="ident">test</span>]</span>
+    <span class="kw">fn</span> <span class="ident">test_rw_arc_poison_wr</span>() {
+        <span class="kw">let</span> <span class="ident">arc</span> <span class="op">=</span> <span class="ident">Arc</span>::<span class="ident">new</span>(<span class="ident">RwLock</span>::<span class="ident">new</span>(<span class="number">1</span>));
+        <span class="kw">let</span> <span class="ident">arc2</span> <span class="op">=</span> <span class="ident">arc</span>.<span class="ident">clone</span>();
+        <span class="kw">let</span> _: <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), _<span class="op">&gt;</span> <span class="op">=</span> <span class="ident">thread</span>::<span class="ident">spawn</span>(<span class="kw">move</span><span class="op">||</span> {
+            <span class="kw">let</span> <span class="ident">_lock</span> <span class="op">=</span> <span class="ident">arc2</span>.<span class="ident">write</span>().<span class="ident">unwrap</span>();
+            <span class="macro">panic</span><span class="macro">!</span>();
+        }).<span class="ident">join</span>();
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">arc</span>.<span class="ident">read</span>().<span class="ident">is_err</span>());
     }
 
-    <span class='attribute'>#[<span class='ident'>test</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>test_rw_arc_poison_ww</span>() {
-        <span class='kw'>let</span> <span class='ident'>arc</span> <span class='op'>=</span> <span class='ident'>Arc</span>::<span class='ident'>new</span>(<span class='ident'>RwLock</span>::<span class='ident'>new</span>(<span class='number'>1</span>));
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>arc</span>.<span class='ident'>is_poisoned</span>());
-        <span class='kw'>let</span> <span class='ident'>arc2</span> <span class='op'>=</span> <span class='ident'>arc</span>.<span class='ident'>clone</span>();
-        <span class='kw'>let</span> _: <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(), _<span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>thread</span>::<span class='ident'>spawn</span>(<span class='kw'>move</span><span class='op'>||</span> {
-            <span class='kw'>let</span> <span class='ident'>_lock</span> <span class='op'>=</span> <span class='ident'>arc2</span>.<span class='ident'>write</span>().<span class='ident'>unwrap</span>();
-            <span class='macro'>panic</span><span class='macro'>!</span>();
-        }).<span class='ident'>join</span>();
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>arc</span>.<span class='ident'>write</span>().<span class='ident'>is_err</span>());
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>arc</span>.<span class='ident'>is_poisoned</span>());
+    <span class="attribute">#[<span class="ident">test</span>]</span>
+    <span class="kw">fn</span> <span class="ident">test_rw_arc_poison_ww</span>() {
+        <span class="kw">let</span> <span class="ident">arc</span> <span class="op">=</span> <span class="ident">Arc</span>::<span class="ident">new</span>(<span class="ident">RwLock</span>::<span class="ident">new</span>(<span class="number">1</span>));
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="op">!</span><span class="ident">arc</span>.<span class="ident">is_poisoned</span>());
+        <span class="kw">let</span> <span class="ident">arc2</span> <span class="op">=</span> <span class="ident">arc</span>.<span class="ident">clone</span>();
+        <span class="kw">let</span> _: <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), _<span class="op">&gt;</span> <span class="op">=</span> <span class="ident">thread</span>::<span class="ident">spawn</span>(<span class="kw">move</span><span class="op">||</span> {
+            <span class="kw">let</span> <span class="ident">_lock</span> <span class="op">=</span> <span class="ident">arc2</span>.<span class="ident">write</span>().<span class="ident">unwrap</span>();
+            <span class="macro">panic</span><span class="macro">!</span>();
+        }).<span class="ident">join</span>();
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">arc</span>.<span class="ident">write</span>().<span class="ident">is_err</span>());
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">arc</span>.<span class="ident">is_poisoned</span>());
     }
 
-    <span class='attribute'>#[<span class='ident'>test</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>test_rw_arc_no_poison_rr</span>() {
-        <span class='kw'>let</span> <span class='ident'>arc</span> <span class='op'>=</span> <span class='ident'>Arc</span>::<span class='ident'>new</span>(<span class='ident'>RwLock</span>::<span class='ident'>new</span>(<span class='number'>1</span>));
-        <span class='kw'>let</span> <span class='ident'>arc2</span> <span class='op'>=</span> <span class='ident'>arc</span>.<span class='ident'>clone</span>();
-        <span class='kw'>let</span> _: <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(), _<span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>thread</span>::<span class='ident'>spawn</span>(<span class='kw'>move</span><span class='op'>||</span> {
-            <span class='kw'>let</span> <span class='ident'>_lock</span> <span class='op'>=</span> <span class='ident'>arc2</span>.<span class='ident'>read</span>().<span class='ident'>unwrap</span>();
-            <span class='macro'>panic</span><span class='macro'>!</span>();
-        }).<span class='ident'>join</span>();
-        <span class='kw'>let</span> <span class='ident'>lock</span> <span class='op'>=</span> <span class='ident'>arc</span>.<span class='ident'>read</span>().<span class='ident'>unwrap</span>();
-        <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='kw-2'>*</span><span class='ident'>lock</span>, <span class='number'>1</span>);
+    <span class="attribute">#[<span class="ident">test</span>]</span>
+    <span class="kw">fn</span> <span class="ident">test_rw_arc_no_poison_rr</span>() {
+        <span class="kw">let</span> <span class="ident">arc</span> <span class="op">=</span> <span class="ident">Arc</span>::<span class="ident">new</span>(<span class="ident">RwLock</span>::<span class="ident">new</span>(<span class="number">1</span>));
+        <span class="kw">let</span> <span class="ident">arc2</span> <span class="op">=</span> <span class="ident">arc</span>.<span class="ident">clone</span>();
+        <span class="kw">let</span> _: <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), _<span class="op">&gt;</span> <span class="op">=</span> <span class="ident">thread</span>::<span class="ident">spawn</span>(<span class="kw">move</span><span class="op">||</span> {
+            <span class="kw">let</span> <span class="ident">_lock</span> <span class="op">=</span> <span class="ident">arc2</span>.<span class="ident">read</span>().<span class="ident">unwrap</span>();
+            <span class="macro">panic</span><span class="macro">!</span>();
+        }).<span class="ident">join</span>();
+        <span class="kw">let</span> <span class="ident">lock</span> <span class="op">=</span> <span class="ident">arc</span>.<span class="ident">read</span>().<span class="ident">unwrap</span>();
+        <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="kw-2">*</span><span class="ident">lock</span>, <span class="number">1</span>);
     }
-    <span class='attribute'>#[<span class='ident'>test</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>test_rw_arc_no_poison_rw</span>() {
-        <span class='kw'>let</span> <span class='ident'>arc</span> <span class='op'>=</span> <span class='ident'>Arc</span>::<span class='ident'>new</span>(<span class='ident'>RwLock</span>::<span class='ident'>new</span>(<span class='number'>1</span>));
-        <span class='kw'>let</span> <span class='ident'>arc2</span> <span class='op'>=</span> <span class='ident'>arc</span>.<span class='ident'>clone</span>();
-        <span class='kw'>let</span> _: <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(), _<span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>thread</span>::<span class='ident'>spawn</span>(<span class='kw'>move</span><span class='op'>||</span> {
-            <span class='kw'>let</span> <span class='ident'>_lock</span> <span class='op'>=</span> <span class='ident'>arc2</span>.<span class='ident'>read</span>().<span class='ident'>unwrap</span>();
-            <span class='macro'>panic</span><span class='macro'>!</span>()
-        }).<span class='ident'>join</span>();
-        <span class='kw'>let</span> <span class='ident'>lock</span> <span class='op'>=</span> <span class='ident'>arc</span>.<span class='ident'>write</span>().<span class='ident'>unwrap</span>();
-        <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='kw-2'>*</span><span class='ident'>lock</span>, <span class='number'>1</span>);
+    <span class="attribute">#[<span class="ident">test</span>]</span>
+    <span class="kw">fn</span> <span class="ident">test_rw_arc_no_poison_rw</span>() {
+        <span class="kw">let</span> <span class="ident">arc</span> <span class="op">=</span> <span class="ident">Arc</span>::<span class="ident">new</span>(<span class="ident">RwLock</span>::<span class="ident">new</span>(<span class="number">1</span>));
+        <span class="kw">let</span> <span class="ident">arc2</span> <span class="op">=</span> <span class="ident">arc</span>.<span class="ident">clone</span>();
+        <span class="kw">let</span> _: <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), _<span class="op">&gt;</span> <span class="op">=</span> <span class="ident">thread</span>::<span class="ident">spawn</span>(<span class="kw">move</span><span class="op">||</span> {
+            <span class="kw">let</span> <span class="ident">_lock</span> <span class="op">=</span> <span class="ident">arc2</span>.<span class="ident">read</span>().<span class="ident">unwrap</span>();
+            <span class="macro">panic</span><span class="macro">!</span>()
+        }).<span class="ident">join</span>();
+        <span class="kw">let</span> <span class="ident">lock</span> <span class="op">=</span> <span class="ident">arc</span>.<span class="ident">write</span>().<span class="ident">unwrap</span>();
+        <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="kw-2">*</span><span class="ident">lock</span>, <span class="number">1</span>);
     }
 
-    <span class='attribute'>#[<span class='ident'>test</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>test_rw_arc</span>() {
-        <span class='kw'>let</span> <span class='ident'>arc</span> <span class='op'>=</span> <span class='ident'>Arc</span>::<span class='ident'>new</span>(<span class='ident'>RwLock</span>::<span class='ident'>new</span>(<span class='number'>0</span>));
-        <span class='kw'>let</span> <span class='ident'>arc2</span> <span class='op'>=</span> <span class='ident'>arc</span>.<span class='ident'>clone</span>();
-        <span class='kw'>let</span> (<span class='ident'>tx</span>, <span class='ident'>rx</span>) <span class='op'>=</span> <span class='ident'>channel</span>();
+    <span class="attribute">#[<span class="ident">test</span>]</span>
+    <span class="kw">fn</span> <span class="ident">test_rw_arc</span>() {
+        <span class="kw">let</span> <span class="ident">arc</span> <span class="op">=</span> <span class="ident">Arc</span>::<span class="ident">new</span>(<span class="ident">RwLock</span>::<span class="ident">new</span>(<span class="number">0</span>));
+        <span class="kw">let</span> <span class="ident">arc2</span> <span class="op">=</span> <span class="ident">arc</span>.<span class="ident">clone</span>();
+        <span class="kw">let</span> (<span class="ident">tx</span>, <span class="ident">rx</span>) <span class="op">=</span> <span class="ident">channel</span>();
 
-        <span class='ident'>thread</span>::<span class='ident'>spawn</span>(<span class='kw'>move</span><span class='op'>||</span> {
-            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>lock</span> <span class='op'>=</span> <span class='ident'>arc2</span>.<span class='ident'>write</span>().<span class='ident'>unwrap</span>();
-            <span class='kw'>for</span> _ <span class='kw'>in</span> <span class='number'>0</span>..<span class='number'>10</span> {
-                <span class='kw'>let</span> <span class='ident'>tmp</span> <span class='op'>=</span> <span class='kw-2'>*</span><span class='ident'>lock</span>;
-                <span class='kw-2'>*</span><span class='ident'>lock</span> <span class='op'>=</span> <span class='op'>-</span><span class='number'>1</span>;
-                <span class='ident'>thread</span>::<span class='ident'>yield_now</span>();
-                <span class='kw-2'>*</span><span class='ident'>lock</span> <span class='op'>=</span> <span class='ident'>tmp</span> <span class='op'>+</span> <span class='number'>1</span>;
+        <span class="ident">thread</span>::<span class="ident">spawn</span>(<span class="kw">move</span><span class="op">||</span> {
+            <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">lock</span> <span class="op">=</span> <span class="ident">arc2</span>.<span class="ident">write</span>().<span class="ident">unwrap</span>();
+            <span class="kw">for</span> _ <span class="kw">in</span> <span class="number">0</span>..<span class="number">10</span> {
+                <span class="kw">let</span> <span class="ident">tmp</span> <span class="op">=</span> <span class="kw-2">*</span><span class="ident">lock</span>;
+                <span class="kw-2">*</span><span class="ident">lock</span> <span class="op">=</span> <span class="op">-</span><span class="number">1</span>;
+                <span class="ident">thread</span>::<span class="ident">yield_now</span>();
+                <span class="kw-2">*</span><span class="ident">lock</span> <span class="op">=</span> <span class="ident">tmp</span> <span class="op">+</span> <span class="number">1</span>;
             }
-            <span class='ident'>tx</span>.<span class='ident'>send</span>(()).<span class='ident'>unwrap</span>();
+            <span class="ident">tx</span>.<span class="ident">send</span>(()).<span class="ident">unwrap</span>();
         });
 
-        <span class='comment'>// Readers try to catch the writer in the act</span>
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>children</span> <span class='op'>=</span> <span class='ident'>Vec</span>::<span class='ident'>new</span>();
-        <span class='kw'>for</span> _ <span class='kw'>in</span> <span class='number'>0</span>..<span class='number'>5</span> {
-            <span class='kw'>let</span> <span class='ident'>arc3</span> <span class='op'>=</span> <span class='ident'>arc</span>.<span class='ident'>clone</span>();
-            <span class='ident'>children</span>.<span class='ident'>push</span>(<span class='ident'>thread</span>::<span class='ident'>spawn</span>(<span class='kw'>move</span><span class='op'>||</span> {
-                <span class='kw'>let</span> <span class='ident'>lock</span> <span class='op'>=</span> <span class='ident'>arc3</span>.<span class='ident'>read</span>().<span class='ident'>unwrap</span>();
-                <span class='macro'>assert</span><span class='macro'>!</span>(<span class='kw-2'>*</span><span class='ident'>lock</span> <span class='op'>&gt;=</span> <span class='number'>0</span>);
+        <span class="comment">// Readers try to catch the writer in the act</span>
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">children</span> <span class="op">=</span> <span class="ident">Vec</span>::<span class="ident">new</span>();
+        <span class="kw">for</span> _ <span class="kw">in</span> <span class="number">0</span>..<span class="number">5</span> {
+            <span class="kw">let</span> <span class="ident">arc3</span> <span class="op">=</span> <span class="ident">arc</span>.<span class="ident">clone</span>();
+            <span class="ident">children</span>.<span class="ident">push</span>(<span class="ident">thread</span>::<span class="ident">spawn</span>(<span class="kw">move</span><span class="op">||</span> {
+                <span class="kw">let</span> <span class="ident">lock</span> <span class="op">=</span> <span class="ident">arc3</span>.<span class="ident">read</span>().<span class="ident">unwrap</span>();
+                <span class="macro">assert</span><span class="macro">!</span>(<span class="kw-2">*</span><span class="ident">lock</span> <span class="op">&gt;=</span> <span class="number">0</span>);
             }));
         }
 
-        <span class='comment'>// Wait for children to pass their asserts</span>
-        <span class='kw'>for</span> <span class='ident'>r</span> <span class='kw'>in</span> <span class='ident'>children</span> {
-            <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>r</span>.<span class='ident'>join</span>().<span class='ident'>is_ok</span>());
+        <span class="comment">// Wait for children to pass their asserts</span>
+        <span class="kw">for</span> <span class="ident">r</span> <span class="kw">in</span> <span class="ident">children</span> {
+            <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">r</span>.<span class="ident">join</span>().<span class="ident">is_ok</span>());
         }
 
-        <span class='comment'>// Wait for writer to finish</span>
-        <span class='ident'>rx</span>.<span class='ident'>recv</span>().<span class='ident'>unwrap</span>();
-        <span class='kw'>let</span> <span class='ident'>lock</span> <span class='op'>=</span> <span class='ident'>arc</span>.<span class='ident'>read</span>().<span class='ident'>unwrap</span>();
-        <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='kw-2'>*</span><span class='ident'>lock</span>, <span class='number'>10</span>);
+        <span class="comment">// Wait for writer to finish</span>
+        <span class="ident">rx</span>.<span class="ident">recv</span>().<span class="ident">unwrap</span>();
+        <span class="kw">let</span> <span class="ident">lock</span> <span class="op">=</span> <span class="ident">arc</span>.<span class="ident">read</span>().<span class="ident">unwrap</span>();
+        <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="kw-2">*</span><span class="ident">lock</span>, <span class="number">10</span>);
     }
 
-    <span class='attribute'>#[<span class='ident'>test</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>test_rw_arc_access_in_unwind</span>() {
-        <span class='kw'>let</span> <span class='ident'>arc</span> <span class='op'>=</span> <span class='ident'>Arc</span>::<span class='ident'>new</span>(<span class='ident'>RwLock</span>::<span class='ident'>new</span>(<span class='number'>1</span>));
-        <span class='kw'>let</span> <span class='ident'>arc2</span> <span class='op'>=</span> <span class='ident'>arc</span>.<span class='ident'>clone</span>();
-        <span class='kw'>let</span> _ <span class='op'>=</span> <span class='ident'>thread</span>::<span class='ident'>spawn</span>(<span class='kw'>move</span><span class='op'>||</span> <span class='op'>-&gt;</span> () {
-            <span class='kw'>struct</span> <span class='ident'>Unwinder</span> {
-                <span class='ident'>i</span>: <span class='ident'>Arc</span><span class='op'>&lt;</span><span class='ident'>RwLock</span><span class='op'>&lt;</span><span class='ident'>isize</span><span class='op'>&gt;&gt;</span>,
+    <span class="attribute">#[<span class="ident">test</span>]</span>
+    <span class="kw">fn</span> <span class="ident">test_rw_arc_access_in_unwind</span>() {
+        <span class="kw">let</span> <span class="ident">arc</span> <span class="op">=</span> <span class="ident">Arc</span>::<span class="ident">new</span>(<span class="ident">RwLock</span>::<span class="ident">new</span>(<span class="number">1</span>));
+        <span class="kw">let</span> <span class="ident">arc2</span> <span class="op">=</span> <span class="ident">arc</span>.<span class="ident">clone</span>();
+        <span class="kw">let</span> _ <span class="op">=</span> <span class="ident">thread</span>::<span class="ident">spawn</span>(<span class="kw">move</span><span class="op">||</span> <span class="op">-&gt;</span> () {
+            <span class="kw">struct</span> <span class="ident">Unwinder</span> {
+                <span class="ident">i</span>: <span class="ident">Arc</span><span class="op">&lt;</span><span class="ident">RwLock</span><span class="op">&lt;</span><span class="ident">isize</span><span class="op">&gt;&gt;</span>,
             }
-            <span class='kw'>impl</span> <span class='ident'>Drop</span> <span class='kw'>for</span> <span class='ident'>Unwinder</span> {
-                <span class='kw'>fn</span> <span class='ident'>drop</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) {
-                    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>lock</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>i</span>.<span class='ident'>write</span>().<span class='ident'>unwrap</span>();
-                    <span class='kw-2'>*</span><span class='ident'>lock</span> <span class='op'>+=</span> <span class='number'>1</span>;
+            <span class="kw">impl</span> <span class="ident">Drop</span> <span class="kw">for</span> <span class="ident">Unwinder</span> {
+                <span class="kw">fn</span> <span class="ident">drop</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) {
+                    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">lock</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">i</span>.<span class="ident">write</span>().<span class="ident">unwrap</span>();
+                    <span class="kw-2">*</span><span class="ident">lock</span> <span class="op">+=</span> <span class="number">1</span>;
                 }
             }
-            <span class='kw'>let</span> <span class='ident'>_u</span> <span class='op'>=</span> <span class='ident'>Unwinder</span> { <span class='ident'>i</span>: <span class='ident'>arc2</span> };
-            <span class='macro'>panic</span><span class='macro'>!</span>();
-        }).<span class='ident'>join</span>();
-        <span class='kw'>let</span> <span class='ident'>lock</span> <span class='op'>=</span> <span class='ident'>arc</span>.<span class='ident'>read</span>().<span class='ident'>unwrap</span>();
-        <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='kw-2'>*</span><span class='ident'>lock</span>, <span class='number'>2</span>);
+            <span class="kw">let</span> <span class="ident">_u</span> <span class="op">=</span> <span class="ident">Unwinder</span> { <span class="ident">i</span>: <span class="ident">arc2</span> };
+            <span class="macro">panic</span><span class="macro">!</span>();
+        }).<span class="ident">join</span>();
+        <span class="kw">let</span> <span class="ident">lock</span> <span class="op">=</span> <span class="ident">arc</span>.<span class="ident">read</span>().<span class="ident">unwrap</span>();
+        <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="kw-2">*</span><span class="ident">lock</span>, <span class="number">2</span>);
     }
 
-    <span class='attribute'>#[<span class='ident'>test</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>test_rwlock_unsized</span>() {
-        <span class='kw'>let</span> <span class='ident'>rw</span>: <span class='kw-2'>&amp;</span><span class='ident'>RwLock</span><span class='op'>&lt;</span>[<span class='ident'>i32</span>]<span class='op'>&gt;</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='ident'>RwLock</span>::<span class='ident'>new</span>([<span class='number'>1</span>, <span class='number'>2</span>, <span class='number'>3</span>]);
+    <span class="attribute">#[<span class="ident">test</span>]</span>
+    <span class="kw">fn</span> <span class="ident">test_rwlock_unsized</span>() {
+        <span class="kw">let</span> <span class="ident">rw</span>: <span class="kw-2">&amp;</span><span class="ident">RwLock</span><span class="op">&lt;</span>[<span class="ident">i32</span>]<span class="op">&gt;</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="ident">RwLock</span>::<span class="ident">new</span>([<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>]);
         {
-            <span class='kw'>let</span> <span class='ident'>b</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='kw-2'>*</span><span class='ident'>rw</span>.<span class='ident'>write</span>().<span class='ident'>unwrap</span>();
-            <span class='ident'>b</span>[<span class='number'>0</span>] <span class='op'>=</span> <span class='number'>4</span>;
-            <span class='ident'>b</span>[<span class='number'>2</span>] <span class='op'>=</span> <span class='number'>5</span>;
+            <span class="kw">let</span> <span class="ident">b</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="kw-2">*</span><span class="ident">rw</span>.<span class="ident">write</span>().<span class="ident">unwrap</span>();
+            <span class="ident">b</span>[<span class="number">0</span>] <span class="op">=</span> <span class="number">4</span>;
+            <span class="ident">b</span>[<span class="number">2</span>] <span class="op">=</span> <span class="number">5</span>;
         }
-        <span class='kw'>let</span> <span class='ident'>comp</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>i32</span>] <span class='op'>=</span> <span class='kw-2'>&amp;</span>[<span class='number'>4</span>, <span class='number'>2</span>, <span class='number'>5</span>];
-        <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>*</span><span class='ident'>rw</span>.<span class='ident'>read</span>().<span class='ident'>unwrap</span>(), <span class='ident'>comp</span>);
+        <span class="kw">let</span> <span class="ident">comp</span>: <span class="kw-2">&amp;</span>[<span class="ident">i32</span>] <span class="op">=</span> <span class="kw-2">&amp;</span>[<span class="number">4</span>, <span class="number">2</span>, <span class="number">5</span>];
+        <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="kw-2">&amp;</span><span class="kw-2">*</span><span class="ident">rw</span>.<span class="ident">read</span>().<span class="ident">unwrap</span>(), <span class="ident">comp</span>);
     }
 
-    <span class='attribute'>#[<span class='ident'>test</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>test_rwlock_try_write</span>() {
-        <span class='kw'>let</span> <span class='ident'>lock</span> <span class='op'>=</span> <span class='ident'>RwLock</span>::<span class='ident'>new</span>(<span class='number'>0isize</span>);
-        <span class='kw'>let</span> <span class='ident'>read_guard</span> <span class='op'>=</span> <span class='ident'>lock</span>.<span class='ident'>read</span>().<span class='ident'>unwrap</span>();
+    <span class="attribute">#[<span class="ident">test</span>]</span>
+    <span class="kw">fn</span> <span class="ident">test_rwlock_try_write</span>() {
+        <span class="kw">let</span> <span class="ident">lock</span> <span class="op">=</span> <span class="ident">RwLock</span>::<span class="ident">new</span>(<span class="number">0isize</span>);
+        <span class="kw">let</span> <span class="ident">read_guard</span> <span class="op">=</span> <span class="ident">lock</span>.<span class="ident">read</span>().<span class="ident">unwrap</span>();
 
-        <span class='kw'>let</span> <span class='ident'>write_result</span> <span class='op'>=</span> <span class='ident'>lock</span>.<span class='ident'>try_write</span>();
-        <span class='kw'>match</span> <span class='ident'>write_result</span> {
-            <span class='prelude-val'>Err</span>(<span class='ident'>TryLockError</span>::<span class='ident'>WouldBlock</span>) <span class='op'>=&gt;</span> (),
-            <span class='prelude-val'>Ok</span>(_) <span class='op'>=&gt;</span> <span class='macro'>assert</span><span class='macro'>!</span>(<span class='bool-val'>false</span>, <span class='string'>&quot;try_write should not succeed while read_guard is in scope&quot;</span>),
-            <span class='prelude-val'>Err</span>(_) <span class='op'>=&gt;</span> <span class='macro'>assert</span><span class='macro'>!</span>(<span class='bool-val'>false</span>, <span class='string'>&quot;unexpected error&quot;</span>),
+        <span class="kw">let</span> <span class="ident">write_result</span> <span class="op">=</span> <span class="ident">lock</span>.<span class="ident">try_write</span>();
+        <span class="kw">match</span> <span class="ident">write_result</span> {
+            <span class="prelude-val">Err</span>(<span class="ident">TryLockError</span>::<span class="ident">WouldBlock</span>) <span class="op">=&gt;</span> (),
+            <span class="prelude-val">Ok</span>(_) <span class="op">=&gt;</span> <span class="macro">assert</span><span class="macro">!</span>(<span class="bool-val">false</span>, <span class="string">&quot;try_write should not succeed while read_guard is in scope&quot;</span>),
+            <span class="prelude-val">Err</span>(_) <span class="op">=&gt;</span> <span class="macro">assert</span><span class="macro">!</span>(<span class="bool-val">false</span>, <span class="string">&quot;unexpected error&quot;</span>),
         }
 
-        <span class='ident'>drop</span>(<span class='ident'>read_guard</span>);
+        <span class="ident">drop</span>(<span class="ident">read_guard</span>);
     }
 
-    <span class='attribute'>#[<span class='ident'>test</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>test_into_inner</span>() {
-        <span class='kw'>let</span> <span class='ident'>m</span> <span class='op'>=</span> <span class='ident'>RwLock</span>::<span class='ident'>new</span>(<span class='ident'>NonCopy</span>(<span class='number'>10</span>));
-        <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>m</span>.<span class='ident'>into_inner</span>().<span class='ident'>unwrap</span>(), <span class='ident'>NonCopy</span>(<span class='number'>10</span>));
+    <span class="attribute">#[<span class="ident">test</span>]</span>
+    <span class="kw">fn</span> <span class="ident">test_into_inner</span>() {
+        <span class="kw">let</span> <span class="ident">m</span> <span class="op">=</span> <span class="ident">RwLock</span>::<span class="ident">new</span>(<span class="ident">NonCopy</span>(<span class="number">10</span>));
+        <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">m</span>.<span class="ident">into_inner</span>().<span class="ident">unwrap</span>(), <span class="ident">NonCopy</span>(<span class="number">10</span>));
     }
 
-    <span class='attribute'>#[<span class='ident'>test</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>test_into_inner_drop</span>() {
-        <span class='kw'>struct</span> <span class='ident'>Foo</span>(<span class='ident'>Arc</span><span class='op'>&lt;</span><span class='ident'>AtomicUsize</span><span class='op'>&gt;</span>);
-        <span class='kw'>impl</span> <span class='ident'>Drop</span> <span class='kw'>for</span> <span class='ident'>Foo</span> {
-            <span class='kw'>fn</span> <span class='ident'>drop</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) {
-                <span class='self'>self</span>.<span class='number'>0</span>.<span class='ident'>fetch_add</span>(<span class='number'>1</span>, <span class='ident'>Ordering</span>::<span class='ident'>SeqCst</span>);
+    <span class="attribute">#[<span class="ident">test</span>]</span>
+    <span class="kw">fn</span> <span class="ident">test_into_inner_drop</span>() {
+        <span class="kw">struct</span> <span class="ident">Foo</span>(<span class="ident">Arc</span><span class="op">&lt;</span><span class="ident">AtomicUsize</span><span class="op">&gt;</span>);
+        <span class="kw">impl</span> <span class="ident">Drop</span> <span class="kw">for</span> <span class="ident">Foo</span> {
+            <span class="kw">fn</span> <span class="ident">drop</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) {
+                <span class="self">self</span>.<span class="number">0</span>.<span class="ident">fetch_add</span>(<span class="number">1</span>, <span class="ident">Ordering</span>::<span class="ident">SeqCst</span>);
             }
         }
-        <span class='kw'>let</span> <span class='ident'>num_drops</span> <span class='op'>=</span> <span class='ident'>Arc</span>::<span class='ident'>new</span>(<span class='ident'>AtomicUsize</span>::<span class='ident'>new</span>(<span class='number'>0</span>));
-        <span class='kw'>let</span> <span class='ident'>m</span> <span class='op'>=</span> <span class='ident'>RwLock</span>::<span class='ident'>new</span>(<span class='ident'>Foo</span>(<span class='ident'>num_drops</span>.<span class='ident'>clone</span>()));
-        <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>num_drops</span>.<span class='ident'>load</span>(<span class='ident'>Ordering</span>::<span class='ident'>SeqCst</span>), <span class='number'>0</span>);
+        <span class="kw">let</span> <span class="ident">num_drops</span> <span class="op">=</span> <span class="ident">Arc</span>::<span class="ident">new</span>(<span class="ident">AtomicUsize</span>::<span class="ident">new</span>(<span class="number">0</span>));
+        <span class="kw">let</span> <span class="ident">m</span> <span class="op">=</span> <span class="ident">RwLock</span>::<span class="ident">new</span>(<span class="ident">Foo</span>(<span class="ident">num_drops</span>.<span class="ident">clone</span>()));
+        <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">num_drops</span>.<span class="ident">load</span>(<span class="ident">Ordering</span>::<span class="ident">SeqCst</span>), <span class="number">0</span>);
         {
-            <span class='kw'>let</span> <span class='ident'>_inner</span> <span class='op'>=</span> <span class='ident'>m</span>.<span class='ident'>into_inner</span>().<span class='ident'>unwrap</span>();
-            <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>num_drops</span>.<span class='ident'>load</span>(<span class='ident'>Ordering</span>::<span class='ident'>SeqCst</span>), <span class='number'>0</span>);
+            <span class="kw">let</span> <span class="ident">_inner</span> <span class="op">=</span> <span class="ident">m</span>.<span class="ident">into_inner</span>().<span class="ident">unwrap</span>();
+            <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">num_drops</span>.<span class="ident">load</span>(<span class="ident">Ordering</span>::<span class="ident">SeqCst</span>), <span class="number">0</span>);
         }
-        <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>num_drops</span>.<span class='ident'>load</span>(<span class='ident'>Ordering</span>::<span class='ident'>SeqCst</span>), <span class='number'>1</span>);
+        <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">num_drops</span>.<span class="ident">load</span>(<span class="ident">Ordering</span>::<span class="ident">SeqCst</span>), <span class="number">1</span>);
     }
 
-    <span class='attribute'>#[<span class='ident'>test</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>test_into_inner_poison</span>() {
-        <span class='kw'>let</span> <span class='ident'>m</span> <span class='op'>=</span> <span class='ident'>Arc</span>::<span class='ident'>new</span>(<span class='ident'>RwLock</span>::<span class='ident'>new</span>(<span class='ident'>NonCopy</span>(<span class='number'>10</span>)));
-        <span class='kw'>let</span> <span class='ident'>m2</span> <span class='op'>=</span> <span class='ident'>m</span>.<span class='ident'>clone</span>();
-        <span class='kw'>let</span> _ <span class='op'>=</span> <span class='ident'>thread</span>::<span class='ident'>spawn</span>(<span class='kw'>move</span> <span class='op'>||</span> {
-            <span class='kw'>let</span> <span class='ident'>_lock</span> <span class='op'>=</span> <span class='ident'>m2</span>.<span class='ident'>write</span>().<span class='ident'>unwrap</span>();
-            <span class='macro'>panic</span><span class='macro'>!</span>(<span class='string'>&quot;test panic in inner thread to poison RwLock&quot;</span>);
-        }).<span class='ident'>join</span>();
+    <span class="attribute">#[<span class="ident">test</span>]</span>
+    <span class="kw">fn</span> <span class="ident">test_into_inner_poison</span>() {
+        <span class="kw">let</span> <span class="ident">m</span> <span class="op">=</span> <span class="ident">Arc</span>::<span class="ident">new</span>(<span class="ident">RwLock</span>::<span class="ident">new</span>(<span class="ident">NonCopy</span>(<span class="number">10</span>)));
+        <span class="kw">let</span> <span class="ident">m2</span> <span class="op">=</span> <span class="ident">m</span>.<span class="ident">clone</span>();
+        <span class="kw">let</span> _ <span class="op">=</span> <span class="ident">thread</span>::<span class="ident">spawn</span>(<span class="kw">move</span> <span class="op">||</span> {
+            <span class="kw">let</span> <span class="ident">_lock</span> <span class="op">=</span> <span class="ident">m2</span>.<span class="ident">write</span>().<span class="ident">unwrap</span>();
+            <span class="macro">panic</span><span class="macro">!</span>(<span class="string">&quot;test panic in inner thread to poison RwLock&quot;</span>);
+        }).<span class="ident">join</span>();
 
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>m</span>.<span class='ident'>is_poisoned</span>());
-        <span class='kw'>match</span> <span class='ident'>Arc</span>::<span class='ident'>try_unwrap</span>(<span class='ident'>m</span>).<span class='ident'>unwrap</span>().<span class='ident'>into_inner</span>() {
-            <span class='prelude-val'>Err</span>(<span class='ident'>e</span>) <span class='op'>=&gt;</span> <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>e</span>.<span class='ident'>into_inner</span>(), <span class='ident'>NonCopy</span>(<span class='number'>10</span>)),
-            <span class='prelude-val'>Ok</span>(<span class='ident'>x</span>) <span class='op'>=&gt;</span> <span class='macro'>panic</span><span class='macro'>!</span>(<span class='string'>&quot;into_inner of poisoned RwLock is Ok: {:?}&quot;</span>, <span class='ident'>x</span>),
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">m</span>.<span class="ident">is_poisoned</span>());
+        <span class="kw">match</span> <span class="ident">Arc</span>::<span class="ident">try_unwrap</span>(<span class="ident">m</span>).<span class="ident">unwrap</span>().<span class="ident">into_inner</span>() {
+            <span class="prelude-val">Err</span>(<span class="ident">e</span>) <span class="op">=&gt;</span> <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">e</span>.<span class="ident">into_inner</span>(), <span class="ident">NonCopy</span>(<span class="number">10</span>)),
+            <span class="prelude-val">Ok</span>(<span class="ident">x</span>) <span class="op">=&gt;</span> <span class="macro">panic</span><span class="macro">!</span>(<span class="string">&quot;into_inner of poisoned RwLock is Ok: {:?}&quot;</span>, <span class="ident">x</span>),
         }
     }
 
-    <span class='attribute'>#[<span class='ident'>test</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>test_get_mut</span>() {
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>m</span> <span class='op'>=</span> <span class='ident'>RwLock</span>::<span class='ident'>new</span>(<span class='ident'>NonCopy</span>(<span class='number'>10</span>));
-        <span class='kw-2'>*</span><span class='ident'>m</span>.<span class='ident'>get_mut</span>().<span class='ident'>unwrap</span>() <span class='op'>=</span> <span class='ident'>NonCopy</span>(<span class='number'>20</span>);
-        <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>m</span>.<span class='ident'>into_inner</span>().<span class='ident'>unwrap</span>(), <span class='ident'>NonCopy</span>(<span class='number'>20</span>));
+    <span class="attribute">#[<span class="ident">test</span>]</span>
+    <span class="kw">fn</span> <span class="ident">test_get_mut</span>() {
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">m</span> <span class="op">=</span> <span class="ident">RwLock</span>::<span class="ident">new</span>(<span class="ident">NonCopy</span>(<span class="number">10</span>));
+        <span class="kw-2">*</span><span class="ident">m</span>.<span class="ident">get_mut</span>().<span class="ident">unwrap</span>() <span class="op">=</span> <span class="ident">NonCopy</span>(<span class="number">20</span>);
+        <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">m</span>.<span class="ident">into_inner</span>().<span class="ident">unwrap</span>(), <span class="ident">NonCopy</span>(<span class="number">20</span>));
     }
 
-    <span class='attribute'>#[<span class='ident'>test</span>]</span>
-    <span class='kw'>fn</span> <span class='ident'>test_get_mut_poison</span>() {
-        <span class='kw'>let</span> <span class='ident'>m</span> <span class='op'>=</span> <span class='ident'>Arc</span>::<span class='ident'>new</span>(<span class='ident'>RwLock</span>::<span class='ident'>new</span>(<span class='ident'>NonCopy</span>(<span class='number'>10</span>)));
-        <span class='kw'>let</span> <span class='ident'>m2</span> <span class='op'>=</span> <span class='ident'>m</span>.<span class='ident'>clone</span>();
-        <span class='kw'>let</span> _ <span class='op'>=</span> <span class='ident'>thread</span>::<span class='ident'>spawn</span>(<span class='kw'>move</span> <span class='op'>||</span> {
-            <span class='kw'>let</span> <span class='ident'>_lock</span> <span class='op'>=</span> <span class='ident'>m2</span>.<span class='ident'>write</span>().<span class='ident'>unwrap</span>();
-            <span class='macro'>panic</span><span class='macro'>!</span>(<span class='string'>&quot;test panic in inner thread to poison RwLock&quot;</span>);
-        }).<span class='ident'>join</span>();
+    <span class="attribute">#[<span class="ident">test</span>]</span>
+    <span class="kw">fn</span> <span class="ident">test_get_mut_poison</span>() {
+        <span class="kw">let</span> <span class="ident">m</span> <span class="op">=</span> <span class="ident">Arc</span>::<span class="ident">new</span>(<span class="ident">RwLock</span>::<span class="ident">new</span>(<span class="ident">NonCopy</span>(<span class="number">10</span>)));
+        <span class="kw">let</span> <span class="ident">m2</span> <span class="op">=</span> <span class="ident">m</span>.<span class="ident">clone</span>();
+        <span class="kw">let</span> _ <span class="op">=</span> <span class="ident">thread</span>::<span class="ident">spawn</span>(<span class="kw">move</span> <span class="op">||</span> {
+            <span class="kw">let</span> <span class="ident">_lock</span> <span class="op">=</span> <span class="ident">m2</span>.<span class="ident">write</span>().<span class="ident">unwrap</span>();
+            <span class="macro">panic</span><span class="macro">!</span>(<span class="string">&quot;test panic in inner thread to poison RwLock&quot;</span>);
+        }).<span class="ident">join</span>();
 
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>m</span>.<span class='ident'>is_poisoned</span>());
-        <span class='kw'>match</span> <span class='ident'>Arc</span>::<span class='ident'>try_unwrap</span>(<span class='ident'>m</span>).<span class='ident'>unwrap</span>().<span class='ident'>get_mut</span>() {
-            <span class='prelude-val'>Err</span>(<span class='ident'>e</span>) <span class='op'>=&gt;</span> <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='kw-2'>*</span><span class='ident'>e</span>.<span class='ident'>into_inner</span>(), <span class='ident'>NonCopy</span>(<span class='number'>10</span>)),
-            <span class='prelude-val'>Ok</span>(<span class='ident'>x</span>) <span class='op'>=&gt;</span> <span class='macro'>panic</span><span class='macro'>!</span>(<span class='string'>&quot;get_mut of poisoned RwLock is Ok: {:?}&quot;</span>, <span class='ident'>x</span>),
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">m</span>.<span class="ident">is_poisoned</span>());
+        <span class="kw">match</span> <span class="ident">Arc</span>::<span class="ident">try_unwrap</span>(<span class="ident">m</span>).<span class="ident">unwrap</span>().<span class="ident">get_mut</span>() {
+            <span class="prelude-val">Err</span>(<span class="ident">e</span>) <span class="op">=&gt;</span> <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="kw-2">*</span><span class="ident">e</span>.<span class="ident">into_inner</span>(), <span class="ident">NonCopy</span>(<span class="number">10</span>)),
+            <span class="prelude-val">Ok</span>(<span class="ident">x</span>) <span class="op">=&gt;</span> <span class="macro">panic</span><span class="macro">!</span>(<span class="string">&quot;get_mut of poisoned RwLock is Ok: {:?}&quot;</span>, <span class="ident">x</span>),
         }
     }
 }

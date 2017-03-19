@@ -699,666 +699,662 @@
 <span id="654">654</span>
 <span id="655">655</span>
 <span id="656">656</span>
-<span id="657">657</span>
-<span id="658">658</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2014-2015 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2014-2015 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='kw'>use</span> <span class='ident'>CrateCtxt</span>;
-<span class='kw'>use</span> <span class='ident'>check</span>::<span class='ident'>regionck</span>::<span class='ident'>RegionCtxt</span>;
+<span class="kw">use</span> <span class="ident">check</span>::<span class="ident">regionck</span>::<span class="ident">RegionCtxt</span>;
 
-<span class='kw'>use</span> <span class='ident'>hir</span>::<span class='ident'>def_id</span>::<span class='ident'>DefId</span>;
-<span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>free_region</span>::<span class='ident'>FreeRegionMap</span>;
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>infer</span>::{<span class='self'>self</span>, <span class='ident'>InferOk</span>};
-<span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>region</span>;
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::<span class='ident'>subst</span>::{<span class='ident'>Subst</span>, <span class='ident'>Substs</span>};
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>AdtKind</span>, <span class='ident'>Ty</span>, <span class='ident'>TyCtxt</span>};
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>traits</span>::{<span class='self'>self</span>, <span class='ident'>ObligationCause</span>, <span class='ident'>Reveal</span>};
-<span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>nodemap</span>::<span class='ident'>FxHashSet</span>;
+<span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">def_id</span>::<span class="ident">DefId</span>;
+<span class="kw">use</span> <span class="ident">middle</span>::<span class="ident">free_region</span>::<span class="ident">FreeRegionMap</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">infer</span>::{<span class="self">self</span>, <span class="ident">InferOk</span>};
+<span class="kw">use</span> <span class="ident">middle</span>::<span class="ident">region</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::<span class="ident">subst</span>::{<span class="ident">Subst</span>, <span class="ident">Substs</span>};
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">AdtKind</span>, <span class="ident">Ty</span>, <span class="ident">TyCtxt</span>};
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">traits</span>::{<span class="self">self</span>, <span class="ident">ObligationCause</span>, <span class="ident">Reveal</span>};
+<span class="kw">use</span> <span class="ident">util</span>::<span class="ident">common</span>::<span class="ident">ErrorReported</span>;
+<span class="kw">use</span> <span class="ident">util</span>::<span class="ident">nodemap</span>::<span class="ident">FxHashSet</span>;
 
-<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>;
-<span class='kw'>use</span> <span class='ident'>syntax_pos</span>::<span class='ident'>Span</span>;
+<span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">ast</span>;
+<span class="kw">use</span> <span class="ident">syntax_pos</span>::<span class="ident">Span</span>;
 
-<span class='doccomment'>/// check_drop_impl confirms that the Drop implementation identfied by</span>
-<span class='doccomment'>/// `drop_impl_did` is not any more specialized than the type it is</span>
-<span class='doccomment'>/// attached to (Issue #8142).</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This means:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// 1. The self type must be nominal (this is already checked during</span>
-<span class='doccomment'>///    coherence),</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// 2. The generic region/type parameters of the impl&#39;s self-type must</span>
-<span class='doccomment'>///    all be parameters of the Drop impl itself (i.e. no</span>
-<span class='doccomment'>///    specialization like `impl Drop for Foo&lt;i32&gt;`), and,</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// 3. Any bounds on the generic parameters must be reflected in the</span>
-<span class='doccomment'>///    struct/enum definition for the nominal type itself (i.e.</span>
-<span class='doccomment'>///    cannot do `struct S&lt;T&gt;; impl&lt;T:Clone&gt; Drop for S&lt;T&gt; { ... }`).</span>
-<span class='doccomment'>///</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>check_drop_impl</span>(<span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateCtxt</span>, <span class='ident'>drop_impl_did</span>: <span class='ident'>DefId</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(), ()<span class='op'>&gt;</span> {
-    <span class='kw'>let</span> <span class='ident'>dtor_self_type</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>item_type</span>(<span class='ident'>drop_impl_did</span>);
-    <span class='kw'>let</span> <span class='ident'>dtor_predicates</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>item_predicates</span>(<span class='ident'>drop_impl_did</span>);
-    <span class='kw'>match</span> <span class='ident'>dtor_self_type</span>.<span class='ident'>sty</span> {
-        <span class='ident'>ty</span>::<span class='ident'>TyAdt</span>(<span class='ident'>adt_def</span>, <span class='ident'>self_to_impl_substs</span>) <span class='op'>=&gt;</span> {
-            <span class='ident'>ensure_drop_params_and_item_params_correspond</span>(<span class='ident'>ccx</span>,
-                                                          <span class='ident'>drop_impl_did</span>,
-                                                          <span class='ident'>dtor_self_type</span>,
-                                                          <span class='ident'>adt_def</span>.<span class='ident'>did</span>)<span class='question-mark'>?</span>;
+<span class="doccomment">/// check_drop_impl confirms that the Drop implementation identfied by</span>
+<span class="doccomment">/// `drop_impl_did` is not any more specialized than the type it is</span>
+<span class="doccomment">/// attached to (Issue #8142).</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This means:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// 1. The self type must be nominal (this is already checked during</span>
+<span class="doccomment">///    coherence),</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// 2. The generic region/type parameters of the impl&#39;s self-type must</span>
+<span class="doccomment">///    all be parameters of the Drop impl itself (i.e. no</span>
+<span class="doccomment">///    specialization like `impl Drop for Foo&lt;i32&gt;`), and,</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// 3. Any bounds on the generic parameters must be reflected in the</span>
+<span class="doccomment">///    struct/enum definition for the nominal type itself (i.e.</span>
+<span class="doccomment">///    cannot do `struct S&lt;T&gt;; impl&lt;T:Clone&gt; Drop for S&lt;T&gt; { ... }`).</span>
+<span class="doccomment">///</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">check_drop_impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                 <span class="ident">drop_impl_did</span>: <span class="ident">DefId</span>)
+                                 <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">ErrorReported</span><span class="op">&gt;</span> {
+    <span class="kw">let</span> <span class="ident">dtor_self_type</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">item_type</span>(<span class="ident">drop_impl_did</span>);
+    <span class="kw">let</span> <span class="ident">dtor_predicates</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">item_predicates</span>(<span class="ident">drop_impl_did</span>);
+    <span class="kw">match</span> <span class="ident">dtor_self_type</span>.<span class="ident">sty</span> {
+        <span class="ident">ty</span>::<span class="ident">TyAdt</span>(<span class="ident">adt_def</span>, <span class="ident">self_to_impl_substs</span>) <span class="op">=&gt;</span> {
+            <span class="ident">ensure_drop_params_and_item_params_correspond</span>(<span class="ident">tcx</span>,
+                                                          <span class="ident">drop_impl_did</span>,
+                                                          <span class="ident">dtor_self_type</span>,
+                                                          <span class="ident">adt_def</span>.<span class="ident">did</span>)<span class="question-mark">?</span>;
 
-            <span class='ident'>ensure_drop_predicates_are_implied_by_item_defn</span>(<span class='ident'>ccx</span>,
-                                                            <span class='ident'>drop_impl_did</span>,
-                                                            <span class='kw-2'>&amp;</span><span class='ident'>dtor_predicates</span>,
-                                                            <span class='ident'>adt_def</span>.<span class='ident'>did</span>,
-                                                            <span class='ident'>self_to_impl_substs</span>)
+            <span class="ident">ensure_drop_predicates_are_implied_by_item_defn</span>(<span class="ident">tcx</span>,
+                                                            <span class="ident">drop_impl_did</span>,
+                                                            <span class="kw-2">&amp;</span><span class="ident">dtor_predicates</span>,
+                                                            <span class="ident">adt_def</span>.<span class="ident">did</span>,
+                                                            <span class="ident">self_to_impl_substs</span>)
         }
-        _ <span class='op'>=&gt;</span> {
-            <span class='comment'>// Destructors only work on nominal types.  This was</span>
-            <span class='comment'>// already checked by coherence, so we can panic here.</span>
-            <span class='kw'>let</span> <span class='ident'>span</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>.<span class='ident'>def_span</span>(<span class='ident'>drop_impl_did</span>);
-            <span class='macro'>span_bug</span><span class='macro'>!</span>(<span class='ident'>span</span>,
-                      <span class='string'>&quot;should have been rejected by coherence check: {}&quot;</span>,
-                      <span class='ident'>dtor_self_type</span>);
+        _ <span class="op">=&gt;</span> {
+            <span class="comment">// Destructors only work on nominal types.  This was</span>
+            <span class="comment">// already checked by coherence, so we can panic here.</span>
+            <span class="kw">let</span> <span class="ident">span</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">def_span</span>(<span class="ident">drop_impl_did</span>);
+            <span class="macro">span_bug</span><span class="macro">!</span>(<span class="ident">span</span>,
+                      <span class="string">&quot;should have been rejected by coherence check: {}&quot;</span>,
+                      <span class="ident">dtor_self_type</span>);
         }
     }
 }
 
-<span class='kw'>fn</span> <span class='ident'>ensure_drop_params_and_item_params_correspond</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(
-    <span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>drop_impl_did</span>: <span class='ident'>DefId</span>,
-    <span class='ident'>drop_impl_ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>self_type_did</span>: <span class='ident'>DefId</span>)
-    <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(), ()<span class='op'>&gt;</span>
+<span class="kw">fn</span> <span class="ident">ensure_drop_params_and_item_params_correspond</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(
+    <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">drop_impl_did</span>: <span class="ident">DefId</span>,
+    <span class="ident">drop_impl_ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">self_type_did</span>: <span class="ident">DefId</span>)
+    <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">ErrorReported</span><span class="op">&gt;</span>
 {
-    <span class='kw'>let</span> <span class='ident'>tcx</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>;
-    <span class='kw'>let</span> <span class='ident'>drop_impl_node_id</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>hir</span>.<span class='ident'>as_local_node_id</span>(<span class='ident'>drop_impl_did</span>).<span class='ident'>unwrap</span>();
-    <span class='kw'>let</span> <span class='ident'>self_type_node_id</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>hir</span>.<span class='ident'>as_local_node_id</span>(<span class='ident'>self_type_did</span>).<span class='ident'>unwrap</span>();
+    <span class="kw">let</span> <span class="ident">drop_impl_node_id</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">as_local_node_id</span>(<span class="ident">drop_impl_did</span>).<span class="ident">unwrap</span>();
+    <span class="kw">let</span> <span class="ident">self_type_node_id</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">as_local_node_id</span>(<span class="ident">self_type_did</span>).<span class="ident">unwrap</span>();
 
-    <span class='comment'>// check that the impl type can be made to match the trait type.</span>
+    <span class="comment">// check that the impl type can be made to match the trait type.</span>
 
-    <span class='kw'>let</span> <span class='ident'>impl_param_env</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>ParameterEnvironment</span>::<span class='ident'>for_item</span>(<span class='ident'>tcx</span>, <span class='ident'>self_type_node_id</span>);
-    <span class='ident'>tcx</span>.<span class='ident'>infer_ctxt</span>(<span class='ident'>impl_param_env</span>, <span class='ident'>Reveal</span>::<span class='ident'>NotSpecializable</span>).<span class='ident'>enter</span>(<span class='op'>|</span><span class='ident'>infcx</span><span class='op'>|</span> {
-        <span class='kw'>let</span> <span class='ident'>tcx</span> <span class='op'>=</span> <span class='ident'>infcx</span>.<span class='ident'>tcx</span>;
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>fulfillment_cx</span> <span class='op'>=</span> <span class='ident'>traits</span>::<span class='ident'>FulfillmentContext</span>::<span class='ident'>new</span>();
+    <span class="kw">let</span> <span class="ident">impl_param_env</span> <span class="op">=</span> <span class="ident">ty</span>::<span class="ident">ParameterEnvironment</span>::<span class="ident">for_item</span>(<span class="ident">tcx</span>, <span class="ident">self_type_node_id</span>);
+    <span class="ident">tcx</span>.<span class="ident">infer_ctxt</span>(<span class="ident">impl_param_env</span>, <span class="ident">Reveal</span>::<span class="ident">UserFacing</span>).<span class="ident">enter</span>(<span class="op">|</span><span class="ident">infcx</span><span class="op">|</span> {
+        <span class="kw">let</span> <span class="ident">tcx</span> <span class="op">=</span> <span class="ident">infcx</span>.<span class="ident">tcx</span>;
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">fulfillment_cx</span> <span class="op">=</span> <span class="ident">traits</span>::<span class="ident">FulfillmentContext</span>::<span class="ident">new</span>();
 
-        <span class='kw'>let</span> <span class='ident'>named_type</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>item_type</span>(<span class='ident'>self_type_did</span>);
-        <span class='kw'>let</span> <span class='ident'>named_type</span> <span class='op'>=</span> <span class='ident'>named_type</span>.<span class='ident'>subst</span>(<span class='ident'>tcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>infcx</span>.<span class='ident'>parameter_environment</span>.<span class='ident'>free_substs</span>);
+        <span class="kw">let</span> <span class="ident">named_type</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">item_type</span>(<span class="ident">self_type_did</span>);
+        <span class="kw">let</span> <span class="ident">named_type</span> <span class="op">=</span> <span class="ident">named_type</span>.<span class="ident">subst</span>(<span class="ident">tcx</span>, <span class="kw-2">&amp;</span><span class="ident">infcx</span>.<span class="ident">parameter_environment</span>.<span class="ident">free_substs</span>);
 
-        <span class='kw'>let</span> <span class='ident'>drop_impl_span</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>def_span</span>(<span class='ident'>drop_impl_did</span>);
-        <span class='kw'>let</span> <span class='ident'>fresh_impl_substs</span> <span class='op'>=</span>
-            <span class='ident'>infcx</span>.<span class='ident'>fresh_substs_for_item</span>(<span class='ident'>drop_impl_span</span>, <span class='ident'>drop_impl_did</span>);
-        <span class='kw'>let</span> <span class='ident'>fresh_impl_self_ty</span> <span class='op'>=</span> <span class='ident'>drop_impl_ty</span>.<span class='ident'>subst</span>(<span class='ident'>tcx</span>, <span class='ident'>fresh_impl_substs</span>);
+        <span class="kw">let</span> <span class="ident">drop_impl_span</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">def_span</span>(<span class="ident">drop_impl_did</span>);
+        <span class="kw">let</span> <span class="ident">fresh_impl_substs</span> <span class="op">=</span>
+            <span class="ident">infcx</span>.<span class="ident">fresh_substs_for_item</span>(<span class="ident">drop_impl_span</span>, <span class="ident">drop_impl_did</span>);
+        <span class="kw">let</span> <span class="ident">fresh_impl_self_ty</span> <span class="op">=</span> <span class="ident">drop_impl_ty</span>.<span class="ident">subst</span>(<span class="ident">tcx</span>, <span class="ident">fresh_impl_substs</span>);
 
-        <span class='kw'>let</span> <span class='ident'>cause</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='ident'>ObligationCause</span>::<span class='ident'>misc</span>(<span class='ident'>drop_impl_span</span>, <span class='ident'>drop_impl_node_id</span>);
-        <span class='kw'>match</span> <span class='ident'>infcx</span>.<span class='ident'>eq_types</span>(<span class='bool-val'>true</span>, <span class='ident'>cause</span>, <span class='ident'>named_type</span>, <span class='ident'>fresh_impl_self_ty</span>) {
-            <span class='prelude-val'>Ok</span>(<span class='ident'>InferOk</span> { <span class='ident'>obligations</span>, .. }) <span class='op'>=&gt;</span> {
-                <span class='comment'>// FIXME(#32730) propagate obligations</span>
-                <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>obligations</span>.<span class='ident'>is_empty</span>());
+        <span class="kw">let</span> <span class="ident">cause</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="ident">ObligationCause</span>::<span class="ident">misc</span>(<span class="ident">drop_impl_span</span>, <span class="ident">drop_impl_node_id</span>);
+        <span class="kw">match</span> <span class="ident">infcx</span>.<span class="ident">eq_types</span>(<span class="bool-val">true</span>, <span class="ident">cause</span>, <span class="ident">named_type</span>, <span class="ident">fresh_impl_self_ty</span>) {
+            <span class="prelude-val">Ok</span>(<span class="ident">InferOk</span> { <span class="ident">obligations</span>, .. }) <span class="op">=&gt;</span> {
+                <span class="comment">// FIXME(#32730) propagate obligations</span>
+                <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">obligations</span>.<span class="ident">is_empty</span>());
             }
-            <span class='prelude-val'>Err</span>(_) <span class='op'>=&gt;</span> {
-                <span class='kw'>let</span> <span class='ident'>item_span</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>hir</span>.<span class='ident'>span</span>(<span class='ident'>self_type_node_id</span>);
-                <span class='macro'>struct_span_err</span><span class='macro'>!</span>(<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>drop_impl_span</span>, <span class='ident'>E0366</span>,
-                                 <span class='string'>&quot;Implementations of Drop cannot be specialized&quot;</span>)
-                    .<span class='ident'>span_note</span>(<span class='ident'>item_span</span>,
-                               <span class='string'>&quot;Use same sequence of generic type and region \
+            <span class="prelude-val">Err</span>(_) <span class="op">=&gt;</span> {
+                <span class="kw">let</span> <span class="ident">item_span</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">span</span>(<span class="ident">self_type_node_id</span>);
+                <span class="macro">struct_span_err</span><span class="macro">!</span>(<span class="ident">tcx</span>.<span class="ident">sess</span>, <span class="ident">drop_impl_span</span>, <span class="ident">E0366</span>,
+                                 <span class="string">&quot;Implementations of Drop cannot be specialized&quot;</span>)
+                    .<span class="ident">span_note</span>(<span class="ident">item_span</span>,
+                               <span class="string">&quot;Use same sequence of generic type and region \
                                 parameters that is on the struct/enum definition&quot;</span>)
-                    .<span class='ident'>emit</span>();
-                <span class='kw'>return</span> <span class='prelude-val'>Err</span>(());
+                    .<span class="ident">emit</span>();
+                <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">ErrorReported</span>);
             }
         }
 
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Err</span>(<span class='kw-2'>ref</span> <span class='ident'>errors</span>) <span class='op'>=</span> <span class='ident'>fulfillment_cx</span>.<span class='ident'>select_all_or_error</span>(<span class='kw-2'>&amp;</span><span class='ident'>infcx</span>) {
-            <span class='comment'>// this could be reached when we get lazy normalization</span>
-            <span class='ident'>infcx</span>.<span class='ident'>report_fulfillment_errors</span>(<span class='ident'>errors</span>);
-            <span class='kw'>return</span> <span class='prelude-val'>Err</span>(());
+        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Err</span>(<span class="kw-2">ref</span> <span class="ident">errors</span>) <span class="op">=</span> <span class="ident">fulfillment_cx</span>.<span class="ident">select_all_or_error</span>(<span class="kw-2">&amp;</span><span class="ident">infcx</span>) {
+            <span class="comment">// this could be reached when we get lazy normalization</span>
+            <span class="ident">infcx</span>.<span class="ident">report_fulfillment_errors</span>(<span class="ident">errors</span>);
+            <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">ErrorReported</span>);
         }
 
-        <span class='kw'>let</span> <span class='ident'>free_regions</span> <span class='op'>=</span> <span class='ident'>FreeRegionMap</span>::<span class='ident'>new</span>();
-        <span class='ident'>infcx</span>.<span class='ident'>resolve_regions_and_report_errors</span>(<span class='kw-2'>&amp;</span><span class='ident'>free_regions</span>, <span class='ident'>drop_impl_node_id</span>);
-        <span class='prelude-val'>Ok</span>(())
+        <span class="kw">let</span> <span class="ident">free_regions</span> <span class="op">=</span> <span class="ident">FreeRegionMap</span>::<span class="ident">new</span>();
+        <span class="ident">infcx</span>.<span class="ident">resolve_regions_and_report_errors</span>(<span class="kw-2">&amp;</span><span class="ident">free_regions</span>, <span class="ident">drop_impl_node_id</span>);
+        <span class="prelude-val">Ok</span>(())
     })
 }
 
-<span class='doccomment'>/// Confirms that every predicate imposed by dtor_predicates is</span>
-<span class='doccomment'>/// implied by assuming the predicates attached to self_type_did.</span>
-<span class='kw'>fn</span> <span class='ident'>ensure_drop_predicates_are_implied_by_item_defn</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(
-    <span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>drop_impl_did</span>: <span class='ident'>DefId</span>,
-    <span class='ident'>dtor_predicates</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>GenericPredicates</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>self_type_did</span>: <span class='ident'>DefId</span>,
-    <span class='ident'>self_to_impl_substs</span>: <span class='kw-2'>&amp;</span><span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-    <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(), ()<span class='op'>&gt;</span>
+<span class="doccomment">/// Confirms that every predicate imposed by dtor_predicates is</span>
+<span class="doccomment">/// implied by assuming the predicates attached to self_type_did.</span>
+<span class="kw">fn</span> <span class="ident">ensure_drop_predicates_are_implied_by_item_defn</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(
+    <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">drop_impl_did</span>: <span class="ident">DefId</span>,
+    <span class="ident">dtor_predicates</span>: <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">GenericPredicates</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">self_type_did</span>: <span class="ident">DefId</span>,
+    <span class="ident">self_to_impl_substs</span>: <span class="kw-2">&amp;</span><span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+    <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">ErrorReported</span><span class="op">&gt;</span>
 {
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">result</span> <span class="op">=</span> <span class="prelude-val">Ok</span>(());
 
-    <span class='comment'>// Here is an example, analogous to that from</span>
-    <span class='comment'>// `compare_impl_method`.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// Consider a struct type:</span>
-    <span class='comment'>//</span>
-    <span class='comment'>//     struct Type&lt;&#39;c, &#39;b:&#39;c, &#39;a&gt; {</span>
-    <span class='comment'>//         x: &amp;&#39;a Contents            // (contents are irrelevant;</span>
-    <span class='comment'>//         y: &amp;&#39;c Cell&lt;&amp;&#39;b Contents&gt;, //  only the bounds matter for our purposes.)</span>
-    <span class='comment'>//     }</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// and a Drop impl:</span>
-    <span class='comment'>//</span>
-    <span class='comment'>//     impl&lt;&#39;z, &#39;y:&#39;z, &#39;x:&#39;y&gt; Drop for P&lt;&#39;z, &#39;y, &#39;x&gt; {</span>
-    <span class='comment'>//         fn drop(&amp;mut self) { self.y.set(self.x); } // (only legal if &#39;x: &#39;y)</span>
-    <span class='comment'>//     }</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// We start out with self_to_impl_substs, that maps the generic</span>
-    <span class='comment'>// parameters of Type to that of the Drop impl.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>//     self_to_impl_substs = {&#39;c =&gt; &#39;z, &#39;b =&gt; &#39;y, &#39;a =&gt; &#39;x}</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// Applying this to the predicates (i.e. assumptions) provided by the item</span>
-    <span class='comment'>// definition yields the instantiated assumptions:</span>
-    <span class='comment'>//</span>
-    <span class='comment'>//     [&#39;y : &#39;z]</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// We then check all of the predicates of the Drop impl:</span>
-    <span class='comment'>//</span>
-    <span class='comment'>//     [&#39;y:&#39;z, &#39;x:&#39;y]</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// and ensure each is in the list of instantiated</span>
-    <span class='comment'>// assumptions. Here, `&#39;y:&#39;z` is present, but `&#39;x:&#39;y` is</span>
-    <span class='comment'>// absent. So we report an error that the Drop impl injected a</span>
-    <span class='comment'>// predicate that is not present on the struct definition.</span>
+    <span class="comment">// Here is an example, analogous to that from</span>
+    <span class="comment">// `compare_impl_method`.</span>
+    <span class="comment">//</span>
+    <span class="comment">// Consider a struct type:</span>
+    <span class="comment">//</span>
+    <span class="comment">//     struct Type&lt;&#39;c, &#39;b:&#39;c, &#39;a&gt; {</span>
+    <span class="comment">//         x: &amp;&#39;a Contents            // (contents are irrelevant;</span>
+    <span class="comment">//         y: &amp;&#39;c Cell&lt;&amp;&#39;b Contents&gt;, //  only the bounds matter for our purposes.)</span>
+    <span class="comment">//     }</span>
+    <span class="comment">//</span>
+    <span class="comment">// and a Drop impl:</span>
+    <span class="comment">//</span>
+    <span class="comment">//     impl&lt;&#39;z, &#39;y:&#39;z, &#39;x:&#39;y&gt; Drop for P&lt;&#39;z, &#39;y, &#39;x&gt; {</span>
+    <span class="comment">//         fn drop(&amp;mut self) { self.y.set(self.x); } // (only legal if &#39;x: &#39;y)</span>
+    <span class="comment">//     }</span>
+    <span class="comment">//</span>
+    <span class="comment">// We start out with self_to_impl_substs, that maps the generic</span>
+    <span class="comment">// parameters of Type to that of the Drop impl.</span>
+    <span class="comment">//</span>
+    <span class="comment">//     self_to_impl_substs = {&#39;c =&gt; &#39;z, &#39;b =&gt; &#39;y, &#39;a =&gt; &#39;x}</span>
+    <span class="comment">//</span>
+    <span class="comment">// Applying this to the predicates (i.e. assumptions) provided by the item</span>
+    <span class="comment">// definition yields the instantiated assumptions:</span>
+    <span class="comment">//</span>
+    <span class="comment">//     [&#39;y : &#39;z]</span>
+    <span class="comment">//</span>
+    <span class="comment">// We then check all of the predicates of the Drop impl:</span>
+    <span class="comment">//</span>
+    <span class="comment">//     [&#39;y:&#39;z, &#39;x:&#39;y]</span>
+    <span class="comment">//</span>
+    <span class="comment">// and ensure each is in the list of instantiated</span>
+    <span class="comment">// assumptions. Here, `&#39;y:&#39;z` is present, but `&#39;x:&#39;y` is</span>
+    <span class="comment">// absent. So we report an error that the Drop impl injected a</span>
+    <span class="comment">// predicate that is not present on the struct definition.</span>
 
-    <span class='kw'>let</span> <span class='ident'>tcx</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>;
+    <span class="kw">let</span> <span class="ident">self_type_node_id</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">as_local_node_id</span>(<span class="ident">self_type_did</span>).<span class="ident">unwrap</span>();
 
-    <span class='kw'>let</span> <span class='ident'>self_type_node_id</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>hir</span>.<span class='ident'>as_local_node_id</span>(<span class='ident'>self_type_did</span>).<span class='ident'>unwrap</span>();
+    <span class="kw">let</span> <span class="ident">drop_impl_span</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">def_span</span>(<span class="ident">drop_impl_did</span>);
 
-    <span class='kw'>let</span> <span class='ident'>drop_impl_span</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>def_span</span>(<span class='ident'>drop_impl_did</span>);
+    <span class="comment">// We can assume the predicates attached to struct/enum definition</span>
+    <span class="comment">// hold.</span>
+    <span class="kw">let</span> <span class="ident">generic_assumptions</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">item_predicates</span>(<span class="ident">self_type_did</span>);
 
-    <span class='comment'>// We can assume the predicates attached to struct/enum definition</span>
-    <span class='comment'>// hold.</span>
-    <span class='kw'>let</span> <span class='ident'>generic_assumptions</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>item_predicates</span>(<span class='ident'>self_type_did</span>);
+    <span class="kw">let</span> <span class="ident">assumptions_in_impl_context</span> <span class="op">=</span> <span class="ident">generic_assumptions</span>.<span class="ident">instantiate</span>(<span class="ident">tcx</span>, <span class="kw-2">&amp;</span><span class="ident">self_to_impl_substs</span>);
+    <span class="kw">let</span> <span class="ident">assumptions_in_impl_context</span> <span class="op">=</span> <span class="ident">assumptions_in_impl_context</span>.<span class="ident">predicates</span>;
 
-    <span class='kw'>let</span> <span class='ident'>assumptions_in_impl_context</span> <span class='op'>=</span> <span class='ident'>generic_assumptions</span>.<span class='ident'>instantiate</span>(<span class='ident'>tcx</span>, <span class='kw-2'>&amp;</span><span class='ident'>self_to_impl_substs</span>);
-    <span class='kw'>let</span> <span class='ident'>assumptions_in_impl_context</span> <span class='op'>=</span> <span class='ident'>assumptions_in_impl_context</span>.<span class='ident'>predicates</span>;
+    <span class="comment">// An earlier version of this code attempted to do this checking</span>
+    <span class="comment">// via the traits::fulfill machinery. However, it ran into trouble</span>
+    <span class="comment">// since the fulfill machinery merely turns outlives-predicates</span>
+    <span class="comment">// &#39;a:&#39;b and T:&#39;b into region inference constraints. It is simpler</span>
+    <span class="comment">// just to look for all the predicates directly.</span>
 
-    <span class='comment'>// An earlier version of this code attempted to do this checking</span>
-    <span class='comment'>// via the traits::fulfill machinery. However, it ran into trouble</span>
-    <span class='comment'>// since the fulfill machinery merely turns outlives-predicates</span>
-    <span class='comment'>// &#39;a:&#39;b and T:&#39;b into region inference constraints. It is simpler</span>
-    <span class='comment'>// just to look for all the predicates directly.</span>
+    <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">dtor_predicates</span>.<span class="ident">parent</span>, <span class="prelude-val">None</span>);
+    <span class="kw">for</span> <span class="ident">predicate</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="ident">dtor_predicates</span>.<span class="ident">predicates</span> {
+        <span class="comment">// (We do not need to worry about deep analysis of type</span>
+        <span class="comment">// expressions etc because the Drop impls are already forced</span>
+        <span class="comment">// to take on a structure that is roughly an alpha-renaming of</span>
+        <span class="comment">// the generic parameters of the item definition.)</span>
 
-    <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>dtor_predicates</span>.<span class='ident'>parent</span>, <span class='prelude-val'>None</span>);
-    <span class='kw'>for</span> <span class='ident'>predicate</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>dtor_predicates</span>.<span class='ident'>predicates</span> {
-        <span class='comment'>// (We do not need to worry about deep analysis of type</span>
-        <span class='comment'>// expressions etc because the Drop impls are already forced</span>
-        <span class='comment'>// to take on a structure that is roughly an alpha-renaming of</span>
-        <span class='comment'>// the generic parameters of the item definition.)</span>
+        <span class="comment">// This path now just checks *all* predicates via the direct</span>
+        <span class="comment">// lookup, rather than using fulfill machinery.</span>
+        <span class="comment">//</span>
+        <span class="comment">// However, it may be more efficient in the future to batch</span>
+        <span class="comment">// the analysis together via the fulfill , rather than the</span>
+        <span class="comment">// repeated `contains` calls.</span>
 
-        <span class='comment'>// This path now just checks *all* predicates via the direct</span>
-        <span class='comment'>// lookup, rather than using fulfill machinery.</span>
-        <span class='comment'>//</span>
-        <span class='comment'>// However, it may be more efficient in the future to batch</span>
-        <span class='comment'>// the analysis together via the fulfill , rather than the</span>
-        <span class='comment'>// repeated `contains` calls.</span>
-
-        <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>assumptions_in_impl_context</span>.<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>predicate</span>) {
-            <span class='kw'>let</span> <span class='ident'>item_span</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>hir</span>.<span class='ident'>span</span>(<span class='ident'>self_type_node_id</span>);
-            <span class='macro'>struct_span_err</span><span class='macro'>!</span>(<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>drop_impl_span</span>, <span class='ident'>E0367</span>,
-                             <span class='string'>&quot;The requirement `{}` is added only by the Drop impl.&quot;</span>, <span class='ident'>predicate</span>)
-                .<span class='ident'>span_note</span>(<span class='ident'>item_span</span>,
-                           <span class='string'>&quot;The same requirement must be part of \
+        <span class="kw">if</span> <span class="op">!</span><span class="ident">assumptions_in_impl_context</span>.<span class="ident">contains</span>(<span class="kw-2">&amp;</span><span class="ident">predicate</span>) {
+            <span class="kw">let</span> <span class="ident">item_span</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">span</span>(<span class="ident">self_type_node_id</span>);
+            <span class="macro">struct_span_err</span><span class="macro">!</span>(<span class="ident">tcx</span>.<span class="ident">sess</span>, <span class="ident">drop_impl_span</span>, <span class="ident">E0367</span>,
+                             <span class="string">&quot;The requirement `{}` is added only by the Drop impl.&quot;</span>, <span class="ident">predicate</span>)
+                .<span class="ident">span_note</span>(<span class="ident">item_span</span>,
+                           <span class="string">&quot;The same requirement must be part of \
                             the struct/enum definition&quot;</span>)
-                .<span class='ident'>emit</span>();
+                .<span class="ident">emit</span>();
+            <span class="ident">result</span> <span class="op">=</span> <span class="prelude-val">Err</span>(<span class="ident">ErrorReported</span>);
         }
     }
 
-    <span class='kw'>if</span> <span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>has_errors</span>() {
-        <span class='kw'>return</span> <span class='prelude-val'>Err</span>(());
-    }
-    <span class='prelude-val'>Ok</span>(())
+    <span class="ident">result</span>
 }
 
-<span class='doccomment'>/// check_safety_of_destructor_if_necessary confirms that the type</span>
-<span class='doccomment'>/// expression `typ` conforms to the &quot;Drop Check Rule&quot; from the Sound</span>
-<span class='doccomment'>/// Generic Drop (RFC 769).</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ----</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// The simplified (*) Drop Check Rule is the following:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Let `v` be some value (either temporary or named) and &#39;a be some</span>
-<span class='doccomment'>/// lifetime (scope). If the type of `v` owns data of type `D`, where</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// * (1.) `D` has a lifetime- or type-parametric Drop implementation,</span>
-<span class='doccomment'>///        (where that `Drop` implementation does not opt-out of</span>
-<span class='doccomment'>///         this check via the `unsafe_destructor_blind_to_params`</span>
-<span class='doccomment'>///         attribute), and</span>
-<span class='doccomment'>/// * (2.) the structure of `D` can reach a reference of type `&amp;&#39;a _`,</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// then &#39;a must strictly outlive the scope of v.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ----</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This function is meant to by applied to the type for every</span>
-<span class='doccomment'>/// expression in the program.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ----</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// (*) The qualifier &quot;simplified&quot; is attached to the above</span>
-<span class='doccomment'>/// definition of the Drop Check Rule, because it is a simplification</span>
-<span class='doccomment'>/// of the original Drop Check rule, which attempted to prove that</span>
-<span class='doccomment'>/// some `Drop` implementations could not possibly access data even if</span>
-<span class='doccomment'>/// it was technically reachable, due to parametricity.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// However, (1.) parametricity on its own turned out to be a</span>
-<span class='doccomment'>/// necessary but insufficient condition, and (2.)  future changes to</span>
-<span class='doccomment'>/// the language are expected to make it impossible to ensure that a</span>
-<span class='doccomment'>/// `Drop` implementation is actually parametric with respect to any</span>
-<span class='doccomment'>/// particular type parameter. (In particular, impl specialization is</span>
-<span class='doccomment'>/// expected to break the needed parametricity property beyond</span>
-<span class='doccomment'>/// repair.)</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Therefore we have scaled back Drop-Check to a more conservative</span>
-<span class='doccomment'>/// rule that does not attempt to deduce whether a `Drop`</span>
-<span class='doccomment'>/// implementation could not possible access data of a given lifetime;</span>
-<span class='doccomment'>/// instead Drop-Check now simply assumes that if a destructor has</span>
-<span class='doccomment'>/// access (direct or indirect) to a lifetime parameter, then that</span>
-<span class='doccomment'>/// lifetime must be forced to outlive that destructor&#39;s dynamic</span>
-<span class='doccomment'>/// extent. We then provide the `unsafe_destructor_blind_to_params`</span>
-<span class='doccomment'>/// attribute as a way for destructor implementations to opt-out of</span>
-<span class='doccomment'>/// this conservative assumption (and thus assume the obligation of</span>
-<span class='doccomment'>/// ensuring that they do not access data nor invoke methods of</span>
-<span class='doccomment'>/// values that have been previously dropped).</span>
-<span class='doccomment'>///</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>check_safety_of_destructor_if_necessary</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(
-    <span class='ident'>rcx</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>RegionCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>typ</span>: <span class='ident'>ty</span>::<span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>span</span>: <span class='ident'>Span</span>,
-    <span class='ident'>scope</span>: <span class='ident'>region</span>::<span class='ident'>CodeExtent</span>)
+<span class="doccomment">/// check_safety_of_destructor_if_necessary confirms that the type</span>
+<span class="doccomment">/// expression `typ` conforms to the &quot;Drop Check Rule&quot; from the Sound</span>
+<span class="doccomment">/// Generic Drop (RFC 769).</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ----</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// The simplified (*) Drop Check Rule is the following:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Let `v` be some value (either temporary or named) and &#39;a be some</span>
+<span class="doccomment">/// lifetime (scope). If the type of `v` owns data of type `D`, where</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// * (1.) `D` has a lifetime- or type-parametric Drop implementation,</span>
+<span class="doccomment">///        (where that `Drop` implementation does not opt-out of</span>
+<span class="doccomment">///         this check via the `unsafe_destructor_blind_to_params`</span>
+<span class="doccomment">///         attribute), and</span>
+<span class="doccomment">/// * (2.) the structure of `D` can reach a reference of type `&amp;&#39;a _`,</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// then &#39;a must strictly outlive the scope of v.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ----</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This function is meant to by applied to the type for every</span>
+<span class="doccomment">/// expression in the program.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ----</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// (*) The qualifier &quot;simplified&quot; is attached to the above</span>
+<span class="doccomment">/// definition of the Drop Check Rule, because it is a simplification</span>
+<span class="doccomment">/// of the original Drop Check rule, which attempted to prove that</span>
+<span class="doccomment">/// some `Drop` implementations could not possibly access data even if</span>
+<span class="doccomment">/// it was technically reachable, due to parametricity.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// However, (1.) parametricity on its own turned out to be a</span>
+<span class="doccomment">/// necessary but insufficient condition, and (2.)  future changes to</span>
+<span class="doccomment">/// the language are expected to make it impossible to ensure that a</span>
+<span class="doccomment">/// `Drop` implementation is actually parametric with respect to any</span>
+<span class="doccomment">/// particular type parameter. (In particular, impl specialization is</span>
+<span class="doccomment">/// expected to break the needed parametricity property beyond</span>
+<span class="doccomment">/// repair.)</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Therefore we have scaled back Drop-Check to a more conservative</span>
+<span class="doccomment">/// rule that does not attempt to deduce whether a `Drop`</span>
+<span class="doccomment">/// implementation could not possible access data of a given lifetime;</span>
+<span class="doccomment">/// instead Drop-Check now simply assumes that if a destructor has</span>
+<span class="doccomment">/// access (direct or indirect) to a lifetime parameter, then that</span>
+<span class="doccomment">/// lifetime must be forced to outlive that destructor&#39;s dynamic</span>
+<span class="doccomment">/// extent. We then provide the `unsafe_destructor_blind_to_params`</span>
+<span class="doccomment">/// attribute as a way for destructor implementations to opt-out of</span>
+<span class="doccomment">/// this conservative assumption (and thus assume the obligation of</span>
+<span class="doccomment">/// ensuring that they do not access data nor invoke methods of</span>
+<span class="doccomment">/// values that have been previously dropped).</span>
+<span class="doccomment">///</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">check_safety_of_destructor_if_necessary</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(
+    <span class="ident">rcx</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">RegionCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">typ</span>: <span class="ident">ty</span>::<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">span</span>: <span class="ident">Span</span>,
+    <span class="ident">scope</span>: <span class="ident">region</span>::<span class="ident">CodeExtent</span>)
 {
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;check_safety_of_destructor_if_necessary typ: {:?} scope: {:?}&quot;</span>,
-           <span class='ident'>typ</span>, <span class='ident'>scope</span>);
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;check_safety_of_destructor_if_necessary typ: {:?} scope: {:?}&quot;</span>,
+           <span class="ident">typ</span>, <span class="ident">scope</span>);
 
-    <span class='kw'>let</span> <span class='ident'>parent_scope</span> <span class='op'>=</span> <span class='ident'>rcx</span>.<span class='ident'>tcx</span>.<span class='ident'>region_maps</span>.<span class='ident'>opt_encl_scope</span>(<span class='ident'>scope</span>).<span class='ident'>unwrap_or_else</span>(<span class='op'>||</span> {
-        <span class='macro'>span_bug</span><span class='macro'>!</span>(<span class='ident'>span</span>, <span class='string'>&quot;no enclosing scope found for scope: {:?}&quot;</span>, <span class='ident'>scope</span>)
+    <span class="kw">let</span> <span class="ident">parent_scope</span> <span class="op">=</span> <span class="ident">rcx</span>.<span class="ident">tcx</span>.<span class="ident">region_maps</span>.<span class="ident">opt_encl_scope</span>(<span class="ident">scope</span>).<span class="ident">unwrap_or_else</span>(<span class="op">||</span> {
+        <span class="macro">span_bug</span><span class="macro">!</span>(<span class="ident">span</span>, <span class="string">&quot;no enclosing scope found for scope: {:?}&quot;</span>, <span class="ident">scope</span>)
     });
 
-    <span class='kw'>let</span> <span class='ident'>result</span> <span class='op'>=</span> <span class='ident'>iterate_over_potentially_unsafe_regions_in_type</span>(
-        <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>DropckContext</span> {
-            <span class='ident'>rcx</span>: <span class='ident'>rcx</span>,
-            <span class='ident'>span</span>: <span class='ident'>span</span>,
-            <span class='ident'>parent_scope</span>: <span class='ident'>parent_scope</span>,
-            <span class='ident'>breadcrumbs</span>: <span class='ident'>FxHashSet</span>()
+    <span class="kw">let</span> <span class="ident">result</span> <span class="op">=</span> <span class="ident">iterate_over_potentially_unsafe_regions_in_type</span>(
+        <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">DropckContext</span> {
+            <span class="ident">rcx</span>: <span class="ident">rcx</span>,
+            <span class="ident">span</span>: <span class="ident">span</span>,
+            <span class="ident">parent_scope</span>: <span class="ident">parent_scope</span>,
+            <span class="ident">breadcrumbs</span>: <span class="ident">FxHashSet</span>()
         },
-        <span class='ident'>TypeContext</span>::<span class='ident'>Root</span>,
-        <span class='ident'>typ</span>,
-        <span class='number'>0</span>);
-    <span class='kw'>match</span> <span class='ident'>result</span> {
-        <span class='prelude-val'>Ok</span>(()) <span class='op'>=&gt;</span> {}
-        <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>Overflow</span>(<span class='kw-2'>ref</span> <span class='ident'>ctxt</span>, <span class='kw-2'>ref</span> <span class='ident'>detected_on_typ</span>)) <span class='op'>=&gt;</span> {
-            <span class='kw'>let</span> <span class='ident'>tcx</span> <span class='op'>=</span> <span class='ident'>rcx</span>.<span class='ident'>tcx</span>;
-            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>err</span> <span class='op'>=</span> <span class='macro'>struct_span_err</span><span class='macro'>!</span>(<span class='ident'>tcx</span>.<span class='ident'>sess</span>, <span class='ident'>span</span>, <span class='ident'>E0320</span>,
-                                           <span class='string'>&quot;overflow while adding drop-check rules for {}&quot;</span>, <span class='ident'>typ</span>);
-            <span class='kw'>match</span> <span class='kw-2'>*</span><span class='ident'>ctxt</span> {
-                <span class='ident'>TypeContext</span>::<span class='ident'>Root</span> <span class='op'>=&gt;</span> {
-                    <span class='comment'>// no need for an additional note if the overflow</span>
-                    <span class='comment'>// was somehow on the root.</span>
+        <span class="ident">TypeContext</span>::<span class="ident">Root</span>,
+        <span class="ident">typ</span>,
+        <span class="number">0</span>);
+    <span class="kw">match</span> <span class="ident">result</span> {
+        <span class="prelude-val">Ok</span>(()) <span class="op">=&gt;</span> {}
+        <span class="prelude-val">Err</span>(<span class="ident">Error</span>::<span class="ident">Overflow</span>(<span class="kw-2">ref</span> <span class="ident">ctxt</span>, <span class="kw-2">ref</span> <span class="ident">detected_on_typ</span>)) <span class="op">=&gt;</span> {
+            <span class="kw">let</span> <span class="ident">tcx</span> <span class="op">=</span> <span class="ident">rcx</span>.<span class="ident">tcx</span>;
+            <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">err</span> <span class="op">=</span> <span class="macro">struct_span_err</span><span class="macro">!</span>(<span class="ident">tcx</span>.<span class="ident">sess</span>, <span class="ident">span</span>, <span class="ident">E0320</span>,
+                                           <span class="string">&quot;overflow while adding drop-check rules for {}&quot;</span>, <span class="ident">typ</span>);
+            <span class="kw">match</span> <span class="kw-2">*</span><span class="ident">ctxt</span> {
+                <span class="ident">TypeContext</span>::<span class="ident">Root</span> <span class="op">=&gt;</span> {
+                    <span class="comment">// no need for an additional note if the overflow</span>
+                    <span class="comment">// was somehow on the root.</span>
                 }
-                <span class='ident'>TypeContext</span>::<span class='ident'>ADT</span> { <span class='ident'>def_id</span>, <span class='ident'>variant</span>, <span class='ident'>field</span> } <span class='op'>=&gt;</span> {
-                    <span class='kw'>let</span> <span class='ident'>adt</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>lookup_adt_def</span>(<span class='ident'>def_id</span>);
-                    <span class='kw'>let</span> <span class='ident'>variant_name</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>adt</span>.<span class='ident'>adt_kind</span>() {
-                        <span class='ident'>AdtKind</span>::<span class='ident'>Enum</span> <span class='op'>=&gt;</span> <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;enum {} variant {}&quot;</span>,
-                                                 <span class='ident'>tcx</span>.<span class='ident'>item_path_str</span>(<span class='ident'>def_id</span>),
-                                                 <span class='ident'>variant</span>),
-                        <span class='ident'>AdtKind</span>::<span class='ident'>Struct</span> <span class='op'>=&gt;</span> <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;struct {}&quot;</span>,
-                                                   <span class='ident'>tcx</span>.<span class='ident'>item_path_str</span>(<span class='ident'>def_id</span>)),
-                        <span class='ident'>AdtKind</span>::<span class='ident'>Union</span> <span class='op'>=&gt;</span> <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;union {}&quot;</span>,
-                                                  <span class='ident'>tcx</span>.<span class='ident'>item_path_str</span>(<span class='ident'>def_id</span>)),
+                <span class="ident">TypeContext</span>::<span class="ident">ADT</span> { <span class="ident">def_id</span>, <span class="ident">variant</span>, <span class="ident">field</span> } <span class="op">=&gt;</span> {
+                    <span class="kw">let</span> <span class="ident">adt</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">lookup_adt_def</span>(<span class="ident">def_id</span>);
+                    <span class="kw">let</span> <span class="ident">variant_name</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">adt</span>.<span class="ident">adt_kind</span>() {
+                        <span class="ident">AdtKind</span>::<span class="ident">Enum</span> <span class="op">=&gt;</span> <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;enum {} variant {}&quot;</span>,
+                                                 <span class="ident">tcx</span>.<span class="ident">item_path_str</span>(<span class="ident">def_id</span>),
+                                                 <span class="ident">variant</span>),
+                        <span class="ident">AdtKind</span>::<span class="ident">Struct</span> <span class="op">=&gt;</span> <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;struct {}&quot;</span>,
+                                                   <span class="ident">tcx</span>.<span class="ident">item_path_str</span>(<span class="ident">def_id</span>)),
+                        <span class="ident">AdtKind</span>::<span class="ident">Union</span> <span class="op">=&gt;</span> <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;union {}&quot;</span>,
+                                                  <span class="ident">tcx</span>.<span class="ident">item_path_str</span>(<span class="ident">def_id</span>)),
                     };
-                    <span class='macro'>span_note</span><span class='macro'>!</span>(
-                        <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>err</span>,
-                        <span class='ident'>span</span>,
-                        <span class='string'>&quot;overflowed on {} field {} type: {}&quot;</span>,
-                        <span class='ident'>variant_name</span>,
-                        <span class='ident'>field</span>,
-                        <span class='ident'>detected_on_typ</span>);
+                    <span class="macro">span_note</span><span class="macro">!</span>(
+                        <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">err</span>,
+                        <span class="ident">span</span>,
+                        <span class="string">&quot;overflowed on {} field {} type: {}&quot;</span>,
+                        <span class="ident">variant_name</span>,
+                        <span class="ident">field</span>,
+                        <span class="ident">detected_on_typ</span>);
                 }
             }
-            <span class='ident'>err</span>.<span class='ident'>emit</span>();
+            <span class="ident">err</span>.<span class="ident">emit</span>();
         }
     }
 }
 
-<span class='kw'>enum</span> <span class='ident'>Error</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='ident'>Overflow</span>(<span class='ident'>TypeContext</span>, <span class='ident'>ty</span>::<span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>),
+<span class="kw">enum</span> <span class="ident">Error</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="ident">Overflow</span>(<span class="ident">TypeContext</span>, <span class="ident">ty</span>::<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>),
 }
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Copy</span>, <span class='ident'>Clone</span>)]</span>
-<span class='kw'>enum</span> <span class='ident'>TypeContext</span> {
-    <span class='ident'>Root</span>,
-    <span class='ident'>ADT</span> {
-        <span class='ident'>def_id</span>: <span class='ident'>DefId</span>,
-        <span class='ident'>variant</span>: <span class='ident'>ast</span>::<span class='ident'>Name</span>,
-        <span class='ident'>field</span>: <span class='ident'>ast</span>::<span class='ident'>Name</span>,
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Copy</span>, <span class="ident">Clone</span>)]</span>
+<span class="kw">enum</span> <span class="ident">TypeContext</span> {
+    <span class="ident">Root</span>,
+    <span class="ident">ADT</span> {
+        <span class="ident">def_id</span>: <span class="ident">DefId</span>,
+        <span class="ident">variant</span>: <span class="ident">ast</span>::<span class="ident">Name</span>,
+        <span class="ident">field</span>: <span class="ident">ast</span>::<span class="ident">Name</span>,
     }
 }
 
-<span class='kw'>struct</span> <span class='ident'>DropckContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;b</span>: <span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>: <span class='lifetime'>&#39;b</span><span class='op'>+</span><span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span>: <span class='lifetime'>&#39;b</span><span class='op'>&gt;</span> {
-    <span class='ident'>rcx</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='ident'>RegionCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;b</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='doccomment'>/// types that have already been traversed</span>
-    <span class='ident'>breadcrumbs</span>: <span class='ident'>FxHashSet</span><span class='op'>&lt;</span><span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>,
-    <span class='doccomment'>/// span for error reporting</span>
-    <span class='ident'>span</span>: <span class='ident'>Span</span>,
-    <span class='doccomment'>/// the scope reachable dtorck types must outlive</span>
-    <span class='ident'>parent_scope</span>: <span class='ident'>region</span>::<span class='ident'>CodeExtent</span>
+<span class="kw">struct</span> <span class="ident">DropckContext</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;b</span>: <span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>: <span class="lifetime">&#39;b</span><span class="op">+</span><span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span>: <span class="lifetime">&#39;b</span><span class="op">&gt;</span> {
+    <span class="ident">rcx</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="kw-2">mut</span> <span class="ident">RegionCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;b</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="doccomment">/// types that have already been traversed</span>
+    <span class="ident">breadcrumbs</span>: <span class="ident">FxHashSet</span><span class="op">&lt;</span><span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,
+    <span class="doccomment">/// span for error reporting</span>
+    <span class="ident">span</span>: <span class="ident">Span</span>,
+    <span class="doccomment">/// the scope reachable dtorck types must outlive</span>
+    <span class="ident">parent_scope</span>: <span class="ident">region</span>::<span class="ident">CodeExtent</span>
 }
 
-<span class='comment'>// `context` is used for reporting overflow errors</span>
-<span class='kw'>fn</span> <span class='ident'>iterate_over_potentially_unsafe_regions_in_type</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;b</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(
-    <span class='ident'>cx</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>DropckContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;b</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>context</span>: <span class='ident'>TypeContext</span>,
-    <span class='ident'>ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>depth</span>: <span class='ident'>usize</span>)
-    <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span>(), <span class='ident'>Error</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>
+<span class="comment">// `context` is used for reporting overflow errors</span>
+<span class="kw">fn</span> <span class="ident">iterate_over_potentially_unsafe_regions_in_type</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;b</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(
+    <span class="ident">cx</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">DropckContext</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;b</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">context</span>: <span class="ident">TypeContext</span>,
+    <span class="ident">ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">depth</span>: <span class="ident">usize</span>)
+    <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">Error</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>
 {
-    <span class='kw'>let</span> <span class='ident'>tcx</span> <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>rcx</span>.<span class='ident'>tcx</span>;
-    <span class='comment'>// Issue #22443: Watch out for overflow. While we are careful to</span>
-    <span class='comment'>// handle regular types properly, non-regular ones cause problems.</span>
-    <span class='kw'>let</span> <span class='ident'>recursion_limit</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>recursion_limit</span>.<span class='ident'>get</span>();
-    <span class='kw'>if</span> <span class='ident'>depth</span> <span class='op'>/</span> <span class='number'>4</span> <span class='op'>&gt;=</span> <span class='ident'>recursion_limit</span> {
-        <span class='comment'>// This can get into rather deep recursion, especially in the</span>
-        <span class='comment'>// presence of things like Vec&lt;T&gt; -&gt; Unique&lt;T&gt; -&gt; PhantomData&lt;T&gt; -&gt; T.</span>
-        <span class='comment'>// use a higher recursion limit to avoid errors.</span>
-        <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>Error</span>::<span class='ident'>Overflow</span>(<span class='ident'>context</span>, <span class='ident'>ty</span>))
+    <span class="kw">let</span> <span class="ident">tcx</span> <span class="op">=</span> <span class="ident">cx</span>.<span class="ident">rcx</span>.<span class="ident">tcx</span>;
+    <span class="comment">// Issue #22443: Watch out for overflow. While we are careful to</span>
+    <span class="comment">// handle regular types properly, non-regular ones cause problems.</span>
+    <span class="kw">let</span> <span class="ident">recursion_limit</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">sess</span>.<span class="ident">recursion_limit</span>.<span class="ident">get</span>();
+    <span class="kw">if</span> <span class="ident">depth</span> <span class="op">/</span> <span class="number">4</span> <span class="op">&gt;=</span> <span class="ident">recursion_limit</span> {
+        <span class="comment">// This can get into rather deep recursion, especially in the</span>
+        <span class="comment">// presence of things like Vec&lt;T&gt; -&gt; Unique&lt;T&gt; -&gt; PhantomData&lt;T&gt; -&gt; T.</span>
+        <span class="comment">// use a higher recursion limit to avoid errors.</span>
+        <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">Error</span>::<span class="ident">Overflow</span>(<span class="ident">context</span>, <span class="ident">ty</span>))
     }
 
-    <span class='comment'>// canoncialize the regions in `ty` before inserting - infinitely many</span>
-    <span class='comment'>// region variables can refer to the same region.</span>
-    <span class='kw'>let</span> <span class='ident'>ty</span> <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>rcx</span>.<span class='ident'>resolve_type_and_region_vars_if_possible</span>(<span class='kw-2'>&amp;</span><span class='ident'>ty</span>);
+    <span class="comment">// canoncialize the regions in `ty` before inserting - infinitely many</span>
+    <span class="comment">// region variables can refer to the same region.</span>
+    <span class="kw">let</span> <span class="ident">ty</span> <span class="op">=</span> <span class="ident">cx</span>.<span class="ident">rcx</span>.<span class="ident">resolve_type_and_region_vars_if_possible</span>(<span class="kw-2">&amp;</span><span class="ident">ty</span>);
 
-    <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>cx</span>.<span class='ident'>breadcrumbs</span>.<span class='ident'>insert</span>(<span class='ident'>ty</span>) {
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;iterate_over_potentially_unsafe_regions_in_type \
+    <span class="kw">if</span> <span class="op">!</span><span class="ident">cx</span>.<span class="ident">breadcrumbs</span>.<span class="ident">insert</span>(<span class="ident">ty</span>) {
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;iterate_over_potentially_unsafe_regions_in_type \
                {}ty: {} scope: {:?} - cached&quot;</span>,
-               (<span class='number'>0</span>..<span class='ident'>depth</span>).<span class='ident'>map</span>(<span class='op'>|</span>_<span class='op'>|</span> <span class='string'>&#39; &#39;</span>).<span class='ident'>collect</span>::<span class='op'>&lt;</span><span class='ident'>String</span><span class='op'>&gt;</span>(),
-               <span class='ident'>ty</span>, <span class='ident'>cx</span>.<span class='ident'>parent_scope</span>);
-        <span class='kw'>return</span> <span class='prelude-val'>Ok</span>(()); <span class='comment'>// we already visited this type</span>
+               (<span class="number">0</span>..<span class="ident">depth</span>).<span class="ident">map</span>(<span class="op">|</span>_<span class="op">|</span> <span class="string">&#39; &#39;</span>).<span class="ident">collect</span>::<span class="op">&lt;</span><span class="ident">String</span><span class="op">&gt;</span>(),
+               <span class="ident">ty</span>, <span class="ident">cx</span>.<span class="ident">parent_scope</span>);
+        <span class="kw">return</span> <span class="prelude-val">Ok</span>(()); <span class="comment">// we already visited this type</span>
     }
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;iterate_over_potentially_unsafe_regions_in_type \
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;iterate_over_potentially_unsafe_regions_in_type \
            {}ty: {} scope: {:?}&quot;</span>,
-           (<span class='number'>0</span>..<span class='ident'>depth</span>).<span class='ident'>map</span>(<span class='op'>|</span>_<span class='op'>|</span> <span class='string'>&#39; &#39;</span>).<span class='ident'>collect</span>::<span class='op'>&lt;</span><span class='ident'>String</span><span class='op'>&gt;</span>(),
-           <span class='ident'>ty</span>, <span class='ident'>cx</span>.<span class='ident'>parent_scope</span>);
+           (<span class="number">0</span>..<span class="ident">depth</span>).<span class="ident">map</span>(<span class="op">|</span>_<span class="op">|</span> <span class="string">&#39; &#39;</span>).<span class="ident">collect</span>::<span class="op">&lt;</span><span class="ident">String</span><span class="op">&gt;</span>(),
+           <span class="ident">ty</span>, <span class="ident">cx</span>.<span class="ident">parent_scope</span>);
 
-    <span class='comment'>// If `typ` has a destructor, then we must ensure that all</span>
-    <span class='comment'>// borrowed data reachable via `typ` must outlive the parent</span>
-    <span class='comment'>// of `scope`. This is handled below.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// However, there is an important special case: for any Drop</span>
-    <span class='comment'>// impl that is tagged as &quot;blind&quot; to their parameters,</span>
-    <span class='comment'>// we assume that data borrowed via such type parameters</span>
-    <span class='comment'>// remains unreachable via that Drop impl.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// For example, consider:</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// ```rust</span>
-    <span class='comment'>// #[unsafe_destructor_blind_to_params]</span>
-    <span class='comment'>// impl&lt;T&gt; Drop for Vec&lt;T&gt; { ... }</span>
-    <span class='comment'>// ```</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// which does have to be able to drop instances of `T`, but</span>
-    <span class='comment'>// otherwise cannot read data from `T`.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// Of course, for the type expression passed in for any such</span>
-    <span class='comment'>// unbounded type parameter `T`, we must resume the recursive</span>
-    <span class='comment'>// analysis on `T` (since it would be ignored by</span>
-    <span class='comment'>// type_must_outlive).</span>
-    <span class='kw'>let</span> <span class='ident'>dropck_kind</span> <span class='op'>=</span> <span class='ident'>has_dtor_of_interest</span>(<span class='ident'>tcx</span>, <span class='ident'>ty</span>);
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;iterate_over_potentially_unsafe_regions_in_type \
-            ty: {:?} dropck_kind: {:?}&quot;</span>, <span class='ident'>ty</span>, <span class='ident'>dropck_kind</span>);
-    <span class='kw'>match</span> <span class='ident'>dropck_kind</span> {
-        <span class='ident'>DropckKind</span>::<span class='ident'>NoBorrowedDataAccessedInMyDtor</span> <span class='op'>=&gt;</span> {
-            <span class='comment'>// The maximally blind attribute.</span>
+    <span class="comment">// If `typ` has a destructor, then we must ensure that all</span>
+    <span class="comment">// borrowed data reachable via `typ` must outlive the parent</span>
+    <span class="comment">// of `scope`. This is handled below.</span>
+    <span class="comment">//</span>
+    <span class="comment">// However, there is an important special case: for any Drop</span>
+    <span class="comment">// impl that is tagged as &quot;blind&quot; to their parameters,</span>
+    <span class="comment">// we assume that data borrowed via such type parameters</span>
+    <span class="comment">// remains unreachable via that Drop impl.</span>
+    <span class="comment">//</span>
+    <span class="comment">// For example, consider:</span>
+    <span class="comment">//</span>
+    <span class="comment">// ```rust</span>
+    <span class="comment">// #[unsafe_destructor_blind_to_params]</span>
+    <span class="comment">// impl&lt;T&gt; Drop for Vec&lt;T&gt; { ... }</span>
+    <span class="comment">// ```</span>
+    <span class="comment">//</span>
+    <span class="comment">// which does have to be able to drop instances of `T`, but</span>
+    <span class="comment">// otherwise cannot read data from `T`.</span>
+    <span class="comment">//</span>
+    <span class="comment">// Of course, for the type expression passed in for any such</span>
+    <span class="comment">// unbounded type parameter `T`, we must resume the recursive</span>
+    <span class="comment">// analysis on `T` (since it would be ignored by</span>
+    <span class="comment">// type_must_outlive).</span>
+    <span class="kw">let</span> <span class="ident">dropck_kind</span> <span class="op">=</span> <span class="ident">has_dtor_of_interest</span>(<span class="ident">tcx</span>, <span class="ident">ty</span>);
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;iterate_over_potentially_unsafe_regions_in_type \
+            ty: {:?} dropck_kind: {:?}&quot;</span>, <span class="ident">ty</span>, <span class="ident">dropck_kind</span>);
+    <span class="kw">match</span> <span class="ident">dropck_kind</span> {
+        <span class="ident">DropckKind</span>::<span class="ident">NoBorrowedDataAccessedInMyDtor</span> <span class="op">=&gt;</span> {
+            <span class="comment">// The maximally blind attribute.</span>
         }
-        <span class='ident'>DropckKind</span>::<span class='ident'>BorrowedDataMustStrictlyOutliveSelf</span> <span class='op'>=&gt;</span> {
-            <span class='ident'>cx</span>.<span class='ident'>rcx</span>.<span class='ident'>type_must_outlive</span>(<span class='ident'>infer</span>::<span class='ident'>SubregionOrigin</span>::<span class='ident'>SafeDestructor</span>(<span class='ident'>cx</span>.<span class='ident'>span</span>),
-                                     <span class='ident'>ty</span>, <span class='ident'>tcx</span>.<span class='ident'>mk_region</span>(<span class='ident'>ty</span>::<span class='ident'>ReScope</span>(<span class='ident'>cx</span>.<span class='ident'>parent_scope</span>)));
-            <span class='kw'>return</span> <span class='prelude-val'>Ok</span>(());
+        <span class="ident">DropckKind</span>::<span class="ident">BorrowedDataMustStrictlyOutliveSelf</span> <span class="op">=&gt;</span> {
+            <span class="ident">cx</span>.<span class="ident">rcx</span>.<span class="ident">type_must_outlive</span>(<span class="ident">infer</span>::<span class="ident">SubregionOrigin</span>::<span class="ident">SafeDestructor</span>(<span class="ident">cx</span>.<span class="ident">span</span>),
+                                     <span class="ident">ty</span>, <span class="ident">tcx</span>.<span class="ident">mk_region</span>(<span class="ident">ty</span>::<span class="ident">ReScope</span>(<span class="ident">cx</span>.<span class="ident">parent_scope</span>)));
+            <span class="kw">return</span> <span class="prelude-val">Ok</span>(());
         }
-        <span class='ident'>DropckKind</span>::<span class='ident'>RevisedSelf</span>(<span class='ident'>revised_ty</span>) <span class='op'>=&gt;</span> {
-            <span class='ident'>cx</span>.<span class='ident'>rcx</span>.<span class='ident'>type_must_outlive</span>(<span class='ident'>infer</span>::<span class='ident'>SubregionOrigin</span>::<span class='ident'>SafeDestructor</span>(<span class='ident'>cx</span>.<span class='ident'>span</span>),
-                                     <span class='ident'>revised_ty</span>, <span class='ident'>tcx</span>.<span class='ident'>mk_region</span>(<span class='ident'>ty</span>::<span class='ident'>ReScope</span>(<span class='ident'>cx</span>.<span class='ident'>parent_scope</span>)));
-            <span class='comment'>// Do not return early from this case; we want</span>
-            <span class='comment'>// to recursively process the internal structure of Self</span>
-            <span class='comment'>// (because even though the Drop for Self has been asserted</span>
-            <span class='comment'>//  safe, the types instantiated for the generics of Self</span>
-            <span class='comment'>//  may themselves carry dropck constraints.)</span>
+        <span class="ident">DropckKind</span>::<span class="ident">RevisedSelf</span>(<span class="ident">revised_ty</span>) <span class="op">=&gt;</span> {
+            <span class="ident">cx</span>.<span class="ident">rcx</span>.<span class="ident">type_must_outlive</span>(<span class="ident">infer</span>::<span class="ident">SubregionOrigin</span>::<span class="ident">SafeDestructor</span>(<span class="ident">cx</span>.<span class="ident">span</span>),
+                                     <span class="ident">revised_ty</span>, <span class="ident">tcx</span>.<span class="ident">mk_region</span>(<span class="ident">ty</span>::<span class="ident">ReScope</span>(<span class="ident">cx</span>.<span class="ident">parent_scope</span>)));
+            <span class="comment">// Do not return early from this case; we want</span>
+            <span class="comment">// to recursively process the internal structure of Self</span>
+            <span class="comment">// (because even though the Drop for Self has been asserted</span>
+            <span class="comment">//  safe, the types instantiated for the generics of Self</span>
+            <span class="comment">//  may themselves carry dropck constraints.)</span>
         }
     }
 
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;iterate_over_potentially_unsafe_regions_in_type \
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;iterate_over_potentially_unsafe_regions_in_type \
            {}ty: {} scope: {:?} - checking interior&quot;</span>,
-           (<span class='number'>0</span>..<span class='ident'>depth</span>).<span class='ident'>map</span>(<span class='op'>|</span>_<span class='op'>|</span> <span class='string'>&#39; &#39;</span>).<span class='ident'>collect</span>::<span class='op'>&lt;</span><span class='ident'>String</span><span class='op'>&gt;</span>(),
-           <span class='ident'>ty</span>, <span class='ident'>cx</span>.<span class='ident'>parent_scope</span>);
+           (<span class="number">0</span>..<span class="ident">depth</span>).<span class="ident">map</span>(<span class="op">|</span>_<span class="op">|</span> <span class="string">&#39; &#39;</span>).<span class="ident">collect</span>::<span class="op">&lt;</span><span class="ident">String</span><span class="op">&gt;</span>(),
+           <span class="ident">ty</span>, <span class="ident">cx</span>.<span class="ident">parent_scope</span>);
 
-    <span class='comment'>// We still need to ensure all referenced data is safe.</span>
-    <span class='kw'>match</span> <span class='ident'>ty</span>.<span class='ident'>sty</span> {
-        <span class='ident'>ty</span>::<span class='ident'>TyBool</span> <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyChar</span> <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyInt</span>(_) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyUint</span>(_) <span class='op'>|</span>
-        <span class='ident'>ty</span>::<span class='ident'>TyFloat</span>(_) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyStr</span> <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyNever</span> <span class='op'>=&gt;</span> {
-            <span class='comment'>// primitive - definitely safe</span>
-            <span class='prelude-val'>Ok</span>(())
+    <span class="comment">// We still need to ensure all referenced data is safe.</span>
+    <span class="kw">match</span> <span class="ident">ty</span>.<span class="ident">sty</span> {
+        <span class="ident">ty</span>::<span class="ident">TyBool</span> <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">TyChar</span> <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">TyInt</span>(_) <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">TyUint</span>(_) <span class="op">|</span>
+        <span class="ident">ty</span>::<span class="ident">TyFloat</span>(_) <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">TyStr</span> <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">TyNever</span> <span class="op">=&gt;</span> {
+            <span class="comment">// primitive - definitely safe</span>
+            <span class="prelude-val">Ok</span>(())
         }
 
-        <span class='ident'>ty</span>::<span class='ident'>TyArray</span>(<span class='ident'>ity</span>, _) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TySlice</span>(<span class='ident'>ity</span>) <span class='op'>=&gt;</span> {
-            <span class='comment'>// single-element containers, behave like their element</span>
-            <span class='ident'>iterate_over_potentially_unsafe_regions_in_type</span>(
-                <span class='ident'>cx</span>, <span class='ident'>context</span>, <span class='ident'>ity</span>, <span class='ident'>depth</span><span class='op'>+</span><span class='number'>1</span>)
+        <span class="ident">ty</span>::<span class="ident">TyArray</span>(<span class="ident">ity</span>, _) <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">TySlice</span>(<span class="ident">ity</span>) <span class="op">=&gt;</span> {
+            <span class="comment">// single-element containers, behave like their element</span>
+            <span class="ident">iterate_over_potentially_unsafe_regions_in_type</span>(
+                <span class="ident">cx</span>, <span class="ident">context</span>, <span class="ident">ity</span>, <span class="ident">depth</span><span class="op">+</span><span class="number">1</span>)
         }
 
-        <span class='ident'>ty</span>::<span class='ident'>TyAdt</span>(<span class='ident'>def</span>, <span class='ident'>substs</span>) <span class='kw'>if</span> <span class='ident'>def</span>.<span class='ident'>is_phantom_data</span>() <span class='op'>=&gt;</span> {
-            <span class='comment'>// PhantomData&lt;T&gt; - behaves identically to T</span>
-            <span class='kw'>let</span> <span class='ident'>ity</span> <span class='op'>=</span> <span class='ident'>substs</span>.<span class='ident'>type_at</span>(<span class='number'>0</span>);
-            <span class='ident'>iterate_over_potentially_unsafe_regions_in_type</span>(
-                <span class='ident'>cx</span>, <span class='ident'>context</span>, <span class='ident'>ity</span>, <span class='ident'>depth</span><span class='op'>+</span><span class='number'>1</span>)
+        <span class="ident">ty</span>::<span class="ident">TyAdt</span>(<span class="ident">def</span>, <span class="ident">substs</span>) <span class="kw">if</span> <span class="ident">def</span>.<span class="ident">is_phantom_data</span>() <span class="op">=&gt;</span> {
+            <span class="comment">// PhantomData&lt;T&gt; - behaves identically to T</span>
+            <span class="kw">let</span> <span class="ident">ity</span> <span class="op">=</span> <span class="ident">substs</span>.<span class="ident">type_at</span>(<span class="number">0</span>);
+            <span class="ident">iterate_over_potentially_unsafe_regions_in_type</span>(
+                <span class="ident">cx</span>, <span class="ident">context</span>, <span class="ident">ity</span>, <span class="ident">depth</span><span class="op">+</span><span class="number">1</span>)
         }
 
-        <span class='ident'>ty</span>::<span class='ident'>TyAdt</span>(<span class='ident'>def</span>, <span class='ident'>substs</span>) <span class='op'>=&gt;</span> {
-            <span class='kw'>let</span> <span class='ident'>did</span> <span class='op'>=</span> <span class='ident'>def</span>.<span class='ident'>did</span>;
-            <span class='kw'>for</span> <span class='ident'>variant</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>def</span>.<span class='ident'>variants</span> {
-                <span class='kw'>for</span> <span class='ident'>field</span> <span class='kw'>in</span> <span class='ident'>variant</span>.<span class='ident'>fields</span>.<span class='ident'>iter</span>() {
-                    <span class='kw'>let</span> <span class='ident'>fty</span> <span class='op'>=</span> <span class='ident'>field</span>.<span class='ident'>ty</span>(<span class='ident'>tcx</span>, <span class='ident'>substs</span>);
-                    <span class='kw'>let</span> <span class='ident'>fty</span> <span class='op'>=</span> <span class='ident'>cx</span>.<span class='ident'>rcx</span>.<span class='ident'>fcx</span>.<span class='ident'>resolve_type_vars_with_obligations</span>(
-                        <span class='ident'>cx</span>.<span class='ident'>rcx</span>.<span class='ident'>fcx</span>.<span class='ident'>normalize_associated_types_in</span>(<span class='ident'>cx</span>.<span class='ident'>span</span>, <span class='kw-2'>&amp;</span><span class='ident'>fty</span>));
-                    <span class='ident'>iterate_over_potentially_unsafe_regions_in_type</span>(
-                        <span class='ident'>cx</span>,
-                        <span class='ident'>TypeContext</span>::<span class='ident'>ADT</span> {
-                            <span class='ident'>def_id</span>: <span class='ident'>did</span>,
-                            <span class='ident'>field</span>: <span class='ident'>field</span>.<span class='ident'>name</span>,
-                            <span class='ident'>variant</span>: <span class='ident'>variant</span>.<span class='ident'>name</span>,
+        <span class="ident">ty</span>::<span class="ident">TyAdt</span>(<span class="ident">def</span>, <span class="ident">substs</span>) <span class="op">=&gt;</span> {
+            <span class="kw">let</span> <span class="ident">did</span> <span class="op">=</span> <span class="ident">def</span>.<span class="ident">did</span>;
+            <span class="kw">for</span> <span class="ident">variant</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="ident">def</span>.<span class="ident">variants</span> {
+                <span class="kw">for</span> <span class="ident">field</span> <span class="kw">in</span> <span class="ident">variant</span>.<span class="ident">fields</span>.<span class="ident">iter</span>() {
+                    <span class="kw">let</span> <span class="ident">fty</span> <span class="op">=</span> <span class="ident">field</span>.<span class="ident">ty</span>(<span class="ident">tcx</span>, <span class="ident">substs</span>);
+                    <span class="kw">let</span> <span class="ident">fty</span> <span class="op">=</span> <span class="ident">cx</span>.<span class="ident">rcx</span>.<span class="ident">fcx</span>.<span class="ident">resolve_type_vars_with_obligations</span>(
+                        <span class="ident">cx</span>.<span class="ident">rcx</span>.<span class="ident">fcx</span>.<span class="ident">normalize_associated_types_in</span>(<span class="ident">cx</span>.<span class="ident">span</span>, <span class="kw-2">&amp;</span><span class="ident">fty</span>));
+                    <span class="ident">iterate_over_potentially_unsafe_regions_in_type</span>(
+                        <span class="ident">cx</span>,
+                        <span class="ident">TypeContext</span>::<span class="ident">ADT</span> {
+                            <span class="ident">def_id</span>: <span class="ident">did</span>,
+                            <span class="ident">field</span>: <span class="ident">field</span>.<span class="ident">name</span>,
+                            <span class="ident">variant</span>: <span class="ident">variant</span>.<span class="ident">name</span>,
                         },
-                        <span class='ident'>fty</span>,
-                        <span class='ident'>depth</span><span class='op'>+</span><span class='number'>1</span>)<span class='question-mark'>?</span>
+                        <span class="ident">fty</span>,
+                        <span class="ident">depth</span><span class="op">+</span><span class="number">1</span>)<span class="question-mark">?</span>
                 }
             }
-            <span class='prelude-val'>Ok</span>(())
+            <span class="prelude-val">Ok</span>(())
         }
 
-        <span class='ident'>ty</span>::<span class='ident'>TyClosure</span>(<span class='ident'>def_id</span>, <span class='ident'>substs</span>) <span class='op'>=&gt;</span> {
-            <span class='kw'>for</span> <span class='ident'>ty</span> <span class='kw'>in</span> <span class='ident'>substs</span>.<span class='ident'>upvar_tys</span>(<span class='ident'>def_id</span>, <span class='ident'>tcx</span>) {
-                <span class='ident'>iterate_over_potentially_unsafe_regions_in_type</span>(<span class='ident'>cx</span>, <span class='ident'>context</span>, <span class='ident'>ty</span>, <span class='ident'>depth</span><span class='op'>+</span><span class='number'>1</span>)<span class='question-mark'>?</span>
+        <span class="ident">ty</span>::<span class="ident">TyClosure</span>(<span class="ident">def_id</span>, <span class="ident">substs</span>) <span class="op">=&gt;</span> {
+            <span class="kw">for</span> <span class="ident">ty</span> <span class="kw">in</span> <span class="ident">substs</span>.<span class="ident">upvar_tys</span>(<span class="ident">def_id</span>, <span class="ident">tcx</span>) {
+                <span class="ident">iterate_over_potentially_unsafe_regions_in_type</span>(<span class="ident">cx</span>, <span class="ident">context</span>, <span class="ident">ty</span>, <span class="ident">depth</span><span class="op">+</span><span class="number">1</span>)<span class="question-mark">?</span>
             }
-            <span class='prelude-val'>Ok</span>(())
+            <span class="prelude-val">Ok</span>(())
         }
 
-        <span class='ident'>ty</span>::<span class='ident'>TyTuple</span>(<span class='ident'>tys</span>, _) <span class='op'>=&gt;</span> {
-            <span class='kw'>for</span> <span class='ident'>ty</span> <span class='kw'>in</span> <span class='ident'>tys</span> {
-                <span class='ident'>iterate_over_potentially_unsafe_regions_in_type</span>(<span class='ident'>cx</span>, <span class='ident'>context</span>, <span class='ident'>ty</span>, <span class='ident'>depth</span><span class='op'>+</span><span class='number'>1</span>)<span class='question-mark'>?</span>
+        <span class="ident">ty</span>::<span class="ident">TyTuple</span>(<span class="ident">tys</span>, _) <span class="op">=&gt;</span> {
+            <span class="kw">for</span> <span class="ident">ty</span> <span class="kw">in</span> <span class="ident">tys</span> {
+                <span class="ident">iterate_over_potentially_unsafe_regions_in_type</span>(<span class="ident">cx</span>, <span class="ident">context</span>, <span class="ident">ty</span>, <span class="ident">depth</span><span class="op">+</span><span class="number">1</span>)<span class="question-mark">?</span>
             }
-            <span class='prelude-val'>Ok</span>(())
+            <span class="prelude-val">Ok</span>(())
         }
 
-        <span class='ident'>ty</span>::<span class='ident'>TyRawPtr</span>(..) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyRef</span>(..) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyParam</span>(..) <span class='op'>=&gt;</span> {
-            <span class='comment'>// these always come with a witness of liveness (references</span>
-            <span class='comment'>// explicitly, pointers implicitly, parameters by the</span>
-            <span class='comment'>// caller).</span>
-            <span class='prelude-val'>Ok</span>(())
+        <span class="ident">ty</span>::<span class="ident">TyRawPtr</span>(..) <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">TyRef</span>(..) <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">TyParam</span>(..) <span class="op">=&gt;</span> {
+            <span class="comment">// these always come with a witness of liveness (references</span>
+            <span class="comment">// explicitly, pointers implicitly, parameters by the</span>
+            <span class="comment">// caller).</span>
+            <span class="prelude-val">Ok</span>(())
         }
 
-        <span class='ident'>ty</span>::<span class='ident'>TyFnDef</span>(..) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyFnPtr</span>(_) <span class='op'>=&gt;</span> {
-            <span class='comment'>// FIXME(#26656): this type is always destruction-safe, but</span>
-            <span class='comment'>// it implicitly witnesses Self: Fn, which can be false.</span>
-            <span class='prelude-val'>Ok</span>(())
+        <span class="ident">ty</span>::<span class="ident">TyFnDef</span>(..) <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">TyFnPtr</span>(_) <span class="op">=&gt;</span> {
+            <span class="comment">// FIXME(#26656): this type is always destruction-safe, but</span>
+            <span class="comment">// it implicitly witnesses Self: Fn, which can be false.</span>
+            <span class="prelude-val">Ok</span>(())
         }
 
-        <span class='ident'>ty</span>::<span class='ident'>TyInfer</span>(..) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyError</span> <span class='op'>=&gt;</span> {
-            <span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>delay_span_bug</span>(<span class='ident'>cx</span>.<span class='ident'>span</span>, <span class='string'>&quot;unresolved type in regionck&quot;</span>);
-            <span class='prelude-val'>Ok</span>(())
+        <span class="ident">ty</span>::<span class="ident">TyInfer</span>(..) <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">TyError</span> <span class="op">=&gt;</span> {
+            <span class="ident">tcx</span>.<span class="ident">sess</span>.<span class="ident">delay_span_bug</span>(<span class="ident">cx</span>.<span class="ident">span</span>, <span class="string">&quot;unresolved type in regionck&quot;</span>);
+            <span class="prelude-val">Ok</span>(())
         }
 
-        <span class='comment'>// these are always dtorck</span>
-        <span class='ident'>ty</span>::<span class='ident'>TyDynamic</span>(..) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyProjection</span>(_) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyAnon</span>(..) <span class='op'>=&gt;</span> <span class='macro'>bug</span><span class='macro'>!</span>(),
+        <span class="comment">// these are always dtorck</span>
+        <span class="ident">ty</span>::<span class="ident">TyDynamic</span>(..) <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">TyProjection</span>(_) <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">TyAnon</span>(..) <span class="op">=&gt;</span> <span class="macro">bug</span><span class="macro">!</span>(),
     }
 }
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Copy</span>, <span class='ident'>Clone</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>, <span class='ident'>Debug</span>)]</span>
-<span class='kw'>enum</span> <span class='ident'>DropckKind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='doccomment'>/// The &quot;safe&quot; kind; i.e. conservatively assume any borrow</span>
-    <span class='doccomment'>/// accessed by dtor, and therefore such data must strictly</span>
-    <span class='doccomment'>/// outlive self.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// Equivalent to RevisedTy with no change to the self type.</span>
-    <span class='ident'>BorrowedDataMustStrictlyOutliveSelf</span>,
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Copy</span>, <span class="ident">Clone</span>, <span class="ident">PartialEq</span>, <span class="ident">Eq</span>, <span class="ident">Debug</span>)]</span>
+<span class="kw">enum</span> <span class="ident">DropckKind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// The &quot;safe&quot; kind; i.e. conservatively assume any borrow</span>
+    <span class="doccomment">/// accessed by dtor, and therefore such data must strictly</span>
+    <span class="doccomment">/// outlive self.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Equivalent to RevisedTy with no change to the self type.</span>
+    <span class="ident">BorrowedDataMustStrictlyOutliveSelf</span>,
 
-    <span class='doccomment'>/// The nearly completely-unsafe kind.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// Equivalent to RevisedSelf with *all* parameters remapped to ()</span>
-    <span class='doccomment'>/// (maybe...?)</span>
-    <span class='ident'>NoBorrowedDataAccessedInMyDtor</span>,
+    <span class="doccomment">/// The nearly completely-unsafe kind.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Equivalent to RevisedSelf with *all* parameters remapped to ()</span>
+    <span class="doccomment">/// (maybe...?)</span>
+    <span class="ident">NoBorrowedDataAccessedInMyDtor</span>,
 
-    <span class='doccomment'>/// Assume all borrowed data access by dtor occurs as if Self has the</span>
-    <span class='doccomment'>/// type carried by this variant. In practice this means that some</span>
-    <span class='doccomment'>/// of the type parameters are remapped to `()` (and some lifetime</span>
-    <span class='doccomment'>/// parameters remapped to `&#39;static`), because the developer has asserted</span>
-    <span class='doccomment'>/// that the destructor will not access their contents.</span>
-    <span class='ident'>RevisedSelf</span>(<span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>),
+    <span class="doccomment">/// Assume all borrowed data access by dtor occurs as if Self has the</span>
+    <span class="doccomment">/// type carried by this variant. In practice this means that some</span>
+    <span class="doccomment">/// of the type parameters are remapped to `()` (and some lifetime</span>
+    <span class="doccomment">/// parameters remapped to `&#39;static`), because the developer has asserted</span>
+    <span class="doccomment">/// that the destructor will not access their contents.</span>
+    <span class="ident">RevisedSelf</span>(<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>),
 }
 
-<span class='doccomment'>/// Returns the classification of what kind of check should be applied</span>
-<span class='doccomment'>/// to `ty`, which may include a revised type where some of the type</span>
-<span class='doccomment'>/// parameters are re-mapped to `()` to reflect the destructor&#39;s</span>
-<span class='doccomment'>/// &quot;purity&quot; with respect to their actual contents.</span>
-<span class='kw'>fn</span> <span class='ident'>has_dtor_of_interest</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                        <span class='ident'>ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-                                        <span class='op'>-&gt;</span> <span class='ident'>DropckKind</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>match</span> <span class='ident'>ty</span>.<span class='ident'>sty</span> {
-        <span class='ident'>ty</span>::<span class='ident'>TyAdt</span>(<span class='ident'>adt_def</span>, <span class='ident'>substs</span>) <span class='op'>=&gt;</span> {
-            <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>adt_def</span>.<span class='ident'>is_dtorck</span>(<span class='ident'>tcx</span>) {
-                <span class='kw'>return</span> <span class='ident'>DropckKind</span>::<span class='ident'>NoBorrowedDataAccessedInMyDtor</span>;
+<span class="doccomment">/// Returns the classification of what kind of check should be applied</span>
+<span class="doccomment">/// to `ty`, which may include a revised type where some of the type</span>
+<span class="doccomment">/// parameters are re-mapped to `()` to reflect the destructor&#39;s</span>
+<span class="doccomment">/// &quot;purity&quot; with respect to their actual contents.</span>
+<span class="kw">fn</span> <span class="ident">has_dtor_of_interest</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                        <span class="ident">ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+                                        <span class="op">-&gt;</span> <span class="ident">DropckKind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">match</span> <span class="ident">ty</span>.<span class="ident">sty</span> {
+        <span class="ident">ty</span>::<span class="ident">TyAdt</span>(<span class="ident">adt_def</span>, <span class="ident">substs</span>) <span class="op">=&gt;</span> {
+            <span class="kw">if</span> <span class="op">!</span><span class="ident">adt_def</span>.<span class="ident">is_dtorck</span>(<span class="ident">tcx</span>) {
+                <span class="kw">return</span> <span class="ident">DropckKind</span>::<span class="ident">NoBorrowedDataAccessedInMyDtor</span>;
             }
 
-            <span class='comment'>// Find the `impl&lt;..&gt; Drop for _` to inspect any</span>
-            <span class='comment'>// attributes attached to the impl&#39;s generics.</span>
-            <span class='kw'>let</span> <span class='ident'>dtor_method</span> <span class='op'>=</span> <span class='ident'>adt_def</span>.<span class='ident'>destructor</span>()
-                .<span class='ident'>expect</span>(<span class='string'>&quot;dtorck type without destructor impossible&quot;</span>);
-            <span class='kw'>let</span> <span class='ident'>method</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>associated_item</span>(<span class='ident'>dtor_method</span>);
-            <span class='kw'>let</span> <span class='ident'>impl_def_id</span> <span class='op'>=</span> <span class='ident'>method</span>.<span class='ident'>container</span>.<span class='ident'>id</span>();
-            <span class='kw'>let</span> <span class='ident'>revised_ty</span> <span class='op'>=</span> <span class='ident'>revise_self_ty</span>(<span class='ident'>tcx</span>, <span class='ident'>adt_def</span>, <span class='ident'>impl_def_id</span>, <span class='ident'>substs</span>);
-            <span class='kw'>return</span> <span class='ident'>DropckKind</span>::<span class='ident'>RevisedSelf</span>(<span class='ident'>revised_ty</span>);
+            <span class="comment">// Find the `impl&lt;..&gt; Drop for _` to inspect any</span>
+            <span class="comment">// attributes attached to the impl&#39;s generics.</span>
+            <span class="kw">let</span> <span class="ident">dtor_method</span> <span class="op">=</span> <span class="ident">adt_def</span>.<span class="ident">destructor</span>(<span class="ident">tcx</span>)
+                .<span class="ident">expect</span>(<span class="string">&quot;dtorck type without destructor impossible&quot;</span>);
+            <span class="kw">let</span> <span class="ident">method</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">associated_item</span>(<span class="ident">dtor_method</span>.<span class="ident">did</span>);
+            <span class="kw">let</span> <span class="ident">impl_def_id</span> <span class="op">=</span> <span class="ident">method</span>.<span class="ident">container</span>.<span class="ident">id</span>();
+            <span class="kw">let</span> <span class="ident">revised_ty</span> <span class="op">=</span> <span class="ident">revise_self_ty</span>(<span class="ident">tcx</span>, <span class="ident">adt_def</span>, <span class="ident">impl_def_id</span>, <span class="ident">substs</span>);
+            <span class="kw">return</span> <span class="ident">DropckKind</span>::<span class="ident">RevisedSelf</span>(<span class="ident">revised_ty</span>);
         }
-        <span class='ident'>ty</span>::<span class='ident'>TyDynamic</span>(..) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyProjection</span>(..) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyAnon</span>(..) <span class='op'>=&gt;</span> {
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;ty: {:?} isn&#39;t known, and therefore is a dropck type&quot;</span>, <span class='ident'>ty</span>);
-            <span class='kw'>return</span> <span class='ident'>DropckKind</span>::<span class='ident'>BorrowedDataMustStrictlyOutliveSelf</span>;
+        <span class="ident">ty</span>::<span class="ident">TyDynamic</span>(..) <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">TyProjection</span>(..) <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">TyAnon</span>(..) <span class="op">=&gt;</span> {
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;ty: {:?} isn&#39;t known, and therefore is a dropck type&quot;</span>, <span class="ident">ty</span>);
+            <span class="kw">return</span> <span class="ident">DropckKind</span>::<span class="ident">BorrowedDataMustStrictlyOutliveSelf</span>;
         },
-        _ <span class='op'>=&gt;</span> {
-            <span class='kw'>return</span> <span class='ident'>DropckKind</span>::<span class='ident'>NoBorrowedDataAccessedInMyDtor</span>;
+        _ <span class="op">=&gt;</span> {
+            <span class="kw">return</span> <span class="ident">DropckKind</span>::<span class="ident">NoBorrowedDataAccessedInMyDtor</span>;
         }
     }
 }
 
-<span class='comment'>// Constructs new Ty just like the type defined by `adt_def` coupled</span>
-<span class='comment'>// with `substs`, except each type and lifetime parameter marked as</span>
-<span class='comment'>// `#[may_dangle]` in the Drop impl (identified by `impl_def_id`) is</span>
-<span class='comment'>// respectively mapped to `()` or `&#39;static`.</span>
-<span class='comment'>//</span>
-<span class='comment'>// For example: If the `adt_def` maps to:</span>
-<span class='comment'>//</span>
-<span class='comment'>//   enum Foo&lt;&#39;a, X, Y&gt; { ... }</span>
-<span class='comment'>//</span>
-<span class='comment'>// and the `impl_def_id` maps to:</span>
-<span class='comment'>//</span>
-<span class='comment'>//   impl&lt;#[may_dangle] &#39;a, X, #[may_dangle] Y&gt; Drop for Foo&lt;&#39;a, X, Y&gt; { ... }</span>
-<span class='comment'>//</span>
-<span class='comment'>// then revises input: `Foo&lt;&#39;r,i64,&amp;&#39;r i64&gt;` to: `Foo&lt;&#39;static,i64,()&gt;`</span>
-<span class='kw'>fn</span> <span class='ident'>revise_self_ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                  <span class='ident'>adt_def</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>AdtDef</span>,
-                                  <span class='ident'>impl_def_id</span>: <span class='ident'>DefId</span>,
-                                  <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-                                  <span class='op'>-&gt;</span> <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='comment'>// Get generics for `impl Drop` to query for `#[may_dangle]` attr.</span>
-    <span class='kw'>let</span> <span class='ident'>impl_bindings</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>item_generics</span>(<span class='ident'>impl_def_id</span>);
+<span class="comment">// Constructs new Ty just like the type defined by `adt_def` coupled</span>
+<span class="comment">// with `substs`, except each type and lifetime parameter marked as</span>
+<span class="comment">// `#[may_dangle]` in the Drop impl (identified by `impl_def_id`) is</span>
+<span class="comment">// respectively mapped to `()` or `&#39;static`.</span>
+<span class="comment">//</span>
+<span class="comment">// For example: If the `adt_def` maps to:</span>
+<span class="comment">//</span>
+<span class="comment">//   enum Foo&lt;&#39;a, X, Y&gt; { ... }</span>
+<span class="comment">//</span>
+<span class="comment">// and the `impl_def_id` maps to:</span>
+<span class="comment">//</span>
+<span class="comment">//   impl&lt;#[may_dangle] &#39;a, X, #[may_dangle] Y&gt; Drop for Foo&lt;&#39;a, X, Y&gt; { ... }</span>
+<span class="comment">//</span>
+<span class="comment">// then revises input: `Foo&lt;&#39;r,i64,&amp;&#39;r i64&gt;` to: `Foo&lt;&#39;static,i64,()&gt;`</span>
+<span class="kw">fn</span> <span class="ident">revise_self_ty</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                  <span class="ident">adt_def</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">AdtDef</span>,
+                                  <span class="ident">impl_def_id</span>: <span class="ident">DefId</span>,
+                                  <span class="ident">substs</span>: <span class="kw-2">&amp;</span><span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+                                  <span class="op">-&gt;</span> <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="comment">// Get generics for `impl Drop` to query for `#[may_dangle]` attr.</span>
+    <span class="kw">let</span> <span class="ident">impl_bindings</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">item_generics</span>(<span class="ident">impl_def_id</span>);
 
-    <span class='comment'>// Get Substs attached to Self on `impl Drop`; process in parallel</span>
-    <span class='comment'>// with `substs`, replacing dangling entries as appropriate.</span>
-    <span class='kw'>let</span> <span class='ident'>self_substs</span> <span class='op'>=</span> {
-        <span class='kw'>let</span> <span class='ident'>impl_self_ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>item_type</span>(<span class='ident'>impl_def_id</span>);
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>ty</span>::<span class='ident'>TyAdt</span>(<span class='ident'>self_adt_def</span>, <span class='ident'>self_substs</span>) <span class='op'>=</span> <span class='ident'>impl_self_ty</span>.<span class='ident'>sty</span> {
-            <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>adt_def</span>, <span class='ident'>self_adt_def</span>);
-            <span class='ident'>self_substs</span>
-        } <span class='kw'>else</span> {
-            <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;Self in `impl Drop for _` must be an Adt.&quot;</span>);
+    <span class="comment">// Get Substs attached to Self on `impl Drop`; process in parallel</span>
+    <span class="comment">// with `substs`, replacing dangling entries as appropriate.</span>
+    <span class="kw">let</span> <span class="ident">self_substs</span> <span class="op">=</span> {
+        <span class="kw">let</span> <span class="ident">impl_self_ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">item_type</span>(<span class="ident">impl_def_id</span>);
+        <span class="kw">if</span> <span class="kw">let</span> <span class="ident">ty</span>::<span class="ident">TyAdt</span>(<span class="ident">self_adt_def</span>, <span class="ident">self_substs</span>) <span class="op">=</span> <span class="ident">impl_self_ty</span>.<span class="ident">sty</span> {
+            <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">adt_def</span>, <span class="ident">self_adt_def</span>);
+            <span class="ident">self_substs</span>
+        } <span class="kw">else</span> {
+            <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;Self in `impl Drop for _` must be an Adt.&quot;</span>);
         }
     };
 
-    <span class='comment'>// Walk `substs` + `self_substs`, build new substs appropriate for</span>
-    <span class='comment'>// `adt_def`; each non-dangling param reuses entry from `substs`.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// Note: The manner we map from a right-hand side (i.e. Region or</span>
-    <span class='comment'>// Ty) for a given `def` to generic parameter associated with that</span>
-    <span class='comment'>// right-hand side is tightly coupled to `Drop` impl constraints.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// E.g. we know such a Ty must be `TyParam`, because a destructor</span>
-    <span class='comment'>// for `struct Foo&lt;X&gt;` is defined via `impl&lt;Y&gt; Drop for Foo&lt;Y&gt;`,</span>
-    <span class='comment'>// and never by (for example) `impl&lt;Z&gt; Drop for Foo&lt;Vec&lt;Z&gt;&gt;`.</span>
-    <span class='kw'>let</span> <span class='ident'>substs</span> <span class='op'>=</span> <span class='ident'>Substs</span>::<span class='ident'>for_item</span>(
-        <span class='ident'>tcx</span>,
-        <span class='ident'>adt_def</span>.<span class='ident'>did</span>,
-        <span class='op'>|</span><span class='ident'>def</span>, _<span class='op'>|</span> {
-            <span class='kw'>let</span> <span class='ident'>r_orig</span> <span class='op'>=</span> <span class='ident'>substs</span>.<span class='ident'>region_for_def</span>(<span class='ident'>def</span>);
-            <span class='kw'>let</span> <span class='ident'>impl_self_orig</span> <span class='op'>=</span> <span class='ident'>self_substs</span>.<span class='ident'>region_for_def</span>(<span class='ident'>def</span>);
-            <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>ty</span>::<span class='ident'>Region</span>::<span class='ident'>ReEarlyBound</span>(<span class='kw-2'>ref</span> <span class='ident'>ebr</span>) <span class='op'>=</span> <span class='kw-2'>*</span><span class='ident'>impl_self_orig</span> {
-                <span class='kw'>if</span> <span class='ident'>impl_bindings</span>.<span class='ident'>region_param</span>(<span class='ident'>ebr</span>).<span class='ident'>pure_wrt_drop</span> {
-                    <span class='ident'>tcx</span>.<span class='ident'>mk_region</span>(<span class='ident'>ty</span>::<span class='ident'>ReStatic</span>)
-                } <span class='kw'>else</span> {
-                    <span class='ident'>r_orig</span>
+    <span class="comment">// Walk `substs` + `self_substs`, build new substs appropriate for</span>
+    <span class="comment">// `adt_def`; each non-dangling param reuses entry from `substs`.</span>
+    <span class="comment">//</span>
+    <span class="comment">// Note: The manner we map from a right-hand side (i.e. Region or</span>
+    <span class="comment">// Ty) for a given `def` to generic parameter associated with that</span>
+    <span class="comment">// right-hand side is tightly coupled to `Drop` impl constraints.</span>
+    <span class="comment">//</span>
+    <span class="comment">// E.g. we know such a Ty must be `TyParam`, because a destructor</span>
+    <span class="comment">// for `struct Foo&lt;X&gt;` is defined via `impl&lt;Y&gt; Drop for Foo&lt;Y&gt;`,</span>
+    <span class="comment">// and never by (for example) `impl&lt;Z&gt; Drop for Foo&lt;Vec&lt;Z&gt;&gt;`.</span>
+    <span class="kw">let</span> <span class="ident">substs</span> <span class="op">=</span> <span class="ident">Substs</span>::<span class="ident">for_item</span>(
+        <span class="ident">tcx</span>,
+        <span class="ident">adt_def</span>.<span class="ident">did</span>,
+        <span class="op">|</span><span class="ident">def</span>, _<span class="op">|</span> {
+            <span class="kw">let</span> <span class="ident">r_orig</span> <span class="op">=</span> <span class="ident">substs</span>.<span class="ident">region_for_def</span>(<span class="ident">def</span>);
+            <span class="kw">let</span> <span class="ident">impl_self_orig</span> <span class="op">=</span> <span class="ident">self_substs</span>.<span class="ident">region_for_def</span>(<span class="ident">def</span>);
+            <span class="kw">let</span> <span class="ident">r</span> <span class="op">=</span> <span class="kw">if</span> <span class="kw">let</span> <span class="ident">ty</span>::<span class="ident">Region</span>::<span class="ident">ReEarlyBound</span>(<span class="kw-2">ref</span> <span class="ident">ebr</span>) <span class="op">=</span> <span class="kw-2">*</span><span class="ident">impl_self_orig</span> {
+                <span class="kw">if</span> <span class="ident">impl_bindings</span>.<span class="ident">region_param</span>(<span class="ident">ebr</span>).<span class="ident">pure_wrt_drop</span> {
+                    <span class="ident">tcx</span>.<span class="ident">mk_region</span>(<span class="ident">ty</span>::<span class="ident">ReStatic</span>)
+                } <span class="kw">else</span> {
+                    <span class="ident">r_orig</span>
                 }
-            } <span class='kw'>else</span> {
-                <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;substs for an impl must map regions to ReEarlyBound&quot;</span>);
+            } <span class="kw">else</span> {
+                <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;substs for an impl must map regions to ReEarlyBound&quot;</span>);
             };
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;has_dtor_of_interest mapping def {:?} orig {:?} to {:?}&quot;</span>,
-                   <span class='ident'>def</span>, <span class='ident'>r_orig</span>, <span class='ident'>r</span>);
-            <span class='ident'>r</span>
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;has_dtor_of_interest mapping def {:?} orig {:?} to {:?}&quot;</span>,
+                   <span class="ident">def</span>, <span class="ident">r_orig</span>, <span class="ident">r</span>);
+            <span class="ident">r</span>
         },
-        <span class='op'>|</span><span class='ident'>def</span>, _<span class='op'>|</span> {
-            <span class='kw'>let</span> <span class='ident'>t_orig</span> <span class='op'>=</span> <span class='ident'>substs</span>.<span class='ident'>type_for_def</span>(<span class='ident'>def</span>);
-            <span class='kw'>let</span> <span class='ident'>impl_self_orig</span> <span class='op'>=</span> <span class='ident'>self_substs</span>.<span class='ident'>type_for_def</span>(<span class='ident'>def</span>);
-            <span class='kw'>let</span> <span class='ident'>t</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>ty</span>::<span class='ident'>TypeVariants</span>::<span class='ident'>TyParam</span>(<span class='kw-2'>ref</span> <span class='ident'>pt</span>) <span class='op'>=</span> <span class='ident'>impl_self_orig</span>.<span class='ident'>sty</span> {
-                <span class='kw'>if</span> <span class='ident'>impl_bindings</span>.<span class='ident'>type_param</span>(<span class='ident'>pt</span>).<span class='ident'>pure_wrt_drop</span> {
-                    <span class='ident'>tcx</span>.<span class='ident'>mk_nil</span>()
-                } <span class='kw'>else</span> {
-                    <span class='ident'>t_orig</span>
+        <span class="op">|</span><span class="ident">def</span>, _<span class="op">|</span> {
+            <span class="kw">let</span> <span class="ident">t_orig</span> <span class="op">=</span> <span class="ident">substs</span>.<span class="ident">type_for_def</span>(<span class="ident">def</span>);
+            <span class="kw">let</span> <span class="ident">impl_self_orig</span> <span class="op">=</span> <span class="ident">self_substs</span>.<span class="ident">type_for_def</span>(<span class="ident">def</span>);
+            <span class="kw">let</span> <span class="ident">t</span> <span class="op">=</span> <span class="kw">if</span> <span class="kw">let</span> <span class="ident">ty</span>::<span class="ident">TypeVariants</span>::<span class="ident">TyParam</span>(<span class="kw-2">ref</span> <span class="ident">pt</span>) <span class="op">=</span> <span class="ident">impl_self_orig</span>.<span class="ident">sty</span> {
+                <span class="kw">if</span> <span class="ident">impl_bindings</span>.<span class="ident">type_param</span>(<span class="ident">pt</span>).<span class="ident">pure_wrt_drop</span> {
+                    <span class="ident">tcx</span>.<span class="ident">mk_nil</span>()
+                } <span class="kw">else</span> {
+                    <span class="ident">t_orig</span>
                 }
-            } <span class='kw'>else</span> {
-                <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;substs for an impl must map types to TyParam&quot;</span>);
+            } <span class="kw">else</span> {
+                <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;substs for an impl must map types to TyParam&quot;</span>);
             };
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;has_dtor_of_interest mapping def {:?} orig {:?} {:?} to {:?} {:?}&quot;</span>,
-                   <span class='ident'>def</span>, <span class='ident'>t_orig</span>, <span class='ident'>t_orig</span>.<span class='ident'>sty</span>, <span class='ident'>t</span>, <span class='ident'>t</span>.<span class='ident'>sty</span>);
-            <span class='ident'>t</span>
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;has_dtor_of_interest mapping def {:?} orig {:?} {:?} to {:?} {:?}&quot;</span>,
+                   <span class="ident">def</span>, <span class="ident">t_orig</span>, <span class="ident">t_orig</span>.<span class="ident">sty</span>, <span class="ident">t</span>, <span class="ident">t</span>.<span class="ident">sty</span>);
+            <span class="ident">t</span>
         });
 
-    <span class='ident'>tcx</span>.<span class='ident'>mk_adt</span>(<span class='ident'>adt_def</span>, <span class='kw-2'>&amp;</span><span class='ident'>substs</span>)
+    <span class="ident">tcx</span>.<span class="ident">mk_adt</span>(<span class="ident">adt_def</span>, <span class="kw-2">&amp;</span><span class="ident">substs</span>)
 }
 </pre>
 </section>

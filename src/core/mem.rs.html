@@ -781,742 +781,742 @@
 <span id="736">736</span>
 <span id="737">737</span>
 <span id="738">738</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='doccomment'>//! Basic functions for dealing with memory.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! This module contains functions for querying the size and alignment of</span>
-<span class='doccomment'>//! types, initializing and manipulating memory.</span>
+<span class="doccomment">//! Basic functions for dealing with memory.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! This module contains functions for querying the size and alignment of</span>
+<span class="doccomment">//! types, initializing and manipulating memory.</span>
 
-<span class='attribute'>#<span class='op'>!</span>[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
+<span class="attribute">#<span class="op">!</span>[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
 
-<span class='kw'>use</span> <span class='ident'>clone</span>;
-<span class='kw'>use</span> <span class='ident'>cmp</span>;
-<span class='kw'>use</span> <span class='ident'>fmt</span>;
-<span class='kw'>use</span> <span class='ident'>hash</span>;
-<span class='kw'>use</span> <span class='ident'>intrinsics</span>;
-<span class='kw'>use</span> <span class='ident'>marker</span>::{<span class='ident'>Copy</span>, <span class='ident'>PhantomData</span>, <span class='ident'>Sized</span>};
-<span class='kw'>use</span> <span class='ident'>ptr</span>;
+<span class="kw">use</span> <span class="ident">clone</span>;
+<span class="kw">use</span> <span class="ident">cmp</span>;
+<span class="kw">use</span> <span class="ident">fmt</span>;
+<span class="kw">use</span> <span class="ident">hash</span>;
+<span class="kw">use</span> <span class="ident">intrinsics</span>;
+<span class="kw">use</span> <span class="ident">marker</span>::{<span class="ident">Copy</span>, <span class="ident">PhantomData</span>, <span class="ident">Sized</span>};
+<span class="kw">use</span> <span class="ident">ptr</span>;
 
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='ident'>intrinsics</span>::<span class='ident'>transmute</span>;
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">use</span> <span class="ident">intrinsics</span>::<span class="ident">transmute</span>;
 
-<span class='doccomment'>/// Leaks a value: takes ownership and &quot;forgets&quot; about the value **without running</span>
-<span class='doccomment'>/// its destructor**.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Any resources the value manages, such as heap memory or a file handle, will linger</span>
-<span class='doccomment'>/// forever in an unreachable state.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// If you want to dispose of a value properly, running its destructor, see</span>
-<span class='doccomment'>/// [`mem::drop`][drop].</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Safety</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// `forget` is not marked as `unsafe`, because Rust&#39;s safety guarantees</span>
-<span class='doccomment'>/// do not include a guarantee that destructors will always run. For example,</span>
-<span class='doccomment'>/// a program can create a reference cycle using [`Rc`][rc], or call</span>
-<span class='doccomment'>/// [`process:exit`][exit] to exit without running destructors. Thus, allowing</span>
-<span class='doccomment'>/// `mem::forget` from safe code does not fundamentally change Rust&#39;s safety</span>
-<span class='doccomment'>/// guarantees.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// That said, leaking resources such as memory or I/O objects is usually undesirable,</span>
-<span class='doccomment'>/// so `forget` is only recommended for specialized use cases like those shown below.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Because forgetting a value is allowed, any `unsafe` code you write must</span>
-<span class='doccomment'>/// allow for this possibility. You cannot return a value and expect that the</span>
-<span class='doccomment'>/// caller will necessarily run the value&#39;s destructor.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// [rc]: ../../std/rc/struct.Rc.html</span>
-<span class='doccomment'>/// [exit]: ../../std/process/fn.exit.html</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Examples</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Leak some heap memory by never deallocating it:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// use std::mem;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// let heap_memory = Box::new(3);</span>
-<span class='doccomment'>/// mem::forget(heap_memory);</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Leak an I/O object, never closing the file:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```no_run</span>
-<span class='doccomment'>/// use std::mem;</span>
-<span class='doccomment'>/// use std::fs::File;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// let file = File::open(&quot;foo.txt&quot;).unwrap();</span>
-<span class='doccomment'>/// mem::forget(file);</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// The practical use cases for `forget` are rather specialized and mainly come</span>
-<span class='doccomment'>/// up in unsafe or FFI code.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ## Use case 1</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// You have created an uninitialized value using [`mem::uninitialized`][uninit].</span>
-<span class='doccomment'>/// You must either initialize or `forget` it on every computation path before</span>
-<span class='doccomment'>/// Rust drops it automatically, like at the end of a scope or after a panic.</span>
-<span class='doccomment'>/// Running the destructor on an uninitialized value would be [undefined behavior][ub].</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// use std::mem;</span>
-<span class='doccomment'>/// use std::ptr;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # let some_condition = false;</span>
-<span class='doccomment'>/// unsafe {</span>
-<span class='doccomment'>///     let mut uninit_vec: Vec&lt;u32&gt; = mem::uninitialized();</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>///     if some_condition {</span>
-<span class='doccomment'>///         // Initialize the variable.</span>
-<span class='doccomment'>///         ptr::write(&amp;mut uninit_vec, Vec::new());</span>
-<span class='doccomment'>///     } else {</span>
-<span class='doccomment'>///         // Forget the uninitialized value so its destructor doesn&#39;t run.</span>
-<span class='doccomment'>///         mem::forget(uninit_vec);</span>
-<span class='doccomment'>///     }</span>
-<span class='doccomment'>/// }</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ## Use case 2</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// You have duplicated the bytes making up a value, without doing a proper</span>
-<span class='doccomment'>/// [`Clone`][clone]. You need the value&#39;s destructor to run only once,</span>
-<span class='doccomment'>/// because a double `free` is undefined behavior.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// An example is the definition of [`mem::swap`][swap] in this module:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// use std::mem;</span>
-<span class='doccomment'>/// use std::ptr;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # #[allow(dead_code)]</span>
-<span class='doccomment'>/// fn swap&lt;T&gt;(x: &amp;mut T, y: &amp;mut T) {</span>
-<span class='doccomment'>///     unsafe {</span>
-<span class='doccomment'>///         // Give ourselves some scratch space to work with</span>
-<span class='doccomment'>///         let mut t: T = mem::uninitialized();</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>///         // Perform the swap, `&amp;mut` pointers never alias</span>
-<span class='doccomment'>///         ptr::copy_nonoverlapping(&amp;*x, &amp;mut t, 1);</span>
-<span class='doccomment'>///         ptr::copy_nonoverlapping(&amp;*y, x, 1);</span>
-<span class='doccomment'>///         ptr::copy_nonoverlapping(&amp;t, y, 1);</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>///         // y and t now point to the same thing, but we need to completely</span>
-<span class='doccomment'>///         // forget `t` because we do not want to run the destructor for `T`</span>
-<span class='doccomment'>///         // on its value, which is still owned somewhere outside this function.</span>
-<span class='doccomment'>///         mem::forget(t);</span>
-<span class='doccomment'>///     }</span>
-<span class='doccomment'>/// }</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ## Use case 3</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// You are transferring ownership across a [FFI] boundary to code written in</span>
-<span class='doccomment'>/// another language. You need to `forget` the value on the Rust side because Rust</span>
-<span class='doccomment'>/// code is no longer responsible for it.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```no_run</span>
-<span class='doccomment'>/// use std::mem;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// extern &quot;C&quot; {</span>
-<span class='doccomment'>///     fn my_c_function(x: *const u32);</span>
-<span class='doccomment'>/// }</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// let x: Box&lt;u32&gt; = Box::new(3);</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// // Transfer ownership into C code.</span>
-<span class='doccomment'>/// unsafe {</span>
-<span class='doccomment'>///     my_c_function(&amp;*x);</span>
-<span class='doccomment'>/// }</span>
-<span class='doccomment'>/// mem::forget(x);</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// In this case, C code must call back into Rust to free the object. Calling C&#39;s `free`</span>
-<span class='doccomment'>/// function on a [`Box`][box] is *not* safe! Also, `Box` provides an [`into_raw`][into_raw]</span>
-<span class='doccomment'>/// method which is the preferred way to do this in practice.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// [drop]: fn.drop.html</span>
-<span class='doccomment'>/// [uninit]: fn.uninitialized.html</span>
-<span class='doccomment'>/// [clone]: ../clone/trait.Clone.html</span>
-<span class='doccomment'>/// [swap]: fn.swap.html</span>
-<span class='doccomment'>/// [FFI]: ../../book/ffi.html</span>
-<span class='doccomment'>/// [box]: ../../std/boxed/struct.Box.html</span>
-<span class='doccomment'>/// [into_raw]: ../../std/boxed/struct.Box.html#method.into_raw</span>
-<span class='doccomment'>/// [ub]: ../../reference/behavior-considered-undefined.html</span>
-<span class='attribute'>#[<span class='ident'>inline</span>]</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>forget</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>(<span class='ident'>t</span>: <span class='ident'>T</span>) {
-    <span class='kw'>unsafe</span> { <span class='ident'>intrinsics</span>::<span class='ident'>forget</span>(<span class='ident'>t</span>) }
+<span class="doccomment">/// Leaks a value: takes ownership and &quot;forgets&quot; about the value **without running</span>
+<span class="doccomment">/// its destructor**.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Any resources the value manages, such as heap memory or a file handle, will linger</span>
+<span class="doccomment">/// forever in an unreachable state.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// If you want to dispose of a value properly, running its destructor, see</span>
+<span class="doccomment">/// [`mem::drop`][drop].</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Safety</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// `forget` is not marked as `unsafe`, because Rust&#39;s safety guarantees</span>
+<span class="doccomment">/// do not include a guarantee that destructors will always run. For example,</span>
+<span class="doccomment">/// a program can create a reference cycle using [`Rc`][rc], or call</span>
+<span class="doccomment">/// [`process:exit`][exit] to exit without running destructors. Thus, allowing</span>
+<span class="doccomment">/// `mem::forget` from safe code does not fundamentally change Rust&#39;s safety</span>
+<span class="doccomment">/// guarantees.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// That said, leaking resources such as memory or I/O objects is usually undesirable,</span>
+<span class="doccomment">/// so `forget` is only recommended for specialized use cases like those shown below.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Because forgetting a value is allowed, any `unsafe` code you write must</span>
+<span class="doccomment">/// allow for this possibility. You cannot return a value and expect that the</span>
+<span class="doccomment">/// caller will necessarily run the value&#39;s destructor.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [rc]: ../../std/rc/struct.Rc.html</span>
+<span class="doccomment">/// [exit]: ../../std/process/fn.exit.html</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Leak some heap memory by never deallocating it:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// use std::mem;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// let heap_memory = Box::new(3);</span>
+<span class="doccomment">/// mem::forget(heap_memory);</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Leak an I/O object, never closing the file:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```no_run</span>
+<span class="doccomment">/// use std::mem;</span>
+<span class="doccomment">/// use std::fs::File;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// let file = File::open(&quot;foo.txt&quot;).unwrap();</span>
+<span class="doccomment">/// mem::forget(file);</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// The practical use cases for `forget` are rather specialized and mainly come</span>
+<span class="doccomment">/// up in unsafe or FFI code.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ## Use case 1</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// You have created an uninitialized value using [`mem::uninitialized`][uninit].</span>
+<span class="doccomment">/// You must either initialize or `forget` it on every computation path before</span>
+<span class="doccomment">/// Rust drops it automatically, like at the end of a scope or after a panic.</span>
+<span class="doccomment">/// Running the destructor on an uninitialized value would be [undefined behavior][ub].</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// use std::mem;</span>
+<span class="doccomment">/// use std::ptr;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # let some_condition = false;</span>
+<span class="doccomment">/// unsafe {</span>
+<span class="doccomment">///     let mut uninit_vec: Vec&lt;u32&gt; = mem::uninitialized();</span>
+<span class="doccomment">///</span>
+<span class="doccomment">///     if some_condition {</span>
+<span class="doccomment">///         // Initialize the variable.</span>
+<span class="doccomment">///         ptr::write(&amp;mut uninit_vec, Vec::new());</span>
+<span class="doccomment">///     } else {</span>
+<span class="doccomment">///         // Forget the uninitialized value so its destructor doesn&#39;t run.</span>
+<span class="doccomment">///         mem::forget(uninit_vec);</span>
+<span class="doccomment">///     }</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ## Use case 2</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// You have duplicated the bytes making up a value, without doing a proper</span>
+<span class="doccomment">/// [`Clone`][clone]. You need the value&#39;s destructor to run only once,</span>
+<span class="doccomment">/// because a double `free` is undefined behavior.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// An example is the definition of [`mem::swap`][swap] in this module:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// use std::mem;</span>
+<span class="doccomment">/// use std::ptr;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # #[allow(dead_code)]</span>
+<span class="doccomment">/// fn swap&lt;T&gt;(x: &amp;mut T, y: &amp;mut T) {</span>
+<span class="doccomment">///     unsafe {</span>
+<span class="doccomment">///         // Give ourselves some scratch space to work with</span>
+<span class="doccomment">///         let mut t: T = mem::uninitialized();</span>
+<span class="doccomment">///</span>
+<span class="doccomment">///         // Perform the swap, `&amp;mut` pointers never alias</span>
+<span class="doccomment">///         ptr::copy_nonoverlapping(&amp;*x, &amp;mut t, 1);</span>
+<span class="doccomment">///         ptr::copy_nonoverlapping(&amp;*y, x, 1);</span>
+<span class="doccomment">///         ptr::copy_nonoverlapping(&amp;t, y, 1);</span>
+<span class="doccomment">///</span>
+<span class="doccomment">///         // y and t now point to the same thing, but we need to completely</span>
+<span class="doccomment">///         // forget `t` because we do not want to run the destructor for `T`</span>
+<span class="doccomment">///         // on its value, which is still owned somewhere outside this function.</span>
+<span class="doccomment">///         mem::forget(t);</span>
+<span class="doccomment">///     }</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ## Use case 3</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// You are transferring ownership across a [FFI] boundary to code written in</span>
+<span class="doccomment">/// another language. You need to `forget` the value on the Rust side because Rust</span>
+<span class="doccomment">/// code is no longer responsible for it.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```no_run</span>
+<span class="doccomment">/// use std::mem;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// extern &quot;C&quot; {</span>
+<span class="doccomment">///     fn my_c_function(x: *const u32);</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// let x: Box&lt;u32&gt; = Box::new(3);</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// // Transfer ownership into C code.</span>
+<span class="doccomment">/// unsafe {</span>
+<span class="doccomment">///     my_c_function(&amp;*x);</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">/// mem::forget(x);</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// In this case, C code must call back into Rust to free the object. Calling C&#39;s `free`</span>
+<span class="doccomment">/// function on a [`Box`][box] is *not* safe! Also, `Box` provides an [`into_raw`][into_raw]</span>
+<span class="doccomment">/// method which is the preferred way to do this in practice.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [drop]: fn.drop.html</span>
+<span class="doccomment">/// [uninit]: fn.uninitialized.html</span>
+<span class="doccomment">/// [clone]: ../clone/trait.Clone.html</span>
+<span class="doccomment">/// [swap]: fn.swap.html</span>
+<span class="doccomment">/// [FFI]: ../../book/ffi.html</span>
+<span class="doccomment">/// [box]: ../../std/boxed/struct.Box.html</span>
+<span class="doccomment">/// [into_raw]: ../../std/boxed/struct.Box.html#method.into_raw</span>
+<span class="doccomment">/// [ub]: ../../reference/behavior-considered-undefined.html</span>
+<span class="attribute">#[<span class="ident">inline</span>]</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">forget</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="ident">t</span>: <span class="ident">T</span>) {
+    <span class="kw">unsafe</span> { <span class="ident">intrinsics</span>::<span class="ident">forget</span>(<span class="ident">t</span>) }
 }
 
-<span class='doccomment'>/// Returns the size of a type in bytes.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// More specifically, this is the offset in bytes between successive</span>
-<span class='doccomment'>/// items of the same type, including alignment padding.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Examples</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// use std::mem;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// assert_eq!(4, mem::size_of::&lt;i32&gt;());</span>
-<span class='doccomment'>/// ```</span>
-<span class='attribute'>#[<span class='ident'>inline</span>]</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>size_of</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>() <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
-    <span class='kw'>unsafe</span> { <span class='ident'>intrinsics</span>::<span class='ident'>size_of</span>::<span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>() }
+<span class="doccomment">/// Returns the size of a type in bytes.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// More specifically, this is the offset in bytes between successive</span>
+<span class="doccomment">/// items of the same type, including alignment padding.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// use std::mem;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// assert_eq!(4, mem::size_of::&lt;i32&gt;());</span>
+<span class="doccomment">/// ```</span>
+<span class="attribute">#[<span class="ident">inline</span>]</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">size_of</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>() <span class="op">-&gt;</span> <span class="ident">usize</span> {
+    <span class="kw">unsafe</span> { <span class="ident">intrinsics</span>::<span class="ident">size_of</span>::<span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>() }
 }
 
-<span class='doccomment'>/// Returns the size of the pointed-to value in bytes.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This is usually the same as `size_of::&lt;T&gt;()`. However, when `T` *has* no</span>
-<span class='doccomment'>/// statically known size, e.g. a slice [`[T]`][slice] or a [trait object],</span>
-<span class='doccomment'>/// then `size_of_val` can be used to get the dynamically-known size.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// [slice]: ../../std/primitive.slice.html</span>
-<span class='doccomment'>/// [trait object]: ../../book/trait-objects.html</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Examples</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// use std::mem;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// assert_eq!(4, mem::size_of_val(&amp;5i32));</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// let x: [u8; 13] = [0; 13];</span>
-<span class='doccomment'>/// let y: &amp;[u8] = &amp;x;</span>
-<span class='doccomment'>/// assert_eq!(13, mem::size_of_val(y));</span>
-<span class='doccomment'>/// ```</span>
-<span class='attribute'>#[<span class='ident'>inline</span>]</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>size_of_val</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span>(<span class='ident'>val</span>: <span class='kw-2'>&amp;</span><span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
-    <span class='kw'>unsafe</span> { <span class='ident'>intrinsics</span>::<span class='ident'>size_of_val</span>(<span class='ident'>val</span>) }
+<span class="doccomment">/// Returns the size of the pointed-to value in bytes.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This is usually the same as `size_of::&lt;T&gt;()`. However, when `T` *has* no</span>
+<span class="doccomment">/// statically known size, e.g. a slice [`[T]`][slice] or a [trait object],</span>
+<span class="doccomment">/// then `size_of_val` can be used to get the dynamically-known size.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [slice]: ../../std/primitive.slice.html</span>
+<span class="doccomment">/// [trait object]: ../../book/trait-objects.html</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// use std::mem;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// assert_eq!(4, mem::size_of_val(&amp;5i32));</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// let x: [u8; 13] = [0; 13];</span>
+<span class="doccomment">/// let y: &amp;[u8] = &amp;x;</span>
+<span class="doccomment">/// assert_eq!(13, mem::size_of_val(y));</span>
+<span class="doccomment">/// ```</span>
+<span class="attribute">#[<span class="ident">inline</span>]</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">size_of_val</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span>(<span class="ident">val</span>: <span class="kw-2">&amp;</span><span class="ident">T</span>) <span class="op">-&gt;</span> <span class="ident">usize</span> {
+    <span class="kw">unsafe</span> { <span class="ident">intrinsics</span>::<span class="ident">size_of_val</span>(<span class="ident">val</span>) }
 }
 
-<span class='doccomment'>/// Returns the [ABI]-required minimum alignment of a type.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Every valid address of a value of the type `T` must be a multiple of this number.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This is the alignment used for struct fields. It may be smaller than the preferred alignment.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// [ABI]: https://en.wikipedia.org/wiki/Application_binary_interface</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Examples</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// # #![allow(deprecated)]</span>
-<span class='doccomment'>/// use std::mem;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// assert_eq!(4, mem::min_align_of::&lt;i32&gt;());</span>
-<span class='doccomment'>/// ```</span>
-<span class='attribute'>#[<span class='ident'>inline</span>]</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='attribute'>#[<span class='ident'>rustc_deprecated</span>(<span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;use `align_of` instead&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.2.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>min_align_of</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>() <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
-    <span class='kw'>unsafe</span> { <span class='ident'>intrinsics</span>::<span class='ident'>min_align_of</span>::<span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>() }
+<span class="doccomment">/// Returns the [ABI]-required minimum alignment of a type.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Every valid address of a value of the type `T` must be a multiple of this number.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This is the alignment used for struct fields. It may be smaller than the preferred alignment.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [ABI]: https://en.wikipedia.org/wiki/Application_binary_interface</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// # #![allow(deprecated)]</span>
+<span class="doccomment">/// use std::mem;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// assert_eq!(4, mem::min_align_of::&lt;i32&gt;());</span>
+<span class="doccomment">/// ```</span>
+<span class="attribute">#[<span class="ident">inline</span>]</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="attribute">#[<span class="ident">rustc_deprecated</span>(<span class="ident">reason</span> <span class="op">=</span> <span class="string">&quot;use `align_of` instead&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.2.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">min_align_of</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>() <span class="op">-&gt;</span> <span class="ident">usize</span> {
+    <span class="kw">unsafe</span> { <span class="ident">intrinsics</span>::<span class="ident">min_align_of</span>::<span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>() }
 }
 
-<span class='doccomment'>/// Returns the [ABI]-required minimum alignment of the type of the value that `val` points to.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Every valid address of a value of the type `T` must be a multiple of this number.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// [ABI]: https://en.wikipedia.org/wiki/Application_binary_interface</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Examples</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// # #![allow(deprecated)]</span>
-<span class='doccomment'>/// use std::mem;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// assert_eq!(4, mem::min_align_of_val(&amp;5i32));</span>
-<span class='doccomment'>/// ```</span>
-<span class='attribute'>#[<span class='ident'>inline</span>]</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='attribute'>#[<span class='ident'>rustc_deprecated</span>(<span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;use `align_of_val` instead&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.2.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>min_align_of_val</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span>(<span class='ident'>val</span>: <span class='kw-2'>&amp;</span><span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
-    <span class='kw'>unsafe</span> { <span class='ident'>intrinsics</span>::<span class='ident'>min_align_of_val</span>(<span class='ident'>val</span>) }
+<span class="doccomment">/// Returns the [ABI]-required minimum alignment of the type of the value that `val` points to.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Every valid address of a value of the type `T` must be a multiple of this number.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [ABI]: https://en.wikipedia.org/wiki/Application_binary_interface</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// # #![allow(deprecated)]</span>
+<span class="doccomment">/// use std::mem;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// assert_eq!(4, mem::min_align_of_val(&amp;5i32));</span>
+<span class="doccomment">/// ```</span>
+<span class="attribute">#[<span class="ident">inline</span>]</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="attribute">#[<span class="ident">rustc_deprecated</span>(<span class="ident">reason</span> <span class="op">=</span> <span class="string">&quot;use `align_of_val` instead&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.2.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">min_align_of_val</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span>(<span class="ident">val</span>: <span class="kw-2">&amp;</span><span class="ident">T</span>) <span class="op">-&gt;</span> <span class="ident">usize</span> {
+    <span class="kw">unsafe</span> { <span class="ident">intrinsics</span>::<span class="ident">min_align_of_val</span>(<span class="ident">val</span>) }
 }
 
-<span class='doccomment'>/// Returns the [ABI]-required minimum alignment of a type.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Every valid address of a value of the type `T` must be a multiple of this number.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This is the alignment used for struct fields. It may be smaller than the preferred alignment.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// [ABI]: https://en.wikipedia.org/wiki/Application_binary_interface</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Examples</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// use std::mem;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// assert_eq!(4, mem::align_of::&lt;i32&gt;());</span>
-<span class='doccomment'>/// ```</span>
-<span class='attribute'>#[<span class='ident'>inline</span>]</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>align_of</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>() <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
-    <span class='kw'>unsafe</span> { <span class='ident'>intrinsics</span>::<span class='ident'>min_align_of</span>::<span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>() }
+<span class="doccomment">/// Returns the [ABI]-required minimum alignment of a type.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Every valid address of a value of the type `T` must be a multiple of this number.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This is the alignment used for struct fields. It may be smaller than the preferred alignment.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [ABI]: https://en.wikipedia.org/wiki/Application_binary_interface</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// use std::mem;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// assert_eq!(4, mem::align_of::&lt;i32&gt;());</span>
+<span class="doccomment">/// ```</span>
+<span class="attribute">#[<span class="ident">inline</span>]</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">align_of</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>() <span class="op">-&gt;</span> <span class="ident">usize</span> {
+    <span class="kw">unsafe</span> { <span class="ident">intrinsics</span>::<span class="ident">min_align_of</span>::<span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>() }
 }
 
-<span class='doccomment'>/// Returns the [ABI]-required minimum alignment of the type of the value that `val` points to.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Every valid address of a value of the type `T` must be a multiple of this number.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// [ABI]: https://en.wikipedia.org/wiki/Application_binary_interface</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Examples</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// use std::mem;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// assert_eq!(4, mem::align_of_val(&amp;5i32));</span>
-<span class='doccomment'>/// ```</span>
-<span class='attribute'>#[<span class='ident'>inline</span>]</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>align_of_val</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span>(<span class='ident'>val</span>: <span class='kw-2'>&amp;</span><span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
-    <span class='kw'>unsafe</span> { <span class='ident'>intrinsics</span>::<span class='ident'>min_align_of_val</span>(<span class='ident'>val</span>) }
+<span class="doccomment">/// Returns the [ABI]-required minimum alignment of the type of the value that `val` points to.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Every valid address of a value of the type `T` must be a multiple of this number.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [ABI]: https://en.wikipedia.org/wiki/Application_binary_interface</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// use std::mem;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// assert_eq!(4, mem::align_of_val(&amp;5i32));</span>
+<span class="doccomment">/// ```</span>
+<span class="attribute">#[<span class="ident">inline</span>]</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">align_of_val</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span>(<span class="ident">val</span>: <span class="kw-2">&amp;</span><span class="ident">T</span>) <span class="op">-&gt;</span> <span class="ident">usize</span> {
+    <span class="kw">unsafe</span> { <span class="ident">intrinsics</span>::<span class="ident">min_align_of_val</span>(<span class="ident">val</span>) }
 }
 
-<span class='doccomment'>/// Creates a value whose bytes are all zero.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This has the same effect as allocating space with</span>
-<span class='doccomment'>/// [`mem::uninitialized`][uninit] and then zeroing it out. It is useful for</span>
-<span class='doccomment'>/// [FFI] sometimes, but should generally be avoided.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// There is no guarantee that an all-zero byte-pattern represents a valid value of</span>
-<span class='doccomment'>/// some type `T`. If `T` has a destructor and the value is destroyed (due to</span>
-<span class='doccomment'>/// a panic or the end of a scope) before being initialized, then the destructor</span>
-<span class='doccomment'>/// will run on zeroed data, likely leading to [undefined behavior][ub].</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// See also the documentation for [`mem::uninitialized`][uninit], which has</span>
-<span class='doccomment'>/// many of the same caveats.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// [uninit]: fn.uninitialized.html</span>
-<span class='doccomment'>/// [FFI]: ../../book/ffi.html</span>
-<span class='doccomment'>/// [ub]: ../../reference/behavior-considered-undefined.html</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Examples</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// use std::mem;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// let x: i32 = unsafe { mem::zeroed() };</span>
-<span class='doccomment'>/// assert_eq!(0, x);</span>
-<span class='doccomment'>/// ```</span>
-<span class='attribute'>#[<span class='ident'>inline</span>]</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>unsafe</span> <span class='kw'>fn</span> <span class='ident'>zeroed</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>() <span class='op'>-&gt;</span> <span class='ident'>T</span> {
-    <span class='ident'>intrinsics</span>::<span class='ident'>init</span>()
+<span class="doccomment">/// Creates a value whose bytes are all zero.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This has the same effect as allocating space with</span>
+<span class="doccomment">/// [`mem::uninitialized`][uninit] and then zeroing it out. It is useful for</span>
+<span class="doccomment">/// [FFI] sometimes, but should generally be avoided.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// There is no guarantee that an all-zero byte-pattern represents a valid value of</span>
+<span class="doccomment">/// some type `T`. If `T` has a destructor and the value is destroyed (due to</span>
+<span class="doccomment">/// a panic or the end of a scope) before being initialized, then the destructor</span>
+<span class="doccomment">/// will run on zeroed data, likely leading to [undefined behavior][ub].</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// See also the documentation for [`mem::uninitialized`][uninit], which has</span>
+<span class="doccomment">/// many of the same caveats.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [uninit]: fn.uninitialized.html</span>
+<span class="doccomment">/// [FFI]: ../../book/ffi.html</span>
+<span class="doccomment">/// [ub]: ../../reference/behavior-considered-undefined.html</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// use std::mem;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// let x: i32 = unsafe { mem::zeroed() };</span>
+<span class="doccomment">/// assert_eq!(0, x);</span>
+<span class="doccomment">/// ```</span>
+<span class="attribute">#[<span class="ident">inline</span>]</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">unsafe</span> <span class="kw">fn</span> <span class="ident">zeroed</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>() <span class="op">-&gt;</span> <span class="ident">T</span> {
+    <span class="ident">intrinsics</span>::<span class="ident">init</span>()
 }
 
-<span class='doccomment'>/// Bypasses Rust&#39;s normal memory-initialization checks by pretending to</span>
-<span class='doccomment'>/// produce a value of type `T`, while doing nothing at all.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// **This is incredibly dangerous and should not be done lightly. Deeply</span>
-<span class='doccomment'>/// consider initializing your memory with a default value instead.**</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This is useful for [FFI] functions and initializing arrays sometimes,</span>
-<span class='doccomment'>/// but should generally be avoided.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// [FFI]: ../../book/ffi.html</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Undefined behavior</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// It is [undefined behavior][ub] to read uninitialized memory, even just an</span>
-<span class='doccomment'>/// uninitialized boolean. For instance, if you branch on the value of such</span>
-<span class='doccomment'>/// a boolean, your program may take one, both, or neither of the branches.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Writing to the uninitialized value is similarly dangerous. Rust believes the</span>
-<span class='doccomment'>/// value is initialized, and will therefore try to [`Drop`] the uninitialized</span>
-<span class='doccomment'>/// value and its fields if you try to overwrite it in a normal manner. The only way</span>
-<span class='doccomment'>/// to safely initialize an uninitialized value is with [`ptr::write`][write],</span>
-<span class='doccomment'>/// [`ptr::copy`][copy], or [`ptr::copy_nonoverlapping`][copy_no].</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// If the value does implement [`Drop`], it must be initialized before</span>
-<span class='doccomment'>/// it goes out of scope (and therefore would be dropped). Note that this</span>
-<span class='doccomment'>/// includes a `panic` occurring and unwinding the stack suddenly.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Examples</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Here&#39;s how to safely initialize an array of [`Vec`]s.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// use std::mem;</span>
-<span class='doccomment'>/// use std::ptr;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// // Only declare the array. This safely leaves it</span>
-<span class='doccomment'>/// // uninitialized in a way that Rust will track for us.</span>
-<span class='doccomment'>/// // However we can&#39;t initialize it element-by-element</span>
-<span class='doccomment'>/// // safely, and we can&#39;t use the `[value; 1000]`</span>
-<span class='doccomment'>/// // constructor because it only works with `Copy` data.</span>
-<span class='doccomment'>/// let mut data: [Vec&lt;u32&gt;; 1000];</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// unsafe {</span>
-<span class='doccomment'>///     // So we need to do this to initialize it.</span>
-<span class='doccomment'>///     data = mem::uninitialized();</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>///     // DANGER ZONE: if anything panics or otherwise</span>
-<span class='doccomment'>///     // incorrectly reads the array here, we will have</span>
-<span class='doccomment'>///     // Undefined Behavior.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>///     // It&#39;s ok to mutably iterate the data, since this</span>
-<span class='doccomment'>///     // doesn&#39;t involve reading it at all.</span>
-<span class='doccomment'>///     // (ptr and len are statically known for arrays)</span>
-<span class='doccomment'>///     for elem in &amp;mut data[..] {</span>
-<span class='doccomment'>///         // *elem = Vec::new() would try to drop the</span>
-<span class='doccomment'>///         // uninitialized memory at `elem` -- bad!</span>
-<span class='doccomment'>///         //</span>
-<span class='doccomment'>///         // Vec::new doesn&#39;t allocate or do really</span>
-<span class='doccomment'>///         // anything. It&#39;s only safe to call here</span>
-<span class='doccomment'>///         // because we know it won&#39;t panic.</span>
-<span class='doccomment'>///         ptr::write(elem, Vec::new());</span>
-<span class='doccomment'>///     }</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>///     // SAFE ZONE: everything is initialized.</span>
-<span class='doccomment'>/// }</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// println!(&quot;{:?}&quot;, &amp;data[0]);</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This example emphasizes exactly how delicate and dangerous using `mem::uninitialized`</span>
-<span class='doccomment'>/// can be. Note that the [`vec!`] macro *does* let you initialize every element with a</span>
-<span class='doccomment'>/// value that is only [`Clone`], so the following is semantically equivalent and</span>
-<span class='doccomment'>/// vastly less dangerous, as long as you can live with an extra heap</span>
-<span class='doccomment'>/// allocation:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// let data: Vec&lt;Vec&lt;u32&gt;&gt; = vec![Vec::new(); 1000];</span>
-<span class='doccomment'>/// println!(&quot;{:?}&quot;, &amp;data[0]);</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// [`Vec`]: ../../std/vec/struct.Vec.html</span>
-<span class='doccomment'>/// [`vec!`]: ../../std/macro.vec.html</span>
-<span class='doccomment'>/// [`Clone`]: ../../std/clone/trait.Clone.html</span>
-<span class='doccomment'>/// [ub]: ../../reference/behavior-considered-undefined.html</span>
-<span class='doccomment'>/// [write]: ../ptr/fn.write.html</span>
-<span class='doccomment'>/// [copy]: ../intrinsics/fn.copy.html</span>
-<span class='doccomment'>/// [copy_no]: ../intrinsics/fn.copy_nonoverlapping.html</span>
-<span class='doccomment'>/// [`Drop`]: ../ops/trait.Drop.html</span>
-<span class='attribute'>#[<span class='ident'>inline</span>]</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>unsafe</span> <span class='kw'>fn</span> <span class='ident'>uninitialized</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>() <span class='op'>-&gt;</span> <span class='ident'>T</span> {
-    <span class='ident'>intrinsics</span>::<span class='ident'>uninit</span>()
+<span class="doccomment">/// Bypasses Rust&#39;s normal memory-initialization checks by pretending to</span>
+<span class="doccomment">/// produce a value of type `T`, while doing nothing at all.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// **This is incredibly dangerous and should not be done lightly. Deeply</span>
+<span class="doccomment">/// consider initializing your memory with a default value instead.**</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This is useful for [FFI] functions and initializing arrays sometimes,</span>
+<span class="doccomment">/// but should generally be avoided.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [FFI]: ../../book/ffi.html</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Undefined behavior</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// It is [undefined behavior][ub] to read uninitialized memory, even just an</span>
+<span class="doccomment">/// uninitialized boolean. For instance, if you branch on the value of such</span>
+<span class="doccomment">/// a boolean, your program may take one, both, or neither of the branches.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Writing to the uninitialized value is similarly dangerous. Rust believes the</span>
+<span class="doccomment">/// value is initialized, and will therefore try to [`Drop`] the uninitialized</span>
+<span class="doccomment">/// value and its fields if you try to overwrite it in a normal manner. The only way</span>
+<span class="doccomment">/// to safely initialize an uninitialized value is with [`ptr::write`][write],</span>
+<span class="doccomment">/// [`ptr::copy`][copy], or [`ptr::copy_nonoverlapping`][copy_no].</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// If the value does implement [`Drop`], it must be initialized before</span>
+<span class="doccomment">/// it goes out of scope (and therefore would be dropped). Note that this</span>
+<span class="doccomment">/// includes a `panic` occurring and unwinding the stack suddenly.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Here&#39;s how to safely initialize an array of [`Vec`]s.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// use std::mem;</span>
+<span class="doccomment">/// use std::ptr;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// // Only declare the array. This safely leaves it</span>
+<span class="doccomment">/// // uninitialized in a way that Rust will track for us.</span>
+<span class="doccomment">/// // However we can&#39;t initialize it element-by-element</span>
+<span class="doccomment">/// // safely, and we can&#39;t use the `[value; 1000]`</span>
+<span class="doccomment">/// // constructor because it only works with `Copy` data.</span>
+<span class="doccomment">/// let mut data: [Vec&lt;u32&gt;; 1000];</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// unsafe {</span>
+<span class="doccomment">///     // So we need to do this to initialize it.</span>
+<span class="doccomment">///     data = mem::uninitialized();</span>
+<span class="doccomment">///</span>
+<span class="doccomment">///     // DANGER ZONE: if anything panics or otherwise</span>
+<span class="doccomment">///     // incorrectly reads the array here, we will have</span>
+<span class="doccomment">///     // Undefined Behavior.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">///     // It&#39;s ok to mutably iterate the data, since this</span>
+<span class="doccomment">///     // doesn&#39;t involve reading it at all.</span>
+<span class="doccomment">///     // (ptr and len are statically known for arrays)</span>
+<span class="doccomment">///     for elem in &amp;mut data[..] {</span>
+<span class="doccomment">///         // *elem = Vec::new() would try to drop the</span>
+<span class="doccomment">///         // uninitialized memory at `elem` -- bad!</span>
+<span class="doccomment">///         //</span>
+<span class="doccomment">///         // Vec::new doesn&#39;t allocate or do really</span>
+<span class="doccomment">///         // anything. It&#39;s only safe to call here</span>
+<span class="doccomment">///         // because we know it won&#39;t panic.</span>
+<span class="doccomment">///         ptr::write(elem, Vec::new());</span>
+<span class="doccomment">///     }</span>
+<span class="doccomment">///</span>
+<span class="doccomment">///     // SAFE ZONE: everything is initialized.</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// println!(&quot;{:?}&quot;, &amp;data[0]);</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This example emphasizes exactly how delicate and dangerous using `mem::uninitialized`</span>
+<span class="doccomment">/// can be. Note that the [`vec!`] macro *does* let you initialize every element with a</span>
+<span class="doccomment">/// value that is only [`Clone`], so the following is semantically equivalent and</span>
+<span class="doccomment">/// vastly less dangerous, as long as you can live with an extra heap</span>
+<span class="doccomment">/// allocation:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// let data: Vec&lt;Vec&lt;u32&gt;&gt; = vec![Vec::new(); 1000];</span>
+<span class="doccomment">/// println!(&quot;{:?}&quot;, &amp;data[0]);</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [`Vec`]: ../../std/vec/struct.Vec.html</span>
+<span class="doccomment">/// [`vec!`]: ../../std/macro.vec.html</span>
+<span class="doccomment">/// [`Clone`]: ../../std/clone/trait.Clone.html</span>
+<span class="doccomment">/// [ub]: ../../reference/behavior-considered-undefined.html</span>
+<span class="doccomment">/// [write]: ../ptr/fn.write.html</span>
+<span class="doccomment">/// [copy]: ../intrinsics/fn.copy.html</span>
+<span class="doccomment">/// [copy_no]: ../intrinsics/fn.copy_nonoverlapping.html</span>
+<span class="doccomment">/// [`Drop`]: ../ops/trait.Drop.html</span>
+<span class="attribute">#[<span class="ident">inline</span>]</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">unsafe</span> <span class="kw">fn</span> <span class="ident">uninitialized</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>() <span class="op">-&gt;</span> <span class="ident">T</span> {
+    <span class="ident">intrinsics</span>::<span class="ident">uninit</span>()
 }
 
-<span class='doccomment'>/// Swaps the values at two mutable locations, without deinitializing either one.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Examples</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// use std::mem;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// let mut x = 5;</span>
-<span class='doccomment'>/// let mut y = 42;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// mem::swap(&amp;mut x, &amp;mut y);</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// assert_eq!(42, x);</span>
-<span class='doccomment'>/// assert_eq!(5, y);</span>
-<span class='doccomment'>/// ```</span>
-<span class='attribute'>#[<span class='ident'>inline</span>]</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>swap</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>(<span class='ident'>x</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>T</span>, <span class='ident'>y</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>T</span>) {
-    <span class='kw'>unsafe</span> {
-        <span class='comment'>// Give ourselves some scratch space to work with</span>
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>t</span>: <span class='ident'>T</span> <span class='op'>=</span> <span class='ident'>uninitialized</span>();
+<span class="doccomment">/// Swaps the values at two mutable locations, without deinitializing either one.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// use std::mem;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// let mut x = 5;</span>
+<span class="doccomment">/// let mut y = 42;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// mem::swap(&amp;mut x, &amp;mut y);</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// assert_eq!(42, x);</span>
+<span class="doccomment">/// assert_eq!(5, y);</span>
+<span class="doccomment">/// ```</span>
+<span class="attribute">#[<span class="ident">inline</span>]</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">swap</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="ident">x</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">T</span>, <span class="ident">y</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">T</span>) {
+    <span class="kw">unsafe</span> {
+        <span class="comment">// Give ourselves some scratch space to work with</span>
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">t</span>: <span class="ident">T</span> <span class="op">=</span> <span class="ident">uninitialized</span>();
 
-        <span class='comment'>// Perform the swap, `&amp;mut` pointers never alias</span>
-        <span class='ident'>ptr</span>::<span class='ident'>copy_nonoverlapping</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>*</span><span class='ident'>x</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>t</span>, <span class='number'>1</span>);
-        <span class='ident'>ptr</span>::<span class='ident'>copy_nonoverlapping</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>*</span><span class='ident'>y</span>, <span class='ident'>x</span>, <span class='number'>1</span>);
-        <span class='ident'>ptr</span>::<span class='ident'>copy_nonoverlapping</span>(<span class='kw-2'>&amp;</span><span class='ident'>t</span>, <span class='ident'>y</span>, <span class='number'>1</span>);
+        <span class="comment">// Perform the swap, `&amp;mut` pointers never alias</span>
+        <span class="ident">ptr</span>::<span class="ident">copy_nonoverlapping</span>(<span class="kw-2">&amp;</span><span class="kw-2">*</span><span class="ident">x</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">t</span>, <span class="number">1</span>);
+        <span class="ident">ptr</span>::<span class="ident">copy_nonoverlapping</span>(<span class="kw-2">&amp;</span><span class="kw-2">*</span><span class="ident">y</span>, <span class="ident">x</span>, <span class="number">1</span>);
+        <span class="ident">ptr</span>::<span class="ident">copy_nonoverlapping</span>(<span class="kw-2">&amp;</span><span class="ident">t</span>, <span class="ident">y</span>, <span class="number">1</span>);
 
-        <span class='comment'>// y and t now point to the same thing, but we need to completely</span>
-        <span class='comment'>// forget `t` because we do not want to run the destructor for `T`</span>
-        <span class='comment'>// on its value, which is still owned somewhere outside this function.</span>
-        <span class='ident'>forget</span>(<span class='ident'>t</span>);
+        <span class="comment">// y and t now point to the same thing, but we need to completely</span>
+        <span class="comment">// forget `t` because we do not want to run the destructor for `T`</span>
+        <span class="comment">// on its value, which is still owned somewhere outside this function.</span>
+        <span class="ident">forget</span>(<span class="ident">t</span>);
     }
 }
 
-<span class='doccomment'>/// Replaces the value at a mutable location with a new one, returning the old value, without</span>
-<span class='doccomment'>/// deinitializing either one.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Examples</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// A simple example:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// use std::mem;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// let mut v: Vec&lt;i32&gt; = vec![1, 2];</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// let old_v = mem::replace(&amp;mut v, vec![3, 4, 5]);</span>
-<span class='doccomment'>/// assert_eq!(2, old_v.len());</span>
-<span class='doccomment'>/// assert_eq!(3, v.len());</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// `replace` allows consumption of a struct field by replacing it with another value.</span>
-<span class='doccomment'>/// Without `replace` you can run into issues like these:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```ignore</span>
-<span class='doccomment'>/// struct Buffer&lt;T&gt; { buf: Vec&lt;T&gt; }</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// impl&lt;T&gt; Buffer&lt;T&gt; {</span>
-<span class='doccomment'>///     fn get_and_reset(&amp;mut self) -&gt; Vec&lt;T&gt; {</span>
-<span class='doccomment'>///         // error: cannot move out of dereference of `&amp;mut`-pointer</span>
-<span class='doccomment'>///         let buf = self.buf;</span>
-<span class='doccomment'>///         self.buf = Vec::new();</span>
-<span class='doccomment'>///         buf</span>
-<span class='doccomment'>///     }</span>
-<span class='doccomment'>/// }</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Note that `T` does not necessarily implement [`Clone`], so it can&#39;t even clone and reset</span>
-<span class='doccomment'>/// `self.buf`. But `replace` can be used to disassociate the original value of `self.buf` from</span>
-<span class='doccomment'>/// `self`, allowing it to be returned:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// # #![allow(dead_code)]</span>
-<span class='doccomment'>/// use std::mem;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # struct Buffer&lt;T&gt; { buf: Vec&lt;T&gt; }</span>
-<span class='doccomment'>/// impl&lt;T&gt; Buffer&lt;T&gt; {</span>
-<span class='doccomment'>///     fn get_and_reset(&amp;mut self) -&gt; Vec&lt;T&gt; {</span>
-<span class='doccomment'>///         mem::replace(&amp;mut self.buf, Vec::new())</span>
-<span class='doccomment'>///     }</span>
-<span class='doccomment'>/// }</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// [`Clone`]: ../../std/clone/trait.Clone.html</span>
-<span class='attribute'>#[<span class='ident'>inline</span>]</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>replace</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>(<span class='ident'>dest</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>T</span>, <span class='kw-2'>mut</span> <span class='ident'>src</span>: <span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='ident'>T</span> {
-    <span class='ident'>swap</span>(<span class='ident'>dest</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>src</span>);
-    <span class='ident'>src</span>
+<span class="doccomment">/// Replaces the value at a mutable location with a new one, returning the old value, without</span>
+<span class="doccomment">/// deinitializing either one.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// A simple example:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// use std::mem;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// let mut v: Vec&lt;i32&gt; = vec![1, 2];</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// let old_v = mem::replace(&amp;mut v, vec![3, 4, 5]);</span>
+<span class="doccomment">/// assert_eq!(2, old_v.len());</span>
+<span class="doccomment">/// assert_eq!(3, v.len());</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// `replace` allows consumption of a struct field by replacing it with another value.</span>
+<span class="doccomment">/// Without `replace` you can run into issues like these:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```ignore</span>
+<span class="doccomment">/// struct Buffer&lt;T&gt; { buf: Vec&lt;T&gt; }</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// impl&lt;T&gt; Buffer&lt;T&gt; {</span>
+<span class="doccomment">///     fn get_and_reset(&amp;mut self) -&gt; Vec&lt;T&gt; {</span>
+<span class="doccomment">///         // error: cannot move out of dereference of `&amp;mut`-pointer</span>
+<span class="doccomment">///         let buf = self.buf;</span>
+<span class="doccomment">///         self.buf = Vec::new();</span>
+<span class="doccomment">///         buf</span>
+<span class="doccomment">///     }</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Note that `T` does not necessarily implement [`Clone`], so it can&#39;t even clone and reset</span>
+<span class="doccomment">/// `self.buf`. But `replace` can be used to disassociate the original value of `self.buf` from</span>
+<span class="doccomment">/// `self`, allowing it to be returned:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// # #![allow(dead_code)]</span>
+<span class="doccomment">/// use std::mem;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # struct Buffer&lt;T&gt; { buf: Vec&lt;T&gt; }</span>
+<span class="doccomment">/// impl&lt;T&gt; Buffer&lt;T&gt; {</span>
+<span class="doccomment">///     fn get_and_reset(&amp;mut self) -&gt; Vec&lt;T&gt; {</span>
+<span class="doccomment">///         mem::replace(&amp;mut self.buf, Vec::new())</span>
+<span class="doccomment">///     }</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [`Clone`]: ../../std/clone/trait.Clone.html</span>
+<span class="attribute">#[<span class="ident">inline</span>]</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">replace</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="ident">dest</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">T</span>, <span class="kw-2">mut</span> <span class="ident">src</span>: <span class="ident">T</span>) <span class="op">-&gt;</span> <span class="ident">T</span> {
+    <span class="ident">swap</span>(<span class="ident">dest</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">src</span>);
+    <span class="ident">src</span>
 }
 
-<span class='doccomment'>/// Disposes of a value.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// While this does call the argument&#39;s implementation of [`Drop`][drop],</span>
-<span class='doccomment'>/// it will not release any borrows, as borrows are based on lexical scope.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This effectively does nothing for</span>
-<span class='doccomment'>/// [types which implement `Copy`](../../book/ownership.html#copy-types),</span>
-<span class='doccomment'>/// e.g. integers. Such values are copied and _then_ moved into the function,</span>
-<span class='doccomment'>/// so the value persists after this function call.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This function is not magic; it is literally defined as</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// pub fn drop&lt;T&gt;(_x: T) { }</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Because `_x` is moved into the function, it is automatically dropped before</span>
-<span class='doccomment'>/// the function returns.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// [drop]: ../ops/trait.Drop.html</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Examples</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Basic usage:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// let v = vec![1, 2, 3];</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// drop(v); // explicitly drop the vector</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Borrows are based on lexical scope, so this produces an error:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```ignore</span>
-<span class='doccomment'>/// let mut v = vec![1, 2, 3];</span>
-<span class='doccomment'>/// let x = &amp;v[0];</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// drop(x); // explicitly drop the reference, but the borrow still exists</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// v.push(4); // error: cannot borrow `v` as mutable because it is also</span>
-<span class='doccomment'>///            // borrowed as immutable</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// An inner scope is needed to fix this:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// let mut v = vec![1, 2, 3];</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// {</span>
-<span class='doccomment'>///     let x = &amp;v[0];</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>///     drop(x); // this is now redundant, as `x` is going out of scope anyway</span>
-<span class='doccomment'>/// }</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// v.push(4); // no problems</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Since [`RefCell`] enforces the borrow rules at runtime, `drop` can</span>
-<span class='doccomment'>/// release a [`RefCell`] borrow:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// use std::cell::RefCell;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// let x = RefCell::new(1);</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// let mut mutable_borrow = x.borrow_mut();</span>
-<span class='doccomment'>/// *mutable_borrow = 1;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// drop(mutable_borrow); // relinquish the mutable borrow on this slot</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// let borrow = x.borrow();</span>
-<span class='doccomment'>/// println!(&quot;{}&quot;, *borrow);</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Integers and other types implementing [`Copy`] are unaffected by `drop`.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// #[derive(Copy, Clone)]</span>
-<span class='doccomment'>/// struct Foo(u8);</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// let x = 1;</span>
-<span class='doccomment'>/// let y = Foo(2);</span>
-<span class='doccomment'>/// drop(x); // a copy of `x` is moved and dropped</span>
-<span class='doccomment'>/// drop(y); // a copy of `y` is moved and dropped</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// println!(&quot;x: {}, y: {}&quot;, x, y.0); // still available</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// [`RefCell`]: ../../std/cell/struct.RefCell.html</span>
-<span class='doccomment'>/// [`Copy`]: ../../std/marker/trait.Copy.html</span>
-<span class='attribute'>#[<span class='ident'>inline</span>]</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>drop</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>(<span class='ident'>_x</span>: <span class='ident'>T</span>) { }
+<span class="doccomment">/// Disposes of a value.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// While this does call the argument&#39;s implementation of [`Drop`][drop],</span>
+<span class="doccomment">/// it will not release any borrows, as borrows are based on lexical scope.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This effectively does nothing for</span>
+<span class="doccomment">/// [types which implement `Copy`](../../book/ownership.html#copy-types),</span>
+<span class="doccomment">/// e.g. integers. Such values are copied and _then_ moved into the function,</span>
+<span class="doccomment">/// so the value persists after this function call.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This function is not magic; it is literally defined as</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// pub fn drop&lt;T&gt;(_x: T) { }</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Because `_x` is moved into the function, it is automatically dropped before</span>
+<span class="doccomment">/// the function returns.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [drop]: ../ops/trait.Drop.html</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Basic usage:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// let v = vec![1, 2, 3];</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// drop(v); // explicitly drop the vector</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Borrows are based on lexical scope, so this produces an error:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```ignore</span>
+<span class="doccomment">/// let mut v = vec![1, 2, 3];</span>
+<span class="doccomment">/// let x = &amp;v[0];</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// drop(x); // explicitly drop the reference, but the borrow still exists</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// v.push(4); // error: cannot borrow `v` as mutable because it is also</span>
+<span class="doccomment">///            // borrowed as immutable</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// An inner scope is needed to fix this:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// let mut v = vec![1, 2, 3];</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// {</span>
+<span class="doccomment">///     let x = &amp;v[0];</span>
+<span class="doccomment">///</span>
+<span class="doccomment">///     drop(x); // this is now redundant, as `x` is going out of scope anyway</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// v.push(4); // no problems</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Since [`RefCell`] enforces the borrow rules at runtime, `drop` can</span>
+<span class="doccomment">/// release a [`RefCell`] borrow:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// use std::cell::RefCell;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// let x = RefCell::new(1);</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// let mut mutable_borrow = x.borrow_mut();</span>
+<span class="doccomment">/// *mutable_borrow = 1;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// drop(mutable_borrow); // relinquish the mutable borrow on this slot</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// let borrow = x.borrow();</span>
+<span class="doccomment">/// println!(&quot;{}&quot;, *borrow);</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Integers and other types implementing [`Copy`] are unaffected by `drop`.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// #[derive(Copy, Clone)]</span>
+<span class="doccomment">/// struct Foo(u8);</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// let x = 1;</span>
+<span class="doccomment">/// let y = Foo(2);</span>
+<span class="doccomment">/// drop(x); // a copy of `x` is moved and dropped</span>
+<span class="doccomment">/// drop(y); // a copy of `y` is moved and dropped</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// println!(&quot;x: {}, y: {}&quot;, x, y.0); // still available</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [`RefCell`]: ../../std/cell/struct.RefCell.html</span>
+<span class="doccomment">/// [`Copy`]: ../../std/marker/trait.Copy.html</span>
+<span class="attribute">#[<span class="ident">inline</span>]</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">drop</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="ident">_x</span>: <span class="ident">T</span>) { }
 
-<span class='doccomment'>/// Interprets `src` as having type `&amp;U`, and then reads `src` without moving</span>
-<span class='doccomment'>/// the contained value.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This function will unsafely assume the pointer `src` is valid for</span>
-<span class='doccomment'>/// [`size_of::&lt;U&gt;()`][size_of] bytes by transmuting `&amp;T` to `&amp;U` and then reading</span>
-<span class='doccomment'>/// the `&amp;U`. It will also unsafely create a copy of the contained value instead of</span>
-<span class='doccomment'>/// moving out of `src`.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// It is not a compile-time error if `T` and `U` have different sizes, but it</span>
-<span class='doccomment'>/// is highly encouraged to only invoke this function where `T` and `U` have the</span>
-<span class='doccomment'>/// same size. This function triggers [undefined behavior][ub] if `U` is larger than</span>
-<span class='doccomment'>/// `T`.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// [ub]: ../../reference/behavior-considered-undefined.html</span>
-<span class='doccomment'>/// [size_of]: fn.size_of.html</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Examples</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// use std::mem;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// #[repr(packed)]</span>
-<span class='doccomment'>/// struct Foo {</span>
-<span class='doccomment'>///     bar: u8,</span>
-<span class='doccomment'>/// }</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// let foo_slice = [10u8];</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// unsafe {</span>
-<span class='doccomment'>///     // Copy the data from &#39;foo_slice&#39; and treat it as a &#39;Foo&#39;</span>
-<span class='doccomment'>///     let mut foo_struct: Foo = mem::transmute_copy(&amp;foo_slice);</span>
-<span class='doccomment'>///     assert_eq!(foo_struct.bar, 10);</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>///     // Modify the copied data</span>
-<span class='doccomment'>///     foo_struct.bar = 20;</span>
-<span class='doccomment'>///     assert_eq!(foo_struct.bar, 20);</span>
-<span class='doccomment'>/// }</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// // The contents of &#39;foo_slice&#39; should not have changed</span>
-<span class='doccomment'>/// assert_eq!(foo_slice, [10]);</span>
-<span class='doccomment'>/// ```</span>
-<span class='attribute'>#[<span class='ident'>inline</span>]</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;rust1&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.0.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>unsafe</span> <span class='kw'>fn</span> <span class='ident'>transmute_copy</span><span class='op'>&lt;</span><span class='ident'>T</span>, <span class='ident'>U</span><span class='op'>&gt;</span>(<span class='ident'>src</span>: <span class='kw-2'>&amp;</span><span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='ident'>U</span> {
-    <span class='ident'>ptr</span>::<span class='ident'>read</span>(<span class='ident'>src</span> <span class='kw'>as</span> <span class='kw-2'>*</span><span class='kw'>const</span> <span class='ident'>T</span> <span class='kw'>as</span> <span class='kw-2'>*</span><span class='kw'>const</span> <span class='ident'>U</span>)
+<span class="doccomment">/// Interprets `src` as having type `&amp;U`, and then reads `src` without moving</span>
+<span class="doccomment">/// the contained value.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This function will unsafely assume the pointer `src` is valid for</span>
+<span class="doccomment">/// [`size_of::&lt;U&gt;`][size_of] bytes by transmuting `&amp;T` to `&amp;U` and then reading</span>
+<span class="doccomment">/// the `&amp;U`. It will also unsafely create a copy of the contained value instead of</span>
+<span class="doccomment">/// moving out of `src`.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// It is not a compile-time error if `T` and `U` have different sizes, but it</span>
+<span class="doccomment">/// is highly encouraged to only invoke this function where `T` and `U` have the</span>
+<span class="doccomment">/// same size. This function triggers [undefined behavior][ub] if `U` is larger than</span>
+<span class="doccomment">/// `T`.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [ub]: ../../reference/behavior-considered-undefined.html</span>
+<span class="doccomment">/// [size_of]: fn.size_of.html</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// use std::mem;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// #[repr(packed)]</span>
+<span class="doccomment">/// struct Foo {</span>
+<span class="doccomment">///     bar: u8,</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// let foo_slice = [10u8];</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// unsafe {</span>
+<span class="doccomment">///     // Copy the data from &#39;foo_slice&#39; and treat it as a &#39;Foo&#39;</span>
+<span class="doccomment">///     let mut foo_struct: Foo = mem::transmute_copy(&amp;foo_slice);</span>
+<span class="doccomment">///     assert_eq!(foo_struct.bar, 10);</span>
+<span class="doccomment">///</span>
+<span class="doccomment">///     // Modify the copied data</span>
+<span class="doccomment">///     foo_struct.bar = 20;</span>
+<span class="doccomment">///     assert_eq!(foo_struct.bar, 20);</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// // The contents of &#39;foo_slice&#39; should not have changed</span>
+<span class="doccomment">/// assert_eq!(foo_slice, [10]);</span>
+<span class="doccomment">/// ```</span>
+<span class="attribute">#[<span class="ident">inline</span>]</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;rust1&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.0.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">unsafe</span> <span class="kw">fn</span> <span class="ident">transmute_copy</span><span class="op">&lt;</span><span class="ident">T</span>, <span class="ident">U</span><span class="op">&gt;</span>(<span class="ident">src</span>: <span class="kw-2">&amp;</span><span class="ident">T</span>) <span class="op">-&gt;</span> <span class="ident">U</span> {
+    <span class="ident">ptr</span>::<span class="ident">read</span>(<span class="ident">src</span> <span class="kw">as</span> <span class="kw-2">*</span><span class="kw">const</span> <span class="ident">T</span> <span class="kw">as</span> <span class="kw-2">*</span><span class="kw">const</span> <span class="ident">U</span>)
 }
 
-<span class='doccomment'>/// Opaque type representing the discriminant of an enum.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// See the `discriminant` function in this module for more information.</span>
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;discriminant_value&quot;</span>, <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;recently added, follows RFC&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;24263&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>Discriminant</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>(<span class='ident'>u64</span>, <span class='ident'>PhantomData</span><span class='op'>&lt;</span><span class='kw-2'>*</span><span class='kw'>const</span> <span class='ident'>T</span><span class='op'>&gt;</span>);
+<span class="doccomment">/// Opaque type representing the discriminant of an enum.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// See the `discriminant` function in this module for more information.</span>
+<span class="attribute">#[<span class="ident">unstable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;discriminant_value&quot;</span>, <span class="ident">reason</span> <span class="op">=</span> <span class="string">&quot;recently added, follows RFC&quot;</span>, <span class="ident">issue</span> <span class="op">=</span> <span class="string">&quot;24263&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">Discriminant</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="ident">u64</span>, <span class="ident">PhantomData</span><span class="op">&lt;</span><span class="kw-2">*</span><span class="kw">const</span> <span class="ident">T</span><span class="op">&gt;</span>);
 
-<span class='comment'>// N.B. These trait implementations cannot be derived because we don&#39;t want any bounds on T.</span>
+<span class="comment">// N.B. These trait implementations cannot be derived because we don&#39;t want any bounds on T.</span>
 
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;discriminant_value&quot;</span>, <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;recently added, follows RFC&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;24263&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>Copy</span> <span class='kw'>for</span> <span class='ident'>Discriminant</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {}
+<span class="attribute">#[<span class="ident">unstable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;discriminant_value&quot;</span>, <span class="ident">reason</span> <span class="op">=</span> <span class="string">&quot;recently added, follows RFC&quot;</span>, <span class="ident">issue</span> <span class="op">=</span> <span class="string">&quot;24263&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">Copy</span> <span class="kw">for</span> <span class="ident">Discriminant</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {}
 
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;discriminant_value&quot;</span>, <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;recently added, follows RFC&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;24263&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>clone</span>::<span class='ident'>Clone</span> <span class='kw'>for</span> <span class='ident'>Discriminant</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>clone</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
-        <span class='kw-2'>*</span><span class='self'>self</span>
+<span class="attribute">#[<span class="ident">unstable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;discriminant_value&quot;</span>, <span class="ident">reason</span> <span class="op">=</span> <span class="string">&quot;recently added, follows RFC&quot;</span>, <span class="ident">issue</span> <span class="op">=</span> <span class="string">&quot;24263&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">clone</span>::<span class="ident">Clone</span> <span class="kw">for</span> <span class="ident">Discriminant</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">clone</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="self">Self</span> {
+        <span class="kw-2">*</span><span class="self">self</span>
     }
 }
 
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;discriminant_value&quot;</span>, <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;recently added, follows RFC&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;24263&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>cmp</span>::<span class='ident'>PartialEq</span> <span class='kw'>for</span> <span class='ident'>Discriminant</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>eq</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>rhs</span>: <span class='kw-2'>&amp;</span><span class='self'>Self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-        <span class='self'>self</span>.<span class='number'>0</span> <span class='op'>==</span> <span class='ident'>rhs</span>.<span class='number'>0</span>
+<span class="attribute">#[<span class="ident">unstable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;discriminant_value&quot;</span>, <span class="ident">reason</span> <span class="op">=</span> <span class="string">&quot;recently added, follows RFC&quot;</span>, <span class="ident">issue</span> <span class="op">=</span> <span class="string">&quot;24263&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">cmp</span>::<span class="ident">PartialEq</span> <span class="kw">for</span> <span class="ident">Discriminant</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">eq</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">rhs</span>: <span class="kw-2">&amp;</span><span class="self">Self</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+        <span class="self">self</span>.<span class="number">0</span> <span class="op">==</span> <span class="ident">rhs</span>.<span class="number">0</span>
     }
 }
 
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;discriminant_value&quot;</span>, <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;recently added, follows RFC&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;24263&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>cmp</span>::<span class='ident'>Eq</span> <span class='kw'>for</span> <span class='ident'>Discriminant</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {}
+<span class="attribute">#[<span class="ident">unstable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;discriminant_value&quot;</span>, <span class="ident">reason</span> <span class="op">=</span> <span class="string">&quot;recently added, follows RFC&quot;</span>, <span class="ident">issue</span> <span class="op">=</span> <span class="string">&quot;24263&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">cmp</span>::<span class="ident">Eq</span> <span class="kw">for</span> <span class="ident">Discriminant</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {}
 
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;discriminant_value&quot;</span>, <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;recently added, follows RFC&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;24263&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>hash</span>::<span class='ident'>Hash</span> <span class='kw'>for</span> <span class='ident'>Discriminant</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>hash</span><span class='op'>&lt;</span><span class='ident'>H</span>: <span class='ident'>hash</span>::<span class='ident'>Hasher</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>state</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>H</span>) {
-        <span class='self'>self</span>.<span class='number'>0</span>.<span class='ident'>hash</span>(<span class='ident'>state</span>);
+<span class="attribute">#[<span class="ident">unstable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;discriminant_value&quot;</span>, <span class="ident">reason</span> <span class="op">=</span> <span class="string">&quot;recently added, follows RFC&quot;</span>, <span class="ident">issue</span> <span class="op">=</span> <span class="string">&quot;24263&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">hash</span>::<span class="ident">Hash</span> <span class="kw">for</span> <span class="ident">Discriminant</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">hash</span><span class="op">&lt;</span><span class="ident">H</span>: <span class="ident">hash</span>::<span class="ident">Hasher</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">state</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">H</span>) {
+        <span class="self">self</span>.<span class="number">0</span>.<span class="ident">hash</span>(<span class="ident">state</span>);
     }
 }
 
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;discriminant_value&quot;</span>, <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;recently added, follows RFC&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;24263&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>fmt</span>::<span class='ident'>Debug</span> <span class='kw'>for</span> <span class='ident'>Discriminant</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>fmt</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>fmt</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>fmt</span>::<span class='ident'>Formatter</span>) <span class='op'>-&gt;</span> <span class='ident'>fmt</span>::<span class='prelude-ty'>Result</span> {
-        <span class='ident'>fmt</span>.<span class='ident'>debug_tuple</span>(<span class='string'>&quot;Discriminant&quot;</span>)
-           .<span class='ident'>field</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='number'>0</span>)
-           .<span class='ident'>finish</span>()
+<span class="attribute">#[<span class="ident">unstable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;discriminant_value&quot;</span>, <span class="ident">reason</span> <span class="op">=</span> <span class="string">&quot;recently added, follows RFC&quot;</span>, <span class="ident">issue</span> <span class="op">=</span> <span class="string">&quot;24263&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">fmt</span>::<span class="ident">Debug</span> <span class="kw">for</span> <span class="ident">Discriminant</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">fmt</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">fmt</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">fmt</span>::<span class="ident">Formatter</span>) <span class="op">-&gt;</span> <span class="ident">fmt</span>::<span class="prelude-ty">Result</span> {
+        <span class="ident">fmt</span>.<span class="ident">debug_tuple</span>(<span class="string">&quot;Discriminant&quot;</span>)
+           .<span class="ident">field</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="number">0</span>)
+           .<span class="ident">finish</span>()
     }
 }
 
-<span class='doccomment'>/// Returns a value uniquely identifying the enum variant in `v`.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// If `T` is not an enum, calling this function will not result in undefined behavior, but the</span>
-<span class='doccomment'>/// return value is unspecified.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Stability</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// The discriminant of an enum variant may change if the enum definition changes. A discriminant</span>
-<span class='doccomment'>/// of some variant will not change between compilations with the same compiler.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Examples</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This can be used to compare enums that carry data, while disregarding</span>
-<span class='doccomment'>/// the actual data:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// #![feature(discriminant_value)]</span>
-<span class='doccomment'>/// use std::mem;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// enum Foo { A(&amp;&#39;static str), B(i32), C(i32) }</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// assert!(mem::discriminant(&amp;Foo::A(&quot;bar&quot;)) == mem::discriminant(&amp;Foo::A(&quot;baz&quot;)));</span>
-<span class='doccomment'>/// assert!(mem::discriminant(&amp;Foo::B(1))     == mem::discriminant(&amp;Foo::B(2)));</span>
-<span class='doccomment'>/// assert!(mem::discriminant(&amp;Foo::B(3))     != mem::discriminant(&amp;Foo::C(3)));</span>
-<span class='doccomment'>/// ```</span>
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;discriminant_value&quot;</span>, <span class='ident'>reason</span> <span class='op'>=</span> <span class='string'>&quot;recently added, follows RFC&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;24263&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>discriminant</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>(<span class='ident'>v</span>: <span class='kw-2'>&amp;</span><span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='ident'>Discriminant</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>unsafe</span> {
-        <span class='ident'>Discriminant</span>(<span class='ident'>intrinsics</span>::<span class='ident'>discriminant_value</span>(<span class='ident'>v</span>), <span class='ident'>PhantomData</span>)
+<span class="doccomment">/// Returns a value uniquely identifying the enum variant in `v`.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// If `T` is not an enum, calling this function will not result in undefined behavior, but the</span>
+<span class="doccomment">/// return value is unspecified.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Stability</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// The discriminant of an enum variant may change if the enum definition changes. A discriminant</span>
+<span class="doccomment">/// of some variant will not change between compilations with the same compiler.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This can be used to compare enums that carry data, while disregarding</span>
+<span class="doccomment">/// the actual data:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// #![feature(discriminant_value)]</span>
+<span class="doccomment">/// use std::mem;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// enum Foo { A(&amp;&#39;static str), B(i32), C(i32) }</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// assert!(mem::discriminant(&amp;Foo::A(&quot;bar&quot;)) == mem::discriminant(&amp;Foo::A(&quot;baz&quot;)));</span>
+<span class="doccomment">/// assert!(mem::discriminant(&amp;Foo::B(1))     == mem::discriminant(&amp;Foo::B(2)));</span>
+<span class="doccomment">/// assert!(mem::discriminant(&amp;Foo::B(3))     != mem::discriminant(&amp;Foo::C(3)));</span>
+<span class="doccomment">/// ```</span>
+<span class="attribute">#[<span class="ident">unstable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;discriminant_value&quot;</span>, <span class="ident">reason</span> <span class="op">=</span> <span class="string">&quot;recently added, follows RFC&quot;</span>, <span class="ident">issue</span> <span class="op">=</span> <span class="string">&quot;24263&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">discriminant</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="ident">v</span>: <span class="kw-2">&amp;</span><span class="ident">T</span>) <span class="op">-&gt;</span> <span class="ident">Discriminant</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">unsafe</span> {
+        <span class="ident">Discriminant</span>(<span class="ident">intrinsics</span>::<span class="ident">discriminant_value</span>(<span class="ident">v</span>), <span class="ident">PhantomData</span>)
     }
 }
 

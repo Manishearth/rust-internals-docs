@@ -436,399 +436,399 @@
 <span id="391">391</span>
 <span id="392">392</span>
 <span id="393">393</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2015 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2015 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='doccomment'>//! Panic support in the standard library</span>
+<span class="doccomment">//! Panic support in the standard library</span>
 
-<span class='attribute'>#<span class='op'>!</span>[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;std_panic&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
+<span class="attribute">#<span class="op">!</span>[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;std_panic&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
 
-<span class='kw'>use</span> <span class='ident'>any</span>::<span class='ident'>Any</span>;
-<span class='kw'>use</span> <span class='ident'>cell</span>::<span class='ident'>UnsafeCell</span>;
-<span class='kw'>use</span> <span class='ident'>fmt</span>;
-<span class='kw'>use</span> <span class='ident'>ops</span>::{<span class='ident'>Deref</span>, <span class='ident'>DerefMut</span>};
-<span class='kw'>use</span> <span class='ident'>panicking</span>;
-<span class='kw'>use</span> <span class='ident'>ptr</span>::{<span class='ident'>Unique</span>, <span class='ident'>Shared</span>};
-<span class='kw'>use</span> <span class='ident'>rc</span>::<span class='ident'>Rc</span>;
-<span class='kw'>use</span> <span class='ident'>sync</span>::{<span class='ident'>Arc</span>, <span class='ident'>Mutex</span>, <span class='ident'>RwLock</span>, <span class='ident'>atomic</span>};
-<span class='kw'>use</span> <span class='ident'>thread</span>::<span class='prelude-ty'>Result</span>;
+<span class="kw">use</span> <span class="ident">any</span>::<span class="ident">Any</span>;
+<span class="kw">use</span> <span class="ident">cell</span>::<span class="ident">UnsafeCell</span>;
+<span class="kw">use</span> <span class="ident">fmt</span>;
+<span class="kw">use</span> <span class="ident">ops</span>::{<span class="ident">Deref</span>, <span class="ident">DerefMut</span>};
+<span class="kw">use</span> <span class="ident">panicking</span>;
+<span class="kw">use</span> <span class="ident">ptr</span>::{<span class="ident">Unique</span>, <span class="ident">Shared</span>};
+<span class="kw">use</span> <span class="ident">rc</span>::<span class="ident">Rc</span>;
+<span class="kw">use</span> <span class="ident">sync</span>::{<span class="ident">Arc</span>, <span class="ident">Mutex</span>, <span class="ident">RwLock</span>, <span class="ident">atomic</span>};
+<span class="kw">use</span> <span class="ident">thread</span>::<span class="prelude-ty">Result</span>;
 
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;panic_hooks&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.10.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='ident'>panicking</span>::{<span class='ident'>take_hook</span>, <span class='ident'>set_hook</span>, <span class='ident'>PanicInfo</span>, <span class='ident'>Location</span>};
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;panic_hooks&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.10.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">use</span> <span class="ident">panicking</span>::{<span class="ident">take_hook</span>, <span class="ident">set_hook</span>, <span class="ident">PanicInfo</span>, <span class="ident">Location</span>};
 
-<span class='doccomment'>/// A marker trait which represents &quot;panic safe&quot; types in Rust.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This trait is implemented by default for many types and behaves similarly in</span>
-<span class='doccomment'>/// terms of inference of implementation to the `Send` and `Sync` traits. The</span>
-<span class='doccomment'>/// purpose of this trait is to encode what types are safe to cross a `catch_unwind`</span>
-<span class='doccomment'>/// boundary with no fear of unwind safety.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ## What is unwind safety?</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// In Rust a function can &quot;return&quot; early if it either panics or calls a</span>
-<span class='doccomment'>/// function which transitively panics. This sort of control flow is not always</span>
-<span class='doccomment'>/// anticipated, and has the possibility of causing subtle bugs through a</span>
-<span class='doccomment'>/// combination of two cricial components:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// 1. A data structure is in a temporarily invalid state when the thread</span>
-<span class='doccomment'>///    panics.</span>
-<span class='doccomment'>/// 2. This broken invariant is then later observed.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Typically in Rust, it is difficult to perform step (2) because catching a</span>
-<span class='doccomment'>/// panic involves either spawning a thread (which in turns makes it difficult</span>
-<span class='doccomment'>/// to later witness broken invariants) or using the `catch_unwind` function in this</span>
-<span class='doccomment'>/// module. Additionally, even if an invariant is witnessed, it typically isn&#39;t a</span>
-<span class='doccomment'>/// problem in Rust because there are no uninitialized values (like in C or C++).</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// It is possible, however, for **logical** invariants to be broken in Rust,</span>
-<span class='doccomment'>/// which can end up causing behavioral bugs. Another key aspect of unwind safety</span>
-<span class='doccomment'>/// in Rust is that, in the absence of `unsafe` code, a panic cannot lead to</span>
-<span class='doccomment'>/// memory unsafety.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// That was a bit of a whirlwind tour of unwind safety, but for more information</span>
-<span class='doccomment'>/// about unwind safety and how it applies to Rust, see an [associated RFC][rfc].</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// [rfc]: https://github.com/rust-lang/rfcs/blob/master/text/1236-stabilize-catch-panic.md</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ## What is `UnwindSafe`?</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Now that we&#39;ve got an idea of what unwind safety is in Rust, it&#39;s also</span>
-<span class='doccomment'>/// important to understand what this trait represents. As mentioned above, one</span>
-<span class='doccomment'>/// way to witness broken invariants is through the `catch_unwind` function in this</span>
-<span class='doccomment'>/// module as it allows catching a panic and then re-using the environment of</span>
-<span class='doccomment'>/// the closure.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Simply put, a type `T` implements `UnwindSafe` if it cannot easily allow</span>
-<span class='doccomment'>/// witnessing a broken invariant through the use of `catch_unwind` (catching a</span>
-<span class='doccomment'>/// panic). This trait is a marker trait, so it is automatically implemented for</span>
-<span class='doccomment'>/// many types, and it is also structurally composed (e.g. a struct is unwind</span>
-<span class='doccomment'>/// safe if all of its components are unwind safe).</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Note, however, that this is not an unsafe trait, so there is not a succinct</span>
-<span class='doccomment'>/// contract that this trait is providing. Instead it is intended as more of a</span>
-<span class='doccomment'>/// &quot;speed bump&quot; to alert users of `catch_unwind` that broken invariants may be</span>
-<span class='doccomment'>/// witnessed and may need to be accounted for.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ## Who implements `UnwindSafe`?</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Types such as `&amp;mut T` and `&amp;RefCell&lt;T&gt;` are examples which are **not**</span>
-<span class='doccomment'>/// unwind safe. The general idea is that any mutable state which can be shared</span>
-<span class='doccomment'>/// across `catch_unwind` is not unwind safe by default. This is because it is very</span>
-<span class='doccomment'>/// easy to witness a broken invariant outside of `catch_unwind` as the data is</span>
-<span class='doccomment'>/// simply accessed as usual.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Types like `&amp;Mutex&lt;T&gt;`, however, are unwind safe because they implement</span>
-<span class='doccomment'>/// poisoning by default. They still allow witnessing a broken invariant, but</span>
-<span class='doccomment'>/// they already provide their own &quot;speed bumps&quot; to do so.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ## When should `UnwindSafe` be used?</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Is not intended that most types or functions need to worry about this trait.</span>
-<span class='doccomment'>/// It is only used as a bound on the `catch_unwind` function and as mentioned above,</span>
-<span class='doccomment'>/// the lack of `unsafe` means it is mostly an advisory. The `AssertUnwindSafe`</span>
-<span class='doccomment'>/// wrapper struct in this module can be used to force this trait to be</span>
-<span class='doccomment'>/// implemented for any closed over variables passed to the `catch_unwind` function</span>
-<span class='doccomment'>/// (more on this below).</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;catch_unwind&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-<span class='attribute'>#[<span class='ident'>rustc_on_unimplemented</span> <span class='op'>=</span> <span class='string'>&quot;the type {Self} may not be safely transferred \
+<span class="doccomment">/// A marker trait which represents &quot;panic safe&quot; types in Rust.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This trait is implemented by default for many types and behaves similarly in</span>
+<span class="doccomment">/// terms of inference of implementation to the `Send` and `Sync` traits. The</span>
+<span class="doccomment">/// purpose of this trait is to encode what types are safe to cross a `catch_unwind`</span>
+<span class="doccomment">/// boundary with no fear of unwind safety.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ## What is unwind safety?</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// In Rust a function can &quot;return&quot; early if it either panics or calls a</span>
+<span class="doccomment">/// function which transitively panics. This sort of control flow is not always</span>
+<span class="doccomment">/// anticipated, and has the possibility of causing subtle bugs through a</span>
+<span class="doccomment">/// combination of two cricial components:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// 1. A data structure is in a temporarily invalid state when the thread</span>
+<span class="doccomment">///    panics.</span>
+<span class="doccomment">/// 2. This broken invariant is then later observed.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Typically in Rust, it is difficult to perform step (2) because catching a</span>
+<span class="doccomment">/// panic involves either spawning a thread (which in turns makes it difficult</span>
+<span class="doccomment">/// to later witness broken invariants) or using the `catch_unwind` function in this</span>
+<span class="doccomment">/// module. Additionally, even if an invariant is witnessed, it typically isn&#39;t a</span>
+<span class="doccomment">/// problem in Rust because there are no uninitialized values (like in C or C++).</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// It is possible, however, for **logical** invariants to be broken in Rust,</span>
+<span class="doccomment">/// which can end up causing behavioral bugs. Another key aspect of unwind safety</span>
+<span class="doccomment">/// in Rust is that, in the absence of `unsafe` code, a panic cannot lead to</span>
+<span class="doccomment">/// memory unsafety.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// That was a bit of a whirlwind tour of unwind safety, but for more information</span>
+<span class="doccomment">/// about unwind safety and how it applies to Rust, see an [associated RFC][rfc].</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [rfc]: https://github.com/rust-lang/rfcs/blob/master/text/1236-stabilize-catch-panic.md</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ## What is `UnwindSafe`?</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Now that we&#39;ve got an idea of what unwind safety is in Rust, it&#39;s also</span>
+<span class="doccomment">/// important to understand what this trait represents. As mentioned above, one</span>
+<span class="doccomment">/// way to witness broken invariants is through the `catch_unwind` function in this</span>
+<span class="doccomment">/// module as it allows catching a panic and then re-using the environment of</span>
+<span class="doccomment">/// the closure.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Simply put, a type `T` implements `UnwindSafe` if it cannot easily allow</span>
+<span class="doccomment">/// witnessing a broken invariant through the use of `catch_unwind` (catching a</span>
+<span class="doccomment">/// panic). This trait is a marker trait, so it is automatically implemented for</span>
+<span class="doccomment">/// many types, and it is also structurally composed (e.g. a struct is unwind</span>
+<span class="doccomment">/// safe if all of its components are unwind safe).</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Note, however, that this is not an unsafe trait, so there is not a succinct</span>
+<span class="doccomment">/// contract that this trait is providing. Instead it is intended as more of a</span>
+<span class="doccomment">/// &quot;speed bump&quot; to alert users of `catch_unwind` that broken invariants may be</span>
+<span class="doccomment">/// witnessed and may need to be accounted for.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ## Who implements `UnwindSafe`?</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Types such as `&amp;mut T` and `&amp;RefCell&lt;T&gt;` are examples which are **not**</span>
+<span class="doccomment">/// unwind safe. The general idea is that any mutable state which can be shared</span>
+<span class="doccomment">/// across `catch_unwind` is not unwind safe by default. This is because it is very</span>
+<span class="doccomment">/// easy to witness a broken invariant outside of `catch_unwind` as the data is</span>
+<span class="doccomment">/// simply accessed as usual.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Types like `&amp;Mutex&lt;T&gt;`, however, are unwind safe because they implement</span>
+<span class="doccomment">/// poisoning by default. They still allow witnessing a broken invariant, but</span>
+<span class="doccomment">/// they already provide their own &quot;speed bumps&quot; to do so.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ## When should `UnwindSafe` be used?</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Is not intended that most types or functions need to worry about this trait.</span>
+<span class="doccomment">/// It is only used as a bound on the `catch_unwind` function and as mentioned above,</span>
+<span class="doccomment">/// the lack of `unsafe` means it is mostly an advisory. The `AssertUnwindSafe`</span>
+<span class="doccomment">/// wrapper struct in this module can be used to force this trait to be</span>
+<span class="doccomment">/// implemented for any closed over variables passed to the `catch_unwind` function</span>
+<span class="doccomment">/// (more on this below).</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;catch_unwind&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+<span class="attribute">#[<span class="ident">rustc_on_unimplemented</span> <span class="op">=</span> <span class="string">&quot;the type {Self} may not be safely transferred \
                             across an unwind boundary&quot;</span>]</span>
-<span class='kw'>pub</span> <span class='kw'>trait</span> <span class='ident'>UnwindSafe</span> {}
+<span class="kw">pub</span> <span class="kw">trait</span> <span class="ident">UnwindSafe</span> {}
 
-<span class='doccomment'>/// A marker trait representing types where a shared reference is considered</span>
-<span class='doccomment'>/// unwind safe.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This trait is namely not implemented by `UnsafeCell`, the root of all</span>
-<span class='doccomment'>/// interior mutability.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This is a &quot;helper marker trait&quot; used to provide impl blocks for the</span>
-<span class='doccomment'>/// `UnwindSafe` trait, for more information see that documentation.</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;catch_unwind&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-<span class='attribute'>#[<span class='ident'>rustc_on_unimplemented</span> <span class='op'>=</span> <span class='string'>&quot;the type {Self} contains interior mutability \
+<span class="doccomment">/// A marker trait representing types where a shared reference is considered</span>
+<span class="doccomment">/// unwind safe.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This trait is namely not implemented by `UnsafeCell`, the root of all</span>
+<span class="doccomment">/// interior mutability.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This is a &quot;helper marker trait&quot; used to provide impl blocks for the</span>
+<span class="doccomment">/// `UnwindSafe` trait, for more information see that documentation.</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;catch_unwind&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+<span class="attribute">#[<span class="ident">rustc_on_unimplemented</span> <span class="op">=</span> <span class="string">&quot;the type {Self} contains interior mutability \
                             and a reference may not be safely transferrable \
                             across a catch_unwind boundary&quot;</span>]</span>
-<span class='kw'>pub</span> <span class='kw'>trait</span> <span class='ident'>RefUnwindSafe</span> {}
+<span class="kw">pub</span> <span class="kw">trait</span> <span class="ident">RefUnwindSafe</span> {}
 
-<span class='doccomment'>/// A simple wrapper around a type to assert that it is unwind safe.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// When using `catch_unwind` it may be the case that some of the closed over</span>
-<span class='doccomment'>/// variables are not unwind safe. For example if `&amp;mut T` is captured the</span>
-<span class='doccomment'>/// compiler will generate a warning indicating that it is not unwind safe. It</span>
-<span class='doccomment'>/// may not be the case, however, that this is actually a problem due to the</span>
-<span class='doccomment'>/// specific usage of `catch_unwind` if unwind safety is specifically taken into</span>
-<span class='doccomment'>/// account. This wrapper struct is useful for a quick and lightweight</span>
-<span class='doccomment'>/// annotation that a variable is indeed unwind safe.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Examples</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// One way to use `AssertUnwindSafe` is to assert that the entire closure</span>
-<span class='doccomment'>/// itself is unwind safe, bypassing all checks for all variables:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// use std::panic::{self, AssertUnwindSafe};</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// let mut variable = 4;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// // This code will not compile because the closure captures `&amp;mut variable`</span>
-<span class='doccomment'>/// // which is not considered unwind safe by default.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// // panic::catch_unwind(|| {</span>
-<span class='doccomment'>/// //     variable += 3;</span>
-<span class='doccomment'>/// // });</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// // This, however, will compile due to the `AssertUnwindSafe` wrapper</span>
-<span class='doccomment'>/// let result = panic::catch_unwind(AssertUnwindSafe(|| {</span>
-<span class='doccomment'>///     variable += 3;</span>
-<span class='doccomment'>/// }));</span>
-<span class='doccomment'>/// // ...</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Wrapping the entire closure amounts to a blanket assertion that all captured</span>
-<span class='doccomment'>/// variables are unwind safe. This has the downside that if new captures are</span>
-<span class='doccomment'>/// added in the future, they will also be considered unwind safe. Therefore,</span>
-<span class='doccomment'>/// you may prefer to just wrap individual captures, as shown below. This is</span>
-<span class='doccomment'>/// more annotation, but it ensures that if a new capture is added which is not</span>
-<span class='doccomment'>/// unwind safe, you will get a compilation error at that time, which will</span>
-<span class='doccomment'>/// allow you to consider whether that new capture in fact represent a bug or</span>
-<span class='doccomment'>/// not.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// use std::panic::{self, AssertUnwindSafe};</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// let mut variable = 4;</span>
-<span class='doccomment'>/// let other_capture = 3;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// let result = {</span>
-<span class='doccomment'>///     let mut wrapper = AssertUnwindSafe(&amp;mut variable);</span>
-<span class='doccomment'>///     panic::catch_unwind(move || {</span>
-<span class='doccomment'>///         **wrapper += other_capture;</span>
-<span class='doccomment'>///     })</span>
-<span class='doccomment'>/// };</span>
-<span class='doccomment'>/// // ...</span>
-<span class='doccomment'>/// ```</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;catch_unwind&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>AssertUnwindSafe</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>(
-    <span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;catch_unwind&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-    <span class='kw'>pub</span> <span class='ident'>T</span>
+<span class="doccomment">/// A simple wrapper around a type to assert that it is unwind safe.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// When using `catch_unwind` it may be the case that some of the closed over</span>
+<span class="doccomment">/// variables are not unwind safe. For example if `&amp;mut T` is captured the</span>
+<span class="doccomment">/// compiler will generate a warning indicating that it is not unwind safe. It</span>
+<span class="doccomment">/// may not be the case, however, that this is actually a problem due to the</span>
+<span class="doccomment">/// specific usage of `catch_unwind` if unwind safety is specifically taken into</span>
+<span class="doccomment">/// account. This wrapper struct is useful for a quick and lightweight</span>
+<span class="doccomment">/// annotation that a variable is indeed unwind safe.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// One way to use `AssertUnwindSafe` is to assert that the entire closure</span>
+<span class="doccomment">/// itself is unwind safe, bypassing all checks for all variables:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// use std::panic::{self, AssertUnwindSafe};</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// let mut variable = 4;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// // This code will not compile because the closure captures `&amp;mut variable`</span>
+<span class="doccomment">/// // which is not considered unwind safe by default.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// // panic::catch_unwind(|| {</span>
+<span class="doccomment">/// //     variable += 3;</span>
+<span class="doccomment">/// // });</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// // This, however, will compile due to the `AssertUnwindSafe` wrapper</span>
+<span class="doccomment">/// let result = panic::catch_unwind(AssertUnwindSafe(|| {</span>
+<span class="doccomment">///     variable += 3;</span>
+<span class="doccomment">/// }));</span>
+<span class="doccomment">/// // ...</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Wrapping the entire closure amounts to a blanket assertion that all captured</span>
+<span class="doccomment">/// variables are unwind safe. This has the downside that if new captures are</span>
+<span class="doccomment">/// added in the future, they will also be considered unwind safe. Therefore,</span>
+<span class="doccomment">/// you may prefer to just wrap individual captures, as shown below. This is</span>
+<span class="doccomment">/// more annotation, but it ensures that if a new capture is added which is not</span>
+<span class="doccomment">/// unwind safe, you will get a compilation error at that time, which will</span>
+<span class="doccomment">/// allow you to consider whether that new capture in fact represent a bug or</span>
+<span class="doccomment">/// not.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// use std::panic::{self, AssertUnwindSafe};</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// let mut variable = 4;</span>
+<span class="doccomment">/// let other_capture = 3;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// let result = {</span>
+<span class="doccomment">///     let mut wrapper = AssertUnwindSafe(&amp;mut variable);</span>
+<span class="doccomment">///     panic::catch_unwind(move || {</span>
+<span class="doccomment">///         **wrapper += other_capture;</span>
+<span class="doccomment">///     })</span>
+<span class="doccomment">/// };</span>
+<span class="doccomment">/// // ...</span>
+<span class="doccomment">/// ```</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;catch_unwind&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">AssertUnwindSafe</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(
+    <span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;catch_unwind&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+    <span class="kw">pub</span> <span class="ident">T</span>
 );
 
-<span class='comment'>// Implementations of the `UnwindSafe` trait:</span>
-<span class='comment'>//</span>
-<span class='comment'>// * By default everything is unwind safe</span>
-<span class='comment'>// * pointers T contains mutability of some form are not unwind safe</span>
-<span class='comment'>// * Unique, an owning pointer, lifts an implementation</span>
-<span class='comment'>// * Types like Mutex/RwLock which are explicilty poisoned are unwind safe</span>
-<span class='comment'>// * Our custom AssertUnwindSafe wrapper is indeed unwind safe</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;catch_unwind&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-<span class='kw'>impl</span> <span class='ident'>UnwindSafe</span> <span class='kw'>for</span> .. {}
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;catch_unwind&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='op'>!</span><span class='ident'>UnwindSafe</span> <span class='kw'>for</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='ident'>T</span> {}
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;catch_unwind&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='ident'>T</span>: <span class='ident'>RefUnwindSafe</span> <span class='op'>+</span> <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>UnwindSafe</span> <span class='kw'>for</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>T</span> {}
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;catch_unwind&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='ident'>RefUnwindSafe</span> <span class='op'>+</span> <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>UnwindSafe</span> <span class='kw'>for</span> <span class='kw-2'>*</span><span class='kw'>const</span> <span class='ident'>T</span> {}
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;catch_unwind&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='ident'>RefUnwindSafe</span> <span class='op'>+</span> <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>UnwindSafe</span> <span class='kw'>for</span> <span class='kw-2'>*</span><span class='kw-2'>mut</span> <span class='ident'>T</span> {}
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;unique&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27730&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='ident'>UnwindSafe</span><span class='op'>&gt;</span> <span class='ident'>UnwindSafe</span> <span class='kw'>for</span> <span class='ident'>Unique</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {}
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;shared&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;27730&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='ident'>RefUnwindSafe</span> <span class='op'>+</span> <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>UnwindSafe</span> <span class='kw'>for</span> <span class='ident'>Shared</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {}
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;catch_unwind&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>UnwindSafe</span> <span class='kw'>for</span> <span class='ident'>Mutex</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {}
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;catch_unwind&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>UnwindSafe</span> <span class='kw'>for</span> <span class='ident'>RwLock</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {}
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;catch_unwind&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>UnwindSafe</span> <span class='kw'>for</span> <span class='ident'>AssertUnwindSafe</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {}
+<span class="comment">// Implementations of the `UnwindSafe` trait:</span>
+<span class="comment">//</span>
+<span class="comment">// * By default everything is unwind safe</span>
+<span class="comment">// * pointers T contains mutability of some form are not unwind safe</span>
+<span class="comment">// * Unique, an owning pointer, lifts an implementation</span>
+<span class="comment">// * Types like Mutex/RwLock which are explicilty poisoned are unwind safe</span>
+<span class="comment">// * Our custom AssertUnwindSafe wrapper is indeed unwind safe</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;catch_unwind&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+<span class="kw">impl</span> <span class="ident">UnwindSafe</span> <span class="kw">for</span> .. {}
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;catch_unwind&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="op">!</span><span class="ident">UnwindSafe</span> <span class="kw">for</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="kw-2">mut</span> <span class="ident">T</span> {}
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;catch_unwind&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">T</span>: <span class="ident">RefUnwindSafe</span> <span class="op">+</span> <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="ident">UnwindSafe</span> <span class="kw">for</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">T</span> {}
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;catch_unwind&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="ident">RefUnwindSafe</span> <span class="op">+</span> <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="ident">UnwindSafe</span> <span class="kw">for</span> <span class="kw-2">*</span><span class="kw">const</span> <span class="ident">T</span> {}
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;catch_unwind&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="ident">RefUnwindSafe</span> <span class="op">+</span> <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="ident">UnwindSafe</span> <span class="kw">for</span> <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">T</span> {}
+<span class="attribute">#[<span class="ident">unstable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;unique&quot;</span>, <span class="ident">issue</span> <span class="op">=</span> <span class="string">&quot;27730&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="ident">UnwindSafe</span> <span class="op">+</span> <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="ident">UnwindSafe</span> <span class="kw">for</span> <span class="ident">Unique</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {}
+<span class="attribute">#[<span class="ident">unstable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;shared&quot;</span>, <span class="ident">issue</span> <span class="op">=</span> <span class="string">&quot;27730&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="ident">RefUnwindSafe</span> <span class="op">+</span> <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="ident">UnwindSafe</span> <span class="kw">for</span> <span class="ident">Shared</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {}
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;catch_unwind&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="ident">UnwindSafe</span> <span class="kw">for</span> <span class="ident">Mutex</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {}
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;catch_unwind&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="ident">UnwindSafe</span> <span class="kw">for</span> <span class="ident">RwLock</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {}
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;catch_unwind&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">UnwindSafe</span> <span class="kw">for</span> <span class="ident">AssertUnwindSafe</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {}
 
-<span class='comment'>// not covered via the Shared impl above b/c the inner contents use</span>
-<span class='comment'>// Cell/AtomicUsize, but the usage here is unwind safe so we can lift the</span>
-<span class='comment'>// impl up one level to Arc/Rc itself</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;catch_unwind&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='ident'>RefUnwindSafe</span> <span class='op'>+</span> <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>UnwindSafe</span> <span class='kw'>for</span> <span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {}
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;catch_unwind&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='ident'>RefUnwindSafe</span> <span class='op'>+</span> <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>UnwindSafe</span> <span class='kw'>for</span> <span class='ident'>Arc</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {}
+<span class="comment">// not covered via the Shared impl above b/c the inner contents use</span>
+<span class="comment">// Cell/AtomicUsize, but the usage here is unwind safe so we can lift the</span>
+<span class="comment">// impl up one level to Arc/Rc itself</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;catch_unwind&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="ident">RefUnwindSafe</span> <span class="op">+</span> <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="ident">UnwindSafe</span> <span class="kw">for</span> <span class="ident">Rc</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {}
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;catch_unwind&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="ident">RefUnwindSafe</span> <span class="op">+</span> <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="ident">UnwindSafe</span> <span class="kw">for</span> <span class="ident">Arc</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {}
 
-<span class='comment'>// Pretty simple implementations for the `RefUnwindSafe` marker trait,</span>
-<span class='comment'>// basically just saying that this is a marker trait and `UnsafeCell` is the</span>
-<span class='comment'>// only thing which doesn&#39;t implement it (which then transitively applies to</span>
-<span class='comment'>// everything else).</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;catch_unwind&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-<span class='kw'>impl</span> <span class='ident'>RefUnwindSafe</span> <span class='kw'>for</span> .. {}
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;catch_unwind&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='op'>!</span><span class='ident'>RefUnwindSafe</span> <span class='kw'>for</span> <span class='ident'>UnsafeCell</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {}
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;catch_unwind&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>RefUnwindSafe</span> <span class='kw'>for</span> <span class='ident'>AssertUnwindSafe</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {}
+<span class="comment">// Pretty simple implementations for the `RefUnwindSafe` marker trait,</span>
+<span class="comment">// basically just saying that this is a marker trait and `UnsafeCell` is the</span>
+<span class="comment">// only thing which doesn&#39;t implement it (which then transitively applies to</span>
+<span class="comment">// everything else).</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;catch_unwind&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+<span class="kw">impl</span> <span class="ident">RefUnwindSafe</span> <span class="kw">for</span> .. {}
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;catch_unwind&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="op">!</span><span class="ident">RefUnwindSafe</span> <span class="kw">for</span> <span class="ident">UnsafeCell</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {}
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;catch_unwind&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">RefUnwindSafe</span> <span class="kw">for</span> <span class="ident">AssertUnwindSafe</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {}
 
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;unwind_safe_lock_refs&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.12.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>RefUnwindSafe</span> <span class='kw'>for</span> <span class='ident'>Mutex</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {}
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;unwind_safe_lock_refs&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.12.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='question-mark'>?</span><span class='ident'>Sized</span><span class='op'>&gt;</span> <span class='ident'>RefUnwindSafe</span> <span class='kw'>for</span> <span class='ident'>RwLock</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {}
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;unwind_safe_lock_refs&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.12.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="ident">RefUnwindSafe</span> <span class="kw">for</span> <span class="ident">Mutex</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {}
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;unwind_safe_lock_refs&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.12.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="question-mark">?</span><span class="ident">Sized</span><span class="op">&gt;</span> <span class="ident">RefUnwindSafe</span> <span class="kw">for</span> <span class="ident">RwLock</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {}
 
-<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_has_atomic</span> <span class='op'>=</span> <span class='string'>&quot;ptr&quot;</span>)]</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;unwind_safe_atomic_refs&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.14.0&quot;</span>)]</span>
-<span class='kw'>impl</span> <span class='ident'>RefUnwindSafe</span> <span class='kw'>for</span> <span class='ident'>atomic</span>::<span class='ident'>AtomicIsize</span> {}
-<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_has_atomic</span> <span class='op'>=</span> <span class='string'>&quot;8&quot;</span>)]</span>
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;integer_atomics&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;32976&quot;</span>)]</span>
-<span class='kw'>impl</span> <span class='ident'>RefUnwindSafe</span> <span class='kw'>for</span> <span class='ident'>atomic</span>::<span class='ident'>AtomicI8</span> {}
-<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_has_atomic</span> <span class='op'>=</span> <span class='string'>&quot;16&quot;</span>)]</span>
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;integer_atomics&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;32976&quot;</span>)]</span>
-<span class='kw'>impl</span> <span class='ident'>RefUnwindSafe</span> <span class='kw'>for</span> <span class='ident'>atomic</span>::<span class='ident'>AtomicI16</span> {}
-<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_has_atomic</span> <span class='op'>=</span> <span class='string'>&quot;32&quot;</span>)]</span>
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;integer_atomics&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;32976&quot;</span>)]</span>
-<span class='kw'>impl</span> <span class='ident'>RefUnwindSafe</span> <span class='kw'>for</span> <span class='ident'>atomic</span>::<span class='ident'>AtomicI32</span> {}
-<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_has_atomic</span> <span class='op'>=</span> <span class='string'>&quot;64&quot;</span>)]</span>
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;integer_atomics&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;32976&quot;</span>)]</span>
-<span class='kw'>impl</span> <span class='ident'>RefUnwindSafe</span> <span class='kw'>for</span> <span class='ident'>atomic</span>::<span class='ident'>AtomicI64</span> {}
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">target_has_atomic</span> <span class="op">=</span> <span class="string">&quot;ptr&quot;</span>)]</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;unwind_safe_atomic_refs&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.14.0&quot;</span>)]</span>
+<span class="kw">impl</span> <span class="ident">RefUnwindSafe</span> <span class="kw">for</span> <span class="ident">atomic</span>::<span class="ident">AtomicIsize</span> {}
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">target_has_atomic</span> <span class="op">=</span> <span class="string">&quot;8&quot;</span>)]</span>
+<span class="attribute">#[<span class="ident">unstable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;integer_atomics&quot;</span>, <span class="ident">issue</span> <span class="op">=</span> <span class="string">&quot;32976&quot;</span>)]</span>
+<span class="kw">impl</span> <span class="ident">RefUnwindSafe</span> <span class="kw">for</span> <span class="ident">atomic</span>::<span class="ident">AtomicI8</span> {}
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">target_has_atomic</span> <span class="op">=</span> <span class="string">&quot;16&quot;</span>)]</span>
+<span class="attribute">#[<span class="ident">unstable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;integer_atomics&quot;</span>, <span class="ident">issue</span> <span class="op">=</span> <span class="string">&quot;32976&quot;</span>)]</span>
+<span class="kw">impl</span> <span class="ident">RefUnwindSafe</span> <span class="kw">for</span> <span class="ident">atomic</span>::<span class="ident">AtomicI16</span> {}
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">target_has_atomic</span> <span class="op">=</span> <span class="string">&quot;32&quot;</span>)]</span>
+<span class="attribute">#[<span class="ident">unstable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;integer_atomics&quot;</span>, <span class="ident">issue</span> <span class="op">=</span> <span class="string">&quot;32976&quot;</span>)]</span>
+<span class="kw">impl</span> <span class="ident">RefUnwindSafe</span> <span class="kw">for</span> <span class="ident">atomic</span>::<span class="ident">AtomicI32</span> {}
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">target_has_atomic</span> <span class="op">=</span> <span class="string">&quot;64&quot;</span>)]</span>
+<span class="attribute">#[<span class="ident">unstable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;integer_atomics&quot;</span>, <span class="ident">issue</span> <span class="op">=</span> <span class="string">&quot;32976&quot;</span>)]</span>
+<span class="kw">impl</span> <span class="ident">RefUnwindSafe</span> <span class="kw">for</span> <span class="ident">atomic</span>::<span class="ident">AtomicI64</span> {}
 
-<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_has_atomic</span> <span class='op'>=</span> <span class='string'>&quot;ptr&quot;</span>)]</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;unwind_safe_atomic_refs&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.14.0&quot;</span>)]</span>
-<span class='kw'>impl</span> <span class='ident'>RefUnwindSafe</span> <span class='kw'>for</span> <span class='ident'>atomic</span>::<span class='ident'>AtomicUsize</span> {}
-<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_has_atomic</span> <span class='op'>=</span> <span class='string'>&quot;8&quot;</span>)]</span>
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;integer_atomics&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;32976&quot;</span>)]</span>
-<span class='kw'>impl</span> <span class='ident'>RefUnwindSafe</span> <span class='kw'>for</span> <span class='ident'>atomic</span>::<span class='ident'>AtomicU8</span> {}
-<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_has_atomic</span> <span class='op'>=</span> <span class='string'>&quot;16&quot;</span>)]</span>
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;integer_atomics&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;32976&quot;</span>)]</span>
-<span class='kw'>impl</span> <span class='ident'>RefUnwindSafe</span> <span class='kw'>for</span> <span class='ident'>atomic</span>::<span class='ident'>AtomicU16</span> {}
-<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_has_atomic</span> <span class='op'>=</span> <span class='string'>&quot;32&quot;</span>)]</span>
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;integer_atomics&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;32976&quot;</span>)]</span>
-<span class='kw'>impl</span> <span class='ident'>RefUnwindSafe</span> <span class='kw'>for</span> <span class='ident'>atomic</span>::<span class='ident'>AtomicU32</span> {}
-<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_has_atomic</span> <span class='op'>=</span> <span class='string'>&quot;64&quot;</span>)]</span>
-<span class='attribute'>#[<span class='ident'>unstable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;integer_atomics&quot;</span>, <span class='ident'>issue</span> <span class='op'>=</span> <span class='string'>&quot;32976&quot;</span>)]</span>
-<span class='kw'>impl</span> <span class='ident'>RefUnwindSafe</span> <span class='kw'>for</span> <span class='ident'>atomic</span>::<span class='ident'>AtomicU64</span> {}
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">target_has_atomic</span> <span class="op">=</span> <span class="string">&quot;ptr&quot;</span>)]</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;unwind_safe_atomic_refs&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.14.0&quot;</span>)]</span>
+<span class="kw">impl</span> <span class="ident">RefUnwindSafe</span> <span class="kw">for</span> <span class="ident">atomic</span>::<span class="ident">AtomicUsize</span> {}
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">target_has_atomic</span> <span class="op">=</span> <span class="string">&quot;8&quot;</span>)]</span>
+<span class="attribute">#[<span class="ident">unstable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;integer_atomics&quot;</span>, <span class="ident">issue</span> <span class="op">=</span> <span class="string">&quot;32976&quot;</span>)]</span>
+<span class="kw">impl</span> <span class="ident">RefUnwindSafe</span> <span class="kw">for</span> <span class="ident">atomic</span>::<span class="ident">AtomicU8</span> {}
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">target_has_atomic</span> <span class="op">=</span> <span class="string">&quot;16&quot;</span>)]</span>
+<span class="attribute">#[<span class="ident">unstable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;integer_atomics&quot;</span>, <span class="ident">issue</span> <span class="op">=</span> <span class="string">&quot;32976&quot;</span>)]</span>
+<span class="kw">impl</span> <span class="ident">RefUnwindSafe</span> <span class="kw">for</span> <span class="ident">atomic</span>::<span class="ident">AtomicU16</span> {}
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">target_has_atomic</span> <span class="op">=</span> <span class="string">&quot;32&quot;</span>)]</span>
+<span class="attribute">#[<span class="ident">unstable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;integer_atomics&quot;</span>, <span class="ident">issue</span> <span class="op">=</span> <span class="string">&quot;32976&quot;</span>)]</span>
+<span class="kw">impl</span> <span class="ident">RefUnwindSafe</span> <span class="kw">for</span> <span class="ident">atomic</span>::<span class="ident">AtomicU32</span> {}
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">target_has_atomic</span> <span class="op">=</span> <span class="string">&quot;64&quot;</span>)]</span>
+<span class="attribute">#[<span class="ident">unstable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;integer_atomics&quot;</span>, <span class="ident">issue</span> <span class="op">=</span> <span class="string">&quot;32976&quot;</span>)]</span>
+<span class="kw">impl</span> <span class="ident">RefUnwindSafe</span> <span class="kw">for</span> <span class="ident">atomic</span>::<span class="ident">AtomicU64</span> {}
 
-<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_has_atomic</span> <span class='op'>=</span> <span class='string'>&quot;8&quot;</span>)]</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;unwind_safe_atomic_refs&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.14.0&quot;</span>)]</span>
-<span class='kw'>impl</span> <span class='ident'>RefUnwindSafe</span> <span class='kw'>for</span> <span class='ident'>atomic</span>::<span class='ident'>AtomicBool</span> {}
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">target_has_atomic</span> <span class="op">=</span> <span class="string">&quot;8&quot;</span>)]</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;unwind_safe_atomic_refs&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.14.0&quot;</span>)]</span>
+<span class="kw">impl</span> <span class="ident">RefUnwindSafe</span> <span class="kw">for</span> <span class="ident">atomic</span>::<span class="ident">AtomicBool</span> {}
 
-<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>target_has_atomic</span> <span class='op'>=</span> <span class='string'>&quot;ptr&quot;</span>)]</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;unwind_safe_atomic_refs&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.14.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>RefUnwindSafe</span> <span class='kw'>for</span> <span class='ident'>atomic</span>::<span class='ident'>AtomicPtr</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {}
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">target_has_atomic</span> <span class="op">=</span> <span class="string">&quot;ptr&quot;</span>)]</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;unwind_safe_atomic_refs&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.14.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">RefUnwindSafe</span> <span class="kw">for</span> <span class="ident">atomic</span>::<span class="ident">AtomicPtr</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {}
 
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;catch_unwind&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>Deref</span> <span class='kw'>for</span> <span class='ident'>AssertUnwindSafe</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>type</span> <span class='ident'>Target</span> <span class='op'>=</span> <span class='ident'>T</span>;
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;catch_unwind&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">Deref</span> <span class="kw">for</span> <span class="ident">AssertUnwindSafe</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">type</span> <span class="ident">Target</span> <span class="op">=</span> <span class="ident">T</span>;
 
-    <span class='kw'>fn</span> <span class='ident'>deref</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='ident'>T</span> {
-        <span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='number'>0</span>
+    <span class="kw">fn</span> <span class="ident">deref</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="ident">T</span> {
+        <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="number">0</span>
     }
 }
 
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;catch_unwind&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>DerefMut</span> <span class='kw'>for</span> <span class='ident'>AssertUnwindSafe</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>deref_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>T</span> {
-        <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>.<span class='number'>0</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;catch_unwind&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">DerefMut</span> <span class="kw">for</span> <span class="ident">AssertUnwindSafe</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">deref_mut</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">T</span> {
+        <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>.<span class="number">0</span>
     }
 }
 
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;catch_unwind&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>R</span>, <span class='ident'>F</span>: <span class='ident'>FnOnce</span>() <span class='op'>-&gt;</span> <span class='ident'>R</span><span class='op'>&gt;</span> <span class='ident'>FnOnce</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>AssertUnwindSafe</span><span class='op'>&lt;</span><span class='ident'>F</span><span class='op'>&gt;</span> {
-    <span class='kw'>type</span> <span class='ident'>Output</span> <span class='op'>=</span> <span class='ident'>R</span>;
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;catch_unwind&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">R</span>, <span class="ident">F</span>: <span class="ident">FnOnce</span>() <span class="op">-&gt;</span> <span class="ident">R</span><span class="op">&gt;</span> <span class="ident">FnOnce</span><span class="op">&lt;</span>()<span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">AssertUnwindSafe</span><span class="op">&lt;</span><span class="ident">F</span><span class="op">&gt;</span> {
+    <span class="kw">type</span> <span class="ident">Output</span> <span class="op">=</span> <span class="ident">R</span>;
 
-    <span class='kw'>extern</span> <span class='string'>&quot;rust-call&quot;</span> <span class='kw'>fn</span> <span class='ident'>call_once</span>(<span class='self'>self</span>, <span class='ident'>_args</span>: ()) <span class='op'>-&gt;</span> <span class='ident'>R</span> {
-        (<span class='self'>self</span>.<span class='number'>0</span>)()
+    <span class="kw">extern</span> <span class="string">&quot;rust-call&quot;</span> <span class="kw">fn</span> <span class="ident">call_once</span>(<span class="self">self</span>, <span class="ident">_args</span>: ()) <span class="op">-&gt;</span> <span class="ident">R</span> {
+        (<span class="self">self</span>.<span class="number">0</span>)()
     }
 }
 
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;std_debug&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.16.0&quot;</span>)]</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span>: <span class='ident'>fmt</span>::<span class='ident'>Debug</span><span class='op'>&gt;</span> <span class='ident'>fmt</span>::<span class='ident'>Debug</span> <span class='kw'>for</span> <span class='ident'>AssertUnwindSafe</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>fmt</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>f</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>fmt</span>::<span class='ident'>Formatter</span>) <span class='op'>-&gt;</span> <span class='ident'>fmt</span>::<span class='prelude-ty'>Result</span> {
-        <span class='ident'>f</span>.<span class='ident'>debug_tuple</span>(<span class='string'>&quot;AssertUnwindSafe&quot;</span>)
-            .<span class='ident'>field</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='number'>0</span>)
-            .<span class='ident'>finish</span>()
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;std_debug&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.16.0&quot;</span>)]</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="ident">fmt</span>::<span class="ident">Debug</span><span class="op">&gt;</span> <span class="ident">fmt</span>::<span class="ident">Debug</span> <span class="kw">for</span> <span class="ident">AssertUnwindSafe</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">fmt</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">f</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">fmt</span>::<span class="ident">Formatter</span>) <span class="op">-&gt;</span> <span class="ident">fmt</span>::<span class="prelude-ty">Result</span> {
+        <span class="ident">f</span>.<span class="ident">debug_tuple</span>(<span class="string">&quot;AssertUnwindSafe&quot;</span>)
+            .<span class="ident">field</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="number">0</span>)
+            .<span class="ident">finish</span>()
     }
 }
 
-<span class='doccomment'>/// Invokes a closure, capturing the cause of an unwinding panic if one occurs.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This function will return `Ok` with the closure&#39;s result if the closure</span>
-<span class='doccomment'>/// does not panic, and will return `Err(cause)` if the closure panics. The</span>
-<span class='doccomment'>/// `cause` returned is the object with which panic was originally invoked.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// It is currently undefined behavior to unwind from Rust code into foreign</span>
-<span class='doccomment'>/// code, so this function is particularly useful when Rust is called from</span>
-<span class='doccomment'>/// another language (normally C). This can run arbitrary Rust code, capturing a</span>
-<span class='doccomment'>/// panic and allowing a graceful handling of the error.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// It is **not** recommended to use this function for a general try/catch</span>
-<span class='doccomment'>/// mechanism. The `Result` type is more appropriate to use for functions that</span>
-<span class='doccomment'>/// can fail on a regular basis. Additionally, this function is not guaranteed</span>
-<span class='doccomment'>/// to catch all panics, see the &quot;Notes&quot; section below.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// The closure provided is required to adhere to the `UnwindSafe` trait to ensure</span>
-<span class='doccomment'>/// that all captured variables are safe to cross this boundary. The purpose of</span>
-<span class='doccomment'>/// this bound is to encode the concept of [exception safety][rfc] in the type</span>
-<span class='doccomment'>/// system. Most usage of this function should not need to worry about this</span>
-<span class='doccomment'>/// bound as programs are naturally unwind safe without `unsafe` code. If it</span>
-<span class='doccomment'>/// becomes a problem the associated `AssertUnwindSafe` wrapper type in this</span>
-<span class='doccomment'>/// module can be used to quickly assert that the usage here is indeed unwind</span>
-<span class='doccomment'>/// safe.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// [rfc]: https://github.com/rust-lang/rfcs/blob/master/text/1236-stabilize-catch-panic.md</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Notes</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Note that this function **may not catch all panics** in Rust. A panic in</span>
-<span class='doccomment'>/// Rust is not always implemented via unwinding, but can be implemented by</span>
-<span class='doccomment'>/// aborting the process as well. This function *only* catches unwinding panics,</span>
-<span class='doccomment'>/// not those that abort the process.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Examples</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// use std::panic;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// let result = panic::catch_unwind(|| {</span>
-<span class='doccomment'>///     println!(&quot;hello!&quot;);</span>
-<span class='doccomment'>/// });</span>
-<span class='doccomment'>/// assert!(result.is_ok());</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// let result = panic::catch_unwind(|| {</span>
-<span class='doccomment'>///     panic!(&quot;oh no!&quot;);</span>
-<span class='doccomment'>/// });</span>
-<span class='doccomment'>/// assert!(result.is_err());</span>
-<span class='doccomment'>/// ```</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;catch_unwind&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>catch_unwind</span><span class='op'>&lt;</span><span class='ident'>F</span>: <span class='ident'>FnOnce</span>() <span class='op'>-&gt;</span> <span class='ident'>R</span> <span class='op'>+</span> <span class='ident'>UnwindSafe</span>, <span class='ident'>R</span><span class='op'>&gt;</span>(<span class='ident'>f</span>: <span class='ident'>F</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>R</span><span class='op'>&gt;</span> {
-    <span class='kw'>unsafe</span> {
-        <span class='ident'>panicking</span>::<span class='ident'>try</span>(<span class='ident'>f</span>)
+<span class="doccomment">/// Invokes a closure, capturing the cause of an unwinding panic if one occurs.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This function will return `Ok` with the closure&#39;s result if the closure</span>
+<span class="doccomment">/// does not panic, and will return `Err(cause)` if the closure panics. The</span>
+<span class="doccomment">/// `cause` returned is the object with which panic was originally invoked.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// It is currently undefined behavior to unwind from Rust code into foreign</span>
+<span class="doccomment">/// code, so this function is particularly useful when Rust is called from</span>
+<span class="doccomment">/// another language (normally C). This can run arbitrary Rust code, capturing a</span>
+<span class="doccomment">/// panic and allowing a graceful handling of the error.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// It is **not** recommended to use this function for a general try/catch</span>
+<span class="doccomment">/// mechanism. The `Result` type is more appropriate to use for functions that</span>
+<span class="doccomment">/// can fail on a regular basis. Additionally, this function is not guaranteed</span>
+<span class="doccomment">/// to catch all panics, see the &quot;Notes&quot; section below.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// The closure provided is required to adhere to the `UnwindSafe` trait to ensure</span>
+<span class="doccomment">/// that all captured variables are safe to cross this boundary. The purpose of</span>
+<span class="doccomment">/// this bound is to encode the concept of [exception safety][rfc] in the type</span>
+<span class="doccomment">/// system. Most usage of this function should not need to worry about this</span>
+<span class="doccomment">/// bound as programs are naturally unwind safe without `unsafe` code. If it</span>
+<span class="doccomment">/// becomes a problem the associated `AssertUnwindSafe` wrapper type in this</span>
+<span class="doccomment">/// module can be used to quickly assert that the usage here is indeed unwind</span>
+<span class="doccomment">/// safe.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [rfc]: https://github.com/rust-lang/rfcs/blob/master/text/1236-stabilize-catch-panic.md</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Notes</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Note that this function **may not catch all panics** in Rust. A panic in</span>
+<span class="doccomment">/// Rust is not always implemented via unwinding, but can be implemented by</span>
+<span class="doccomment">/// aborting the process as well. This function *only* catches unwinding panics,</span>
+<span class="doccomment">/// not those that abort the process.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// use std::panic;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// let result = panic::catch_unwind(|| {</span>
+<span class="doccomment">///     println!(&quot;hello!&quot;);</span>
+<span class="doccomment">/// });</span>
+<span class="doccomment">/// assert!(result.is_ok());</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// let result = panic::catch_unwind(|| {</span>
+<span class="doccomment">///     panic!(&quot;oh no!&quot;);</span>
+<span class="doccomment">/// });</span>
+<span class="doccomment">/// assert!(result.is_err());</span>
+<span class="doccomment">/// ```</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;catch_unwind&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">catch_unwind</span><span class="op">&lt;</span><span class="ident">F</span>: <span class="ident">FnOnce</span>() <span class="op">-&gt;</span> <span class="ident">R</span> <span class="op">+</span> <span class="ident">UnwindSafe</span>, <span class="ident">R</span><span class="op">&gt;</span>(<span class="ident">f</span>: <span class="ident">F</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">R</span><span class="op">&gt;</span> {
+    <span class="kw">unsafe</span> {
+        <span class="ident">panicking</span>::<span class="ident">try</span>(<span class="ident">f</span>)
     }
 }
 
-<span class='doccomment'>/// Triggers a panic without invoking the panic hook.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// This is designed to be used in conjunction with `catch_unwind` to, for</span>
-<span class='doccomment'>/// example, carry a panic across a layer of C code.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Notes</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Note that panics in Rust are not always implemented via unwinding, but they</span>
-<span class='doccomment'>/// may be implemented by aborting the process. If this function is called when</span>
-<span class='doccomment'>/// panics are implemented this way then this function will abort the process,</span>
-<span class='doccomment'>/// not trigger an unwind.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Examples</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```should_panic</span>
-<span class='doccomment'>/// use std::panic;</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// let result = panic::catch_unwind(|| {</span>
-<span class='doccomment'>///     panic!(&quot;oh no!&quot;);</span>
-<span class='doccomment'>/// });</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// if let Err(err) = result {</span>
-<span class='doccomment'>///     panic::resume_unwind(err);</span>
-<span class='doccomment'>/// }</span>
-<span class='doccomment'>/// ```</span>
-<span class='attribute'>#[<span class='ident'>stable</span>(<span class='ident'>feature</span> <span class='op'>=</span> <span class='string'>&quot;resume_unwind&quot;</span>, <span class='ident'>since</span> <span class='op'>=</span> <span class='string'>&quot;1.9.0&quot;</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>resume_unwind</span>(<span class='ident'>payload</span>: <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>Any</span> <span class='op'>+</span> <span class='ident'>Send</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='op'>!</span> {
-    <span class='ident'>panicking</span>::<span class='ident'>update_count_then_panic</span>(<span class='ident'>payload</span>)
+<span class="doccomment">/// Triggers a panic without invoking the panic hook.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This is designed to be used in conjunction with `catch_unwind` to, for</span>
+<span class="doccomment">/// example, carry a panic across a layer of C code.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Notes</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Note that panics in Rust are not always implemented via unwinding, but they</span>
+<span class="doccomment">/// may be implemented by aborting the process. If this function is called when</span>
+<span class="doccomment">/// panics are implemented this way then this function will abort the process,</span>
+<span class="doccomment">/// not trigger an unwind.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```should_panic</span>
+<span class="doccomment">/// use std::panic;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// let result = panic::catch_unwind(|| {</span>
+<span class="doccomment">///     panic!(&quot;oh no!&quot;);</span>
+<span class="doccomment">/// });</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// if let Err(err) = result {</span>
+<span class="doccomment">///     panic::resume_unwind(err);</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">/// ```</span>
+<span class="attribute">#[<span class="ident">stable</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;resume_unwind&quot;</span>, <span class="ident">since</span> <span class="op">=</span> <span class="string">&quot;1.9.0&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">resume_unwind</span>(<span class="ident">payload</span>: <span class="ident">Box</span><span class="op">&lt;</span><span class="ident">Any</span> <span class="op">+</span> <span class="ident">Send</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="op">!</span> {
+    <span class="ident">panicking</span>::<span class="ident">update_count_then_panic</span>(<span class="ident">payload</span>)
 }
 </pre>
 </section>

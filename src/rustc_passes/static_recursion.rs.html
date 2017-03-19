@@ -323,309 +323,285 @@
 <span id="278">278</span>
 <span id="279">279</span>
 <span id="280">280</span>
-<span id="281">281</span>
-<span id="282">282</span>
-<span id="283">283</span>
-<span id="284">284</span>
-<span id="285">285</span>
-<span id="286">286</span>
-<span id="287">287</span>
-<span id="288">288</span>
-<span id="289">289</span>
-<span id="290">290</span>
-<span id="291">291</span>
-<span id="292">292</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='comment'>// This compiler pass detects constants that refer to themselves</span>
-<span class='comment'>// recursively.</span>
+<span class="comment">// This compiler pass detects constants that refer to themselves</span>
+<span class="comment">// recursively.</span>
 
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>dep_graph</span>::<span class='ident'>DepNode</span>;
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>::<span class='ident'>map</span> <span class='kw'>as</span> <span class='ident'>hir_map</span>;
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>session</span>::{<span class='ident'>CompileResult</span>, <span class='ident'>Session</span>};
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>::<span class='ident'>def</span>::{<span class='ident'>Def</span>, <span class='ident'>CtorKind</span>};
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>util</span>::<span class='ident'>nodemap</span>::{<span class='ident'>NodeMap</span>, <span class='ident'>NodeSet</span>};
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">dep_graph</span>::<span class="ident">DepNode</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">hir</span>::<span class="ident">map</span> <span class="kw">as</span> <span class="ident">hir_map</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">session</span>::{<span class="ident">CompileResult</span>, <span class="ident">Session</span>};
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">hir</span>::<span class="ident">def</span>::{<span class="ident">Def</span>, <span class="ident">CtorKind</span>};
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">util</span>::<span class="ident">nodemap</span>::{<span class="ident">NodeMap</span>, <span class="ident">NodeSet</span>};
 
-<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>;
-<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>feature_gate</span>::{<span class='ident'>GateIssue</span>, <span class='ident'>emit_feature_err</span>};
-<span class='kw'>use</span> <span class='ident'>syntax_pos</span>::<span class='ident'>Span</span>;
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>::<span class='ident'>intravisit</span>::{<span class='self'>self</span>, <span class='ident'>Visitor</span>, <span class='ident'>NestedVisitorMap</span>};
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>;
+<span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">ast</span>;
+<span class="kw">use</span> <span class="ident">syntax_pos</span>::<span class="ident">Span</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">hir</span>::<span class="ident">intravisit</span>::{<span class="self">self</span>, <span class="ident">Visitor</span>, <span class="ident">NestedVisitorMap</span>};
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">hir</span>;
 
-<span class='kw'>struct</span> <span class='ident'>CheckCrateVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;hir</span>: <span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-    <span class='ident'>sess</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>Session</span>,
-    <span class='ident'>hir_map</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>hir_map</span>::<span class='ident'>Map</span><span class='op'>&lt;</span><span class='lifetime'>&#39;hir</span><span class='op'>&gt;</span>,
-    <span class='comment'>// `discriminant_map` is a cache that associates the `NodeId`s of local</span>
-    <span class='comment'>// variant definitions with the discriminant expression that applies to</span>
-    <span class='comment'>// each one. If the variant uses the default values (starting from `0`),</span>
-    <span class='comment'>// then `None` is stored.</span>
-    <span class='ident'>discriminant_map</span>: <span class='ident'>NodeMap</span><span class='op'>&lt;</span><span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>hir</span>::<span class='ident'>BodyId</span><span class='op'>&gt;&gt;</span>,
-    <span class='ident'>detected_recursive_ids</span>: <span class='ident'>NodeSet</span>,
+<span class="kw">struct</span> <span class="ident">CheckCrateVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;hir</span>: <span class="lifetime">&#39;a</span><span class="op">&gt;</span> {
+    <span class="ident">sess</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">Session</span>,
+    <span class="ident">hir_map</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">hir_map</span>::<span class="ident">Map</span><span class="op">&lt;</span><span class="lifetime">&#39;hir</span><span class="op">&gt;</span>,
+    <span class="comment">// `discriminant_map` is a cache that associates the `NodeId`s of local</span>
+    <span class="comment">// variant definitions with the discriminant expression that applies to</span>
+    <span class="comment">// each one. If the variant uses the default values (starting from `0`),</span>
+    <span class="comment">// then `None` is stored.</span>
+    <span class="ident">discriminant_map</span>: <span class="ident">NodeMap</span><span class="op">&lt;</span><span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">hir</span>::<span class="ident">BodyId</span><span class="op">&gt;&gt;</span>,
+    <span class="ident">detected_recursive_ids</span>: <span class="ident">NodeSet</span>,
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;hir</span>: <span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> <span class='ident'>Visitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;hir</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>CheckCrateVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;hir</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>nested_visit_map</span><span class='op'>&lt;</span><span class='lifetime'>&#39;this</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;this</span> <span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>NestedVisitorMap</span><span class='op'>&lt;</span><span class='lifetime'>&#39;this</span>, <span class='lifetime'>&#39;hir</span><span class='op'>&gt;</span> {
-        <span class='ident'>NestedVisitorMap</span>::<span class='prelude-val'>None</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;hir</span>: <span class="lifetime">&#39;a</span><span class="op">&gt;</span> <span class="ident">Visitor</span><span class="op">&lt;</span><span class="lifetime">&#39;hir</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">CheckCrateVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;hir</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">nested_visit_map</span><span class="op">&lt;</span><span class="lifetime">&#39;this</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;this</span> <span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">NestedVisitorMap</span><span class="op">&lt;</span><span class="lifetime">&#39;this</span>, <span class="lifetime">&#39;hir</span><span class="op">&gt;</span> {
+        <span class="ident">NestedVisitorMap</span>::<span class="prelude-val">None</span>
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>it</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;hir</span> <span class='ident'>hir</span>::<span class='ident'>Item</span>) {
-        <span class='kw'>match</span> <span class='ident'>it</span>.<span class='ident'>node</span> {
-            <span class='ident'>hir</span>::<span class='ident'>ItemStatic</span>(..) <span class='op'>|</span>
-            <span class='ident'>hir</span>::<span class='ident'>ItemConst</span>(..) <span class='op'>=&gt;</span> {
-                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>recursion_visitor</span> <span class='op'>=</span> <span class='ident'>CheckItemRecursionVisitor</span>::<span class='ident'>new</span>(<span class='self'>self</span>, <span class='kw-2'>&amp;</span><span class='ident'>it</span>.<span class='ident'>span</span>);
-                <span class='ident'>recursion_visitor</span>.<span class='ident'>visit_item</span>(<span class='ident'>it</span>);
+    <span class="kw">fn</span> <span class="ident">visit_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">it</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;hir</span> <span class="ident">hir</span>::<span class="ident">Item</span>) {
+        <span class="kw">match</span> <span class="ident">it</span>.<span class="ident">node</span> {
+            <span class="ident">hir</span>::<span class="ident">ItemStatic</span>(..) <span class="op">|</span>
+            <span class="ident">hir</span>::<span class="ident">ItemConst</span>(..) <span class="op">=&gt;</span> {
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">recursion_visitor</span> <span class="op">=</span> <span class="ident">CheckItemRecursionVisitor</span>::<span class="ident">new</span>(<span class="self">self</span>);
+                <span class="ident">recursion_visitor</span>.<span class="ident">visit_item</span>(<span class="ident">it</span>);
             }
-            <span class='ident'>hir</span>::<span class='ident'>ItemEnum</span>(<span class='kw-2'>ref</span> <span class='ident'>enum_def</span>, <span class='kw-2'>ref</span> <span class='ident'>generics</span>) <span class='op'>=&gt;</span> {
-                <span class='comment'>// We could process the whole enum, but handling the variants</span>
-                <span class='comment'>// with discriminant expressions one by one gives more specific,</span>
-                <span class='comment'>// less redundant output.</span>
-                <span class='kw'>for</span> <span class='ident'>variant</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>enum_def</span>.<span class='ident'>variants</span> {
-                    <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(_) <span class='op'>=</span> <span class='ident'>variant</span>.<span class='ident'>node</span>.<span class='ident'>disr_expr</span> {
-                        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>recursion_visitor</span> <span class='op'>=</span> <span class='ident'>CheckItemRecursionVisitor</span>::<span class='ident'>new</span>(<span class='self'>self</span>,
-                                                                                   <span class='kw-2'>&amp;</span><span class='ident'>variant</span>.<span class='ident'>span</span>);
-                        <span class='ident'>recursion_visitor</span>.<span class='ident'>populate_enum_discriminants</span>(<span class='ident'>enum_def</span>);
-                        <span class='ident'>recursion_visitor</span>.<span class='ident'>visit_variant</span>(<span class='ident'>variant</span>, <span class='ident'>generics</span>, <span class='ident'>it</span>.<span class='ident'>id</span>);
+            <span class="ident">hir</span>::<span class="ident">ItemEnum</span>(<span class="kw-2">ref</span> <span class="ident">enum_def</span>, <span class="kw-2">ref</span> <span class="ident">generics</span>) <span class="op">=&gt;</span> {
+                <span class="comment">// We could process the whole enum, but handling the variants</span>
+                <span class="comment">// with discriminant expressions one by one gives more specific,</span>
+                <span class="comment">// less redundant output.</span>
+                <span class="kw">for</span> <span class="ident">variant</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="ident">enum_def</span>.<span class="ident">variants</span> {
+                    <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(_) <span class="op">=</span> <span class="ident">variant</span>.<span class="ident">node</span>.<span class="ident">disr_expr</span> {
+                        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">recursion_visitor</span> <span class="op">=</span> <span class="ident">CheckItemRecursionVisitor</span>::<span class="ident">new</span>(<span class="self">self</span>);
+                        <span class="ident">recursion_visitor</span>.<span class="ident">populate_enum_discriminants</span>(<span class="ident">enum_def</span>);
+                        <span class="ident">recursion_visitor</span>.<span class="ident">visit_variant</span>(<span class="ident">variant</span>, <span class="ident">generics</span>, <span class="ident">it</span>.<span class="ident">id</span>);
                     }
                 }
             }
-            _ <span class='op'>=&gt;</span> {}
+            _ <span class="op">=&gt;</span> {}
         }
-        <span class='ident'>intravisit</span>::<span class='ident'>walk_item</span>(<span class='self'>self</span>, <span class='ident'>it</span>)
+        <span class="ident">intravisit</span>::<span class="ident">walk_item</span>(<span class="self">self</span>, <span class="ident">it</span>)
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_trait_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>ti</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;hir</span> <span class='ident'>hir</span>::<span class='ident'>TraitItem</span>) {
-        <span class='kw'>match</span> <span class='ident'>ti</span>.<span class='ident'>node</span> {
-            <span class='ident'>hir</span>::<span class='ident'>TraitItemKind</span>::<span class='ident'>Const</span>(_, <span class='kw-2'>ref</span> <span class='ident'>default</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(_) <span class='op'>=</span> <span class='kw-2'>*</span><span class='ident'>default</span> {
-                    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>recursion_visitor</span> <span class='op'>=</span> <span class='ident'>CheckItemRecursionVisitor</span>::<span class='ident'>new</span>(<span class='self'>self</span>, <span class='kw-2'>&amp;</span><span class='ident'>ti</span>.<span class='ident'>span</span>);
-                    <span class='ident'>recursion_visitor</span>.<span class='ident'>visit_trait_item</span>(<span class='ident'>ti</span>);
+    <span class="kw">fn</span> <span class="ident">visit_trait_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">ti</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;hir</span> <span class="ident">hir</span>::<span class="ident">TraitItem</span>) {
+        <span class="kw">match</span> <span class="ident">ti</span>.<span class="ident">node</span> {
+            <span class="ident">hir</span>::<span class="ident">TraitItemKind</span>::<span class="ident">Const</span>(_, <span class="kw-2">ref</span> <span class="ident">default</span>) <span class="op">=&gt;</span> {
+                <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(_) <span class="op">=</span> <span class="kw-2">*</span><span class="ident">default</span> {
+                    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">recursion_visitor</span> <span class="op">=</span> <span class="ident">CheckItemRecursionVisitor</span>::<span class="ident">new</span>(<span class="self">self</span>);
+                    <span class="ident">recursion_visitor</span>.<span class="ident">visit_trait_item</span>(<span class="ident">ti</span>);
                 }
             }
-            _ <span class='op'>=&gt;</span> {}
+            _ <span class="op">=&gt;</span> {}
         }
-        <span class='ident'>intravisit</span>::<span class='ident'>walk_trait_item</span>(<span class='self'>self</span>, <span class='ident'>ti</span>)
+        <span class="ident">intravisit</span>::<span class="ident">walk_trait_item</span>(<span class="self">self</span>, <span class="ident">ti</span>)
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_impl_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>ii</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;hir</span> <span class='ident'>hir</span>::<span class='ident'>ImplItem</span>) {
-        <span class='kw'>match</span> <span class='ident'>ii</span>.<span class='ident'>node</span> {
-            <span class='ident'>hir</span>::<span class='ident'>ImplItemKind</span>::<span class='ident'>Const</span>(..) <span class='op'>=&gt;</span> {
-                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>recursion_visitor</span> <span class='op'>=</span> <span class='ident'>CheckItemRecursionVisitor</span>::<span class='ident'>new</span>(<span class='self'>self</span>, <span class='kw-2'>&amp;</span><span class='ident'>ii</span>.<span class='ident'>span</span>);
-                <span class='ident'>recursion_visitor</span>.<span class='ident'>visit_impl_item</span>(<span class='ident'>ii</span>);
+    <span class="kw">fn</span> <span class="ident">visit_impl_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">ii</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;hir</span> <span class="ident">hir</span>::<span class="ident">ImplItem</span>) {
+        <span class="kw">match</span> <span class="ident">ii</span>.<span class="ident">node</span> {
+            <span class="ident">hir</span>::<span class="ident">ImplItemKind</span>::<span class="ident">Const</span>(..) <span class="op">=&gt;</span> {
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">recursion_visitor</span> <span class="op">=</span> <span class="ident">CheckItemRecursionVisitor</span>::<span class="ident">new</span>(<span class="self">self</span>);
+                <span class="ident">recursion_visitor</span>.<span class="ident">visit_impl_item</span>(<span class="ident">ii</span>);
             }
-            _ <span class='op'>=&gt;</span> {}
+            _ <span class="op">=&gt;</span> {}
         }
-        <span class='ident'>intravisit</span>::<span class='ident'>walk_impl_item</span>(<span class='self'>self</span>, <span class='ident'>ii</span>)
+        <span class="ident">intravisit</span>::<span class="ident">walk_impl_item</span>(<span class="self">self</span>, <span class="ident">ii</span>)
     }
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>check_crate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;hir</span><span class='op'>&gt;</span>(<span class='ident'>sess</span>: <span class='kw-2'>&amp;</span><span class='ident'>Session</span>, <span class='ident'>hir_map</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir_map</span>::<span class='ident'>Map</span><span class='op'>&lt;</span><span class='lifetime'>&#39;hir</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>CompileResult</span> {
-    <span class='kw'>let</span> <span class='ident'>_task</span> <span class='op'>=</span> <span class='ident'>hir_map</span>.<span class='ident'>dep_graph</span>.<span class='ident'>in_task</span>(<span class='ident'>DepNode</span>::<span class='ident'>CheckStaticRecursion</span>);
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">check_crate</span><span class="op">&lt;</span><span class="lifetime">&#39;hir</span><span class="op">&gt;</span>(<span class="ident">sess</span>: <span class="kw-2">&amp;</span><span class="ident">Session</span>, <span class="ident">hir_map</span>: <span class="kw-2">&amp;</span><span class="ident">hir_map</span>::<span class="ident">Map</span><span class="op">&lt;</span><span class="lifetime">&#39;hir</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">CompileResult</span> {
+    <span class="kw">let</span> <span class="ident">_task</span> <span class="op">=</span> <span class="ident">hir_map</span>.<span class="ident">dep_graph</span>.<span class="ident">in_task</span>(<span class="ident">DepNode</span>::<span class="ident">CheckStaticRecursion</span>);
 
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>visitor</span> <span class='op'>=</span> <span class='ident'>CheckCrateVisitor</span> {
-        <span class='ident'>sess</span>: <span class='ident'>sess</span>,
-        <span class='ident'>hir_map</span>: <span class='ident'>hir_map</span>,
-        <span class='ident'>discriminant_map</span>: <span class='ident'>NodeMap</span>(),
-        <span class='ident'>detected_recursive_ids</span>: <span class='ident'>NodeSet</span>(),
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">visitor</span> <span class="op">=</span> <span class="ident">CheckCrateVisitor</span> {
+        <span class="ident">sess</span>: <span class="ident">sess</span>,
+        <span class="ident">hir_map</span>: <span class="ident">hir_map</span>,
+        <span class="ident">discriminant_map</span>: <span class="ident">NodeMap</span>(),
+        <span class="ident">detected_recursive_ids</span>: <span class="ident">NodeSet</span>(),
     };
-    <span class='ident'>sess</span>.<span class='ident'>track_errors</span>(<span class='op'>||</span> {
-        <span class='comment'>// FIXME(#37712) could use ItemLikeVisitor if trait items were item-like</span>
-        <span class='ident'>hir_map</span>.<span class='ident'>krate</span>().<span class='ident'>visit_all_item_likes</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>visitor</span>.<span class='ident'>as_deep_visitor</span>());
+    <span class="ident">sess</span>.<span class="ident">track_errors</span>(<span class="op">||</span> {
+        <span class="comment">// FIXME(#37712) could use ItemLikeVisitor if trait items were item-like</span>
+        <span class="ident">hir_map</span>.<span class="ident">krate</span>().<span class="ident">visit_all_item_likes</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">visitor</span>.<span class="ident">as_deep_visitor</span>());
     })
 }
 
-<span class='kw'>struct</span> <span class='ident'>CheckItemRecursionVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;b</span>: <span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;hir</span>: <span class='lifetime'>&#39;b</span><span class='op'>&gt;</span> {
-    <span class='ident'>root_span</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;b</span> <span class='ident'>Span</span>,
-    <span class='ident'>sess</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;b</span> <span class='ident'>Session</span>,
-    <span class='ident'>hir_map</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;b</span> <span class='ident'>hir_map</span>::<span class='ident'>Map</span><span class='op'>&lt;</span><span class='lifetime'>&#39;hir</span><span class='op'>&gt;</span>,
-    <span class='ident'>discriminant_map</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='ident'>NodeMap</span><span class='op'>&lt;</span><span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>hir</span>::<span class='ident'>BodyId</span><span class='op'>&gt;&gt;</span>,
-    <span class='ident'>idstack</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>NodeId</span><span class='op'>&gt;</span>,
-    <span class='ident'>detected_recursive_ids</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='ident'>NodeSet</span>,
+<span class="kw">struct</span> <span class="ident">CheckItemRecursionVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;b</span>: <span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;hir</span>: <span class="lifetime">&#39;b</span><span class="op">&gt;</span> {
+    <span class="ident">sess</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;b</span> <span class="ident">Session</span>,
+    <span class="ident">hir_map</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;b</span> <span class="ident">hir_map</span>::<span class="ident">Map</span><span class="op">&lt;</span><span class="lifetime">&#39;hir</span><span class="op">&gt;</span>,
+    <span class="ident">discriminant_map</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="kw-2">mut</span> <span class="ident">NodeMap</span><span class="op">&lt;</span><span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">hir</span>::<span class="ident">BodyId</span><span class="op">&gt;&gt;</span>,
+    <span class="ident">idstack</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">NodeId</span><span class="op">&gt;</span>,
+    <span class="ident">detected_recursive_ids</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="kw-2">mut</span> <span class="ident">NodeSet</span>,
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;b</span>: <span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;hir</span>: <span class='lifetime'>&#39;b</span><span class='op'>&gt;</span> <span class='ident'>CheckItemRecursionVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;b</span>, <span class='lifetime'>&#39;hir</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>v</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='ident'>CheckCrateVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;b</span>, <span class='lifetime'>&#39;hir</span><span class='op'>&gt;</span>, <span class='ident'>span</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;b</span> <span class='ident'>Span</span>) <span class='op'>-&gt;</span> <span class='self'>Self</span> {
-        <span class='ident'>CheckItemRecursionVisitor</span> {
-            <span class='ident'>root_span</span>: <span class='ident'>span</span>,
-            <span class='ident'>sess</span>: <span class='ident'>v</span>.<span class='ident'>sess</span>,
-            <span class='ident'>hir_map</span>: <span class='ident'>v</span>.<span class='ident'>hir_map</span>,
-            <span class='ident'>discriminant_map</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>v</span>.<span class='ident'>discriminant_map</span>,
-            <span class='ident'>idstack</span>: <span class='ident'>Vec</span>::<span class='ident'>new</span>(),
-            <span class='ident'>detected_recursive_ids</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>v</span>.<span class='ident'>detected_recursive_ids</span>,
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;b</span>: <span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;hir</span>: <span class="lifetime">&#39;b</span><span class="op">&gt;</span> <span class="ident">CheckItemRecursionVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;b</span>, <span class="lifetime">&#39;hir</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">new</span>(<span class="ident">v</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="kw-2">mut</span> <span class="ident">CheckCrateVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;b</span>, <span class="lifetime">&#39;hir</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="self">Self</span> {
+        <span class="ident">CheckItemRecursionVisitor</span> {
+            <span class="ident">sess</span>: <span class="ident">v</span>.<span class="ident">sess</span>,
+            <span class="ident">hir_map</span>: <span class="ident">v</span>.<span class="ident">hir_map</span>,
+            <span class="ident">discriminant_map</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">v</span>.<span class="ident">discriminant_map</span>,
+            <span class="ident">idstack</span>: <span class="ident">Vec</span>::<span class="ident">new</span>(),
+            <span class="ident">detected_recursive_ids</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">v</span>.<span class="ident">detected_recursive_ids</span>,
         }
     }
-    <span class='kw'>fn</span> <span class='ident'>with_item_id_pushed</span><span class='op'>&lt;</span><span class='ident'>F</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>id</span>: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>, <span class='ident'>f</span>: <span class='ident'>F</span>, <span class='ident'>span</span>: <span class='ident'>Span</span>)
-        <span class='kw'>where</span> <span class='ident'>F</span>: <span class='ident'>Fn</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>Self</span>)
+    <span class="kw">fn</span> <span class="ident">with_item_id_pushed</span><span class="op">&lt;</span><span class="ident">F</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>, <span class="ident">f</span>: <span class="ident">F</span>, <span class="ident">span</span>: <span class="ident">Span</span>)
+        <span class="kw">where</span> <span class="ident">F</span>: <span class="ident">Fn</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">Self</span>)
     {
-        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>idstack</span>.<span class='ident'>iter</span>().<span class='ident'>any</span>(<span class='op'>|</span><span class='kw-2'>&amp;</span><span class='ident'>x</span><span class='op'>|</span> <span class='ident'>x</span> <span class='op'>==</span> <span class='ident'>id</span>) {
-            <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>detected_recursive_ids</span>.<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>id</span>) {
-                <span class='kw'>return</span>;
+        <span class="kw">if</span> <span class="self">self</span>.<span class="ident">idstack</span>.<span class="ident">iter</span>().<span class="ident">any</span>(<span class="op">|</span><span class="kw-2">&amp;</span><span class="ident">x</span><span class="op">|</span> <span class="ident">x</span> <span class="op">==</span> <span class="ident">id</span>) {
+            <span class="kw">if</span> <span class="self">self</span>.<span class="ident">detected_recursive_ids</span>.<span class="ident">contains</span>(<span class="kw-2">&amp;</span><span class="ident">id</span>) {
+                <span class="kw">return</span>;
             }
-            <span class='self'>self</span>.<span class='ident'>detected_recursive_ids</span>.<span class='ident'>insert</span>(<span class='ident'>id</span>);
-            <span class='kw'>let</span> <span class='ident'>any_static</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>idstack</span>.<span class='ident'>iter</span>().<span class='ident'>any</span>(<span class='op'>|</span><span class='kw-2'>&amp;</span><span class='ident'>x</span><span class='op'>|</span> {
-                <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>hir_map</span>::<span class='ident'>NodeItem</span>(<span class='ident'>item</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>hir_map</span>.<span class='ident'>get</span>(<span class='ident'>x</span>) {
-                    <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>hir</span>::<span class='ident'>ItemStatic</span>(..) <span class='op'>=</span> <span class='ident'>item</span>.<span class='ident'>node</span> {
-                        <span class='bool-val'>true</span>
-                    } <span class='kw'>else</span> {
-                        <span class='bool-val'>false</span>
+            <span class="self">self</span>.<span class="ident">detected_recursive_ids</span>.<span class="ident">insert</span>(<span class="ident">id</span>);
+            <span class="kw">let</span> <span class="ident">any_static</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">idstack</span>.<span class="ident">iter</span>().<span class="ident">any</span>(<span class="op">|</span><span class="kw-2">&amp;</span><span class="ident">x</span><span class="op">|</span> {
+                <span class="kw">if</span> <span class="kw">let</span> <span class="ident">hir_map</span>::<span class="ident">NodeItem</span>(<span class="ident">item</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">hir_map</span>.<span class="ident">get</span>(<span class="ident">x</span>) {
+                    <span class="kw">if</span> <span class="kw">let</span> <span class="ident">hir</span>::<span class="ident">ItemStatic</span>(..) <span class="op">=</span> <span class="ident">item</span>.<span class="ident">node</span> {
+                        <span class="bool-val">true</span>
+                    } <span class="kw">else</span> {
+                        <span class="bool-val">false</span>
                     }
-                } <span class='kw'>else</span> {
-                    <span class='bool-val'>false</span>
+                } <span class="kw">else</span> {
+                    <span class="bool-val">false</span>
                 }
             });
-            <span class='kw'>if</span> <span class='ident'>any_static</span> {
-                <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>sess</span>.<span class='ident'>features</span>.<span class='ident'>borrow</span>().<span class='ident'>static_recursion</span> {
-                    <span class='ident'>emit_feature_err</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>sess</span>.<span class='ident'>parse_sess</span>,
-                                     <span class='string'>&quot;static_recursion&quot;</span>,
-                                     <span class='kw-2'>*</span><span class='self'>self</span>.<span class='ident'>root_span</span>,
-                                     <span class='ident'>GateIssue</span>::<span class='ident'>Language</span>,
-                                     <span class='string'>&quot;recursive static&quot;</span>);
-                }
-            } <span class='kw'>else</span> {
-                <span class='macro'>struct_span_err</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>sess</span>, <span class='ident'>span</span>, <span class='ident'>E0265</span>, <span class='string'>&quot;recursive constant&quot;</span>)
-                    .<span class='ident'>span_label</span>(<span class='ident'>span</span>, <span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;recursion not allowed in constant&quot;</span>))
-                    .<span class='ident'>emit</span>();
+            <span class="kw">if</span> <span class="op">!</span><span class="ident">any_static</span> {
+                <span class="macro">struct_span_err</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">sess</span>, <span class="ident">span</span>, <span class="ident">E0265</span>, <span class="string">&quot;recursive constant&quot;</span>)
+                    .<span class="ident">span_label</span>(<span class="ident">span</span>, <span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;recursion not allowed in constant&quot;</span>))
+                    .<span class="ident">emit</span>();
             }
-            <span class='kw'>return</span>;
+            <span class="kw">return</span>;
         }
-        <span class='self'>self</span>.<span class='ident'>idstack</span>.<span class='ident'>push</span>(<span class='ident'>id</span>);
-        <span class='ident'>f</span>(<span class='self'>self</span>);
-        <span class='self'>self</span>.<span class='ident'>idstack</span>.<span class='ident'>pop</span>();
+        <span class="self">self</span>.<span class="ident">idstack</span>.<span class="ident">push</span>(<span class="ident">id</span>);
+        <span class="ident">f</span>(<span class="self">self</span>);
+        <span class="self">self</span>.<span class="ident">idstack</span>.<span class="ident">pop</span>();
     }
-    <span class='comment'>// If a variant has an expression specifying its discriminant, then it needs</span>
-    <span class='comment'>// to be checked just like a static or constant. However, if there are more</span>
-    <span class='comment'>// variants with no explicitly specified discriminant, those variants will</span>
-    <span class='comment'>// increment the same expression to get their values.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// So for every variant, we need to track whether there is an expression</span>
-    <span class='comment'>// somewhere in the enum definition that controls its discriminant. We do</span>
-    <span class='comment'>// this by starting from the end and searching backward.</span>
-    <span class='kw'>fn</span> <span class='ident'>populate_enum_discriminants</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>enum_definition</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;hir</span> <span class='ident'>hir</span>::<span class='ident'>EnumDef</span>) {
-        <span class='comment'>// Get the map, and return if we already processed this enum or if it</span>
-        <span class='comment'>// has no variants.</span>
-        <span class='kw'>match</span> <span class='ident'>enum_definition</span>.<span class='ident'>variants</span>.<span class='ident'>first</span>() {
-            <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> {
-                <span class='kw'>return</span>;
+    <span class="comment">// If a variant has an expression specifying its discriminant, then it needs</span>
+    <span class="comment">// to be checked just like a static or constant. However, if there are more</span>
+    <span class="comment">// variants with no explicitly specified discriminant, those variants will</span>
+    <span class="comment">// increment the same expression to get their values.</span>
+    <span class="comment">//</span>
+    <span class="comment">// So for every variant, we need to track whether there is an expression</span>
+    <span class="comment">// somewhere in the enum definition that controls its discriminant. We do</span>
+    <span class="comment">// this by starting from the end and searching backward.</span>
+    <span class="kw">fn</span> <span class="ident">populate_enum_discriminants</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">enum_definition</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;hir</span> <span class="ident">hir</span>::<span class="ident">EnumDef</span>) {
+        <span class="comment">// Get the map, and return if we already processed this enum or if it</span>
+        <span class="comment">// has no variants.</span>
+        <span class="kw">match</span> <span class="ident">enum_definition</span>.<span class="ident">variants</span>.<span class="ident">first</span>() {
+            <span class="prelude-val">None</span> <span class="op">=&gt;</span> {
+                <span class="kw">return</span>;
             }
-            <span class='prelude-val'>Some</span>(<span class='ident'>variant</span>) <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>discriminant_map</span>.<span class='ident'>contains_key</span>(<span class='kw-2'>&amp;</span><span class='ident'>variant</span>.<span class='ident'>node</span>.<span class='ident'>data</span>.<span class='ident'>id</span>()) <span class='op'>=&gt;</span> {
-                <span class='kw'>return</span>;
+            <span class="prelude-val">Some</span>(<span class="ident">variant</span>) <span class="kw">if</span> <span class="self">self</span>.<span class="ident">discriminant_map</span>.<span class="ident">contains_key</span>(<span class="kw-2">&amp;</span><span class="ident">variant</span>.<span class="ident">node</span>.<span class="ident">data</span>.<span class="ident">id</span>()) <span class="op">=&gt;</span> {
+                <span class="kw">return</span>;
             }
-            _ <span class='op'>=&gt;</span> {}
+            _ <span class="op">=&gt;</span> {}
         }
 
-        <span class='comment'>// Go through all the variants.</span>
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>variant_stack</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>NodeId</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>Vec</span>::<span class='ident'>new</span>();
-        <span class='kw'>for</span> <span class='ident'>variant</span> <span class='kw'>in</span> <span class='ident'>enum_definition</span>.<span class='ident'>variants</span>.<span class='ident'>iter</span>().<span class='ident'>rev</span>() {
-            <span class='ident'>variant_stack</span>.<span class='ident'>push</span>(<span class='ident'>variant</span>.<span class='ident'>node</span>.<span class='ident'>data</span>.<span class='ident'>id</span>());
-            <span class='comment'>// When we find an expression, every variant currently on the stack</span>
-            <span class='comment'>// is affected by that expression.</span>
-            <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>expr</span>) <span class='op'>=</span> <span class='ident'>variant</span>.<span class='ident'>node</span>.<span class='ident'>disr_expr</span> {
-                <span class='kw'>for</span> <span class='ident'>id</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>variant_stack</span> {
-                    <span class='self'>self</span>.<span class='ident'>discriminant_map</span>.<span class='ident'>insert</span>(<span class='kw-2'>*</span><span class='ident'>id</span>, <span class='prelude-val'>Some</span>(<span class='ident'>expr</span>));
+        <span class="comment">// Go through all the variants.</span>
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">variant_stack</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">NodeId</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">Vec</span>::<span class="ident">new</span>();
+        <span class="kw">for</span> <span class="ident">variant</span> <span class="kw">in</span> <span class="ident">enum_definition</span>.<span class="ident">variants</span>.<span class="ident">iter</span>().<span class="ident">rev</span>() {
+            <span class="ident">variant_stack</span>.<span class="ident">push</span>(<span class="ident">variant</span>.<span class="ident">node</span>.<span class="ident">data</span>.<span class="ident">id</span>());
+            <span class="comment">// When we find an expression, every variant currently on the stack</span>
+            <span class="comment">// is affected by that expression.</span>
+            <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">expr</span>) <span class="op">=</span> <span class="ident">variant</span>.<span class="ident">node</span>.<span class="ident">disr_expr</span> {
+                <span class="kw">for</span> <span class="ident">id</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="ident">variant_stack</span> {
+                    <span class="self">self</span>.<span class="ident">discriminant_map</span>.<span class="ident">insert</span>(<span class="kw-2">*</span><span class="ident">id</span>, <span class="prelude-val">Some</span>(<span class="ident">expr</span>));
                 }
-                <span class='ident'>variant_stack</span>.<span class='ident'>clear</span>()
+                <span class="ident">variant_stack</span>.<span class="ident">clear</span>()
             }
         }
-        <span class='comment'>// If we are at the top, that always starts at 0, so any variant on the</span>
-        <span class='comment'>// stack has a default value and does not need to be checked.</span>
-        <span class='kw'>for</span> <span class='ident'>id</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>variant_stack</span> {
-            <span class='self'>self</span>.<span class='ident'>discriminant_map</span>.<span class='ident'>insert</span>(<span class='kw-2'>*</span><span class='ident'>id</span>, <span class='prelude-val'>None</span>);
+        <span class="comment">// If we are at the top, that always starts at 0, so any variant on the</span>
+        <span class="comment">// stack has a default value and does not need to be checked.</span>
+        <span class="kw">for</span> <span class="ident">id</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="ident">variant_stack</span> {
+            <span class="self">self</span>.<span class="ident">discriminant_map</span>.<span class="ident">insert</span>(<span class="kw-2">*</span><span class="ident">id</span>, <span class="prelude-val">None</span>);
         }
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;b</span>: <span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;hir</span>: <span class='lifetime'>&#39;b</span><span class='op'>&gt;</span> <span class='ident'>Visitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;hir</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>CheckItemRecursionVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;b</span>, <span class='lifetime'>&#39;hir</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>nested_visit_map</span><span class='op'>&lt;</span><span class='lifetime'>&#39;this</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;this</span> <span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>NestedVisitorMap</span><span class='op'>&lt;</span><span class='lifetime'>&#39;this</span>, <span class='lifetime'>&#39;hir</span><span class='op'>&gt;</span> {
-        <span class='ident'>NestedVisitorMap</span>::<span class='ident'>OnlyBodies</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>hir_map</span>)
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;b</span>: <span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;hir</span>: <span class="lifetime">&#39;b</span><span class="op">&gt;</span> <span class="ident">Visitor</span><span class="op">&lt;</span><span class="lifetime">&#39;hir</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">CheckItemRecursionVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;b</span>, <span class="lifetime">&#39;hir</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">nested_visit_map</span><span class="op">&lt;</span><span class="lifetime">&#39;this</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;this</span> <span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">NestedVisitorMap</span><span class="op">&lt;</span><span class="lifetime">&#39;this</span>, <span class="lifetime">&#39;hir</span><span class="op">&gt;</span> {
+        <span class="ident">NestedVisitorMap</span>::<span class="ident">OnlyBodies</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">hir_map</span>)
     }
-    <span class='kw'>fn</span> <span class='ident'>visit_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>it</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;hir</span> <span class='ident'>hir</span>::<span class='ident'>Item</span>) {
-        <span class='self'>self</span>.<span class='ident'>with_item_id_pushed</span>(<span class='ident'>it</span>.<span class='ident'>id</span>, <span class='op'>|</span><span class='ident'>v</span><span class='op'>|</span> <span class='ident'>intravisit</span>::<span class='ident'>walk_item</span>(<span class='ident'>v</span>, <span class='ident'>it</span>), <span class='ident'>it</span>.<span class='ident'>span</span>);
-    }
-
-    <span class='kw'>fn</span> <span class='ident'>visit_enum_def</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                      <span class='ident'>enum_definition</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;hir</span> <span class='ident'>hir</span>::<span class='ident'>EnumDef</span>,
-                      <span class='ident'>generics</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;hir</span> <span class='ident'>hir</span>::<span class='ident'>Generics</span>,
-                      <span class='ident'>item_id</span>: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>,
-                      _: <span class='ident'>Span</span>) {
-        <span class='self'>self</span>.<span class='ident'>populate_enum_discriminants</span>(<span class='ident'>enum_definition</span>);
-        <span class='ident'>intravisit</span>::<span class='ident'>walk_enum_def</span>(<span class='self'>self</span>, <span class='ident'>enum_definition</span>, <span class='ident'>generics</span>, <span class='ident'>item_id</span>);
+    <span class="kw">fn</span> <span class="ident">visit_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">it</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;hir</span> <span class="ident">hir</span>::<span class="ident">Item</span>) {
+        <span class="self">self</span>.<span class="ident">with_item_id_pushed</span>(<span class="ident">it</span>.<span class="ident">id</span>, <span class="op">|</span><span class="ident">v</span><span class="op">|</span> <span class="ident">intravisit</span>::<span class="ident">walk_item</span>(<span class="ident">v</span>, <span class="ident">it</span>), <span class="ident">it</span>.<span class="ident">span</span>);
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_variant</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                     <span class='ident'>variant</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;hir</span> <span class='ident'>hir</span>::<span class='ident'>Variant</span>,
-                     _: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;hir</span> <span class='ident'>hir</span>::<span class='ident'>Generics</span>,
-                     _: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>) {
-        <span class='kw'>let</span> <span class='ident'>variant_id</span> <span class='op'>=</span> <span class='ident'>variant</span>.<span class='ident'>node</span>.<span class='ident'>data</span>.<span class='ident'>id</span>();
-        <span class='kw'>let</span> <span class='ident'>maybe_expr</span> <span class='op'>=</span> <span class='kw-2'>*</span><span class='self'>self</span>.<span class='ident'>discriminant_map</span>.<span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='ident'>variant_id</span>).<span class='ident'>unwrap_or_else</span>(<span class='op'>||</span> {
-            <span class='macro'>span_bug</span><span class='macro'>!</span>(<span class='ident'>variant</span>.<span class='ident'>span</span>,
-                      <span class='string'>&quot;`check_static_recursion` attempted to visit \
+    <span class="kw">fn</span> <span class="ident">visit_enum_def</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                      <span class="ident">enum_definition</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;hir</span> <span class="ident">hir</span>::<span class="ident">EnumDef</span>,
+                      <span class="ident">generics</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;hir</span> <span class="ident">hir</span>::<span class="ident">Generics</span>,
+                      <span class="ident">item_id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>,
+                      _: <span class="ident">Span</span>) {
+        <span class="self">self</span>.<span class="ident">populate_enum_discriminants</span>(<span class="ident">enum_definition</span>);
+        <span class="ident">intravisit</span>::<span class="ident">walk_enum_def</span>(<span class="self">self</span>, <span class="ident">enum_definition</span>, <span class="ident">generics</span>, <span class="ident">item_id</span>);
+    }
+
+    <span class="kw">fn</span> <span class="ident">visit_variant</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                     <span class="ident">variant</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;hir</span> <span class="ident">hir</span>::<span class="ident">Variant</span>,
+                     _: <span class="kw-2">&amp;</span><span class="lifetime">&#39;hir</span> <span class="ident">hir</span>::<span class="ident">Generics</span>,
+                     _: <span class="ident">ast</span>::<span class="ident">NodeId</span>) {
+        <span class="kw">let</span> <span class="ident">variant_id</span> <span class="op">=</span> <span class="ident">variant</span>.<span class="ident">node</span>.<span class="ident">data</span>.<span class="ident">id</span>();
+        <span class="kw">let</span> <span class="ident">maybe_expr</span> <span class="op">=</span> <span class="kw-2">*</span><span class="self">self</span>.<span class="ident">discriminant_map</span>.<span class="ident">get</span>(<span class="kw-2">&amp;</span><span class="ident">variant_id</span>).<span class="ident">unwrap_or_else</span>(<span class="op">||</span> {
+            <span class="macro">span_bug</span><span class="macro">!</span>(<span class="ident">variant</span>.<span class="ident">span</span>,
+                      <span class="string">&quot;`check_static_recursion` attempted to visit \
                       variant with unknown discriminant&quot;</span>)
         });
-        <span class='comment'>// If `maybe_expr` is `None`, that&#39;s because no discriminant is</span>
-        <span class='comment'>// specified that affects this variant. Thus, no risk of recursion.</span>
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>expr</span>) <span class='op'>=</span> <span class='ident'>maybe_expr</span> {
-            <span class='kw'>let</span> <span class='ident'>expr</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>hir_map</span>.<span class='ident'>body</span>(<span class='ident'>expr</span>).<span class='ident'>value</span>;
-            <span class='self'>self</span>.<span class='ident'>with_item_id_pushed</span>(<span class='ident'>expr</span>.<span class='ident'>id</span>, <span class='op'>|</span><span class='ident'>v</span><span class='op'>|</span> <span class='ident'>intravisit</span>::<span class='ident'>walk_expr</span>(<span class='ident'>v</span>, <span class='ident'>expr</span>), <span class='ident'>expr</span>.<span class='ident'>span</span>);
+        <span class="comment">// If `maybe_expr` is `None`, that&#39;s because no discriminant is</span>
+        <span class="comment">// specified that affects this variant. Thus, no risk of recursion.</span>
+        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">expr</span>) <span class="op">=</span> <span class="ident">maybe_expr</span> {
+            <span class="kw">let</span> <span class="ident">expr</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">hir_map</span>.<span class="ident">body</span>(<span class="ident">expr</span>).<span class="ident">value</span>;
+            <span class="self">self</span>.<span class="ident">with_item_id_pushed</span>(<span class="ident">expr</span>.<span class="ident">id</span>, <span class="op">|</span><span class="ident">v</span><span class="op">|</span> <span class="ident">intravisit</span>::<span class="ident">walk_expr</span>(<span class="ident">v</span>, <span class="ident">expr</span>), <span class="ident">expr</span>.<span class="ident">span</span>);
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_trait_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>ti</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;hir</span> <span class='ident'>hir</span>::<span class='ident'>TraitItem</span>) {
-        <span class='self'>self</span>.<span class='ident'>with_item_id_pushed</span>(<span class='ident'>ti</span>.<span class='ident'>id</span>, <span class='op'>|</span><span class='ident'>v</span><span class='op'>|</span> <span class='ident'>intravisit</span>::<span class='ident'>walk_trait_item</span>(<span class='ident'>v</span>, <span class='ident'>ti</span>), <span class='ident'>ti</span>.<span class='ident'>span</span>);
+    <span class="kw">fn</span> <span class="ident">visit_trait_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">ti</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;hir</span> <span class="ident">hir</span>::<span class="ident">TraitItem</span>) {
+        <span class="self">self</span>.<span class="ident">with_item_id_pushed</span>(<span class="ident">ti</span>.<span class="ident">id</span>, <span class="op">|</span><span class="ident">v</span><span class="op">|</span> <span class="ident">intravisit</span>::<span class="ident">walk_trait_item</span>(<span class="ident">v</span>, <span class="ident">ti</span>), <span class="ident">ti</span>.<span class="ident">span</span>);
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_impl_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>ii</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;hir</span> <span class='ident'>hir</span>::<span class='ident'>ImplItem</span>) {
-        <span class='self'>self</span>.<span class='ident'>with_item_id_pushed</span>(<span class='ident'>ii</span>.<span class='ident'>id</span>, <span class='op'>|</span><span class='ident'>v</span><span class='op'>|</span> <span class='ident'>intravisit</span>::<span class='ident'>walk_impl_item</span>(<span class='ident'>v</span>, <span class='ident'>ii</span>), <span class='ident'>ii</span>.<span class='ident'>span</span>);
+    <span class="kw">fn</span> <span class="ident">visit_impl_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">ii</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;hir</span> <span class="ident">hir</span>::<span class="ident">ImplItem</span>) {
+        <span class="self">self</span>.<span class="ident">with_item_id_pushed</span>(<span class="ident">ii</span>.<span class="ident">id</span>, <span class="op">|</span><span class="ident">v</span><span class="op">|</span> <span class="ident">intravisit</span>::<span class="ident">walk_impl_item</span>(<span class="ident">v</span>, <span class="ident">ii</span>), <span class="ident">ii</span>.<span class="ident">span</span>);
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_path</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>path</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;hir</span> <span class='ident'>hir</span>::<span class='ident'>Path</span>, _: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>) {
-        <span class='kw'>match</span> <span class='ident'>path</span>.<span class='ident'>def</span> {
-            <span class='ident'>Def</span>::<span class='ident'>Static</span>(<span class='ident'>def_id</span>, _) <span class='op'>|</span>
-            <span class='ident'>Def</span>::<span class='ident'>AssociatedConst</span>(<span class='ident'>def_id</span>) <span class='op'>|</span>
-            <span class='ident'>Def</span>::<span class='ident'>Const</span>(<span class='ident'>def_id</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>node_id</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>hir_map</span>.<span class='ident'>as_local_node_id</span>(<span class='ident'>def_id</span>) {
-                    <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>hir_map</span>.<span class='ident'>get</span>(<span class='ident'>node_id</span>) {
-                        <span class='ident'>hir_map</span>::<span class='ident'>NodeItem</span>(<span class='ident'>item</span>) <span class='op'>=&gt;</span> <span class='self'>self</span>.<span class='ident'>visit_item</span>(<span class='ident'>item</span>),
-                        <span class='ident'>hir_map</span>::<span class='ident'>NodeTraitItem</span>(<span class='ident'>item</span>) <span class='op'>=&gt;</span> <span class='self'>self</span>.<span class='ident'>visit_trait_item</span>(<span class='ident'>item</span>),
-                        <span class='ident'>hir_map</span>::<span class='ident'>NodeImplItem</span>(<span class='ident'>item</span>) <span class='op'>=&gt;</span> <span class='self'>self</span>.<span class='ident'>visit_impl_item</span>(<span class='ident'>item</span>),
-                        <span class='ident'>hir_map</span>::<span class='ident'>NodeForeignItem</span>(_) <span class='op'>=&gt;</span> {}
-                        _ <span class='op'>=&gt;</span> {
-                            <span class='macro'>span_bug</span><span class='macro'>!</span>(<span class='ident'>path</span>.<span class='ident'>span</span>,
-                                      <span class='string'>&quot;expected item, found {}&quot;</span>,
-                                      <span class='self'>self</span>.<span class='ident'>hir_map</span>.<span class='ident'>node_to_string</span>(<span class='ident'>node_id</span>));
+    <span class="kw">fn</span> <span class="ident">visit_path</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">path</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;hir</span> <span class="ident">hir</span>::<span class="ident">Path</span>, _: <span class="ident">ast</span>::<span class="ident">NodeId</span>) {
+        <span class="kw">match</span> <span class="ident">path</span>.<span class="ident">def</span> {
+            <span class="ident">Def</span>::<span class="ident">Static</span>(<span class="ident">def_id</span>, _) <span class="op">|</span>
+            <span class="ident">Def</span>::<span class="ident">AssociatedConst</span>(<span class="ident">def_id</span>) <span class="op">|</span>
+            <span class="ident">Def</span>::<span class="ident">Const</span>(<span class="ident">def_id</span>) <span class="op">=&gt;</span> {
+                <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">node_id</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">hir_map</span>.<span class="ident">as_local_node_id</span>(<span class="ident">def_id</span>) {
+                    <span class="kw">match</span> <span class="self">self</span>.<span class="ident">hir_map</span>.<span class="ident">get</span>(<span class="ident">node_id</span>) {
+                        <span class="ident">hir_map</span>::<span class="ident">NodeItem</span>(<span class="ident">item</span>) <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">visit_item</span>(<span class="ident">item</span>),
+                        <span class="ident">hir_map</span>::<span class="ident">NodeTraitItem</span>(<span class="ident">item</span>) <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">visit_trait_item</span>(<span class="ident">item</span>),
+                        <span class="ident">hir_map</span>::<span class="ident">NodeImplItem</span>(<span class="ident">item</span>) <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">visit_impl_item</span>(<span class="ident">item</span>),
+                        <span class="ident">hir_map</span>::<span class="ident">NodeForeignItem</span>(_) <span class="op">=&gt;</span> {}
+                        _ <span class="op">=&gt;</span> {
+                            <span class="macro">span_bug</span><span class="macro">!</span>(<span class="ident">path</span>.<span class="ident">span</span>,
+                                      <span class="string">&quot;expected item, found {}&quot;</span>,
+                                      <span class="self">self</span>.<span class="ident">hir_map</span>.<span class="ident">node_to_string</span>(<span class="ident">node_id</span>));
                         }
                     }
                 }
             }
-            <span class='comment'>// For variants, we only want to check expressions that</span>
-            <span class='comment'>// affect the specific variant used, but we need to check</span>
-            <span class='comment'>// the whole enum definition to see what expression that</span>
-            <span class='comment'>// might be (if any).</span>
-            <span class='ident'>Def</span>::<span class='ident'>VariantCtor</span>(<span class='ident'>variant_id</span>, <span class='ident'>CtorKind</span>::<span class='ident'>Const</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>variant_id</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>hir_map</span>.<span class='ident'>as_local_node_id</span>(<span class='ident'>variant_id</span>) {
-                    <span class='kw'>let</span> <span class='ident'>variant</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>hir_map</span>.<span class='ident'>expect_variant</span>(<span class='ident'>variant_id</span>);
-                    <span class='kw'>let</span> <span class='ident'>enum_id</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>hir_map</span>.<span class='ident'>get_parent</span>(<span class='ident'>variant_id</span>);
-                    <span class='kw'>let</span> <span class='ident'>enum_item</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>hir_map</span>.<span class='ident'>expect_item</span>(<span class='ident'>enum_id</span>);
-                    <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>hir</span>::<span class='ident'>ItemEnum</span>(<span class='kw-2'>ref</span> <span class='ident'>enum_def</span>, <span class='kw-2'>ref</span> <span class='ident'>generics</span>) <span class='op'>=</span> <span class='ident'>enum_item</span>.<span class='ident'>node</span> {
-                        <span class='self'>self</span>.<span class='ident'>populate_enum_discriminants</span>(<span class='ident'>enum_def</span>);
-                        <span class='self'>self</span>.<span class='ident'>visit_variant</span>(<span class='ident'>variant</span>, <span class='ident'>generics</span>, <span class='ident'>enum_id</span>);
-                    } <span class='kw'>else</span> {
-                        <span class='macro'>span_bug</span><span class='macro'>!</span>(<span class='ident'>path</span>.<span class='ident'>span</span>,
-                                  <span class='string'>&quot;`check_static_recursion` found \
+            <span class="comment">// For variants, we only want to check expressions that</span>
+            <span class="comment">// affect the specific variant used, but we need to check</span>
+            <span class="comment">// the whole enum definition to see what expression that</span>
+            <span class="comment">// might be (if any).</span>
+            <span class="ident">Def</span>::<span class="ident">VariantCtor</span>(<span class="ident">variant_id</span>, <span class="ident">CtorKind</span>::<span class="ident">Const</span>) <span class="op">=&gt;</span> {
+                <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">variant_id</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">hir_map</span>.<span class="ident">as_local_node_id</span>(<span class="ident">variant_id</span>) {
+                    <span class="kw">let</span> <span class="ident">variant</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">hir_map</span>.<span class="ident">expect_variant</span>(<span class="ident">variant_id</span>);
+                    <span class="kw">let</span> <span class="ident">enum_id</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">hir_map</span>.<span class="ident">get_parent</span>(<span class="ident">variant_id</span>);
+                    <span class="kw">let</span> <span class="ident">enum_item</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">hir_map</span>.<span class="ident">expect_item</span>(<span class="ident">enum_id</span>);
+                    <span class="kw">if</span> <span class="kw">let</span> <span class="ident">hir</span>::<span class="ident">ItemEnum</span>(<span class="kw-2">ref</span> <span class="ident">enum_def</span>, <span class="kw-2">ref</span> <span class="ident">generics</span>) <span class="op">=</span> <span class="ident">enum_item</span>.<span class="ident">node</span> {
+                        <span class="self">self</span>.<span class="ident">populate_enum_discriminants</span>(<span class="ident">enum_def</span>);
+                        <span class="self">self</span>.<span class="ident">visit_variant</span>(<span class="ident">variant</span>, <span class="ident">generics</span>, <span class="ident">enum_id</span>);
+                    } <span class="kw">else</span> {
+                        <span class="macro">span_bug</span><span class="macro">!</span>(<span class="ident">path</span>.<span class="ident">span</span>,
+                                  <span class="string">&quot;`check_static_recursion` found \
                                     non-enum in Def::VariantCtor&quot;</span>);
                     }
                 }
             }
-            _ <span class='op'>=&gt;</span> (),
+            _ <span class="op">=&gt;</span> (),
         }
-        <span class='ident'>intravisit</span>::<span class='ident'>walk_path</span>(<span class='self'>self</span>, <span class='ident'>path</span>);
+        <span class="ident">intravisit</span>::<span class="ident">walk_path</span>(<span class="self">self</span>, <span class="ident">path</span>);
     }
 }
 </pre>

@@ -843,521 +843,521 @@
 <span id="798">798</span>
 <span id="799">799</span>
 <span id="800">800</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='doccomment'>//! Helper routines for higher-ranked things. See the `doc` module at</span>
-<span class='doccomment'>//! the end of the file for details.</span>
+<span class="doccomment">//! Helper routines for higher-ranked things. See the `doc` module at</span>
+<span class="doccomment">//! the end of the file for details.</span>
 
-<span class='kw'>use</span> <span class='kw'>super</span>::{<span class='ident'>CombinedSnapshot</span>,
-            <span class='ident'>InferCtxt</span>,
-            <span class='ident'>LateBoundRegion</span>,
-            <span class='ident'>HigherRankedType</span>,
-            <span class='ident'>SubregionOrigin</span>,
-            <span class='ident'>SkolemizationMap</span>};
-<span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>combine</span>::<span class='ident'>CombineFields</span>;
-<span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>region_inference</span>::{<span class='ident'>TaintDirections</span>};
+<span class="kw">use</span> <span class="kw">super</span>::{<span class="ident">CombinedSnapshot</span>,
+            <span class="ident">InferCtxt</span>,
+            <span class="ident">LateBoundRegion</span>,
+            <span class="ident">HigherRankedType</span>,
+            <span class="ident">SubregionOrigin</span>,
+            <span class="ident">SkolemizationMap</span>};
+<span class="kw">use</span> <span class="kw">super</span>::<span class="ident">combine</span>::<span class="ident">CombineFields</span>;
+<span class="kw">use</span> <span class="kw">super</span>::<span class="ident">region_inference</span>::{<span class="ident">TaintDirections</span>};
 
-<span class='kw'>use</span> <span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>TyCtxt</span>, <span class='ident'>Binder</span>, <span class='ident'>TypeFoldable</span>};
-<span class='kw'>use</span> <span class='ident'>ty</span>::<span class='ident'>error</span>::<span class='ident'>TypeError</span>;
-<span class='kw'>use</span> <span class='ident'>ty</span>::<span class='ident'>relate</span>::{<span class='ident'>Relate</span>, <span class='ident'>RelateResult</span>, <span class='ident'>TypeRelation</span>};
-<span class='kw'>use</span> <span class='ident'>syntax_pos</span>::<span class='ident'>Span</span>;
-<span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>nodemap</span>::{<span class='ident'>FxHashMap</span>, <span class='ident'>FxHashSet</span>};
+<span class="kw">use</span> <span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">TyCtxt</span>, <span class="ident">Binder</span>, <span class="ident">TypeFoldable</span>};
+<span class="kw">use</span> <span class="ident">ty</span>::<span class="ident">error</span>::<span class="ident">TypeError</span>;
+<span class="kw">use</span> <span class="ident">ty</span>::<span class="ident">relate</span>::{<span class="ident">Relate</span>, <span class="ident">RelateResult</span>, <span class="ident">TypeRelation</span>};
+<span class="kw">use</span> <span class="ident">syntax_pos</span>::<span class="ident">Span</span>;
+<span class="kw">use</span> <span class="ident">util</span>::<span class="ident">nodemap</span>::{<span class="ident">FxHashMap</span>, <span class="ident">FxHashSet</span>};
 
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>HrMatchResult</span><span class='op'>&lt;</span><span class='ident'>U</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='ident'>value</span>: <span class='ident'>U</span>,
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">HrMatchResult</span><span class="op">&lt;</span><span class="ident">U</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="ident">value</span>: <span class="ident">U</span>,
 
-    <span class='doccomment'>/// Normally, when we do a higher-ranked match operation, we</span>
-    <span class='doccomment'>/// expect all higher-ranked regions to be constrained as part of</span>
-    <span class='doccomment'>/// the match operation. However, in the transition period for</span>
-    <span class='doccomment'>/// #32330, it can happen that we sometimes have unconstrained</span>
-    <span class='doccomment'>/// regions that get instantiated with fresh variables. In that</span>
-    <span class='doccomment'>/// case, we collect the set of unconstrained bound regions here</span>
-    <span class='doccomment'>/// and replace them with fresh variables.</span>
-    <span class='kw'>pub</span> <span class='ident'>unconstrained_regions</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>BoundRegion</span><span class='op'>&gt;</span>,
+    <span class="doccomment">/// Normally, when we do a higher-ranked match operation, we</span>
+    <span class="doccomment">/// expect all higher-ranked regions to be constrained as part of</span>
+    <span class="doccomment">/// the match operation. However, in the transition period for</span>
+    <span class="doccomment">/// #32330, it can happen that we sometimes have unconstrained</span>
+    <span class="doccomment">/// regions that get instantiated with fresh variables. In that</span>
+    <span class="doccomment">/// case, we collect the set of unconstrained bound regions here</span>
+    <span class="doccomment">/// and replace them with fresh variables.</span>
+    <span class="kw">pub</span> <span class="ident">unconstrained_regions</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">BoundRegion</span><span class="op">&gt;</span>,
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>CombineFields</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>higher_ranked_sub</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>a</span>: <span class='kw-2'>&amp;</span><span class='ident'>Binder</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>, <span class='ident'>b</span>: <span class='kw-2'>&amp;</span><span class='ident'>Binder</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>, <span class='ident'>a_is_expected</span>: <span class='ident'>bool</span>)
-                                <span class='op'>-&gt;</span> <span class='ident'>RelateResult</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>Binder</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>
-        <span class='kw'>where</span> <span class='ident'>T</span>: <span class='ident'>Relate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">CombineFields</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">higher_ranked_sub</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">a</span>: <span class="kw-2">&amp;</span><span class="ident">Binder</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>, <span class="ident">b</span>: <span class="kw-2">&amp;</span><span class="ident">Binder</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>, <span class="ident">a_is_expected</span>: <span class="ident">bool</span>)
+                                <span class="op">-&gt;</span> <span class="ident">RelateResult</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">Binder</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span>
+        <span class="kw">where</span> <span class="ident">T</span>: <span class="ident">Relate</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>
     {
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;higher_ranked_sub(a={:?}, b={:?})&quot;</span>,
-               <span class='ident'>a</span>, <span class='ident'>b</span>);
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;higher_ranked_sub(a={:?}, b={:?})&quot;</span>,
+               <span class="ident">a</span>, <span class="ident">b</span>);
 
-        <span class='comment'>// Rather than checking the subtype relationship between `a` and `b`</span>
-        <span class='comment'>// as-is, we need to do some extra work here in order to make sure</span>
-        <span class='comment'>// that function subtyping works correctly with respect to regions</span>
-        <span class='comment'>//</span>
-        <span class='comment'>// Note: this is a subtle algorithm.  For a full explanation,</span>
-        <span class='comment'>// please see the large comment at the end of the file in the (inlined) module</span>
-        <span class='comment'>// `doc`.</span>
+        <span class="comment">// Rather than checking the subtype relationship between `a` and `b`</span>
+        <span class="comment">// as-is, we need to do some extra work here in order to make sure</span>
+        <span class="comment">// that function subtyping works correctly with respect to regions</span>
+        <span class="comment">//</span>
+        <span class="comment">// Note: this is a subtle algorithm.  For a full explanation,</span>
+        <span class="comment">// please see the large comment at the end of the file in the (inlined) module</span>
+        <span class="comment">// `doc`.</span>
 
-        <span class='comment'>// Start a snapshot so we can examine &quot;all bindings that were</span>
-        <span class='comment'>// created as part of this type comparison&quot;.</span>
-        <span class='kw'>return</span> <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>commit_if_ok</span>(<span class='op'>|</span><span class='ident'>snapshot</span><span class='op'>|</span> {
-            <span class='kw'>let</span> <span class='ident'>span</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>trace</span>.<span class='ident'>cause</span>.<span class='ident'>span</span>;
+        <span class="comment">// Start a snapshot so we can examine &quot;all bindings that were</span>
+        <span class="comment">// created as part of this type comparison&quot;.</span>
+        <span class="kw">return</span> <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">commit_if_ok</span>(<span class="op">|</span><span class="ident">snapshot</span><span class="op">|</span> {
+            <span class="kw">let</span> <span class="ident">span</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">trace</span>.<span class="ident">cause</span>.<span class="ident">span</span>;
 
-            <span class='comment'>// First, we instantiate each bound region in the subtype with a fresh</span>
-            <span class='comment'>// region variable.</span>
-            <span class='kw'>let</span> (<span class='ident'>a_prime</span>, _) <span class='op'>=</span>
-                <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>replace_late_bound_regions_with_fresh_var</span>(
-                    <span class='ident'>span</span>,
-                    <span class='ident'>HigherRankedType</span>,
-                    <span class='ident'>a</span>);
+            <span class="comment">// First, we instantiate each bound region in the subtype with a fresh</span>
+            <span class="comment">// region variable.</span>
+            <span class="kw">let</span> (<span class="ident">a_prime</span>, _) <span class="op">=</span>
+                <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">replace_late_bound_regions_with_fresh_var</span>(
+                    <span class="ident">span</span>,
+                    <span class="ident">HigherRankedType</span>,
+                    <span class="ident">a</span>);
 
-            <span class='comment'>// Second, we instantiate each bound region in the supertype with a</span>
-            <span class='comment'>// fresh concrete region.</span>
-            <span class='kw'>let</span> (<span class='ident'>b_prime</span>, <span class='ident'>skol_map</span>) <span class='op'>=</span>
-                <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>skolemize_late_bound_regions</span>(<span class='ident'>b</span>, <span class='ident'>snapshot</span>);
+            <span class="comment">// Second, we instantiate each bound region in the supertype with a</span>
+            <span class="comment">// fresh concrete region.</span>
+            <span class="kw">let</span> (<span class="ident">b_prime</span>, <span class="ident">skol_map</span>) <span class="op">=</span>
+                <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">skolemize_late_bound_regions</span>(<span class="ident">b</span>, <span class="ident">snapshot</span>);
 
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;a_prime={:?}&quot;</span>, <span class='ident'>a_prime</span>);
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;b_prime={:?}&quot;</span>, <span class='ident'>b_prime</span>);
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;a_prime={:?}&quot;</span>, <span class="ident">a_prime</span>);
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;b_prime={:?}&quot;</span>, <span class="ident">b_prime</span>);
 
-            <span class='comment'>// Compare types now that bound regions have been replaced.</span>
-            <span class='kw'>let</span> <span class='ident'>result</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>sub</span>(<span class='ident'>a_is_expected</span>).<span class='ident'>relate</span>(<span class='kw-2'>&amp;</span><span class='ident'>a_prime</span>, <span class='kw-2'>&amp;</span><span class='ident'>b_prime</span>)<span class='question-mark'>?</span>;
+            <span class="comment">// Compare types now that bound regions have been replaced.</span>
+            <span class="kw">let</span> <span class="ident">result</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">sub</span>(<span class="ident">a_is_expected</span>).<span class="ident">relate</span>(<span class="kw-2">&amp;</span><span class="ident">a_prime</span>, <span class="kw-2">&amp;</span><span class="ident">b_prime</span>)<span class="question-mark">?</span>;
 
-            <span class='comment'>// Presuming type comparison succeeds, we need to check</span>
-            <span class='comment'>// that the skolemized regions do not &quot;leak&quot;.</span>
-            <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>leak_check</span>(<span class='op'>!</span><span class='ident'>a_is_expected</span>, <span class='ident'>span</span>, <span class='kw-2'>&amp;</span><span class='ident'>skol_map</span>, <span class='ident'>snapshot</span>)<span class='question-mark'>?</span>;
+            <span class="comment">// Presuming type comparison succeeds, we need to check</span>
+            <span class="comment">// that the skolemized regions do not &quot;leak&quot;.</span>
+            <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">leak_check</span>(<span class="op">!</span><span class="ident">a_is_expected</span>, <span class="ident">span</span>, <span class="kw-2">&amp;</span><span class="ident">skol_map</span>, <span class="ident">snapshot</span>)<span class="question-mark">?</span>;
 
-            <span class='comment'>// We are finished with the skolemized regions now so pop</span>
-            <span class='comment'>// them off.</span>
-            <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>pop_skolemized</span>(<span class='ident'>skol_map</span>, <span class='ident'>snapshot</span>);
+            <span class="comment">// We are finished with the skolemized regions now so pop</span>
+            <span class="comment">// them off.</span>
+            <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">pop_skolemized</span>(<span class="ident">skol_map</span>, <span class="ident">snapshot</span>);
 
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;higher_ranked_sub: OK result={:?}&quot;</span>, <span class='ident'>result</span>);
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;higher_ranked_sub: OK result={:?}&quot;</span>, <span class="ident">result</span>);
 
-            <span class='prelude-val'>Ok</span>(<span class='ident'>ty</span>::<span class='ident'>Binder</span>(<span class='ident'>result</span>))
+            <span class="prelude-val">Ok</span>(<span class="ident">ty</span>::<span class="ident">Binder</span>(<span class="ident">result</span>))
         });
     }
 
-    <span class='doccomment'>/// The value consists of a pair `(t, u)` where `t` is the</span>
-    <span class='doccomment'>/// *matcher* and `u` is a *value*. The idea is to find a</span>
-    <span class='doccomment'>/// substitution `S` such that `S(t) == b`, and then return</span>
-    <span class='doccomment'>/// `S(u)`. In other words, find values for the late-bound regions</span>
-    <span class='doccomment'>/// in `a` that can make `t == b` and then replace the LBR in `u`</span>
-    <span class='doccomment'>/// with those values.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// This routine is (as of this writing) used in trait matching,</span>
-    <span class='doccomment'>/// particularly projection.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// NB. It should not happen that there are LBR appearing in `U`</span>
-    <span class='doccomment'>/// that do not appear in `T`. If that happens, those regions are</span>
-    <span class='doccomment'>/// unconstrained, and this routine replaces them with `&#39;static`.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>higher_ranked_match</span><span class='op'>&lt;</span><span class='ident'>T</span>, <span class='ident'>U</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                                     <span class='ident'>span</span>: <span class='ident'>Span</span>,
-                                     <span class='ident'>a_pair</span>: <span class='kw-2'>&amp;</span><span class='ident'>Binder</span><span class='op'>&lt;</span>(<span class='ident'>T</span>, <span class='ident'>U</span>)<span class='op'>&gt;</span>,
-                                     <span class='ident'>b_match</span>: <span class='kw-2'>&amp;</span><span class='ident'>T</span>,
-                                     <span class='ident'>a_is_expected</span>: <span class='ident'>bool</span>)
-                                     <span class='op'>-&gt;</span> <span class='ident'>RelateResult</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>HrMatchResult</span><span class='op'>&lt;</span><span class='ident'>U</span><span class='op'>&gt;&gt;</span>
-        <span class='kw'>where</span> <span class='ident'>T</span>: <span class='ident'>Relate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-              <span class='ident'>U</span>: <span class='ident'>TypeFoldable</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
+    <span class="doccomment">/// The value consists of a pair `(t, u)` where `t` is the</span>
+    <span class="doccomment">/// *matcher* and `u` is a *value*. The idea is to find a</span>
+    <span class="doccomment">/// substitution `S` such that `S(t) == b`, and then return</span>
+    <span class="doccomment">/// `S(u)`. In other words, find values for the late-bound regions</span>
+    <span class="doccomment">/// in `a` that can make `t == b` and then replace the LBR in `u`</span>
+    <span class="doccomment">/// with those values.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This routine is (as of this writing) used in trait matching,</span>
+    <span class="doccomment">/// particularly projection.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// NB. It should not happen that there are LBR appearing in `U`</span>
+    <span class="doccomment">/// that do not appear in `T`. If that happens, those regions are</span>
+    <span class="doccomment">/// unconstrained, and this routine replaces them with `&#39;static`.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">higher_ranked_match</span><span class="op">&lt;</span><span class="ident">T</span>, <span class="ident">U</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                                     <span class="ident">span</span>: <span class="ident">Span</span>,
+                                     <span class="ident">a_pair</span>: <span class="kw-2">&amp;</span><span class="ident">Binder</span><span class="op">&lt;</span>(<span class="ident">T</span>, <span class="ident">U</span>)<span class="op">&gt;</span>,
+                                     <span class="ident">b_match</span>: <span class="kw-2">&amp;</span><span class="ident">T</span>,
+                                     <span class="ident">a_is_expected</span>: <span class="ident">bool</span>)
+                                     <span class="op">-&gt;</span> <span class="ident">RelateResult</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">HrMatchResult</span><span class="op">&lt;</span><span class="ident">U</span><span class="op">&gt;&gt;</span>
+        <span class="kw">where</span> <span class="ident">T</span>: <span class="ident">Relate</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+              <span class="ident">U</span>: <span class="ident">TypeFoldable</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>
     {
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;higher_ranked_match(a={:?}, b={:?})&quot;</span>,
-               <span class='ident'>a_pair</span>, <span class='ident'>b_match</span>);
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;higher_ranked_match(a={:?}, b={:?})&quot;</span>,
+               <span class="ident">a_pair</span>, <span class="ident">b_match</span>);
 
-        <span class='comment'>// Start a snapshot so we can examine &quot;all bindings that were</span>
-        <span class='comment'>// created as part of this type comparison&quot;.</span>
-        <span class='kw'>return</span> <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>commit_if_ok</span>(<span class='op'>|</span><span class='ident'>snapshot</span><span class='op'>|</span> {
-            <span class='comment'>// First, we instantiate each bound region in the matcher</span>
-            <span class='comment'>// with a skolemized region.</span>
-            <span class='kw'>let</span> ((<span class='ident'>a_match</span>, <span class='ident'>a_value</span>), <span class='ident'>skol_map</span>) <span class='op'>=</span>
-                <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>skolemize_late_bound_regions</span>(<span class='ident'>a_pair</span>, <span class='ident'>snapshot</span>);
+        <span class="comment">// Start a snapshot so we can examine &quot;all bindings that were</span>
+        <span class="comment">// created as part of this type comparison&quot;.</span>
+        <span class="kw">return</span> <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">commit_if_ok</span>(<span class="op">|</span><span class="ident">snapshot</span><span class="op">|</span> {
+            <span class="comment">// First, we instantiate each bound region in the matcher</span>
+            <span class="comment">// with a skolemized region.</span>
+            <span class="kw">let</span> ((<span class="ident">a_match</span>, <span class="ident">a_value</span>), <span class="ident">skol_map</span>) <span class="op">=</span>
+                <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">skolemize_late_bound_regions</span>(<span class="ident">a_pair</span>, <span class="ident">snapshot</span>);
 
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;higher_ranked_match: a_match={:?}&quot;</span>, <span class='ident'>a_match</span>);
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;higher_ranked_match: skol_map={:?}&quot;</span>, <span class='ident'>skol_map</span>);
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;higher_ranked_match: a_match={:?}&quot;</span>, <span class="ident">a_match</span>);
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;higher_ranked_match: skol_map={:?}&quot;</span>, <span class="ident">skol_map</span>);
 
-            <span class='comment'>// Equate types now that bound regions have been replaced.</span>
-            <span class='self'>self</span>.<span class='ident'>equate</span>(<span class='ident'>a_is_expected</span>).<span class='ident'>relate</span>(<span class='kw-2'>&amp;</span><span class='ident'>a_match</span>, <span class='kw-2'>&amp;</span><span class='ident'>b_match</span>)<span class='question-mark'>?</span>;
+            <span class="comment">// Equate types now that bound regions have been replaced.</span>
+            <span class="self">self</span>.<span class="ident">equate</span>(<span class="ident">a_is_expected</span>).<span class="ident">relate</span>(<span class="kw-2">&amp;</span><span class="ident">a_match</span>, <span class="kw-2">&amp;</span><span class="ident">b_match</span>)<span class="question-mark">?</span>;
 
-            <span class='comment'>// Map each skolemized region to a vector of other regions that it</span>
-            <span class='comment'>// must be equated with. (Note that this vector may include other</span>
-            <span class='comment'>// skolemized regions from `skol_map`.)</span>
-            <span class='kw'>let</span> <span class='ident'>skol_resolution_map</span>: <span class='ident'>FxHashMap</span><span class='op'>&lt;</span>_, _<span class='op'>&gt;</span> <span class='op'>=</span>
-                <span class='ident'>skol_map</span>
-                .<span class='ident'>iter</span>()
-                .<span class='ident'>map</span>(<span class='op'>|</span>(<span class='kw-2'>&amp;</span><span class='ident'>br</span>, <span class='kw-2'>&amp;</span><span class='ident'>skol</span>)<span class='op'>|</span> {
-                    <span class='kw'>let</span> <span class='ident'>tainted_regions</span> <span class='op'>=</span>
-                        <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>tainted_regions</span>(<span class='ident'>snapshot</span>,
-                                                   <span class='ident'>skol</span>,
-                                                   <span class='ident'>TaintDirections</span>::<span class='ident'>incoming</span>()); <span class='comment'>// [1]</span>
+            <span class="comment">// Map each skolemized region to a vector of other regions that it</span>
+            <span class="comment">// must be equated with. (Note that this vector may include other</span>
+            <span class="comment">// skolemized regions from `skol_map`.)</span>
+            <span class="kw">let</span> <span class="ident">skol_resolution_map</span>: <span class="ident">FxHashMap</span><span class="op">&lt;</span>_, _<span class="op">&gt;</span> <span class="op">=</span>
+                <span class="ident">skol_map</span>
+                .<span class="ident">iter</span>()
+                .<span class="ident">map</span>(<span class="op">|</span>(<span class="kw-2">&amp;</span><span class="ident">br</span>, <span class="kw-2">&amp;</span><span class="ident">skol</span>)<span class="op">|</span> {
+                    <span class="kw">let</span> <span class="ident">tainted_regions</span> <span class="op">=</span>
+                        <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">tainted_regions</span>(<span class="ident">snapshot</span>,
+                                                   <span class="ident">skol</span>,
+                                                   <span class="ident">TaintDirections</span>::<span class="ident">incoming</span>()); <span class="comment">// [1]</span>
 
-                    <span class='comment'>// [1] this routine executes after the skolemized</span>
-                    <span class='comment'>// regions have been *equated* with something</span>
-                    <span class='comment'>// else, so examining the incoming edges ought to</span>
-                    <span class='comment'>// be enough to collect all constraints</span>
+                    <span class="comment">// [1] this routine executes after the skolemized</span>
+                    <span class="comment">// regions have been *equated* with something</span>
+                    <span class="comment">// else, so examining the incoming edges ought to</span>
+                    <span class="comment">// be enough to collect all constraints</span>
 
-                    (<span class='ident'>skol</span>, (<span class='ident'>br</span>, <span class='ident'>tainted_regions</span>))
+                    (<span class="ident">skol</span>, (<span class="ident">br</span>, <span class="ident">tainted_regions</span>))
                 })
-                .<span class='ident'>collect</span>();
+                .<span class="ident">collect</span>();
 
-            <span class='comment'>// For each skolemized region, pick a representative -- which can</span>
-            <span class='comment'>// be any region from the sets above, except for other members of</span>
-            <span class='comment'>// `skol_map`. There should always be a representative if things</span>
-            <span class='comment'>// are properly well-formed.</span>
-            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>unconstrained_regions</span> <span class='op'>=</span> <span class='macro'>vec</span><span class='macro'>!</span>[];
-            <span class='kw'>let</span> <span class='ident'>skol_representatives</span>: <span class='ident'>FxHashMap</span><span class='op'>&lt;</span>_, _<span class='op'>&gt;</span> <span class='op'>=</span>
-                <span class='ident'>skol_resolution_map</span>
-                .<span class='ident'>iter</span>()
-                .<span class='ident'>map</span>(<span class='op'>|</span>(<span class='kw-2'>&amp;</span><span class='ident'>skol</span>, <span class='kw-2'>&amp;</span>(<span class='ident'>br</span>, <span class='kw-2'>ref</span> <span class='ident'>regions</span>))<span class='op'>|</span> {
-                    <span class='kw'>let</span> <span class='ident'>representative</span> <span class='op'>=</span>
-                        <span class='ident'>regions</span>.<span class='ident'>iter</span>()
-                               .<span class='ident'>filter</span>(<span class='op'>|</span><span class='op'>&amp;&amp;</span><span class='ident'>r</span><span class='op'>|</span> <span class='op'>!</span><span class='ident'>skol_resolution_map</span>.<span class='ident'>contains_key</span>(<span class='ident'>r</span>))
-                               .<span class='ident'>cloned</span>()
-                               .<span class='ident'>next</span>()
-                               .<span class='ident'>unwrap_or_else</span>(<span class='op'>||</span> { <span class='comment'>// [1]</span>
-                                   <span class='ident'>unconstrained_regions</span>.<span class='ident'>push</span>(<span class='ident'>br</span>);
-                                   <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>next_region_var</span>(
-                                       <span class='ident'>LateBoundRegion</span>(<span class='ident'>span</span>, <span class='ident'>br</span>, <span class='ident'>HigherRankedType</span>))
+            <span class="comment">// For each skolemized region, pick a representative -- which can</span>
+            <span class="comment">// be any region from the sets above, except for other members of</span>
+            <span class="comment">// `skol_map`. There should always be a representative if things</span>
+            <span class="comment">// are properly well-formed.</span>
+            <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">unconstrained_regions</span> <span class="op">=</span> <span class="macro">vec</span><span class="macro">!</span>[];
+            <span class="kw">let</span> <span class="ident">skol_representatives</span>: <span class="ident">FxHashMap</span><span class="op">&lt;</span>_, _<span class="op">&gt;</span> <span class="op">=</span>
+                <span class="ident">skol_resolution_map</span>
+                .<span class="ident">iter</span>()
+                .<span class="ident">map</span>(<span class="op">|</span>(<span class="kw-2">&amp;</span><span class="ident">skol</span>, <span class="kw-2">&amp;</span>(<span class="ident">br</span>, <span class="kw-2">ref</span> <span class="ident">regions</span>))<span class="op">|</span> {
+                    <span class="kw">let</span> <span class="ident">representative</span> <span class="op">=</span>
+                        <span class="ident">regions</span>.<span class="ident">iter</span>()
+                               .<span class="ident">filter</span>(<span class="op">|</span><span class="op">&amp;&amp;</span><span class="ident">r</span><span class="op">|</span> <span class="op">!</span><span class="ident">skol_resolution_map</span>.<span class="ident">contains_key</span>(<span class="ident">r</span>))
+                               .<span class="ident">cloned</span>()
+                               .<span class="ident">next</span>()
+                               .<span class="ident">unwrap_or_else</span>(<span class="op">||</span> { <span class="comment">// [1]</span>
+                                   <span class="ident">unconstrained_regions</span>.<span class="ident">push</span>(<span class="ident">br</span>);
+                                   <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">next_region_var</span>(
+                                       <span class="ident">LateBoundRegion</span>(<span class="ident">span</span>, <span class="ident">br</span>, <span class="ident">HigherRankedType</span>))
                                });
 
-                    <span class='comment'>// [1] There should always be a representative,</span>
-                    <span class='comment'>// unless the higher-ranked region did not appear</span>
-                    <span class='comment'>// in the values being matched. We should reject</span>
-                    <span class='comment'>// as ill-formed cases that can lead to this, but</span>
-                    <span class='comment'>// right now we sometimes issue warnings (see</span>
-                    <span class='comment'>// #32330).</span>
+                    <span class="comment">// [1] There should always be a representative,</span>
+                    <span class="comment">// unless the higher-ranked region did not appear</span>
+                    <span class="comment">// in the values being matched. We should reject</span>
+                    <span class="comment">// as ill-formed cases that can lead to this, but</span>
+                    <span class="comment">// right now we sometimes issue warnings (see</span>
+                    <span class="comment">// #32330).</span>
 
-                    (<span class='ident'>skol</span>, <span class='ident'>representative</span>)
+                    (<span class="ident">skol</span>, <span class="ident">representative</span>)
                 })
-                .<span class='ident'>collect</span>();
+                .<span class="ident">collect</span>();
 
-            <span class='comment'>// Equate all the members of each skolemization set with the</span>
-            <span class='comment'>// representative.</span>
-            <span class='kw'>for</span> (<span class='ident'>skol</span>, <span class='kw-2'>&amp;</span>(<span class='ident'>_br</span>, <span class='kw-2'>ref</span> <span class='ident'>regions</span>)) <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>skol_resolution_map</span> {
-                <span class='kw'>let</span> <span class='ident'>representative</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='ident'>skol_representatives</span>[<span class='ident'>skol</span>];
-                <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;higher_ranked_match: \
+            <span class="comment">// Equate all the members of each skolemization set with the</span>
+            <span class="comment">// representative.</span>
+            <span class="kw">for</span> (<span class="ident">skol</span>, <span class="kw-2">&amp;</span>(<span class="ident">_br</span>, <span class="kw-2">ref</span> <span class="ident">regions</span>)) <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="ident">skol_resolution_map</span> {
+                <span class="kw">let</span> <span class="ident">representative</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="ident">skol_representatives</span>[<span class="ident">skol</span>];
+                <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;higher_ranked_match: \
                         skol={:?} representative={:?} regions={:?}&quot;</span>,
-                       <span class='ident'>skol</span>, <span class='ident'>representative</span>, <span class='ident'>regions</span>);
-                <span class='kw'>for</span> <span class='ident'>region</span> <span class='kw'>in</span> <span class='ident'>regions</span>.<span class='ident'>iter</span>()
-                                     .<span class='ident'>filter</span>(<span class='op'>|</span><span class='kw-2'>&amp;</span><span class='ident'>r</span><span class='op'>|</span> <span class='op'>!</span><span class='ident'>skol_resolution_map</span>.<span class='ident'>contains_key</span>(<span class='ident'>r</span>))
-                                     .<span class='ident'>filter</span>(<span class='op'>|</span><span class='kw-2'>&amp;</span><span class='ident'>r</span><span class='op'>|</span> <span class='ident'>r</span> <span class='op'>!=</span> <span class='ident'>representative</span>)
+                       <span class="ident">skol</span>, <span class="ident">representative</span>, <span class="ident">regions</span>);
+                <span class="kw">for</span> <span class="ident">region</span> <span class="kw">in</span> <span class="ident">regions</span>.<span class="ident">iter</span>()
+                                     .<span class="ident">filter</span>(<span class="op">|</span><span class="kw-2">&amp;</span><span class="ident">r</span><span class="op">|</span> <span class="op">!</span><span class="ident">skol_resolution_map</span>.<span class="ident">contains_key</span>(<span class="ident">r</span>))
+                                     .<span class="ident">filter</span>(<span class="op">|</span><span class="kw-2">&amp;</span><span class="ident">r</span><span class="op">|</span> <span class="ident">r</span> <span class="op">!=</span> <span class="ident">representative</span>)
                 {
-                    <span class='kw'>let</span> <span class='ident'>origin</span> <span class='op'>=</span> <span class='ident'>SubregionOrigin</span>::<span class='ident'>Subtype</span>(<span class='self'>self</span>.<span class='ident'>trace</span>.<span class='ident'>clone</span>());
-                    <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>region_vars</span>.<span class='ident'>make_eqregion</span>(<span class='ident'>origin</span>,
-                                                         <span class='kw-2'>*</span><span class='ident'>representative</span>,
-                                                         <span class='kw-2'>*</span><span class='ident'>region</span>);
+                    <span class="kw">let</span> <span class="ident">origin</span> <span class="op">=</span> <span class="ident">SubregionOrigin</span>::<span class="ident">Subtype</span>(<span class="self">self</span>.<span class="ident">trace</span>.<span class="ident">clone</span>());
+                    <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">region_vars</span>.<span class="ident">make_eqregion</span>(<span class="ident">origin</span>,
+                                                         <span class="kw-2">*</span><span class="ident">representative</span>,
+                                                         <span class="kw-2">*</span><span class="ident">region</span>);
                 }
             }
 
-            <span class='comment'>// Replace the skolemized regions appearing in value with</span>
-            <span class='comment'>// their representatives</span>
-            <span class='kw'>let</span> <span class='ident'>a_value</span> <span class='op'>=</span>
-                <span class='ident'>fold_regions_in</span>(
-                    <span class='self'>self</span>.<span class='ident'>tcx</span>(),
-                    <span class='kw-2'>&amp;</span><span class='ident'>a_value</span>,
-                    <span class='op'>|</span><span class='ident'>r</span>, _<span class='op'>|</span> <span class='ident'>skol_representatives</span>.<span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='ident'>r</span>).<span class='ident'>cloned</span>().<span class='ident'>unwrap_or</span>(<span class='ident'>r</span>));
+            <span class="comment">// Replace the skolemized regions appearing in value with</span>
+            <span class="comment">// their representatives</span>
+            <span class="kw">let</span> <span class="ident">a_value</span> <span class="op">=</span>
+                <span class="ident">fold_regions_in</span>(
+                    <span class="self">self</span>.<span class="ident">tcx</span>(),
+                    <span class="kw-2">&amp;</span><span class="ident">a_value</span>,
+                    <span class="op">|</span><span class="ident">r</span>, _<span class="op">|</span> <span class="ident">skol_representatives</span>.<span class="ident">get</span>(<span class="kw-2">&amp;</span><span class="ident">r</span>).<span class="ident">cloned</span>().<span class="ident">unwrap_or</span>(<span class="ident">r</span>));
 
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;higher_ranked_match: value={:?}&quot;</span>, <span class='ident'>a_value</span>);
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;higher_ranked_match: value={:?}&quot;</span>, <span class="ident">a_value</span>);
 
-            <span class='comment'>// We are now done with these skolemized variables.</span>
-            <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>pop_skolemized</span>(<span class='ident'>skol_map</span>, <span class='ident'>snapshot</span>);
+            <span class="comment">// We are now done with these skolemized variables.</span>
+            <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">pop_skolemized</span>(<span class="ident">skol_map</span>, <span class="ident">snapshot</span>);
 
-            <span class='prelude-val'>Ok</span>(<span class='ident'>HrMatchResult</span> {
-                <span class='ident'>value</span>: <span class='ident'>a_value</span>,
-                <span class='ident'>unconstrained_regions</span>: <span class='ident'>unconstrained_regions</span>,
+            <span class="prelude-val">Ok</span>(<span class="ident">HrMatchResult</span> {
+                <span class="ident">value</span>: <span class="ident">a_value</span>,
+                <span class="ident">unconstrained_regions</span>: <span class="ident">unconstrained_regions</span>,
             })
         });
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>higher_ranked_lub</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>a</span>: <span class='kw-2'>&amp;</span><span class='ident'>Binder</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>, <span class='ident'>b</span>: <span class='kw-2'>&amp;</span><span class='ident'>Binder</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>, <span class='ident'>a_is_expected</span>: <span class='ident'>bool</span>)
-                                <span class='op'>-&gt;</span> <span class='ident'>RelateResult</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>Binder</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>
-        <span class='kw'>where</span> <span class='ident'>T</span>: <span class='ident'>Relate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">higher_ranked_lub</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">a</span>: <span class="kw-2">&amp;</span><span class="ident">Binder</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>, <span class="ident">b</span>: <span class="kw-2">&amp;</span><span class="ident">Binder</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>, <span class="ident">a_is_expected</span>: <span class="ident">bool</span>)
+                                <span class="op">-&gt;</span> <span class="ident">RelateResult</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">Binder</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span>
+        <span class="kw">where</span> <span class="ident">T</span>: <span class="ident">Relate</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>
     {
-        <span class='comment'>// Start a snapshot so we can examine &quot;all bindings that were</span>
-        <span class='comment'>// created as part of this type comparison&quot;.</span>
-        <span class='kw'>return</span> <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>commit_if_ok</span>(<span class='op'>|</span><span class='ident'>snapshot</span><span class='op'>|</span> {
-            <span class='comment'>// Instantiate each bound region with a fresh region variable.</span>
-            <span class='kw'>let</span> <span class='ident'>span</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>trace</span>.<span class='ident'>cause</span>.<span class='ident'>span</span>;
-            <span class='kw'>let</span> (<span class='ident'>a_with_fresh</span>, <span class='ident'>a_map</span>) <span class='op'>=</span>
-                <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>replace_late_bound_regions_with_fresh_var</span>(
-                    <span class='ident'>span</span>, <span class='ident'>HigherRankedType</span>, <span class='ident'>a</span>);
-            <span class='kw'>let</span> (<span class='ident'>b_with_fresh</span>, _) <span class='op'>=</span>
-                <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>replace_late_bound_regions_with_fresh_var</span>(
-                    <span class='ident'>span</span>, <span class='ident'>HigherRankedType</span>, <span class='ident'>b</span>);
+        <span class="comment">// Start a snapshot so we can examine &quot;all bindings that were</span>
+        <span class="comment">// created as part of this type comparison&quot;.</span>
+        <span class="kw">return</span> <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">commit_if_ok</span>(<span class="op">|</span><span class="ident">snapshot</span><span class="op">|</span> {
+            <span class="comment">// Instantiate each bound region with a fresh region variable.</span>
+            <span class="kw">let</span> <span class="ident">span</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">trace</span>.<span class="ident">cause</span>.<span class="ident">span</span>;
+            <span class="kw">let</span> (<span class="ident">a_with_fresh</span>, <span class="ident">a_map</span>) <span class="op">=</span>
+                <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">replace_late_bound_regions_with_fresh_var</span>(
+                    <span class="ident">span</span>, <span class="ident">HigherRankedType</span>, <span class="ident">a</span>);
+            <span class="kw">let</span> (<span class="ident">b_with_fresh</span>, _) <span class="op">=</span>
+                <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">replace_late_bound_regions_with_fresh_var</span>(
+                    <span class="ident">span</span>, <span class="ident">HigherRankedType</span>, <span class="ident">b</span>);
 
-            <span class='comment'>// Collect constraints.</span>
-            <span class='kw'>let</span> <span class='ident'>result0</span> <span class='op'>=</span>
-                <span class='self'>self</span>.<span class='ident'>lub</span>(<span class='ident'>a_is_expected</span>).<span class='ident'>relate</span>(<span class='kw-2'>&amp;</span><span class='ident'>a_with_fresh</span>, <span class='kw-2'>&amp;</span><span class='ident'>b_with_fresh</span>)<span class='question-mark'>?</span>;
-            <span class='kw'>let</span> <span class='ident'>result0</span> <span class='op'>=</span>
-                <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>resolve_type_vars_if_possible</span>(<span class='kw-2'>&amp;</span><span class='ident'>result0</span>);
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;lub result0 = {:?}&quot;</span>, <span class='ident'>result0</span>);
+            <span class="comment">// Collect constraints.</span>
+            <span class="kw">let</span> <span class="ident">result0</span> <span class="op">=</span>
+                <span class="self">self</span>.<span class="ident">lub</span>(<span class="ident">a_is_expected</span>).<span class="ident">relate</span>(<span class="kw-2">&amp;</span><span class="ident">a_with_fresh</span>, <span class="kw-2">&amp;</span><span class="ident">b_with_fresh</span>)<span class="question-mark">?</span>;
+            <span class="kw">let</span> <span class="ident">result0</span> <span class="op">=</span>
+                <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">resolve_type_vars_if_possible</span>(<span class="kw-2">&amp;</span><span class="ident">result0</span>);
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;lub result0 = {:?}&quot;</span>, <span class="ident">result0</span>);
 
-            <span class='comment'>// Generalize the regions appearing in result0 if possible</span>
-            <span class='kw'>let</span> <span class='ident'>new_vars</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>region_vars_confined_to_snapshot</span>(<span class='ident'>snapshot</span>);
-            <span class='kw'>let</span> <span class='ident'>span</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>trace</span>.<span class='ident'>cause</span>.<span class='ident'>span</span>;
-            <span class='kw'>let</span> <span class='ident'>result1</span> <span class='op'>=</span>
-                <span class='ident'>fold_regions_in</span>(
-                    <span class='self'>self</span>.<span class='ident'>tcx</span>(),
-                    <span class='kw-2'>&amp;</span><span class='ident'>result0</span>,
-                    <span class='op'>|</span><span class='ident'>r</span>, <span class='ident'>debruijn</span><span class='op'>|</span> <span class='ident'>generalize_region</span>(<span class='self'>self</span>.<span class='ident'>infcx</span>, <span class='ident'>span</span>, <span class='ident'>snapshot</span>, <span class='ident'>debruijn</span>,
-                                                    <span class='kw-2'>&amp;</span><span class='ident'>new_vars</span>, <span class='kw-2'>&amp;</span><span class='ident'>a_map</span>, <span class='ident'>r</span>));
+            <span class="comment">// Generalize the regions appearing in result0 if possible</span>
+            <span class="kw">let</span> <span class="ident">new_vars</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">region_vars_confined_to_snapshot</span>(<span class="ident">snapshot</span>);
+            <span class="kw">let</span> <span class="ident">span</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">trace</span>.<span class="ident">cause</span>.<span class="ident">span</span>;
+            <span class="kw">let</span> <span class="ident">result1</span> <span class="op">=</span>
+                <span class="ident">fold_regions_in</span>(
+                    <span class="self">self</span>.<span class="ident">tcx</span>(),
+                    <span class="kw-2">&amp;</span><span class="ident">result0</span>,
+                    <span class="op">|</span><span class="ident">r</span>, <span class="ident">debruijn</span><span class="op">|</span> <span class="ident">generalize_region</span>(<span class="self">self</span>.<span class="ident">infcx</span>, <span class="ident">span</span>, <span class="ident">snapshot</span>, <span class="ident">debruijn</span>,
+                                                    <span class="kw-2">&amp;</span><span class="ident">new_vars</span>, <span class="kw-2">&amp;</span><span class="ident">a_map</span>, <span class="ident">r</span>));
 
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;lub({:?},{:?}) = {:?}&quot;</span>,
-                   <span class='ident'>a</span>,
-                   <span class='ident'>b</span>,
-                   <span class='ident'>result1</span>);
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;lub({:?},{:?}) = {:?}&quot;</span>,
+                   <span class="ident">a</span>,
+                   <span class="ident">b</span>,
+                   <span class="ident">result1</span>);
 
-            <span class='prelude-val'>Ok</span>(<span class='ident'>ty</span>::<span class='ident'>Binder</span>(<span class='ident'>result1</span>))
+            <span class="prelude-val">Ok</span>(<span class="ident">ty</span>::<span class="ident">Binder</span>(<span class="ident">result1</span>))
         });
 
-        <span class='kw'>fn</span> <span class='ident'>generalize_region</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>infcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>InferCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                             <span class='ident'>span</span>: <span class='ident'>Span</span>,
-                                             <span class='ident'>snapshot</span>: <span class='kw-2'>&amp;</span><span class='ident'>CombinedSnapshot</span>,
-                                             <span class='ident'>debruijn</span>: <span class='ident'>ty</span>::<span class='ident'>DebruijnIndex</span>,
-                                             <span class='ident'>new_vars</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>ty</span>::<span class='ident'>RegionVid</span>],
-                                             <span class='ident'>a_map</span>: <span class='kw-2'>&amp;</span><span class='ident'>FxHashMap</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>BoundRegion</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span><span class='op'>&gt;</span>,
-                                             <span class='ident'>r0</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span>)
-                                             <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span> {
-            <span class='comment'>// Regions that pre-dated the LUB computation stay as they are.</span>
-            <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>is_var_in_set</span>(<span class='ident'>new_vars</span>, <span class='ident'>r0</span>) {
-                <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>r0</span>.<span class='ident'>is_bound</span>());
-                <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;generalize_region(r0={:?}): not new variable&quot;</span>, <span class='ident'>r0</span>);
-                <span class='kw'>return</span> <span class='ident'>r0</span>;
+        <span class="kw">fn</span> <span class="ident">generalize_region</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">infcx</span>: <span class="kw-2">&amp;</span><span class="ident">InferCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                             <span class="ident">span</span>: <span class="ident">Span</span>,
+                                             <span class="ident">snapshot</span>: <span class="kw-2">&amp;</span><span class="ident">CombinedSnapshot</span>,
+                                             <span class="ident">debruijn</span>: <span class="ident">ty</span>::<span class="ident">DebruijnIndex</span>,
+                                             <span class="ident">new_vars</span>: <span class="kw-2">&amp;</span>[<span class="ident">ty</span>::<span class="ident">RegionVid</span>],
+                                             <span class="ident">a_map</span>: <span class="kw-2">&amp;</span><span class="ident">FxHashMap</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">BoundRegion</span>, <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span><span class="op">&gt;</span>,
+                                             <span class="ident">r0</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span>)
+                                             <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span> {
+            <span class="comment">// Regions that pre-dated the LUB computation stay as they are.</span>
+            <span class="kw">if</span> <span class="op">!</span><span class="ident">is_var_in_set</span>(<span class="ident">new_vars</span>, <span class="ident">r0</span>) {
+                <span class="macro">assert</span><span class="macro">!</span>(<span class="op">!</span><span class="ident">r0</span>.<span class="ident">is_bound</span>());
+                <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;generalize_region(r0={:?}): not new variable&quot;</span>, <span class="ident">r0</span>);
+                <span class="kw">return</span> <span class="ident">r0</span>;
             }
 
-            <span class='kw'>let</span> <span class='ident'>tainted</span> <span class='op'>=</span> <span class='ident'>infcx</span>.<span class='ident'>tainted_regions</span>(<span class='ident'>snapshot</span>, <span class='ident'>r0</span>, <span class='ident'>TaintDirections</span>::<span class='ident'>both</span>());
+            <span class="kw">let</span> <span class="ident">tainted</span> <span class="op">=</span> <span class="ident">infcx</span>.<span class="ident">tainted_regions</span>(<span class="ident">snapshot</span>, <span class="ident">r0</span>, <span class="ident">TaintDirections</span>::<span class="ident">both</span>());
 
-            <span class='comment'>// Variables created during LUB computation which are</span>
-            <span class='comment'>// *related* to regions that pre-date the LUB computation</span>
-            <span class='comment'>// stay as they are.</span>
-            <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>tainted</span>.<span class='ident'>iter</span>().<span class='ident'>all</span>(<span class='op'>|</span><span class='ident'>r</span><span class='op'>|</span> <span class='ident'>is_var_in_set</span>(<span class='ident'>new_vars</span>, <span class='kw-2'>*</span><span class='ident'>r</span>)) {
-                <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;generalize_region(r0={:?}): \
+            <span class="comment">// Variables created during LUB computation which are</span>
+            <span class="comment">// *related* to regions that pre-date the LUB computation</span>
+            <span class="comment">// stay as they are.</span>
+            <span class="kw">if</span> <span class="op">!</span><span class="ident">tainted</span>.<span class="ident">iter</span>().<span class="ident">all</span>(<span class="op">|</span><span class="ident">r</span><span class="op">|</span> <span class="ident">is_var_in_set</span>(<span class="ident">new_vars</span>, <span class="kw-2">*</span><span class="ident">r</span>)) {
+                <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;generalize_region(r0={:?}): \
                         non-new-variables found in {:?}&quot;</span>,
-                       <span class='ident'>r0</span>, <span class='ident'>tainted</span>);
-                <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>r0</span>.<span class='ident'>is_bound</span>());
-                <span class='kw'>return</span> <span class='ident'>r0</span>;
+                       <span class="ident">r0</span>, <span class="ident">tainted</span>);
+                <span class="macro">assert</span><span class="macro">!</span>(<span class="op">!</span><span class="ident">r0</span>.<span class="ident">is_bound</span>());
+                <span class="kw">return</span> <span class="ident">r0</span>;
             }
 
-            <span class='comment'>// Otherwise, the variable must be associated with at</span>
-            <span class='comment'>// least one of the variables representing bound regions</span>
-            <span class='comment'>// in both A and B.  Replace the variable with the &quot;first&quot;</span>
-            <span class='comment'>// bound region from A that we find it to be associated</span>
-            <span class='comment'>// with.</span>
-            <span class='kw'>for</span> (<span class='ident'>a_br</span>, <span class='ident'>a_r</span>) <span class='kw'>in</span> <span class='ident'>a_map</span> {
-                <span class='kw'>if</span> <span class='ident'>tainted</span>.<span class='ident'>iter</span>().<span class='ident'>any</span>(<span class='op'>|</span><span class='ident'>x</span><span class='op'>|</span> <span class='ident'>x</span> <span class='op'>==</span> <span class='ident'>a_r</span>) {
-                    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;generalize_region(r0={:?}): \
+            <span class="comment">// Otherwise, the variable must be associated with at</span>
+            <span class="comment">// least one of the variables representing bound regions</span>
+            <span class="comment">// in both A and B.  Replace the variable with the &quot;first&quot;</span>
+            <span class="comment">// bound region from A that we find it to be associated</span>
+            <span class="comment">// with.</span>
+            <span class="kw">for</span> (<span class="ident">a_br</span>, <span class="ident">a_r</span>) <span class="kw">in</span> <span class="ident">a_map</span> {
+                <span class="kw">if</span> <span class="ident">tainted</span>.<span class="ident">iter</span>().<span class="ident">any</span>(<span class="op">|</span><span class="ident">x</span><span class="op">|</span> <span class="ident">x</span> <span class="op">==</span> <span class="ident">a_r</span>) {
+                    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;generalize_region(r0={:?}): \
                             replacing with {:?}, tainted={:?}&quot;</span>,
-                           <span class='ident'>r0</span>, <span class='kw-2'>*</span><span class='ident'>a_br</span>, <span class='ident'>tainted</span>);
-                    <span class='kw'>return</span> <span class='ident'>infcx</span>.<span class='ident'>tcx</span>.<span class='ident'>mk_region</span>(<span class='ident'>ty</span>::<span class='ident'>ReLateBound</span>(<span class='ident'>debruijn</span>, <span class='kw-2'>*</span><span class='ident'>a_br</span>));
+                           <span class="ident">r0</span>, <span class="kw-2">*</span><span class="ident">a_br</span>, <span class="ident">tainted</span>);
+                    <span class="kw">return</span> <span class="ident">infcx</span>.<span class="ident">tcx</span>.<span class="ident">mk_region</span>(<span class="ident">ty</span>::<span class="ident">ReLateBound</span>(<span class="ident">debruijn</span>, <span class="kw-2">*</span><span class="ident">a_br</span>));
                 }
             }
 
-            <span class='macro'>span_bug</span><span class='macro'>!</span>(
-                <span class='ident'>span</span>,
-                <span class='string'>&quot;region {:?} is not associated with any bound region from A!&quot;</span>,
-                <span class='ident'>r0</span>)
+            <span class="macro">span_bug</span><span class="macro">!</span>(
+                <span class="ident">span</span>,
+                <span class="string">&quot;region {:?} is not associated with any bound region from A!&quot;</span>,
+                <span class="ident">r0</span>)
         }
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>higher_ranked_glb</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>a</span>: <span class='kw-2'>&amp;</span><span class='ident'>Binder</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>, <span class='ident'>b</span>: <span class='kw-2'>&amp;</span><span class='ident'>Binder</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>, <span class='ident'>a_is_expected</span>: <span class='ident'>bool</span>)
-                                <span class='op'>-&gt;</span> <span class='ident'>RelateResult</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>Binder</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>
-        <span class='kw'>where</span> <span class='ident'>T</span>: <span class='ident'>Relate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">higher_ranked_glb</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">a</span>: <span class="kw-2">&amp;</span><span class="ident">Binder</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>, <span class="ident">b</span>: <span class="kw-2">&amp;</span><span class="ident">Binder</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>, <span class="ident">a_is_expected</span>: <span class="ident">bool</span>)
+                                <span class="op">-&gt;</span> <span class="ident">RelateResult</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">Binder</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span>
+        <span class="kw">where</span> <span class="ident">T</span>: <span class="ident">Relate</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>
     {
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;higher_ranked_glb({:?}, {:?})&quot;</span>,
-               <span class='ident'>a</span>, <span class='ident'>b</span>);
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;higher_ranked_glb({:?}, {:?})&quot;</span>,
+               <span class="ident">a</span>, <span class="ident">b</span>);
 
-        <span class='comment'>// Make a snapshot so we can examine &quot;all bindings that were</span>
-        <span class='comment'>// created as part of this type comparison&quot;.</span>
-        <span class='kw'>return</span> <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>commit_if_ok</span>(<span class='op'>|</span><span class='ident'>snapshot</span><span class='op'>|</span> {
-            <span class='comment'>// Instantiate each bound region with a fresh region variable.</span>
-            <span class='kw'>let</span> (<span class='ident'>a_with_fresh</span>, <span class='ident'>a_map</span>) <span class='op'>=</span>
-                <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>replace_late_bound_regions_with_fresh_var</span>(
-                    <span class='self'>self</span>.<span class='ident'>trace</span>.<span class='ident'>cause</span>.<span class='ident'>span</span>, <span class='ident'>HigherRankedType</span>, <span class='ident'>a</span>);
-            <span class='kw'>let</span> (<span class='ident'>b_with_fresh</span>, <span class='ident'>b_map</span>) <span class='op'>=</span>
-                <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>replace_late_bound_regions_with_fresh_var</span>(
-                    <span class='self'>self</span>.<span class='ident'>trace</span>.<span class='ident'>cause</span>.<span class='ident'>span</span>, <span class='ident'>HigherRankedType</span>, <span class='ident'>b</span>);
-            <span class='kw'>let</span> <span class='ident'>a_vars</span> <span class='op'>=</span> <span class='ident'>var_ids</span>(<span class='self'>self</span>, <span class='kw-2'>&amp;</span><span class='ident'>a_map</span>);
-            <span class='kw'>let</span> <span class='ident'>b_vars</span> <span class='op'>=</span> <span class='ident'>var_ids</span>(<span class='self'>self</span>, <span class='kw-2'>&amp;</span><span class='ident'>b_map</span>);
+        <span class="comment">// Make a snapshot so we can examine &quot;all bindings that were</span>
+        <span class="comment">// created as part of this type comparison&quot;.</span>
+        <span class="kw">return</span> <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">commit_if_ok</span>(<span class="op">|</span><span class="ident">snapshot</span><span class="op">|</span> {
+            <span class="comment">// Instantiate each bound region with a fresh region variable.</span>
+            <span class="kw">let</span> (<span class="ident">a_with_fresh</span>, <span class="ident">a_map</span>) <span class="op">=</span>
+                <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">replace_late_bound_regions_with_fresh_var</span>(
+                    <span class="self">self</span>.<span class="ident">trace</span>.<span class="ident">cause</span>.<span class="ident">span</span>, <span class="ident">HigherRankedType</span>, <span class="ident">a</span>);
+            <span class="kw">let</span> (<span class="ident">b_with_fresh</span>, <span class="ident">b_map</span>) <span class="op">=</span>
+                <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">replace_late_bound_regions_with_fresh_var</span>(
+                    <span class="self">self</span>.<span class="ident">trace</span>.<span class="ident">cause</span>.<span class="ident">span</span>, <span class="ident">HigherRankedType</span>, <span class="ident">b</span>);
+            <span class="kw">let</span> <span class="ident">a_vars</span> <span class="op">=</span> <span class="ident">var_ids</span>(<span class="self">self</span>, <span class="kw-2">&amp;</span><span class="ident">a_map</span>);
+            <span class="kw">let</span> <span class="ident">b_vars</span> <span class="op">=</span> <span class="ident">var_ids</span>(<span class="self">self</span>, <span class="kw-2">&amp;</span><span class="ident">b_map</span>);
 
-            <span class='comment'>// Collect constraints.</span>
-            <span class='kw'>let</span> <span class='ident'>result0</span> <span class='op'>=</span>
-                <span class='self'>self</span>.<span class='ident'>glb</span>(<span class='ident'>a_is_expected</span>).<span class='ident'>relate</span>(<span class='kw-2'>&amp;</span><span class='ident'>a_with_fresh</span>, <span class='kw-2'>&amp;</span><span class='ident'>b_with_fresh</span>)<span class='question-mark'>?</span>;
-            <span class='kw'>let</span> <span class='ident'>result0</span> <span class='op'>=</span>
-                <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>resolve_type_vars_if_possible</span>(<span class='kw-2'>&amp;</span><span class='ident'>result0</span>);
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;glb result0 = {:?}&quot;</span>, <span class='ident'>result0</span>);
+            <span class="comment">// Collect constraints.</span>
+            <span class="kw">let</span> <span class="ident">result0</span> <span class="op">=</span>
+                <span class="self">self</span>.<span class="ident">glb</span>(<span class="ident">a_is_expected</span>).<span class="ident">relate</span>(<span class="kw-2">&amp;</span><span class="ident">a_with_fresh</span>, <span class="kw-2">&amp;</span><span class="ident">b_with_fresh</span>)<span class="question-mark">?</span>;
+            <span class="kw">let</span> <span class="ident">result0</span> <span class="op">=</span>
+                <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">resolve_type_vars_if_possible</span>(<span class="kw-2">&amp;</span><span class="ident">result0</span>);
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;glb result0 = {:?}&quot;</span>, <span class="ident">result0</span>);
 
-            <span class='comment'>// Generalize the regions appearing in result0 if possible</span>
-            <span class='kw'>let</span> <span class='ident'>new_vars</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>region_vars_confined_to_snapshot</span>(<span class='ident'>snapshot</span>);
-            <span class='kw'>let</span> <span class='ident'>span</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>trace</span>.<span class='ident'>cause</span>.<span class='ident'>span</span>;
-            <span class='kw'>let</span> <span class='ident'>result1</span> <span class='op'>=</span>
-                <span class='ident'>fold_regions_in</span>(
-                    <span class='self'>self</span>.<span class='ident'>tcx</span>(),
-                    <span class='kw-2'>&amp;</span><span class='ident'>result0</span>,
-                    <span class='op'>|</span><span class='ident'>r</span>, <span class='ident'>debruijn</span><span class='op'>|</span> <span class='ident'>generalize_region</span>(<span class='self'>self</span>.<span class='ident'>infcx</span>, <span class='ident'>span</span>, <span class='ident'>snapshot</span>, <span class='ident'>debruijn</span>,
-                                                    <span class='kw-2'>&amp;</span><span class='ident'>new_vars</span>,
-                                                    <span class='kw-2'>&amp;</span><span class='ident'>a_map</span>, <span class='kw-2'>&amp;</span><span class='ident'>a_vars</span>, <span class='kw-2'>&amp;</span><span class='ident'>b_vars</span>,
-                                                    <span class='ident'>r</span>));
+            <span class="comment">// Generalize the regions appearing in result0 if possible</span>
+            <span class="kw">let</span> <span class="ident">new_vars</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">region_vars_confined_to_snapshot</span>(<span class="ident">snapshot</span>);
+            <span class="kw">let</span> <span class="ident">span</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">trace</span>.<span class="ident">cause</span>.<span class="ident">span</span>;
+            <span class="kw">let</span> <span class="ident">result1</span> <span class="op">=</span>
+                <span class="ident">fold_regions_in</span>(
+                    <span class="self">self</span>.<span class="ident">tcx</span>(),
+                    <span class="kw-2">&amp;</span><span class="ident">result0</span>,
+                    <span class="op">|</span><span class="ident">r</span>, <span class="ident">debruijn</span><span class="op">|</span> <span class="ident">generalize_region</span>(<span class="self">self</span>.<span class="ident">infcx</span>, <span class="ident">span</span>, <span class="ident">snapshot</span>, <span class="ident">debruijn</span>,
+                                                    <span class="kw-2">&amp;</span><span class="ident">new_vars</span>,
+                                                    <span class="kw-2">&amp;</span><span class="ident">a_map</span>, <span class="kw-2">&amp;</span><span class="ident">a_vars</span>, <span class="kw-2">&amp;</span><span class="ident">b_vars</span>,
+                                                    <span class="ident">r</span>));
 
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;glb({:?},{:?}) = {:?}&quot;</span>,
-                   <span class='ident'>a</span>,
-                   <span class='ident'>b</span>,
-                   <span class='ident'>result1</span>);
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;glb({:?},{:?}) = {:?}&quot;</span>,
+                   <span class="ident">a</span>,
+                   <span class="ident">b</span>,
+                   <span class="ident">result1</span>);
 
-            <span class='prelude-val'>Ok</span>(<span class='ident'>ty</span>::<span class='ident'>Binder</span>(<span class='ident'>result1</span>))
+            <span class="prelude-val">Ok</span>(<span class="ident">ty</span>::<span class="ident">Binder</span>(<span class="ident">result1</span>))
         });
 
-        <span class='kw'>fn</span> <span class='ident'>generalize_region</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>infcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>InferCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                             <span class='ident'>span</span>: <span class='ident'>Span</span>,
-                                             <span class='ident'>snapshot</span>: <span class='kw-2'>&amp;</span><span class='ident'>CombinedSnapshot</span>,
-                                             <span class='ident'>debruijn</span>: <span class='ident'>ty</span>::<span class='ident'>DebruijnIndex</span>,
-                                             <span class='ident'>new_vars</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>ty</span>::<span class='ident'>RegionVid</span>],
-                                             <span class='ident'>a_map</span>: <span class='kw-2'>&amp;</span><span class='ident'>FxHashMap</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>BoundRegion</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span><span class='op'>&gt;</span>,
-                                             <span class='ident'>a_vars</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>ty</span>::<span class='ident'>RegionVid</span>],
-                                             <span class='ident'>b_vars</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>ty</span>::<span class='ident'>RegionVid</span>],
-                                             <span class='ident'>r0</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span>)
-                                             <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span> {
-            <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>is_var_in_set</span>(<span class='ident'>new_vars</span>, <span class='ident'>r0</span>) {
-                <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>r0</span>.<span class='ident'>is_bound</span>());
-                <span class='kw'>return</span> <span class='ident'>r0</span>;
+        <span class="kw">fn</span> <span class="ident">generalize_region</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">infcx</span>: <span class="kw-2">&amp;</span><span class="ident">InferCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                             <span class="ident">span</span>: <span class="ident">Span</span>,
+                                             <span class="ident">snapshot</span>: <span class="kw-2">&amp;</span><span class="ident">CombinedSnapshot</span>,
+                                             <span class="ident">debruijn</span>: <span class="ident">ty</span>::<span class="ident">DebruijnIndex</span>,
+                                             <span class="ident">new_vars</span>: <span class="kw-2">&amp;</span>[<span class="ident">ty</span>::<span class="ident">RegionVid</span>],
+                                             <span class="ident">a_map</span>: <span class="kw-2">&amp;</span><span class="ident">FxHashMap</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">BoundRegion</span>, <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span><span class="op">&gt;</span>,
+                                             <span class="ident">a_vars</span>: <span class="kw-2">&amp;</span>[<span class="ident">ty</span>::<span class="ident">RegionVid</span>],
+                                             <span class="ident">b_vars</span>: <span class="kw-2">&amp;</span>[<span class="ident">ty</span>::<span class="ident">RegionVid</span>],
+                                             <span class="ident">r0</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span>)
+                                             <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span> {
+            <span class="kw">if</span> <span class="op">!</span><span class="ident">is_var_in_set</span>(<span class="ident">new_vars</span>, <span class="ident">r0</span>) {
+                <span class="macro">assert</span><span class="macro">!</span>(<span class="op">!</span><span class="ident">r0</span>.<span class="ident">is_bound</span>());
+                <span class="kw">return</span> <span class="ident">r0</span>;
             }
 
-            <span class='kw'>let</span> <span class='ident'>tainted</span> <span class='op'>=</span> <span class='ident'>infcx</span>.<span class='ident'>tainted_regions</span>(<span class='ident'>snapshot</span>, <span class='ident'>r0</span>, <span class='ident'>TaintDirections</span>::<span class='ident'>both</span>());
+            <span class="kw">let</span> <span class="ident">tainted</span> <span class="op">=</span> <span class="ident">infcx</span>.<span class="ident">tainted_regions</span>(<span class="ident">snapshot</span>, <span class="ident">r0</span>, <span class="ident">TaintDirections</span>::<span class="ident">both</span>());
 
-            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>a_r</span> <span class='op'>=</span> <span class='prelude-val'>None</span>;
-            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>b_r</span> <span class='op'>=</span> <span class='prelude-val'>None</span>;
-            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>only_new_vars</span> <span class='op'>=</span> <span class='bool-val'>true</span>;
-            <span class='kw'>for</span> <span class='ident'>r</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>tainted</span> {
-                <span class='kw'>if</span> <span class='ident'>is_var_in_set</span>(<span class='ident'>a_vars</span>, <span class='kw-2'>*</span><span class='ident'>r</span>) {
-                    <span class='kw'>if</span> <span class='ident'>a_r</span>.<span class='ident'>is_some</span>() {
-                        <span class='kw'>return</span> <span class='ident'>fresh_bound_variable</span>(<span class='ident'>infcx</span>, <span class='ident'>debruijn</span>);
-                    } <span class='kw'>else</span> {
-                        <span class='ident'>a_r</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='kw-2'>*</span><span class='ident'>r</span>);
+            <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">a_r</span> <span class="op">=</span> <span class="prelude-val">None</span>;
+            <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">b_r</span> <span class="op">=</span> <span class="prelude-val">None</span>;
+            <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">only_new_vars</span> <span class="op">=</span> <span class="bool-val">true</span>;
+            <span class="kw">for</span> <span class="ident">r</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="ident">tainted</span> {
+                <span class="kw">if</span> <span class="ident">is_var_in_set</span>(<span class="ident">a_vars</span>, <span class="kw-2">*</span><span class="ident">r</span>) {
+                    <span class="kw">if</span> <span class="ident">a_r</span>.<span class="ident">is_some</span>() {
+                        <span class="kw">return</span> <span class="ident">fresh_bound_variable</span>(<span class="ident">infcx</span>, <span class="ident">debruijn</span>);
+                    } <span class="kw">else</span> {
+                        <span class="ident">a_r</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="kw-2">*</span><span class="ident">r</span>);
                     }
-                } <span class='kw'>else</span> <span class='kw'>if</span> <span class='ident'>is_var_in_set</span>(<span class='ident'>b_vars</span>, <span class='kw-2'>*</span><span class='ident'>r</span>) {
-                    <span class='kw'>if</span> <span class='ident'>b_r</span>.<span class='ident'>is_some</span>() {
-                        <span class='kw'>return</span> <span class='ident'>fresh_bound_variable</span>(<span class='ident'>infcx</span>, <span class='ident'>debruijn</span>);
-                    } <span class='kw'>else</span> {
-                        <span class='ident'>b_r</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='kw-2'>*</span><span class='ident'>r</span>);
+                } <span class="kw">else</span> <span class="kw">if</span> <span class="ident">is_var_in_set</span>(<span class="ident">b_vars</span>, <span class="kw-2">*</span><span class="ident">r</span>) {
+                    <span class="kw">if</span> <span class="ident">b_r</span>.<span class="ident">is_some</span>() {
+                        <span class="kw">return</span> <span class="ident">fresh_bound_variable</span>(<span class="ident">infcx</span>, <span class="ident">debruijn</span>);
+                    } <span class="kw">else</span> {
+                        <span class="ident">b_r</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="kw-2">*</span><span class="ident">r</span>);
                     }
-                } <span class='kw'>else</span> <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>is_var_in_set</span>(<span class='ident'>new_vars</span>, <span class='kw-2'>*</span><span class='ident'>r</span>) {
-                    <span class='ident'>only_new_vars</span> <span class='op'>=</span> <span class='bool-val'>false</span>;
+                } <span class="kw">else</span> <span class="kw">if</span> <span class="op">!</span><span class="ident">is_var_in_set</span>(<span class="ident">new_vars</span>, <span class="kw-2">*</span><span class="ident">r</span>) {
+                    <span class="ident">only_new_vars</span> <span class="op">=</span> <span class="bool-val">false</span>;
                 }
             }
 
-            <span class='comment'>// NB---I do not believe this algorithm computes</span>
-            <span class='comment'>// (necessarily) the GLB.  As written it can</span>
-            <span class='comment'>// spuriously fail. In particular, if there is a case</span>
-            <span class='comment'>// like: |fn(&amp;a)| and fn(fn(&amp;b)), where a and b are</span>
-            <span class='comment'>// free, it will return fn(&amp;c) where c = GLB(a,b).  If</span>
-            <span class='comment'>// however this GLB is not defined, then the result is</span>
-            <span class='comment'>// an error, even though something like</span>
-            <span class='comment'>// &quot;fn&lt;X&gt;(fn(&amp;X))&quot; where X is bound would be a</span>
-            <span class='comment'>// subtype of both of those.</span>
-            <span class='comment'>//</span>
-            <span class='comment'>// The problem is that if we were to return a bound</span>
-            <span class='comment'>// variable, we&#39;d be computing a lower-bound, but not</span>
-            <span class='comment'>// necessarily the *greatest* lower-bound.</span>
-            <span class='comment'>//</span>
-            <span class='comment'>// Unfortunately, this problem is non-trivial to solve,</span>
-            <span class='comment'>// because we do not know at the time of computing the GLB</span>
-            <span class='comment'>// whether a GLB(a,b) exists or not, because we haven&#39;t</span>
-            <span class='comment'>// run region inference (or indeed, even fully computed</span>
-            <span class='comment'>// the region hierarchy!). The current algorithm seems to</span>
-            <span class='comment'>// works ok in practice.</span>
+            <span class="comment">// NB---I do not believe this algorithm computes</span>
+            <span class="comment">// (necessarily) the GLB.  As written it can</span>
+            <span class="comment">// spuriously fail. In particular, if there is a case</span>
+            <span class="comment">// like: |fn(&amp;a)| and fn(fn(&amp;b)), where a and b are</span>
+            <span class="comment">// free, it will return fn(&amp;c) where c = GLB(a,b).  If</span>
+            <span class="comment">// however this GLB is not defined, then the result is</span>
+            <span class="comment">// an error, even though something like</span>
+            <span class="comment">// &quot;fn&lt;X&gt;(fn(&amp;X))&quot; where X is bound would be a</span>
+            <span class="comment">// subtype of both of those.</span>
+            <span class="comment">//</span>
+            <span class="comment">// The problem is that if we were to return a bound</span>
+            <span class="comment">// variable, we&#39;d be computing a lower-bound, but not</span>
+            <span class="comment">// necessarily the *greatest* lower-bound.</span>
+            <span class="comment">//</span>
+            <span class="comment">// Unfortunately, this problem is non-trivial to solve,</span>
+            <span class="comment">// because we do not know at the time of computing the GLB</span>
+            <span class="comment">// whether a GLB(a,b) exists or not, because we haven&#39;t</span>
+            <span class="comment">// run region inference (or indeed, even fully computed</span>
+            <span class="comment">// the region hierarchy!). The current algorithm seems to</span>
+            <span class="comment">// works ok in practice.</span>
 
-            <span class='kw'>if</span> <span class='ident'>a_r</span>.<span class='ident'>is_some</span>() <span class='op'>&amp;&amp;</span> <span class='ident'>b_r</span>.<span class='ident'>is_some</span>() <span class='op'>&amp;&amp;</span> <span class='ident'>only_new_vars</span> {
-                <span class='comment'>// Related to exactly one bound variable from each fn:</span>
-                <span class='kw'>return</span> <span class='ident'>rev_lookup</span>(<span class='ident'>infcx</span>, <span class='ident'>span</span>, <span class='ident'>a_map</span>, <span class='ident'>a_r</span>.<span class='ident'>unwrap</span>());
-            } <span class='kw'>else</span> <span class='kw'>if</span> <span class='ident'>a_r</span>.<span class='ident'>is_none</span>() <span class='op'>&amp;&amp;</span> <span class='ident'>b_r</span>.<span class='ident'>is_none</span>() {
-                <span class='comment'>// Not related to bound variables from either fn:</span>
-                <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>r0</span>.<span class='ident'>is_bound</span>());
-                <span class='kw'>return</span> <span class='ident'>r0</span>;
-            } <span class='kw'>else</span> {
-                <span class='comment'>// Other:</span>
-                <span class='kw'>return</span> <span class='ident'>fresh_bound_variable</span>(<span class='ident'>infcx</span>, <span class='ident'>debruijn</span>);
+            <span class="kw">if</span> <span class="ident">a_r</span>.<span class="ident">is_some</span>() <span class="op">&amp;&amp;</span> <span class="ident">b_r</span>.<span class="ident">is_some</span>() <span class="op">&amp;&amp;</span> <span class="ident">only_new_vars</span> {
+                <span class="comment">// Related to exactly one bound variable from each fn:</span>
+                <span class="kw">return</span> <span class="ident">rev_lookup</span>(<span class="ident">infcx</span>, <span class="ident">span</span>, <span class="ident">a_map</span>, <span class="ident">a_r</span>.<span class="ident">unwrap</span>());
+            } <span class="kw">else</span> <span class="kw">if</span> <span class="ident">a_r</span>.<span class="ident">is_none</span>() <span class="op">&amp;&amp;</span> <span class="ident">b_r</span>.<span class="ident">is_none</span>() {
+                <span class="comment">// Not related to bound variables from either fn:</span>
+                <span class="macro">assert</span><span class="macro">!</span>(<span class="op">!</span><span class="ident">r0</span>.<span class="ident">is_bound</span>());
+                <span class="kw">return</span> <span class="ident">r0</span>;
+            } <span class="kw">else</span> {
+                <span class="comment">// Other:</span>
+                <span class="kw">return</span> <span class="ident">fresh_bound_variable</span>(<span class="ident">infcx</span>, <span class="ident">debruijn</span>);
             }
         }
 
-        <span class='kw'>fn</span> <span class='ident'>rev_lookup</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>infcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>InferCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                      <span class='ident'>span</span>: <span class='ident'>Span</span>,
-                                      <span class='ident'>a_map</span>: <span class='kw-2'>&amp;</span><span class='ident'>FxHashMap</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>BoundRegion</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span><span class='op'>&gt;</span>,
-                                      <span class='ident'>r</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span>
+        <span class="kw">fn</span> <span class="ident">rev_lookup</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">infcx</span>: <span class="kw-2">&amp;</span><span class="ident">InferCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                      <span class="ident">span</span>: <span class="ident">Span</span>,
+                                      <span class="ident">a_map</span>: <span class="kw-2">&amp;</span><span class="ident">FxHashMap</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">BoundRegion</span>, <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span><span class="op">&gt;</span>,
+                                      <span class="ident">r</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span>
         {
-            <span class='kw'>for</span> (<span class='ident'>a_br</span>, <span class='ident'>a_r</span>) <span class='kw'>in</span> <span class='ident'>a_map</span> {
-                <span class='kw'>if</span> <span class='kw-2'>*</span><span class='ident'>a_r</span> <span class='op'>==</span> <span class='ident'>r</span> {
-                    <span class='kw'>return</span> <span class='ident'>infcx</span>.<span class='ident'>tcx</span>.<span class='ident'>mk_region</span>(<span class='ident'>ty</span>::<span class='ident'>ReLateBound</span>(<span class='ident'>ty</span>::<span class='ident'>DebruijnIndex</span>::<span class='ident'>new</span>(<span class='number'>1</span>), <span class='kw-2'>*</span><span class='ident'>a_br</span>));
+            <span class="kw">for</span> (<span class="ident">a_br</span>, <span class="ident">a_r</span>) <span class="kw">in</span> <span class="ident">a_map</span> {
+                <span class="kw">if</span> <span class="kw-2">*</span><span class="ident">a_r</span> <span class="op">==</span> <span class="ident">r</span> {
+                    <span class="kw">return</span> <span class="ident">infcx</span>.<span class="ident">tcx</span>.<span class="ident">mk_region</span>(<span class="ident">ty</span>::<span class="ident">ReLateBound</span>(<span class="ident">ty</span>::<span class="ident">DebruijnIndex</span>::<span class="ident">new</span>(<span class="number">1</span>), <span class="kw-2">*</span><span class="ident">a_br</span>));
                 }
             }
-            <span class='macro'>span_bug</span><span class='macro'>!</span>(
-                <span class='ident'>span</span>,
-                <span class='string'>&quot;could not find original bound region for {:?}&quot;</span>,
-                <span class='ident'>r</span>);
+            <span class="macro">span_bug</span><span class="macro">!</span>(
+                <span class="ident">span</span>,
+                <span class="string">&quot;could not find original bound region for {:?}&quot;</span>,
+                <span class="ident">r</span>);
         }
 
-        <span class='kw'>fn</span> <span class='ident'>fresh_bound_variable</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>infcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>InferCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                                <span class='ident'>debruijn</span>: <span class='ident'>ty</span>::<span class='ident'>DebruijnIndex</span>)
-                                                <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span> {
-            <span class='ident'>infcx</span>.<span class='ident'>region_vars</span>.<span class='ident'>new_bound</span>(<span class='ident'>debruijn</span>)
+        <span class="kw">fn</span> <span class="ident">fresh_bound_variable</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">infcx</span>: <span class="kw-2">&amp;</span><span class="ident">InferCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                                <span class="ident">debruijn</span>: <span class="ident">ty</span>::<span class="ident">DebruijnIndex</span>)
+                                                <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span> {
+            <span class="ident">infcx</span>.<span class="ident">region_vars</span>.<span class="ident">new_bound</span>(<span class="ident">debruijn</span>)
         }
     }
 }
 
-<span class='kw'>fn</span> <span class='ident'>var_ids</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>fields</span>: <span class='kw-2'>&amp;</span><span class='ident'>CombineFields</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                           <span class='ident'>map</span>: <span class='kw-2'>&amp;</span><span class='ident'>FxHashMap</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>BoundRegion</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span><span class='op'>&gt;</span>)
-                           <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>RegionVid</span><span class='op'>&gt;</span> {
-    <span class='ident'>map</span>.<span class='ident'>iter</span>()
-       .<span class='ident'>map</span>(<span class='op'>|</span>(_, <span class='kw-2'>&amp;</span><span class='ident'>r</span>)<span class='op'>|</span> <span class='kw'>match</span> <span class='kw-2'>*</span><span class='ident'>r</span> {
-           <span class='ident'>ty</span>::<span class='ident'>ReVar</span>(<span class='ident'>r</span>) <span class='op'>=&gt;</span> { <span class='ident'>r</span> }
-           _ <span class='op'>=&gt;</span> {
-               <span class='macro'>span_bug</span><span class='macro'>!</span>(
-                   <span class='ident'>fields</span>.<span class='ident'>trace</span>.<span class='ident'>cause</span>.<span class='ident'>span</span>,
-                   <span class='string'>&quot;found non-region-vid: {:?}&quot;</span>,
-                   <span class='ident'>r</span>);
+<span class="kw">fn</span> <span class="ident">var_ids</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">fields</span>: <span class="kw-2">&amp;</span><span class="ident">CombineFields</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                           <span class="ident">map</span>: <span class="kw-2">&amp;</span><span class="ident">FxHashMap</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">BoundRegion</span>, <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span><span class="op">&gt;</span>)
+                           <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">RegionVid</span><span class="op">&gt;</span> {
+    <span class="ident">map</span>.<span class="ident">iter</span>()
+       .<span class="ident">map</span>(<span class="op">|</span>(_, <span class="kw-2">&amp;</span><span class="ident">r</span>)<span class="op">|</span> <span class="kw">match</span> <span class="kw-2">*</span><span class="ident">r</span> {
+           <span class="ident">ty</span>::<span class="ident">ReVar</span>(<span class="ident">r</span>) <span class="op">=&gt;</span> { <span class="ident">r</span> }
+           _ <span class="op">=&gt;</span> {
+               <span class="macro">span_bug</span><span class="macro">!</span>(
+                   <span class="ident">fields</span>.<span class="ident">trace</span>.<span class="ident">cause</span>.<span class="ident">span</span>,
+                   <span class="string">&quot;found non-region-vid: {:?}&quot;</span>,
+                   <span class="ident">r</span>);
            }
        })
-       .<span class='ident'>collect</span>()
+       .<span class="ident">collect</span>()
 }
 
-<span class='kw'>fn</span> <span class='ident'>is_var_in_set</span>(<span class='ident'>new_vars</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>ty</span>::<span class='ident'>RegionVid</span>], <span class='ident'>r</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>Region</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-    <span class='kw'>match</span> <span class='kw-2'>*</span><span class='ident'>r</span> {
-        <span class='ident'>ty</span>::<span class='ident'>ReVar</span>(<span class='kw-2'>ref</span> <span class='ident'>v</span>) <span class='op'>=&gt;</span> <span class='ident'>new_vars</span>.<span class='ident'>iter</span>().<span class='ident'>any</span>(<span class='op'>|</span><span class='ident'>x</span><span class='op'>|</span> <span class='ident'>x</span> <span class='op'>==</span> <span class='ident'>v</span>),
-        _ <span class='op'>=&gt;</span> <span class='bool-val'>false</span>
+<span class="kw">fn</span> <span class="ident">is_var_in_set</span>(<span class="ident">new_vars</span>: <span class="kw-2">&amp;</span>[<span class="ident">ty</span>::<span class="ident">RegionVid</span>], <span class="ident">r</span>: <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">Region</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+    <span class="kw">match</span> <span class="kw-2">*</span><span class="ident">r</span> {
+        <span class="ident">ty</span>::<span class="ident">ReVar</span>(<span class="kw-2">ref</span> <span class="ident">v</span>) <span class="op">=&gt;</span> <span class="ident">new_vars</span>.<span class="ident">iter</span>().<span class="ident">any</span>(<span class="op">|</span><span class="ident">x</span><span class="op">|</span> <span class="ident">x</span> <span class="op">==</span> <span class="ident">v</span>),
+        _ <span class="op">=&gt;</span> <span class="bool-val">false</span>
     }
 }
 
-<span class='kw'>fn</span> <span class='ident'>fold_regions_in</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span>, <span class='ident'>T</span>, <span class='ident'>F</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                         <span class='ident'>unbound_value</span>: <span class='kw-2'>&amp;</span><span class='ident'>T</span>,
-                                         <span class='kw-2'>mut</span> <span class='ident'>fldr</span>: <span class='ident'>F</span>)
-                                         <span class='op'>-&gt;</span> <span class='ident'>T</span>
-    <span class='kw'>where</span> <span class='ident'>T</span>: <span class='ident'>TypeFoldable</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-          <span class='ident'>F</span>: <span class='ident'>FnMut</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span>, <span class='ident'>ty</span>::<span class='ident'>DebruijnIndex</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span>,
+<span class="kw">fn</span> <span class="ident">fold_regions_in</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span>, <span class="ident">T</span>, <span class="ident">F</span><span class="op">&gt;</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                         <span class="ident">unbound_value</span>: <span class="kw-2">&amp;</span><span class="ident">T</span>,
+                                         <span class="kw-2">mut</span> <span class="ident">fldr</span>: <span class="ident">F</span>)
+                                         <span class="op">-&gt;</span> <span class="ident">T</span>
+    <span class="kw">where</span> <span class="ident">T</span>: <span class="ident">TypeFoldable</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+          <span class="ident">F</span>: <span class="ident">FnMut</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span>, <span class="ident">ty</span>::<span class="ident">DebruijnIndex</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span>,
 {
-    <span class='ident'>tcx</span>.<span class='ident'>fold_regions</span>(<span class='ident'>unbound_value</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='bool-val'>false</span>, <span class='op'>|</span><span class='ident'>region</span>, <span class='ident'>current_depth</span><span class='op'>|</span> {
-        <span class='comment'>// we should only be encountering &quot;escaping&quot; late-bound regions here,</span>
-        <span class='comment'>// because the ones at the current level should have been replaced</span>
-        <span class='comment'>// with fresh variables</span>
-        <span class='macro'>assert</span><span class='macro'>!</span>(<span class='kw'>match</span> <span class='kw-2'>*</span><span class='ident'>region</span> {
-            <span class='ident'>ty</span>::<span class='ident'>ReLateBound</span>(..) <span class='op'>=&gt;</span> <span class='bool-val'>false</span>,
-            _ <span class='op'>=&gt;</span> <span class='bool-val'>true</span>
+    <span class="ident">tcx</span>.<span class="ident">fold_regions</span>(<span class="ident">unbound_value</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="bool-val">false</span>, <span class="op">|</span><span class="ident">region</span>, <span class="ident">current_depth</span><span class="op">|</span> {
+        <span class="comment">// we should only be encountering &quot;escaping&quot; late-bound regions here,</span>
+        <span class="comment">// because the ones at the current level should have been replaced</span>
+        <span class="comment">// with fresh variables</span>
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="kw">match</span> <span class="kw-2">*</span><span class="ident">region</span> {
+            <span class="ident">ty</span>::<span class="ident">ReLateBound</span>(..) <span class="op">=&gt;</span> <span class="bool-val">false</span>,
+            _ <span class="op">=&gt;</span> <span class="bool-val">true</span>
         });
 
-        <span class='ident'>fldr</span>(<span class='ident'>region</span>, <span class='ident'>ty</span>::<span class='ident'>DebruijnIndex</span>::<span class='ident'>new</span>(<span class='ident'>current_depth</span>))
+        <span class="ident">fldr</span>(<span class="ident">region</span>, <span class="ident">ty</span>::<span class="ident">DebruijnIndex</span>::<span class="ident">new</span>(<span class="ident">current_depth</span>))
     })
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>InferCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>tainted_regions</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
-                       <span class='ident'>snapshot</span>: <span class='kw-2'>&amp;</span><span class='ident'>CombinedSnapshot</span>,
-                       <span class='ident'>r</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span>,
-                       <span class='ident'>directions</span>: <span class='ident'>TaintDirections</span>)
-                       <span class='op'>-&gt;</span> <span class='ident'>FxHashSet</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>region_vars</span>.<span class='ident'>tainted</span>(<span class='kw-2'>&amp;</span><span class='ident'>snapshot</span>.<span class='ident'>region_vars_snapshot</span>, <span class='ident'>r</span>, <span class='ident'>directions</span>)
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">InferCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">tainted_regions</span>(<span class="kw-2">&amp;</span><span class="self">self</span>,
+                       <span class="ident">snapshot</span>: <span class="kw-2">&amp;</span><span class="ident">CombinedSnapshot</span>,
+                       <span class="ident">r</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span>,
+                       <span class="ident">directions</span>: <span class="ident">TaintDirections</span>)
+                       <span class="op">-&gt;</span> <span class="ident">FxHashSet</span><span class="op">&lt;</span><span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span><span class="op">&gt;</span> {
+        <span class="self">self</span>.<span class="ident">region_vars</span>.<span class="ident">tainted</span>(<span class="kw-2">&amp;</span><span class="ident">snapshot</span>.<span class="ident">region_vars_snapshot</span>, <span class="ident">r</span>, <span class="ident">directions</span>)
     }
 
-    <span class='kw'>fn</span> <span class='ident'>region_vars_confined_to_snapshot</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
-                                        <span class='ident'>snapshot</span>: <span class='kw-2'>&amp;</span><span class='ident'>CombinedSnapshot</span>)
-                                        <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>RegionVid</span><span class='op'>&gt;</span>
+    <span class="kw">fn</span> <span class="ident">region_vars_confined_to_snapshot</span>(<span class="kw-2">&amp;</span><span class="self">self</span>,
+                                        <span class="ident">snapshot</span>: <span class="kw-2">&amp;</span><span class="ident">CombinedSnapshot</span>)
+                                        <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">RegionVid</span><span class="op">&gt;</span>
     {
-        <span class='doccomment'>/*!
+        <span class="doccomment">/*!
          * Returns the set of region variables that do not affect any
          * types/regions which existed before `snapshot` was
          * started. This is used in the sub/lub/glb computations. The
@@ -1407,240 +1407,240 @@
          * snapshot.
          */</span>
 
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>region_vars</span> <span class='op'>=</span>
-            <span class='self'>self</span>.<span class='ident'>region_vars</span>.<span class='ident'>vars_created_since_snapshot</span>(<span class='kw-2'>&amp;</span><span class='ident'>snapshot</span>.<span class='ident'>region_vars_snapshot</span>);
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">region_vars</span> <span class="op">=</span>
+            <span class="self">self</span>.<span class="ident">region_vars</span>.<span class="ident">vars_created_since_snapshot</span>(<span class="kw-2">&amp;</span><span class="ident">snapshot</span>.<span class="ident">region_vars_snapshot</span>);
 
-        <span class='kw'>let</span> <span class='ident'>escaping_types</span> <span class='op'>=</span>
-            <span class='self'>self</span>.<span class='ident'>type_variables</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>types_escaping_snapshot</span>(<span class='kw-2'>&amp;</span><span class='ident'>snapshot</span>.<span class='ident'>type_snapshot</span>);
+        <span class="kw">let</span> <span class="ident">escaping_types</span> <span class="op">=</span>
+            <span class="self">self</span>.<span class="ident">type_variables</span>.<span class="ident">borrow_mut</span>().<span class="ident">types_escaping_snapshot</span>(<span class="kw-2">&amp;</span><span class="ident">snapshot</span>.<span class="ident">type_snapshot</span>);
 
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>escaping_region_vars</span> <span class='op'>=</span> <span class='ident'>FxHashSet</span>();
-        <span class='kw'>for</span> <span class='ident'>ty</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>escaping_types</span> {
-            <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>collect_regions</span>(<span class='ident'>ty</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>escaping_region_vars</span>);
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">escaping_region_vars</span> <span class="op">=</span> <span class="ident">FxHashSet</span>();
+        <span class="kw">for</span> <span class="ident">ty</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="ident">escaping_types</span> {
+            <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">collect_regions</span>(<span class="ident">ty</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">escaping_region_vars</span>);
         }
 
-        <span class='ident'>region_vars</span>.<span class='ident'>retain</span>(<span class='op'>|</span><span class='kw-2'>&amp;</span><span class='ident'>region_vid</span><span class='op'>|</span> {
-            <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>ReVar</span>(<span class='ident'>region_vid</span>);
-            <span class='op'>!</span><span class='ident'>escaping_region_vars</span>.<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>r</span>)
+        <span class="ident">region_vars</span>.<span class="ident">retain</span>(<span class="op">|</span><span class="kw-2">&amp;</span><span class="ident">region_vid</span><span class="op">|</span> {
+            <span class="kw">let</span> <span class="ident">r</span> <span class="op">=</span> <span class="ident">ty</span>::<span class="ident">ReVar</span>(<span class="ident">region_vid</span>);
+            <span class="op">!</span><span class="ident">escaping_region_vars</span>.<span class="ident">contains</span>(<span class="kw-2">&amp;</span><span class="ident">r</span>)
         });
 
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;region_vars_confined_to_snapshot: region_vars={:?} escaping_types={:?}&quot;</span>,
-               <span class='ident'>region_vars</span>,
-               <span class='ident'>escaping_types</span>);
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;region_vars_confined_to_snapshot: region_vars={:?} escaping_types={:?}&quot;</span>,
+               <span class="ident">region_vars</span>,
+               <span class="ident">escaping_types</span>);
 
-        <span class='ident'>region_vars</span>
+        <span class="ident">region_vars</span>
     }
 
-    <span class='doccomment'>/// Replace all regions bound by `binder` with skolemized regions and</span>
-    <span class='doccomment'>/// return a map indicating which bound-region was replaced with what</span>
-    <span class='doccomment'>/// skolemized region. This is the first step of checking subtyping</span>
-    <span class='doccomment'>/// when higher-ranked things are involved.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// **Important:** you must call this function from within a snapshot.</span>
-    <span class='doccomment'>/// Moreover, before committing the snapshot, you must eventually call</span>
-    <span class='doccomment'>/// either `plug_leaks` or `pop_skolemized` to remove the skolemized</span>
-    <span class='doccomment'>/// regions. If you rollback the snapshot (or are using a probe), then</span>
-    <span class='doccomment'>/// the pop occurs as part of the rollback, so an explicit call is not</span>
-    <span class='doccomment'>/// needed (but is also permitted).</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// See `README.md` for more details.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>skolemize_late_bound_regions</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
-                                           <span class='ident'>binder</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>Binder</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>,
-                                           <span class='ident'>snapshot</span>: <span class='kw-2'>&amp;</span><span class='ident'>CombinedSnapshot</span>)
-                                           <span class='op'>-&gt;</span> (<span class='ident'>T</span>, <span class='ident'>SkolemizationMap</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-        <span class='kw'>where</span> <span class='ident'>T</span> : <span class='ident'>TypeFoldable</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
+    <span class="doccomment">/// Replace all regions bound by `binder` with skolemized regions and</span>
+    <span class="doccomment">/// return a map indicating which bound-region was replaced with what</span>
+    <span class="doccomment">/// skolemized region. This is the first step of checking subtyping</span>
+    <span class="doccomment">/// when higher-ranked things are involved.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// **Important:** you must call this function from within a snapshot.</span>
+    <span class="doccomment">/// Moreover, before committing the snapshot, you must eventually call</span>
+    <span class="doccomment">/// either `plug_leaks` or `pop_skolemized` to remove the skolemized</span>
+    <span class="doccomment">/// regions. If you rollback the snapshot (or are using a probe), then</span>
+    <span class="doccomment">/// the pop occurs as part of the rollback, so an explicit call is not</span>
+    <span class="doccomment">/// needed (but is also permitted).</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// See `README.md` for more details.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">skolemize_late_bound_regions</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="self">self</span>,
+                                           <span class="ident">binder</span>: <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">Binder</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>,
+                                           <span class="ident">snapshot</span>: <span class="kw-2">&amp;</span><span class="ident">CombinedSnapshot</span>)
+                                           <span class="op">-&gt;</span> (<span class="ident">T</span>, <span class="ident">SkolemizationMap</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+        <span class="kw">where</span> <span class="ident">T</span> : <span class="ident">TypeFoldable</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>
     {
-        <span class='kw'>let</span> (<span class='ident'>result</span>, <span class='ident'>map</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>replace_late_bound_regions</span>(<span class='ident'>binder</span>, <span class='op'>|</span><span class='ident'>br</span><span class='op'>|</span> {
-            <span class='self'>self</span>.<span class='ident'>region_vars</span>.<span class='ident'>push_skolemized</span>(<span class='ident'>br</span>, <span class='kw-2'>&amp;</span><span class='ident'>snapshot</span>.<span class='ident'>region_vars_snapshot</span>)
+        <span class="kw">let</span> (<span class="ident">result</span>, <span class="ident">map</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">replace_late_bound_regions</span>(<span class="ident">binder</span>, <span class="op">|</span><span class="ident">br</span><span class="op">|</span> {
+            <span class="self">self</span>.<span class="ident">region_vars</span>.<span class="ident">push_skolemized</span>(<span class="ident">br</span>, <span class="kw-2">&amp;</span><span class="ident">snapshot</span>.<span class="ident">region_vars_snapshot</span>)
         });
 
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;skolemize_bound_regions(binder={:?}, result={:?}, map={:?})&quot;</span>,
-               <span class='ident'>binder</span>,
-               <span class='ident'>result</span>,
-               <span class='ident'>map</span>);
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;skolemize_bound_regions(binder={:?}, result={:?}, map={:?})&quot;</span>,
+               <span class="ident">binder</span>,
+               <span class="ident">result</span>,
+               <span class="ident">map</span>);
 
-        (<span class='ident'>result</span>, <span class='ident'>map</span>)
+        (<span class="ident">result</span>, <span class="ident">map</span>)
     }
 
-    <span class='doccomment'>/// Searches the region constriants created since `snapshot` was started</span>
-    <span class='doccomment'>/// and checks to determine whether any of the skolemized regions created</span>
-    <span class='doccomment'>/// in `skol_map` would &quot;escape&quot; -- meaning that they are related to</span>
-    <span class='doccomment'>/// other regions in some way. If so, the higher-ranked subtyping doesn&#39;t</span>
-    <span class='doccomment'>/// hold. See `README.md` for more details.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>leak_check</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
-                      <span class='ident'>overly_polymorphic</span>: <span class='ident'>bool</span>,
-                      <span class='ident'>_span</span>: <span class='ident'>Span</span>,
-                      <span class='ident'>skol_map</span>: <span class='kw-2'>&amp;</span><span class='ident'>SkolemizationMap</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                      <span class='ident'>snapshot</span>: <span class='kw-2'>&amp;</span><span class='ident'>CombinedSnapshot</span>)
-                      <span class='op'>-&gt;</span> <span class='ident'>RelateResult</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, ()<span class='op'>&gt;</span>
+    <span class="doccomment">/// Searches the region constriants created since `snapshot` was started</span>
+    <span class="doccomment">/// and checks to determine whether any of the skolemized regions created</span>
+    <span class="doccomment">/// in `skol_map` would &quot;escape&quot; -- meaning that they are related to</span>
+    <span class="doccomment">/// other regions in some way. If so, the higher-ranked subtyping doesn&#39;t</span>
+    <span class="doccomment">/// hold. See `README.md` for more details.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">leak_check</span>(<span class="kw-2">&amp;</span><span class="self">self</span>,
+                      <span class="ident">overly_polymorphic</span>: <span class="ident">bool</span>,
+                      <span class="ident">_span</span>: <span class="ident">Span</span>,
+                      <span class="ident">skol_map</span>: <span class="kw-2">&amp;</span><span class="ident">SkolemizationMap</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                      <span class="ident">snapshot</span>: <span class="kw-2">&amp;</span><span class="ident">CombinedSnapshot</span>)
+                      <span class="op">-&gt;</span> <span class="ident">RelateResult</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, ()<span class="op">&gt;</span>
     {
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;leak_check: skol_map={:?}&quot;</span>,
-               <span class='ident'>skol_map</span>);
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;leak_check: skol_map={:?}&quot;</span>,
+               <span class="ident">skol_map</span>);
 
-        <span class='kw'>let</span> <span class='ident'>new_vars</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>region_vars_confined_to_snapshot</span>(<span class='ident'>snapshot</span>);
-        <span class='kw'>for</span> (<span class='kw-2'>&amp;</span><span class='ident'>skol_br</span>, <span class='kw-2'>&amp;</span><span class='ident'>skol</span>) <span class='kw'>in</span> <span class='ident'>skol_map</span> {
-            <span class='comment'>// The inputs to a skolemized variable can only</span>
-            <span class='comment'>// be itself or other new variables.</span>
-            <span class='kw'>let</span> <span class='ident'>incoming_taints</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tainted_regions</span>(<span class='ident'>snapshot</span>,
-                                                       <span class='ident'>skol</span>,
-                                                       <span class='ident'>TaintDirections</span>::<span class='ident'>both</span>());
-            <span class='kw'>for</span> <span class='kw-2'>&amp;</span><span class='ident'>tainted_region</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>incoming_taints</span> {
-                <span class='comment'>// Each skolemized should only be relatable to itself</span>
-                <span class='comment'>// or new variables:</span>
-                <span class='kw'>match</span> <span class='kw-2'>*</span><span class='ident'>tainted_region</span> {
-                    <span class='ident'>ty</span>::<span class='ident'>ReVar</span>(<span class='ident'>vid</span>) <span class='op'>=&gt;</span> {
-                        <span class='kw'>if</span> <span class='ident'>new_vars</span>.<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>vid</span>) {
-                            <span class='kw'>continue</span>;
+        <span class="kw">let</span> <span class="ident">new_vars</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">region_vars_confined_to_snapshot</span>(<span class="ident">snapshot</span>);
+        <span class="kw">for</span> (<span class="kw-2">&amp;</span><span class="ident">skol_br</span>, <span class="kw-2">&amp;</span><span class="ident">skol</span>) <span class="kw">in</span> <span class="ident">skol_map</span> {
+            <span class="comment">// The inputs to a skolemized variable can only</span>
+            <span class="comment">// be itself or other new variables.</span>
+            <span class="kw">let</span> <span class="ident">incoming_taints</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tainted_regions</span>(<span class="ident">snapshot</span>,
+                                                       <span class="ident">skol</span>,
+                                                       <span class="ident">TaintDirections</span>::<span class="ident">both</span>());
+            <span class="kw">for</span> <span class="kw-2">&amp;</span><span class="ident">tainted_region</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="ident">incoming_taints</span> {
+                <span class="comment">// Each skolemized should only be relatable to itself</span>
+                <span class="comment">// or new variables:</span>
+                <span class="kw">match</span> <span class="kw-2">*</span><span class="ident">tainted_region</span> {
+                    <span class="ident">ty</span>::<span class="ident">ReVar</span>(<span class="ident">vid</span>) <span class="op">=&gt;</span> {
+                        <span class="kw">if</span> <span class="ident">new_vars</span>.<span class="ident">contains</span>(<span class="kw-2">&amp;</span><span class="ident">vid</span>) {
+                            <span class="kw">continue</span>;
                         }
                     }
-                    _ <span class='op'>=&gt;</span> {
-                        <span class='kw'>if</span> <span class='ident'>tainted_region</span> <span class='op'>==</span> <span class='ident'>skol</span> { <span class='kw'>continue</span>; }
+                    _ <span class="op">=&gt;</span> {
+                        <span class="kw">if</span> <span class="ident">tainted_region</span> <span class="op">==</span> <span class="ident">skol</span> { <span class="kw">continue</span>; }
                     }
                 };
 
-                <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;{:?} (which replaced {:?}) is tainted by {:?}&quot;</span>,
-                       <span class='ident'>skol</span>,
-                       <span class='ident'>skol_br</span>,
-                       <span class='ident'>tainted_region</span>);
+                <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;{:?} (which replaced {:?}) is tainted by {:?}&quot;</span>,
+                       <span class="ident">skol</span>,
+                       <span class="ident">skol_br</span>,
+                       <span class="ident">tainted_region</span>);
 
-                <span class='kw'>if</span> <span class='ident'>overly_polymorphic</span> {
-                    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;Overly polymorphic!&quot;</span>);
-                    <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>TypeError</span>::<span class='ident'>RegionsOverlyPolymorphic</span>(<span class='ident'>skol_br</span>,
-                                                                   <span class='ident'>tainted_region</span>));
-                } <span class='kw'>else</span> {
-                    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;Not as polymorphic!&quot;</span>);
-                    <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>TypeError</span>::<span class='ident'>RegionsInsufficientlyPolymorphic</span>(<span class='ident'>skol_br</span>,
-                                                                           <span class='ident'>tainted_region</span>));
+                <span class="kw">if</span> <span class="ident">overly_polymorphic</span> {
+                    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;Overly polymorphic!&quot;</span>);
+                    <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">TypeError</span>::<span class="ident">RegionsOverlyPolymorphic</span>(<span class="ident">skol_br</span>,
+                                                                   <span class="ident">tainted_region</span>));
+                } <span class="kw">else</span> {
+                    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;Not as polymorphic!&quot;</span>);
+                    <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">TypeError</span>::<span class="ident">RegionsInsufficientlyPolymorphic</span>(<span class="ident">skol_br</span>,
+                                                                           <span class="ident">tainted_region</span>));
                 }
             }
         }
 
-        <span class='prelude-val'>Ok</span>(())
+        <span class="prelude-val">Ok</span>(())
     }
 
-    <span class='doccomment'>/// This code converts from skolemized regions back to late-bound</span>
-    <span class='doccomment'>/// regions. It works by replacing each region in the taint set of a</span>
-    <span class='doccomment'>/// skolemized region with a bound-region. The bound region will be bound</span>
-    <span class='doccomment'>/// by the outer-most binder in `value`; the caller must ensure that there is</span>
-    <span class='doccomment'>/// such a binder and it is the right place.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// This routine is only intended to be used when the leak-check has</span>
-    <span class='doccomment'>/// passed; currently, it&#39;s used in the trait matching code to create</span>
-    <span class='doccomment'>/// a set of nested obligations frmo an impl that matches against</span>
-    <span class='doccomment'>/// something higher-ranked.  More details can be found in</span>
-    <span class='doccomment'>/// `librustc/middle/traits/README.md`.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// As a brief example, consider the obligation `for&lt;&#39;a&gt; Fn(&amp;&#39;a int)</span>
-    <span class='doccomment'>/// -&gt; &amp;&#39;a int`, and the impl:</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>///     impl&lt;A,R&gt; Fn&lt;A,R&gt; for SomethingOrOther</span>
-    <span class='doccomment'>///         where A : Clone</span>
-    <span class='doccomment'>///     { ... }</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// Here we will have replaced `&#39;a` with a skolemized region</span>
-    <span class='doccomment'>/// `&#39;0`. This means that our substitution will be `{A=&gt;&amp;&#39;0</span>
-    <span class='doccomment'>/// int, R=&gt;&amp;&#39;0 int}`.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// When we apply the substitution to the bounds, we will wind up with</span>
-    <span class='doccomment'>/// `&amp;&#39;0 int : Clone` as a predicate. As a last step, we then go and</span>
-    <span class='doccomment'>/// replace `&#39;0` with a late-bound region `&#39;a`.  The depth is matched</span>
-    <span class='doccomment'>/// to the depth of the predicate, in this case 1, so that the final</span>
-    <span class='doccomment'>/// predicate is `for&lt;&#39;a&gt; &amp;&#39;a int : Clone`.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>plug_leaks</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
-                         <span class='ident'>skol_map</span>: <span class='ident'>SkolemizationMap</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                         <span class='ident'>snapshot</span>: <span class='kw-2'>&amp;</span><span class='ident'>CombinedSnapshot</span>,
-                         <span class='ident'>value</span>: <span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='ident'>T</span>
-        <span class='kw'>where</span> <span class='ident'>T</span> : <span class='ident'>TypeFoldable</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
+    <span class="doccomment">/// This code converts from skolemized regions back to late-bound</span>
+    <span class="doccomment">/// regions. It works by replacing each region in the taint set of a</span>
+    <span class="doccomment">/// skolemized region with a bound-region. The bound region will be bound</span>
+    <span class="doccomment">/// by the outer-most binder in `value`; the caller must ensure that there is</span>
+    <span class="doccomment">/// such a binder and it is the right place.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This routine is only intended to be used when the leak-check has</span>
+    <span class="doccomment">/// passed; currently, it&#39;s used in the trait matching code to create</span>
+    <span class="doccomment">/// a set of nested obligations frmo an impl that matches against</span>
+    <span class="doccomment">/// something higher-ranked.  More details can be found in</span>
+    <span class="doccomment">/// `librustc/middle/traits/README.md`.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// As a brief example, consider the obligation `for&lt;&#39;a&gt; Fn(&amp;&#39;a int)</span>
+    <span class="doccomment">/// -&gt; &amp;&#39;a int`, and the impl:</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">///     impl&lt;A,R&gt; Fn&lt;A,R&gt; for SomethingOrOther</span>
+    <span class="doccomment">///         where A : Clone</span>
+    <span class="doccomment">///     { ... }</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Here we will have replaced `&#39;a` with a skolemized region</span>
+    <span class="doccomment">/// `&#39;0`. This means that our substitution will be `{A=&gt;&amp;&#39;0</span>
+    <span class="doccomment">/// int, R=&gt;&amp;&#39;0 int}`.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// When we apply the substitution to the bounds, we will wind up with</span>
+    <span class="doccomment">/// `&amp;&#39;0 int : Clone` as a predicate. As a last step, we then go and</span>
+    <span class="doccomment">/// replace `&#39;0` with a late-bound region `&#39;a`.  The depth is matched</span>
+    <span class="doccomment">/// to the depth of the predicate, in this case 1, so that the final</span>
+    <span class="doccomment">/// predicate is `for&lt;&#39;a&gt; &amp;&#39;a int : Clone`.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">plug_leaks</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="self">self</span>,
+                         <span class="ident">skol_map</span>: <span class="ident">SkolemizationMap</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                         <span class="ident">snapshot</span>: <span class="kw-2">&amp;</span><span class="ident">CombinedSnapshot</span>,
+                         <span class="ident">value</span>: <span class="ident">T</span>) <span class="op">-&gt;</span> <span class="ident">T</span>
+        <span class="kw">where</span> <span class="ident">T</span> : <span class="ident">TypeFoldable</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>
     {
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;plug_leaks(skol_map={:?}, value={:?})&quot;</span>,
-               <span class='ident'>skol_map</span>,
-               <span class='ident'>value</span>);
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;plug_leaks(skol_map={:?}, value={:?})&quot;</span>,
+               <span class="ident">skol_map</span>,
+               <span class="ident">value</span>);
 
-        <span class='kw'>if</span> <span class='ident'>skol_map</span>.<span class='ident'>is_empty</span>() {
-            <span class='kw'>return</span> <span class='ident'>value</span>;
+        <span class="kw">if</span> <span class="ident">skol_map</span>.<span class="ident">is_empty</span>() {
+            <span class="kw">return</span> <span class="ident">value</span>;
         }
 
-        <span class='comment'>// Compute a mapping from the &quot;taint set&quot; of each skolemized</span>
-        <span class='comment'>// region back to the `ty::BoundRegion` that it originally</span>
-        <span class='comment'>// represented. Because `leak_check` passed, we know that</span>
-        <span class='comment'>// these taint sets are mutually disjoint.</span>
-        <span class='kw'>let</span> <span class='ident'>inv_skol_map</span>: <span class='ident'>FxHashMap</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span>, <span class='ident'>ty</span>::<span class='ident'>BoundRegion</span><span class='op'>&gt;</span> <span class='op'>=</span>
-            <span class='ident'>skol_map</span>
-            .<span class='ident'>iter</span>()
-            .<span class='ident'>flat_map</span>(<span class='op'>|</span>(<span class='kw-2'>&amp;</span><span class='ident'>skol_br</span>, <span class='kw-2'>&amp;</span><span class='ident'>skol</span>)<span class='op'>|</span> {
-                <span class='self'>self</span>.<span class='ident'>tainted_regions</span>(<span class='ident'>snapshot</span>, <span class='ident'>skol</span>, <span class='ident'>TaintDirections</span>::<span class='ident'>both</span>())
-                    .<span class='ident'>into_iter</span>()
-                    .<span class='ident'>map</span>(<span class='kw'>move</span> <span class='op'>|</span><span class='ident'>tainted_region</span><span class='op'>|</span> (<span class='ident'>tainted_region</span>, <span class='ident'>skol_br</span>))
+        <span class="comment">// Compute a mapping from the &quot;taint set&quot; of each skolemized</span>
+        <span class="comment">// region back to the `ty::BoundRegion` that it originally</span>
+        <span class="comment">// represented. Because `leak_check` passed, we know that</span>
+        <span class="comment">// these taint sets are mutually disjoint.</span>
+        <span class="kw">let</span> <span class="ident">inv_skol_map</span>: <span class="ident">FxHashMap</span><span class="op">&lt;</span><span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span>, <span class="ident">ty</span>::<span class="ident">BoundRegion</span><span class="op">&gt;</span> <span class="op">=</span>
+            <span class="ident">skol_map</span>
+            .<span class="ident">iter</span>()
+            .<span class="ident">flat_map</span>(<span class="op">|</span>(<span class="kw-2">&amp;</span><span class="ident">skol_br</span>, <span class="kw-2">&amp;</span><span class="ident">skol</span>)<span class="op">|</span> {
+                <span class="self">self</span>.<span class="ident">tainted_regions</span>(<span class="ident">snapshot</span>, <span class="ident">skol</span>, <span class="ident">TaintDirections</span>::<span class="ident">both</span>())
+                    .<span class="ident">into_iter</span>()
+                    .<span class="ident">map</span>(<span class="kw">move</span> <span class="op">|</span><span class="ident">tainted_region</span><span class="op">|</span> (<span class="ident">tainted_region</span>, <span class="ident">skol_br</span>))
             })
-            .<span class='ident'>collect</span>();
+            .<span class="ident">collect</span>();
 
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;plug_leaks: inv_skol_map={:?}&quot;</span>,
-               <span class='ident'>inv_skol_map</span>);
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;plug_leaks: inv_skol_map={:?}&quot;</span>,
+               <span class="ident">inv_skol_map</span>);
 
-        <span class='comment'>// Remove any instantiated type variables from `value`; those can hide</span>
-        <span class='comment'>// references to regions from the `fold_regions` code below.</span>
-        <span class='kw'>let</span> <span class='ident'>value</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>resolve_type_vars_if_possible</span>(<span class='kw-2'>&amp;</span><span class='ident'>value</span>);
+        <span class="comment">// Remove any instantiated type variables from `value`; those can hide</span>
+        <span class="comment">// references to regions from the `fold_regions` code below.</span>
+        <span class="kw">let</span> <span class="ident">value</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">resolve_type_vars_if_possible</span>(<span class="kw-2">&amp;</span><span class="ident">value</span>);
 
-        <span class='comment'>// Map any skolemization byproducts back to a late-bound</span>
-        <span class='comment'>// region. Put that late-bound region at whatever the outermost</span>
-        <span class='comment'>// binder is that we encountered in `value`. The caller is</span>
-        <span class='comment'>// responsible for ensuring that (a) `value` contains at least one</span>
-        <span class='comment'>// binder and (b) that binder is the one we want to use.</span>
-        <span class='kw'>let</span> <span class='ident'>result</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>fold_regions</span>(<span class='kw-2'>&amp;</span><span class='ident'>value</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='bool-val'>false</span>, <span class='op'>|</span><span class='ident'>r</span>, <span class='ident'>current_depth</span><span class='op'>|</span> {
-            <span class='kw'>match</span> <span class='ident'>inv_skol_map</span>.<span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='ident'>r</span>) {
-                <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='ident'>r</span>,
-                <span class='prelude-val'>Some</span>(<span class='ident'>br</span>) <span class='op'>=&gt;</span> {
-                    <span class='comment'>// It is the responsibility of the caller to ensure</span>
-                    <span class='comment'>// that each skolemized region appears within a</span>
-                    <span class='comment'>// binder. In practice, this routine is only used by</span>
-                    <span class='comment'>// trait checking, and all of the skolemized regions</span>
-                    <span class='comment'>// appear inside predicates, which always have</span>
-                    <span class='comment'>// binders, so this assert is satisfied.</span>
-                    <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>current_depth</span> <span class='op'>&gt;</span> <span class='number'>1</span>);
+        <span class="comment">// Map any skolemization byproducts back to a late-bound</span>
+        <span class="comment">// region. Put that late-bound region at whatever the outermost</span>
+        <span class="comment">// binder is that we encountered in `value`. The caller is</span>
+        <span class="comment">// responsible for ensuring that (a) `value` contains at least one</span>
+        <span class="comment">// binder and (b) that binder is the one we want to use.</span>
+        <span class="kw">let</span> <span class="ident">result</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">fold_regions</span>(<span class="kw-2">&amp;</span><span class="ident">value</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="bool-val">false</span>, <span class="op">|</span><span class="ident">r</span>, <span class="ident">current_depth</span><span class="op">|</span> {
+            <span class="kw">match</span> <span class="ident">inv_skol_map</span>.<span class="ident">get</span>(<span class="kw-2">&amp;</span><span class="ident">r</span>) {
+                <span class="prelude-val">None</span> <span class="op">=&gt;</span> <span class="ident">r</span>,
+                <span class="prelude-val">Some</span>(<span class="ident">br</span>) <span class="op">=&gt;</span> {
+                    <span class="comment">// It is the responsibility of the caller to ensure</span>
+                    <span class="comment">// that each skolemized region appears within a</span>
+                    <span class="comment">// binder. In practice, this routine is only used by</span>
+                    <span class="comment">// trait checking, and all of the skolemized regions</span>
+                    <span class="comment">// appear inside predicates, which always have</span>
+                    <span class="comment">// binders, so this assert is satisfied.</span>
+                    <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">current_depth</span> <span class="op">&gt;</span> <span class="number">1</span>);
 
-                    <span class='comment'>// since leak-check passed, this skolemized region</span>
-                    <span class='comment'>// should only have incoming edges from variables</span>
-                    <span class='comment'>// (which ought not to escape the snapshot, but we</span>
-                    <span class='comment'>// don&#39;t check that) or itself</span>
-                    <span class='macro'>assert</span><span class='macro'>!</span>(
-                        <span class='kw'>match</span> <span class='kw-2'>*</span><span class='ident'>r</span> {
-                            <span class='ident'>ty</span>::<span class='ident'>ReVar</span>(_) <span class='op'>=&gt;</span> <span class='bool-val'>true</span>,
-                            <span class='ident'>ty</span>::<span class='ident'>ReSkolemized</span>(_, <span class='kw-2'>ref</span> <span class='ident'>br1</span>) <span class='op'>=&gt;</span> <span class='ident'>br</span> <span class='op'>==</span> <span class='ident'>br1</span>,
-                            _ <span class='op'>=&gt;</span> <span class='bool-val'>false</span>,
+                    <span class="comment">// since leak-check passed, this skolemized region</span>
+                    <span class="comment">// should only have incoming edges from variables</span>
+                    <span class="comment">// (which ought not to escape the snapshot, but we</span>
+                    <span class="comment">// don&#39;t check that) or itself</span>
+                    <span class="macro">assert</span><span class="macro">!</span>(
+                        <span class="kw">match</span> <span class="kw-2">*</span><span class="ident">r</span> {
+                            <span class="ident">ty</span>::<span class="ident">ReVar</span>(_) <span class="op">=&gt;</span> <span class="bool-val">true</span>,
+                            <span class="ident">ty</span>::<span class="ident">ReSkolemized</span>(_, <span class="kw-2">ref</span> <span class="ident">br1</span>) <span class="op">=&gt;</span> <span class="ident">br</span> <span class="op">==</span> <span class="ident">br1</span>,
+                            _ <span class="op">=&gt;</span> <span class="bool-val">false</span>,
                         },
-                        <span class='string'>&quot;leak-check would have us replace {:?} with {:?}&quot;</span>,
-                        <span class='ident'>r</span>, <span class='ident'>br</span>);
+                        <span class="string">&quot;leak-check would have us replace {:?} with {:?}&quot;</span>,
+                        <span class="ident">r</span>, <span class="ident">br</span>);
 
-                    <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>mk_region</span>(<span class='ident'>ty</span>::<span class='ident'>ReLateBound</span>(
-                        <span class='ident'>ty</span>::<span class='ident'>DebruijnIndex</span>::<span class='ident'>new</span>(<span class='ident'>current_depth</span> <span class='op'>-</span> <span class='number'>1</span>), <span class='ident'>br</span>.<span class='ident'>clone</span>()))
+                    <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">mk_region</span>(<span class="ident">ty</span>::<span class="ident">ReLateBound</span>(
+                        <span class="ident">ty</span>::<span class="ident">DebruijnIndex</span>::<span class="ident">new</span>(<span class="ident">current_depth</span> <span class="op">-</span> <span class="number">1</span>), <span class="ident">br</span>.<span class="ident">clone</span>()))
                 }
             }
         });
 
-        <span class='self'>self</span>.<span class='ident'>pop_skolemized</span>(<span class='ident'>skol_map</span>, <span class='ident'>snapshot</span>);
+        <span class="self">self</span>.<span class="ident">pop_skolemized</span>(<span class="ident">skol_map</span>, <span class="ident">snapshot</span>);
 
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;plug_leaks: result={:?}&quot;</span>, <span class='ident'>result</span>);
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;plug_leaks: result={:?}&quot;</span>, <span class="ident">result</span>);
 
-        <span class='ident'>result</span>
+        <span class="ident">result</span>
     }
 
-    <span class='doccomment'>/// Pops the skolemized regions found in `skol_map` from the region</span>
-    <span class='doccomment'>/// inference context. Whenever you create skolemized regions via</span>
-    <span class='doccomment'>/// `skolemize_late_bound_regions`, they must be popped before you</span>
-    <span class='doccomment'>/// commit the enclosing snapshot (if you do not commit, e.g. within a</span>
-    <span class='doccomment'>/// probe or as a result of an error, then this is not necessary, as</span>
-    <span class='doccomment'>/// popping happens as part of the rollback).</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// Note: popping also occurs implicitly as part of `leak_check`.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>pop_skolemized</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
-                          <span class='ident'>skol_map</span>: <span class='ident'>SkolemizationMap</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                          <span class='ident'>snapshot</span>: <span class='kw-2'>&amp;</span><span class='ident'>CombinedSnapshot</span>)
+    <span class="doccomment">/// Pops the skolemized regions found in `skol_map` from the region</span>
+    <span class="doccomment">/// inference context. Whenever you create skolemized regions via</span>
+    <span class="doccomment">/// `skolemize_late_bound_regions`, they must be popped before you</span>
+    <span class="doccomment">/// commit the enclosing snapshot (if you do not commit, e.g. within a</span>
+    <span class="doccomment">/// probe or as a result of an error, then this is not necessary, as</span>
+    <span class="doccomment">/// popping happens as part of the rollback).</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Note: popping also occurs implicitly as part of `leak_check`.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">pop_skolemized</span>(<span class="kw-2">&amp;</span><span class="self">self</span>,
+                          <span class="ident">skol_map</span>: <span class="ident">SkolemizationMap</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                          <span class="ident">snapshot</span>: <span class="kw-2">&amp;</span><span class="ident">CombinedSnapshot</span>)
     {
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;pop_skolemized({:?})&quot;</span>, <span class='ident'>skol_map</span>);
-        <span class='kw'>let</span> <span class='ident'>skol_regions</span>: <span class='ident'>FxHashSet</span><span class='op'>&lt;</span>_<span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>skol_map</span>.<span class='ident'>values</span>().<span class='ident'>cloned</span>().<span class='ident'>collect</span>();
-        <span class='self'>self</span>.<span class='ident'>region_vars</span>.<span class='ident'>pop_skolemized</span>(<span class='kw-2'>&amp;</span><span class='ident'>skol_regions</span>, <span class='kw-2'>&amp;</span><span class='ident'>snapshot</span>.<span class='ident'>region_vars_snapshot</span>);
-        <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>skol_map</span>.<span class='ident'>is_empty</span>() {
-            <span class='self'>self</span>.<span class='ident'>projection_cache</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>rollback_skolemized</span>(
-                <span class='kw-2'>&amp;</span><span class='ident'>snapshot</span>.<span class='ident'>projection_cache_snapshot</span>);
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;pop_skolemized({:?})&quot;</span>, <span class="ident">skol_map</span>);
+        <span class="kw">let</span> <span class="ident">skol_regions</span>: <span class="ident">FxHashSet</span><span class="op">&lt;</span>_<span class="op">&gt;</span> <span class="op">=</span> <span class="ident">skol_map</span>.<span class="ident">values</span>().<span class="ident">cloned</span>().<span class="ident">collect</span>();
+        <span class="self">self</span>.<span class="ident">region_vars</span>.<span class="ident">pop_skolemized</span>(<span class="kw-2">&amp;</span><span class="ident">skol_regions</span>, <span class="kw-2">&amp;</span><span class="ident">snapshot</span>.<span class="ident">region_vars_snapshot</span>);
+        <span class="kw">if</span> <span class="op">!</span><span class="ident">skol_map</span>.<span class="ident">is_empty</span>() {
+            <span class="self">self</span>.<span class="ident">projection_cache</span>.<span class="ident">borrow_mut</span>().<span class="ident">rollback_skolemized</span>(
+                <span class="kw-2">&amp;</span><span class="ident">snapshot</span>.<span class="ident">projection_cache_snapshot</span>);
         }
     }
 }

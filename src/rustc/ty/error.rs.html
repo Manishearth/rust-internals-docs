@@ -358,319 +358,323 @@
 <span id="313">313</span>
 <span id="314">314</span>
 <span id="315">315</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+<span id="316">316</span>
+<span id="317">317</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='kw'>use</span> <span class='ident'>hir</span>::<span class='ident'>def_id</span>::<span class='ident'>DefId</span>;
-<span class='kw'>use</span> <span class='ident'>infer</span>::<span class='ident'>type_variable</span>;
-<span class='kw'>use</span> <span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>BoundRegion</span>, <span class='ident'>Region</span>, <span class='ident'>Ty</span>, <span class='ident'>TyCtxt</span>};
+<span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">def_id</span>::<span class="ident">DefId</span>;
+<span class="kw">use</span> <span class="ident">infer</span>::<span class="ident">type_variable</span>;
+<span class="kw">use</span> <span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">BoundRegion</span>, <span class="ident">DefIdTree</span>, <span class="ident">Region</span>, <span class="ident">Ty</span>, <span class="ident">TyCtxt</span>};
 
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>fmt</span>;
-<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>abi</span>;
-<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>::{<span class='self'>self</span>, <span class='ident'>Name</span>};
-<span class='kw'>use</span> <span class='ident'>errors</span>::<span class='ident'>DiagnosticBuilder</span>;
-<span class='kw'>use</span> <span class='ident'>syntax_pos</span>::<span class='ident'>Span</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">fmt</span>;
+<span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">abi</span>;
+<span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">ast</span>::{<span class="self">self</span>, <span class="ident">Name</span>};
+<span class="kw">use</span> <span class="ident">errors</span>::<span class="ident">DiagnosticBuilder</span>;
+<span class="kw">use</span> <span class="ident">syntax_pos</span>::<span class="ident">Span</span>;
 
-<span class='kw'>use</span> <span class='ident'>hir</span>;
+<span class="kw">use</span> <span class="ident">hir</span>;
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Copy</span>, <span class='ident'>Debug</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>ExpectedFound</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='ident'>expected</span>: <span class='ident'>T</span>,
-    <span class='kw'>pub</span> <span class='ident'>found</span>: <span class='ident'>T</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">Copy</span>, <span class="ident">Debug</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">ExpectedFound</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="ident">expected</span>: <span class="ident">T</span>,
+    <span class="kw">pub</span> <span class="ident">found</span>: <span class="ident">T</span>,
 }
 
-<span class='comment'>// Data structures used in type unification</span>
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Debug</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>TypeError</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='ident'>Mismatch</span>,
-    <span class='ident'>UnsafetyMismatch</span>(<span class='ident'>ExpectedFound</span><span class='op'>&lt;</span><span class='ident'>hir</span>::<span class='ident'>Unsafety</span><span class='op'>&gt;</span>),
-    <span class='ident'>AbiMismatch</span>(<span class='ident'>ExpectedFound</span><span class='op'>&lt;</span><span class='ident'>abi</span>::<span class='ident'>Abi</span><span class='op'>&gt;</span>),
-    <span class='ident'>Mutability</span>,
-    <span class='ident'>TupleSize</span>(<span class='ident'>ExpectedFound</span><span class='op'>&lt;</span><span class='ident'>usize</span><span class='op'>&gt;</span>),
-    <span class='ident'>FixedArraySize</span>(<span class='ident'>ExpectedFound</span><span class='op'>&lt;</span><span class='ident'>usize</span><span class='op'>&gt;</span>),
-    <span class='ident'>ArgCount</span>,
-    <span class='ident'>RegionsDoesNotOutlive</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Region</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Region</span>),
-    <span class='ident'>RegionsNotSame</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Region</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Region</span>),
-    <span class='ident'>RegionsNoOverlap</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Region</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Region</span>),
-    <span class='ident'>RegionsInsufficientlyPolymorphic</span>(<span class='ident'>BoundRegion</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Region</span>),
-    <span class='ident'>RegionsOverlyPolymorphic</span>(<span class='ident'>BoundRegion</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Region</span>),
-    <span class='ident'>Sorts</span>(<span class='ident'>ExpectedFound</span><span class='op'>&lt;</span><span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>),
-    <span class='ident'>IntMismatch</span>(<span class='ident'>ExpectedFound</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>IntVarValue</span><span class='op'>&gt;</span>),
-    <span class='ident'>FloatMismatch</span>(<span class='ident'>ExpectedFound</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>FloatTy</span><span class='op'>&gt;</span>),
-    <span class='ident'>Traits</span>(<span class='ident'>ExpectedFound</span><span class='op'>&lt;</span><span class='ident'>DefId</span><span class='op'>&gt;</span>),
-    <span class='ident'>VariadicMismatch</span>(<span class='ident'>ExpectedFound</span><span class='op'>&lt;</span><span class='ident'>bool</span><span class='op'>&gt;</span>),
-    <span class='ident'>CyclicTy</span>,
-    <span class='ident'>ProjectionNameMismatched</span>(<span class='ident'>ExpectedFound</span><span class='op'>&lt;</span><span class='ident'>Name</span><span class='op'>&gt;</span>),
-    <span class='ident'>ProjectionBoundsLength</span>(<span class='ident'>ExpectedFound</span><span class='op'>&lt;</span><span class='ident'>usize</span><span class='op'>&gt;</span>),
-    <span class='ident'>TyParamDefaultMismatch</span>(<span class='ident'>ExpectedFound</span><span class='op'>&lt;</span><span class='ident'>type_variable</span>::<span class='ident'>Default</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>),
-    <span class='ident'>ExistentialMismatch</span>(<span class='ident'>ExpectedFound</span><span class='op'>&lt;</span><span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Slice</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>ExistentialPredicate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span>),
+<span class="comment">// Data structures used in type unification</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">Debug</span>)]</span>
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">TypeError</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="ident">Mismatch</span>,
+    <span class="ident">UnsafetyMismatch</span>(<span class="ident">ExpectedFound</span><span class="op">&lt;</span><span class="ident">hir</span>::<span class="ident">Unsafety</span><span class="op">&gt;</span>),
+    <span class="ident">AbiMismatch</span>(<span class="ident">ExpectedFound</span><span class="op">&lt;</span><span class="ident">abi</span>::<span class="ident">Abi</span><span class="op">&gt;</span>),
+    <span class="ident">Mutability</span>,
+    <span class="ident">TupleSize</span>(<span class="ident">ExpectedFound</span><span class="op">&lt;</span><span class="ident">usize</span><span class="op">&gt;</span>),
+    <span class="ident">FixedArraySize</span>(<span class="ident">ExpectedFound</span><span class="op">&lt;</span><span class="ident">usize</span><span class="op">&gt;</span>),
+    <span class="ident">ArgCount</span>,
+    <span class="ident">RegionsDoesNotOutlive</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Region</span>, <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Region</span>),
+    <span class="ident">RegionsNotSame</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Region</span>, <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Region</span>),
+    <span class="ident">RegionsNoOverlap</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Region</span>, <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Region</span>),
+    <span class="ident">RegionsInsufficientlyPolymorphic</span>(<span class="ident">BoundRegion</span>, <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Region</span>),
+    <span class="ident">RegionsOverlyPolymorphic</span>(<span class="ident">BoundRegion</span>, <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Region</span>),
+    <span class="ident">Sorts</span>(<span class="ident">ExpectedFound</span><span class="op">&lt;</span><span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>),
+    <span class="ident">IntMismatch</span>(<span class="ident">ExpectedFound</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">IntVarValue</span><span class="op">&gt;</span>),
+    <span class="ident">FloatMismatch</span>(<span class="ident">ExpectedFound</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">FloatTy</span><span class="op">&gt;</span>),
+    <span class="ident">Traits</span>(<span class="ident">ExpectedFound</span><span class="op">&lt;</span><span class="ident">DefId</span><span class="op">&gt;</span>),
+    <span class="ident">VariadicMismatch</span>(<span class="ident">ExpectedFound</span><span class="op">&lt;</span><span class="ident">bool</span><span class="op">&gt;</span>),
+    <span class="ident">CyclicTy</span>,
+    <span class="ident">ProjectionNameMismatched</span>(<span class="ident">ExpectedFound</span><span class="op">&lt;</span><span class="ident">Name</span><span class="op">&gt;</span>),
+    <span class="ident">ProjectionBoundsLength</span>(<span class="ident">ExpectedFound</span><span class="op">&lt;</span><span class="ident">usize</span><span class="op">&gt;</span>),
+    <span class="ident">TyParamDefaultMismatch</span>(<span class="ident">ExpectedFound</span><span class="op">&lt;</span><span class="ident">type_variable</span>::<span class="ident">Default</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>),
+    <span class="ident">ExistentialMismatch</span>(<span class="ident">ExpectedFound</span><span class="op">&lt;</span><span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Slice</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">ExistentialPredicate</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span><span class="op">&gt;</span>),
 }
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>RustcEncodable</span>, <span class='ident'>RustcDecodable</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>, <span class='ident'>Hash</span>, <span class='ident'>Debug</span>, <span class='ident'>Copy</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>UnconstrainedNumeric</span> {
-    <span class='ident'>UnconstrainedFloat</span>,
-    <span class='ident'>UnconstrainedInt</span>,
-    <span class='ident'>Neither</span>,
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">RustcEncodable</span>, <span class="ident">RustcDecodable</span>, <span class="ident">PartialEq</span>, <span class="ident">Eq</span>, <span class="ident">Hash</span>, <span class="ident">Debug</span>, <span class="ident">Copy</span>)]</span>
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">UnconstrainedNumeric</span> {
+    <span class="ident">UnconstrainedFloat</span>,
+    <span class="ident">UnconstrainedInt</span>,
+    <span class="ident">Neither</span>,
 }
 
-<span class='doccomment'>/// Explains the source of a type err in a short, human readable way. This is meant to be placed</span>
-<span class='doccomment'>/// in parentheses after some larger message. You should also invoke `note_and_explain_type_err()`</span>
-<span class='doccomment'>/// afterwards to present additional details, particularly when it comes to lifetime-related</span>
-<span class='doccomment'>/// errors.</span>
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>fmt</span>::<span class='ident'>Display</span> <span class='kw'>for</span> <span class='ident'>TypeError</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>fmt</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>f</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>fmt</span>::<span class='ident'>Formatter</span>) <span class='op'>-&gt;</span> <span class='ident'>fmt</span>::<span class='prelude-ty'>Result</span> {
-        <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>TypeError</span>::<span class='kw-2'>*</span>;
-        <span class='kw'>fn</span> <span class='ident'>report_maybe_different</span>(<span class='ident'>f</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>fmt</span>::<span class='ident'>Formatter</span>,
-                                  <span class='ident'>expected</span>: <span class='ident'>String</span>, <span class='ident'>found</span>: <span class='ident'>String</span>) <span class='op'>-&gt;</span> <span class='ident'>fmt</span>::<span class='prelude-ty'>Result</span> {
-            <span class='comment'>// A naive approach to making sure that we&#39;re not reporting silly errors such as:</span>
-            <span class='comment'>// (expected closure, found closure).</span>
-            <span class='kw'>if</span> <span class='ident'>expected</span> <span class='op'>==</span> <span class='ident'>found</span> {
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;expected {}, found a different {}&quot;</span>, <span class='ident'>expected</span>, <span class='ident'>found</span>)
-            } <span class='kw'>else</span> {
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;expected {}, found {}&quot;</span>, <span class='ident'>expected</span>, <span class='ident'>found</span>)
+<span class="doccomment">/// Explains the source of a type err in a short, human readable way. This is meant to be placed</span>
+<span class="doccomment">/// in parentheses after some larger message. You should also invoke `note_and_explain_type_err()`</span>
+<span class="doccomment">/// afterwards to present additional details, particularly when it comes to lifetime-related</span>
+<span class="doccomment">/// errors.</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">fmt</span>::<span class="ident">Display</span> <span class="kw">for</span> <span class="ident">TypeError</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">fmt</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">f</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">fmt</span>::<span class="ident">Formatter</span>) <span class="op">-&gt;</span> <span class="ident">fmt</span>::<span class="prelude-ty">Result</span> {
+        <span class="kw">use</span> <span class="self">self</span>::<span class="ident">TypeError</span>::<span class="kw-2">*</span>;
+        <span class="kw">fn</span> <span class="ident">report_maybe_different</span>(<span class="ident">f</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">fmt</span>::<span class="ident">Formatter</span>,
+                                  <span class="ident">expected</span>: <span class="ident">String</span>, <span class="ident">found</span>: <span class="ident">String</span>) <span class="op">-&gt;</span> <span class="ident">fmt</span>::<span class="prelude-ty">Result</span> {
+            <span class="comment">// A naive approach to making sure that we&#39;re not reporting silly errors such as:</span>
+            <span class="comment">// (expected closure, found closure).</span>
+            <span class="kw">if</span> <span class="ident">expected</span> <span class="op">==</span> <span class="ident">found</span> {
+                <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;expected {}, found a different {}&quot;</span>, <span class="ident">expected</span>, <span class="ident">found</span>)
+            } <span class="kw">else</span> {
+                <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;expected {}, found {}&quot;</span>, <span class="ident">expected</span>, <span class="ident">found</span>)
             }
         }
 
-        <span class='kw'>match</span> <span class='kw-2'>*</span><span class='self'>self</span> {
-            <span class='ident'>CyclicTy</span> <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;cyclic type of infinite size&quot;</span>),
-            <span class='ident'>Mismatch</span> <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;types differ&quot;</span>),
-            <span class='ident'>UnsafetyMismatch</span>(<span class='ident'>values</span>) <span class='op'>=&gt;</span> {
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;expected {} fn, found {} fn&quot;</span>,
-                       <span class='ident'>values</span>.<span class='ident'>expected</span>,
-                       <span class='ident'>values</span>.<span class='ident'>found</span>)
+        <span class="kw">match</span> <span class="kw-2">*</span><span class="self">self</span> {
+            <span class="ident">CyclicTy</span> <span class="op">=&gt;</span> <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;cyclic type of infinite size&quot;</span>),
+            <span class="ident">Mismatch</span> <span class="op">=&gt;</span> <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;types differ&quot;</span>),
+            <span class="ident">UnsafetyMismatch</span>(<span class="ident">values</span>) <span class="op">=&gt;</span> {
+                <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;expected {} fn, found {} fn&quot;</span>,
+                       <span class="ident">values</span>.<span class="ident">expected</span>,
+                       <span class="ident">values</span>.<span class="ident">found</span>)
             }
-            <span class='ident'>AbiMismatch</span>(<span class='ident'>values</span>) <span class='op'>=&gt;</span> {
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;expected {} fn, found {} fn&quot;</span>,
-                       <span class='ident'>values</span>.<span class='ident'>expected</span>,
-                       <span class='ident'>values</span>.<span class='ident'>found</span>)
+            <span class="ident">AbiMismatch</span>(<span class="ident">values</span>) <span class="op">=&gt;</span> {
+                <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;expected {} fn, found {} fn&quot;</span>,
+                       <span class="ident">values</span>.<span class="ident">expected</span>,
+                       <span class="ident">values</span>.<span class="ident">found</span>)
             }
-            <span class='ident'>Mutability</span> <span class='op'>=&gt;</span> <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;types differ in mutability&quot;</span>),
-            <span class='ident'>FixedArraySize</span>(<span class='ident'>values</span>) <span class='op'>=&gt;</span> {
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;expected an array with a fixed size of {} elements, \
+            <span class="ident">Mutability</span> <span class="op">=&gt;</span> <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;types differ in mutability&quot;</span>),
+            <span class="ident">FixedArraySize</span>(<span class="ident">values</span>) <span class="op">=&gt;</span> {
+                <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;expected an array with a fixed size of {} elements, \
                            found one with {} elements&quot;</span>,
-                       <span class='ident'>values</span>.<span class='ident'>expected</span>,
-                       <span class='ident'>values</span>.<span class='ident'>found</span>)
+                       <span class="ident">values</span>.<span class="ident">expected</span>,
+                       <span class="ident">values</span>.<span class="ident">found</span>)
             }
-            <span class='ident'>TupleSize</span>(<span class='ident'>values</span>) <span class='op'>=&gt;</span> {
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;expected a tuple with {} elements, \
+            <span class="ident">TupleSize</span>(<span class="ident">values</span>) <span class="op">=&gt;</span> {
+                <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;expected a tuple with {} elements, \
                            found one with {} elements&quot;</span>,
-                       <span class='ident'>values</span>.<span class='ident'>expected</span>,
-                       <span class='ident'>values</span>.<span class='ident'>found</span>)
+                       <span class="ident">values</span>.<span class="ident">expected</span>,
+                       <span class="ident">values</span>.<span class="ident">found</span>)
             }
-            <span class='ident'>ArgCount</span> <span class='op'>=&gt;</span> {
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;incorrect number of function parameters&quot;</span>)
+            <span class="ident">ArgCount</span> <span class="op">=&gt;</span> {
+                <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;incorrect number of function parameters&quot;</span>)
             }
-            <span class='ident'>RegionsDoesNotOutlive</span>(..) <span class='op'>=&gt;</span> {
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;lifetime mismatch&quot;</span>)
+            <span class="ident">RegionsDoesNotOutlive</span>(..) <span class="op">=&gt;</span> {
+                <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;lifetime mismatch&quot;</span>)
             }
-            <span class='ident'>RegionsNotSame</span>(..) <span class='op'>=&gt;</span> {
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;lifetimes are not the same&quot;</span>)
+            <span class="ident">RegionsNotSame</span>(..) <span class="op">=&gt;</span> {
+                <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;lifetimes are not the same&quot;</span>)
             }
-            <span class='ident'>RegionsNoOverlap</span>(..) <span class='op'>=&gt;</span> {
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;lifetimes do not intersect&quot;</span>)
+            <span class="ident">RegionsNoOverlap</span>(..) <span class="op">=&gt;</span> {
+                <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;lifetimes do not intersect&quot;</span>)
             }
-            <span class='ident'>RegionsInsufficientlyPolymorphic</span>(<span class='ident'>br</span>, _) <span class='op'>=&gt;</span> {
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;expected bound lifetime parameter {}, \
-                           found concrete lifetime&quot;</span>, <span class='ident'>br</span>)
+            <span class="ident">RegionsInsufficientlyPolymorphic</span>(<span class="ident">br</span>, _) <span class="op">=&gt;</span> {
+                <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;expected bound lifetime parameter {}, \
+                           found concrete lifetime&quot;</span>, <span class="ident">br</span>)
             }
-            <span class='ident'>RegionsOverlyPolymorphic</span>(<span class='ident'>br</span>, _) <span class='op'>=&gt;</span> {
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;expected concrete lifetime, \
-                           found bound lifetime parameter {}&quot;</span>, <span class='ident'>br</span>)
+            <span class="ident">RegionsOverlyPolymorphic</span>(<span class="ident">br</span>, _) <span class="op">=&gt;</span> {
+                <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;expected concrete lifetime, \
+                           found bound lifetime parameter {}&quot;</span>, <span class="ident">br</span>)
             }
-            <span class='ident'>Sorts</span>(<span class='ident'>values</span>) <span class='op'>=&gt;</span> <span class='ident'>ty</span>::<span class='ident'>tls</span>::<span class='ident'>with</span>(<span class='op'>|</span><span class='ident'>tcx</span><span class='op'>|</span> {
-                <span class='ident'>report_maybe_different</span>(<span class='ident'>f</span>, <span class='ident'>values</span>.<span class='ident'>expected</span>.<span class='ident'>sort_string</span>(<span class='ident'>tcx</span>),
-                                       <span class='ident'>values</span>.<span class='ident'>found</span>.<span class='ident'>sort_string</span>(<span class='ident'>tcx</span>))
+            <span class="ident">Sorts</span>(<span class="ident">values</span>) <span class="op">=&gt;</span> <span class="ident">ty</span>::<span class="ident">tls</span>::<span class="ident">with</span>(<span class="op">|</span><span class="ident">tcx</span><span class="op">|</span> {
+                <span class="ident">report_maybe_different</span>(<span class="ident">f</span>, <span class="ident">values</span>.<span class="ident">expected</span>.<span class="ident">sort_string</span>(<span class="ident">tcx</span>),
+                                       <span class="ident">values</span>.<span class="ident">found</span>.<span class="ident">sort_string</span>(<span class="ident">tcx</span>))
             }),
-            <span class='ident'>Traits</span>(<span class='ident'>values</span>) <span class='op'>=&gt;</span> <span class='ident'>ty</span>::<span class='ident'>tls</span>::<span class='ident'>with</span>(<span class='op'>|</span><span class='ident'>tcx</span><span class='op'>|</span> {
-                <span class='ident'>report_maybe_different</span>(<span class='ident'>f</span>,
-                                       <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;trait `{}`&quot;</span>,
-                                               <span class='ident'>tcx</span>.<span class='ident'>item_path_str</span>(<span class='ident'>values</span>.<span class='ident'>expected</span>)),
-                                       <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;trait `{}`&quot;</span>,
-                                               <span class='ident'>tcx</span>.<span class='ident'>item_path_str</span>(<span class='ident'>values</span>.<span class='ident'>found</span>)))
+            <span class="ident">Traits</span>(<span class="ident">values</span>) <span class="op">=&gt;</span> <span class="ident">ty</span>::<span class="ident">tls</span>::<span class="ident">with</span>(<span class="op">|</span><span class="ident">tcx</span><span class="op">|</span> {
+                <span class="ident">report_maybe_different</span>(<span class="ident">f</span>,
+                                       <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;trait `{}`&quot;</span>,
+                                               <span class="ident">tcx</span>.<span class="ident">item_path_str</span>(<span class="ident">values</span>.<span class="ident">expected</span>)),
+                                       <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;trait `{}`&quot;</span>,
+                                               <span class="ident">tcx</span>.<span class="ident">item_path_str</span>(<span class="ident">values</span>.<span class="ident">found</span>)))
             }),
-            <span class='ident'>IntMismatch</span>(<span class='kw-2'>ref</span> <span class='ident'>values</span>) <span class='op'>=&gt;</span> {
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;expected `{:?}`, found `{:?}`&quot;</span>,
-                       <span class='ident'>values</span>.<span class='ident'>expected</span>,
-                       <span class='ident'>values</span>.<span class='ident'>found</span>)
+            <span class="ident">IntMismatch</span>(<span class="kw-2">ref</span> <span class="ident">values</span>) <span class="op">=&gt;</span> {
+                <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;expected `{:?}`, found `{:?}`&quot;</span>,
+                       <span class="ident">values</span>.<span class="ident">expected</span>,
+                       <span class="ident">values</span>.<span class="ident">found</span>)
             }
-            <span class='ident'>FloatMismatch</span>(<span class='kw-2'>ref</span> <span class='ident'>values</span>) <span class='op'>=&gt;</span> {
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;expected `{:?}`, found `{:?}`&quot;</span>,
-                       <span class='ident'>values</span>.<span class='ident'>expected</span>,
-                       <span class='ident'>values</span>.<span class='ident'>found</span>)
+            <span class="ident">FloatMismatch</span>(<span class="kw-2">ref</span> <span class="ident">values</span>) <span class="op">=&gt;</span> {
+                <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;expected `{:?}`, found `{:?}`&quot;</span>,
+                       <span class="ident">values</span>.<span class="ident">expected</span>,
+                       <span class="ident">values</span>.<span class="ident">found</span>)
             }
-            <span class='ident'>VariadicMismatch</span>(<span class='kw-2'>ref</span> <span class='ident'>values</span>) <span class='op'>=&gt;</span> {
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;expected {} fn, found {} function&quot;</span>,
-                       <span class='kw'>if</span> <span class='ident'>values</span>.<span class='ident'>expected</span> { <span class='string'>&quot;variadic&quot;</span> } <span class='kw'>else</span> { <span class='string'>&quot;non-variadic&quot;</span> },
-                       <span class='kw'>if</span> <span class='ident'>values</span>.<span class='ident'>found</span> { <span class='string'>&quot;variadic&quot;</span> } <span class='kw'>else</span> { <span class='string'>&quot;non-variadic&quot;</span> })
+            <span class="ident">VariadicMismatch</span>(<span class="kw-2">ref</span> <span class="ident">values</span>) <span class="op">=&gt;</span> {
+                <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;expected {} fn, found {} function&quot;</span>,
+                       <span class="kw">if</span> <span class="ident">values</span>.<span class="ident">expected</span> { <span class="string">&quot;variadic&quot;</span> } <span class="kw">else</span> { <span class="string">&quot;non-variadic&quot;</span> },
+                       <span class="kw">if</span> <span class="ident">values</span>.<span class="ident">found</span> { <span class="string">&quot;variadic&quot;</span> } <span class="kw">else</span> { <span class="string">&quot;non-variadic&quot;</span> })
             }
-            <span class='ident'>ProjectionNameMismatched</span>(<span class='kw-2'>ref</span> <span class='ident'>values</span>) <span class='op'>=&gt;</span> {
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;expected {}, found {}&quot;</span>,
-                       <span class='ident'>values</span>.<span class='ident'>expected</span>,
-                       <span class='ident'>values</span>.<span class='ident'>found</span>)
+            <span class="ident">ProjectionNameMismatched</span>(<span class="kw-2">ref</span> <span class="ident">values</span>) <span class="op">=&gt;</span> {
+                <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;expected {}, found {}&quot;</span>,
+                       <span class="ident">values</span>.<span class="ident">expected</span>,
+                       <span class="ident">values</span>.<span class="ident">found</span>)
             }
-            <span class='ident'>ProjectionBoundsLength</span>(<span class='kw-2'>ref</span> <span class='ident'>values</span>) <span class='op'>=&gt;</span> {
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;expected {} associated type bindings, found {}&quot;</span>,
-                       <span class='ident'>values</span>.<span class='ident'>expected</span>,
-                       <span class='ident'>values</span>.<span class='ident'>found</span>)
+            <span class="ident">ProjectionBoundsLength</span>(<span class="kw-2">ref</span> <span class="ident">values</span>) <span class="op">=&gt;</span> {
+                <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;expected {} associated type bindings, found {}&quot;</span>,
+                       <span class="ident">values</span>.<span class="ident">expected</span>,
+                       <span class="ident">values</span>.<span class="ident">found</span>)
             },
-            <span class='ident'>TyParamDefaultMismatch</span>(<span class='kw-2'>ref</span> <span class='ident'>values</span>) <span class='op'>=&gt;</span> {
-                <span class='macro'>write</span><span class='macro'>!</span>(<span class='ident'>f</span>, <span class='string'>&quot;conflicting type parameter defaults `{}` and `{}`&quot;</span>,
-                       <span class='ident'>values</span>.<span class='ident'>expected</span>.<span class='ident'>ty</span>,
-                       <span class='ident'>values</span>.<span class='ident'>found</span>.<span class='ident'>ty</span>)
+            <span class="ident">TyParamDefaultMismatch</span>(<span class="kw-2">ref</span> <span class="ident">values</span>) <span class="op">=&gt;</span> {
+                <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;conflicting type parameter defaults `{}` and `{}`&quot;</span>,
+                       <span class="ident">values</span>.<span class="ident">expected</span>.<span class="ident">ty</span>,
+                       <span class="ident">values</span>.<span class="ident">found</span>.<span class="ident">ty</span>)
             }
-            <span class='ident'>ExistentialMismatch</span>(<span class='kw-2'>ref</span> <span class='ident'>values</span>) <span class='op'>=&gt;</span> {
-                <span class='ident'>report_maybe_different</span>(<span class='ident'>f</span>, <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;trait `{}`&quot;</span>, <span class='ident'>values</span>.<span class='ident'>expected</span>),
-                                       <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;trait `{}`&quot;</span>, <span class='ident'>values</span>.<span class='ident'>found</span>))
+            <span class="ident">ExistentialMismatch</span>(<span class="kw-2">ref</span> <span class="ident">values</span>) <span class="op">=&gt;</span> {
+                <span class="ident">report_maybe_different</span>(<span class="ident">f</span>, <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;trait `{}`&quot;</span>, <span class="ident">values</span>.<span class="ident">expected</span>),
+                                       <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;trait `{}`&quot;</span>, <span class="ident">values</span>.<span class="ident">found</span>))
             }
         }
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;lcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>ty</span>::<span class='ident'>TyS</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>sort_string</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;lcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>String</span> {
-        <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>sty</span> {
-            <span class='ident'>ty</span>::<span class='ident'>TyBool</span> <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyChar</span> <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyInt</span>(_) <span class='op'>|</span>
-            <span class='ident'>ty</span>::<span class='ident'>TyUint</span>(_) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyFloat</span>(_) <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyStr</span> <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>TyNever</span> <span class='op'>=&gt;</span> <span class='self'>self</span>.<span class='ident'>to_string</span>(),
-            <span class='ident'>ty</span>::<span class='ident'>TyTuple</span>(<span class='kw-2'>ref</span> <span class='ident'>tys</span>, _) <span class='kw'>if</span> <span class='ident'>tys</span>.<span class='ident'>is_empty</span>() <span class='op'>=&gt;</span> <span class='self'>self</span>.<span class='ident'>to_string</span>(),
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;lcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">ty</span>::<span class="ident">TyS</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">sort_string</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;lcx</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">String</span> {
+        <span class="kw">match</span> <span class="self">self</span>.<span class="ident">sty</span> {
+            <span class="ident">ty</span>::<span class="ident">TyBool</span> <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">TyChar</span> <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">TyInt</span>(_) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyUint</span>(_) <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">TyFloat</span>(_) <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">TyStr</span> <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">TyNever</span> <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">to_string</span>(),
+            <span class="ident">ty</span>::<span class="ident">TyTuple</span>(<span class="kw-2">ref</span> <span class="ident">tys</span>, _) <span class="kw">if</span> <span class="ident">tys</span>.<span class="ident">is_empty</span>() <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">to_string</span>(),
 
-            <span class='ident'>ty</span>::<span class='ident'>TyAdt</span>(<span class='ident'>def</span>, _) <span class='op'>=&gt;</span> <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;{} `{}`&quot;</span>, <span class='ident'>def</span>.<span class='ident'>descr</span>(), <span class='ident'>tcx</span>.<span class='ident'>item_path_str</span>(<span class='ident'>def</span>.<span class='ident'>did</span>)),
-            <span class='ident'>ty</span>::<span class='ident'>TyArray</span>(_, <span class='ident'>n</span>) <span class='op'>=&gt;</span> <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;array of {} elements&quot;</span>, <span class='ident'>n</span>),
-            <span class='ident'>ty</span>::<span class='ident'>TySlice</span>(_) <span class='op'>=&gt;</span> <span class='string'>&quot;slice&quot;</span>.<span class='ident'>to_string</span>(),
-            <span class='ident'>ty</span>::<span class='ident'>TyRawPtr</span>(_) <span class='op'>=&gt;</span> <span class='string'>&quot;*-ptr&quot;</span>.<span class='ident'>to_string</span>(),
-            <span class='ident'>ty</span>::<span class='ident'>TyRef</span>(<span class='ident'>region</span>, <span class='ident'>tymut</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>let</span> <span class='ident'>tymut_string</span> <span class='op'>=</span> <span class='ident'>tymut</span>.<span class='ident'>to_string</span>();
-                <span class='kw'>if</span> <span class='ident'>tymut_string</span> <span class='op'>==</span> <span class='string'>&quot;_&quot;</span> <span class='op'>||</span>         <span class='comment'>//unknown type name,</span>
-                   <span class='ident'>tymut_string</span>.<span class='ident'>len</span>() <span class='op'>&gt;</span> <span class='number'>10</span> <span class='op'>||</span>     <span class='comment'>//name longer than saying &quot;reference&quot;,</span>
-                   <span class='ident'>region</span>.<span class='ident'>to_string</span>() <span class='op'>!=</span> <span class='string'>&quot;&quot;</span>       <span class='comment'>//... or a complex type</span>
+            <span class="ident">ty</span>::<span class="ident">TyAdt</span>(<span class="ident">def</span>, _) <span class="op">=&gt;</span> <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;{} `{}`&quot;</span>, <span class="ident">def</span>.<span class="ident">descr</span>(), <span class="ident">tcx</span>.<span class="ident">item_path_str</span>(<span class="ident">def</span>.<span class="ident">did</span>)),
+            <span class="ident">ty</span>::<span class="ident">TyArray</span>(_, <span class="ident">n</span>) <span class="op">=&gt;</span> <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;array of {} elements&quot;</span>, <span class="ident">n</span>),
+            <span class="ident">ty</span>::<span class="ident">TySlice</span>(_) <span class="op">=&gt;</span> <span class="string">&quot;slice&quot;</span>.<span class="ident">to_string</span>(),
+            <span class="ident">ty</span>::<span class="ident">TyRawPtr</span>(_) <span class="op">=&gt;</span> <span class="string">&quot;*-ptr&quot;</span>.<span class="ident">to_string</span>(),
+            <span class="ident">ty</span>::<span class="ident">TyRef</span>(<span class="ident">region</span>, <span class="ident">tymut</span>) <span class="op">=&gt;</span> {
+                <span class="kw">let</span> <span class="ident">tymut_string</span> <span class="op">=</span> <span class="ident">tymut</span>.<span class="ident">to_string</span>();
+                <span class="kw">if</span> <span class="ident">tymut_string</span> <span class="op">==</span> <span class="string">&quot;_&quot;</span> <span class="op">||</span>         <span class="comment">//unknown type name,</span>
+                   <span class="ident">tymut_string</span>.<span class="ident">len</span>() <span class="op">&gt;</span> <span class="number">10</span> <span class="op">||</span>     <span class="comment">//name longer than saying &quot;reference&quot;,</span>
+                   <span class="ident">region</span>.<span class="ident">to_string</span>() <span class="op">!=</span> <span class="string">&quot;&quot;</span>       <span class="comment">//... or a complex type</span>
                 {
-                    <span class='kw'>match</span> <span class='ident'>tymut</span> {
-                        <span class='ident'>ty</span>::<span class='ident'>TypeAndMut</span>{<span class='ident'>mutbl</span>, ..} <span class='op'>=&gt;</span> {
-                            <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;{}reference&quot;</span>, <span class='kw'>match</span> <span class='ident'>mutbl</span> {
-                                <span class='ident'>hir</span>::<span class='ident'>Mutability</span>::<span class='ident'>MutMutable</span> <span class='op'>=&gt;</span> <span class='string'>&quot;mutable &quot;</span>,
-                                _ <span class='op'>=&gt;</span> <span class='string'>&quot;&quot;</span>
+                    <span class="kw">match</span> <span class="ident">tymut</span> {
+                        <span class="ident">ty</span>::<span class="ident">TypeAndMut</span>{<span class="ident">mutbl</span>, ..} <span class="op">=&gt;</span> {
+                            <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;{}reference&quot;</span>, <span class="kw">match</span> <span class="ident">mutbl</span> {
+                                <span class="ident">hir</span>::<span class="ident">Mutability</span>::<span class="ident">MutMutable</span> <span class="op">=&gt;</span> <span class="string">&quot;mutable &quot;</span>,
+                                _ <span class="op">=&gt;</span> <span class="string">&quot;&quot;</span>
                             })
                         }
                     }
-                } <span class='kw'>else</span> {
-                    <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;&amp;{}&quot;</span>, <span class='ident'>tymut_string</span>)
+                } <span class="kw">else</span> {
+                    <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;&amp;{}&quot;</span>, <span class="ident">tymut_string</span>)
                 }
             }
-            <span class='ident'>ty</span>::<span class='ident'>TyFnDef</span>(..) <span class='op'>=&gt;</span> <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;fn item&quot;</span>),
-            <span class='ident'>ty</span>::<span class='ident'>TyFnPtr</span>(_) <span class='op'>=&gt;</span> <span class='string'>&quot;fn pointer&quot;</span>.<span class='ident'>to_string</span>(),
-            <span class='ident'>ty</span>::<span class='ident'>TyDynamic</span>(<span class='kw-2'>ref</span> <span class='ident'>inner</span>, ..) <span class='op'>=&gt;</span> {
-                <span class='ident'>inner</span>.<span class='ident'>principal</span>().<span class='ident'>map_or_else</span>(<span class='op'>||</span> <span class='string'>&quot;trait&quot;</span>.<span class='ident'>to_string</span>(),
-                    <span class='op'>|</span><span class='ident'>p</span><span class='op'>|</span> <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;trait {}&quot;</span>, <span class='ident'>tcx</span>.<span class='ident'>item_path_str</span>(<span class='ident'>p</span>.<span class='ident'>def_id</span>())))
+            <span class="ident">ty</span>::<span class="ident">TyFnDef</span>(..) <span class="op">=&gt;</span> <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;fn item&quot;</span>),
+            <span class="ident">ty</span>::<span class="ident">TyFnPtr</span>(_) <span class="op">=&gt;</span> <span class="string">&quot;fn pointer&quot;</span>.<span class="ident">to_string</span>(),
+            <span class="ident">ty</span>::<span class="ident">TyDynamic</span>(<span class="kw-2">ref</span> <span class="ident">inner</span>, ..) <span class="op">=&gt;</span> {
+                <span class="ident">inner</span>.<span class="ident">principal</span>().<span class="ident">map_or_else</span>(<span class="op">||</span> <span class="string">&quot;trait&quot;</span>.<span class="ident">to_string</span>(),
+                    <span class="op">|</span><span class="ident">p</span><span class="op">|</span> <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;trait {}&quot;</span>, <span class="ident">tcx</span>.<span class="ident">item_path_str</span>(<span class="ident">p</span>.<span class="ident">def_id</span>())))
             }
-            <span class='ident'>ty</span>::<span class='ident'>TyClosure</span>(..) <span class='op'>=&gt;</span> <span class='string'>&quot;closure&quot;</span>.<span class='ident'>to_string</span>(),
-            <span class='ident'>ty</span>::<span class='ident'>TyTuple</span>(..) <span class='op'>=&gt;</span> <span class='string'>&quot;tuple&quot;</span>.<span class='ident'>to_string</span>(),
-            <span class='ident'>ty</span>::<span class='ident'>TyInfer</span>(<span class='ident'>ty</span>::<span class='ident'>TyVar</span>(_)) <span class='op'>=&gt;</span> <span class='string'>&quot;inferred type&quot;</span>.<span class='ident'>to_string</span>(),
-            <span class='ident'>ty</span>::<span class='ident'>TyInfer</span>(<span class='ident'>ty</span>::<span class='ident'>IntVar</span>(_)) <span class='op'>=&gt;</span> <span class='string'>&quot;integral variable&quot;</span>.<span class='ident'>to_string</span>(),
-            <span class='ident'>ty</span>::<span class='ident'>TyInfer</span>(<span class='ident'>ty</span>::<span class='ident'>FloatVar</span>(_)) <span class='op'>=&gt;</span> <span class='string'>&quot;floating-point variable&quot;</span>.<span class='ident'>to_string</span>(),
-            <span class='ident'>ty</span>::<span class='ident'>TyInfer</span>(<span class='ident'>ty</span>::<span class='ident'>FreshTy</span>(_)) <span class='op'>=&gt;</span> <span class='string'>&quot;skolemized type&quot;</span>.<span class='ident'>to_string</span>(),
-            <span class='ident'>ty</span>::<span class='ident'>TyInfer</span>(<span class='ident'>ty</span>::<span class='ident'>FreshIntTy</span>(_)) <span class='op'>=&gt;</span> <span class='string'>&quot;skolemized integral type&quot;</span>.<span class='ident'>to_string</span>(),
-            <span class='ident'>ty</span>::<span class='ident'>TyInfer</span>(<span class='ident'>ty</span>::<span class='ident'>FreshFloatTy</span>(_)) <span class='op'>=&gt;</span> <span class='string'>&quot;skolemized floating-point type&quot;</span>.<span class='ident'>to_string</span>(),
-            <span class='ident'>ty</span>::<span class='ident'>TyProjection</span>(_) <span class='op'>=&gt;</span> <span class='string'>&quot;associated type&quot;</span>.<span class='ident'>to_string</span>(),
-            <span class='ident'>ty</span>::<span class='ident'>TyParam</span>(<span class='kw-2'>ref</span> <span class='ident'>p</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>if</span> <span class='ident'>p</span>.<span class='ident'>is_self</span>() {
-                    <span class='string'>&quot;Self&quot;</span>.<span class='ident'>to_string</span>()
-                } <span class='kw'>else</span> {
-                    <span class='string'>&quot;type parameter&quot;</span>.<span class='ident'>to_string</span>()
+            <span class="ident">ty</span>::<span class="ident">TyClosure</span>(..) <span class="op">=&gt;</span> <span class="string">&quot;closure&quot;</span>.<span class="ident">to_string</span>(),
+            <span class="ident">ty</span>::<span class="ident">TyTuple</span>(..) <span class="op">=&gt;</span> <span class="string">&quot;tuple&quot;</span>.<span class="ident">to_string</span>(),
+            <span class="ident">ty</span>::<span class="ident">TyInfer</span>(<span class="ident">ty</span>::<span class="ident">TyVar</span>(_)) <span class="op">=&gt;</span> <span class="string">&quot;inferred type&quot;</span>.<span class="ident">to_string</span>(),
+            <span class="ident">ty</span>::<span class="ident">TyInfer</span>(<span class="ident">ty</span>::<span class="ident">IntVar</span>(_)) <span class="op">=&gt;</span> <span class="string">&quot;integral variable&quot;</span>.<span class="ident">to_string</span>(),
+            <span class="ident">ty</span>::<span class="ident">TyInfer</span>(<span class="ident">ty</span>::<span class="ident">FloatVar</span>(_)) <span class="op">=&gt;</span> <span class="string">&quot;floating-point variable&quot;</span>.<span class="ident">to_string</span>(),
+            <span class="ident">ty</span>::<span class="ident">TyInfer</span>(<span class="ident">ty</span>::<span class="ident">FreshTy</span>(_)) <span class="op">=&gt;</span> <span class="string">&quot;skolemized type&quot;</span>.<span class="ident">to_string</span>(),
+            <span class="ident">ty</span>::<span class="ident">TyInfer</span>(<span class="ident">ty</span>::<span class="ident">FreshIntTy</span>(_)) <span class="op">=&gt;</span> <span class="string">&quot;skolemized integral type&quot;</span>.<span class="ident">to_string</span>(),
+            <span class="ident">ty</span>::<span class="ident">TyInfer</span>(<span class="ident">ty</span>::<span class="ident">FreshFloatTy</span>(_)) <span class="op">=&gt;</span> <span class="string">&quot;skolemized floating-point type&quot;</span>.<span class="ident">to_string</span>(),
+            <span class="ident">ty</span>::<span class="ident">TyProjection</span>(_) <span class="op">=&gt;</span> <span class="string">&quot;associated type&quot;</span>.<span class="ident">to_string</span>(),
+            <span class="ident">ty</span>::<span class="ident">TyParam</span>(<span class="kw-2">ref</span> <span class="ident">p</span>) <span class="op">=&gt;</span> {
+                <span class="kw">if</span> <span class="ident">p</span>.<span class="ident">is_self</span>() {
+                    <span class="string">&quot;Self&quot;</span>.<span class="ident">to_string</span>()
+                } <span class="kw">else</span> {
+                    <span class="string">&quot;type parameter&quot;</span>.<span class="ident">to_string</span>()
                 }
             }
-            <span class='ident'>ty</span>::<span class='ident'>TyAnon</span>(..) <span class='op'>=&gt;</span> <span class='string'>&quot;anonymized type&quot;</span>.<span class='ident'>to_string</span>(),
-            <span class='ident'>ty</span>::<span class='ident'>TyError</span> <span class='op'>=&gt;</span> <span class='string'>&quot;type error&quot;</span>.<span class='ident'>to_string</span>(),
+            <span class="ident">ty</span>::<span class="ident">TyAnon</span>(..) <span class="op">=&gt;</span> <span class="string">&quot;anonymized type&quot;</span>.<span class="ident">to_string</span>(),
+            <span class="ident">ty</span>::<span class="ident">TyError</span> <span class="op">=&gt;</span> <span class="string">&quot;type error&quot;</span>.<span class="ident">to_string</span>(),
         }
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>note_and_explain_type_err</span>(<span class='self'>self</span>,
-                                     <span class='ident'>db</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>DiagnosticBuilder</span>,
-                                     <span class='ident'>err</span>: <span class='kw-2'>&amp;</span><span class='ident'>TypeError</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                     <span class='ident'>sp</span>: <span class='ident'>Span</span>) {
-        <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>TypeError</span>::<span class='kw-2'>*</span>;
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">note_and_explain_type_err</span>(<span class="self">self</span>,
+                                     <span class="ident">db</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">DiagnosticBuilder</span>,
+                                     <span class="ident">err</span>: <span class="kw-2">&amp;</span><span class="ident">TypeError</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                     <span class="ident">sp</span>: <span class="ident">Span</span>) {
+        <span class="kw">use</span> <span class="self">self</span>::<span class="ident">TypeError</span>::<span class="kw-2">*</span>;
 
-        <span class='kw'>match</span> <span class='ident'>err</span>.<span class='ident'>clone</span>() {
-            <span class='ident'>RegionsDoesNotOutlive</span>(<span class='ident'>subregion</span>, <span class='ident'>superregion</span>) <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>note_and_explain_region</span>(<span class='ident'>db</span>, <span class='string'>&quot;&quot;</span>, <span class='ident'>subregion</span>, <span class='string'>&quot;...&quot;</span>);
-                <span class='self'>self</span>.<span class='ident'>note_and_explain_region</span>(<span class='ident'>db</span>, <span class='string'>&quot;...does not necessarily outlive &quot;</span>,
-                                           <span class='ident'>superregion</span>, <span class='string'>&quot;&quot;</span>);
+        <span class="kw">match</span> <span class="ident">err</span>.<span class="ident">clone</span>() {
+            <span class="ident">RegionsDoesNotOutlive</span>(<span class="ident">subregion</span>, <span class="ident">superregion</span>) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">note_and_explain_region</span>(<span class="ident">db</span>, <span class="string">&quot;&quot;</span>, <span class="ident">subregion</span>, <span class="string">&quot;...&quot;</span>);
+                <span class="self">self</span>.<span class="ident">note_and_explain_region</span>(<span class="ident">db</span>, <span class="string">&quot;...does not necessarily outlive &quot;</span>,
+                                           <span class="ident">superregion</span>, <span class="string">&quot;&quot;</span>);
             }
-            <span class='ident'>RegionsNotSame</span>(<span class='ident'>region1</span>, <span class='ident'>region2</span>) <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>note_and_explain_region</span>(<span class='ident'>db</span>, <span class='string'>&quot;&quot;</span>, <span class='ident'>region1</span>, <span class='string'>&quot;...&quot;</span>);
-                <span class='self'>self</span>.<span class='ident'>note_and_explain_region</span>(<span class='ident'>db</span>, <span class='string'>&quot;...is not the same lifetime as &quot;</span>,
-                                           <span class='ident'>region2</span>, <span class='string'>&quot;&quot;</span>);
+            <span class="ident">RegionsNotSame</span>(<span class="ident">region1</span>, <span class="ident">region2</span>) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">note_and_explain_region</span>(<span class="ident">db</span>, <span class="string">&quot;&quot;</span>, <span class="ident">region1</span>, <span class="string">&quot;...&quot;</span>);
+                <span class="self">self</span>.<span class="ident">note_and_explain_region</span>(<span class="ident">db</span>, <span class="string">&quot;...is not the same lifetime as &quot;</span>,
+                                           <span class="ident">region2</span>, <span class="string">&quot;&quot;</span>);
             }
-            <span class='ident'>RegionsNoOverlap</span>(<span class='ident'>region1</span>, <span class='ident'>region2</span>) <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>note_and_explain_region</span>(<span class='ident'>db</span>, <span class='string'>&quot;&quot;</span>, <span class='ident'>region1</span>, <span class='string'>&quot;...&quot;</span>);
-                <span class='self'>self</span>.<span class='ident'>note_and_explain_region</span>(<span class='ident'>db</span>, <span class='string'>&quot;...does not overlap &quot;</span>,
-                                           <span class='ident'>region2</span>, <span class='string'>&quot;&quot;</span>);
+            <span class="ident">RegionsNoOverlap</span>(<span class="ident">region1</span>, <span class="ident">region2</span>) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">note_and_explain_region</span>(<span class="ident">db</span>, <span class="string">&quot;&quot;</span>, <span class="ident">region1</span>, <span class="string">&quot;...&quot;</span>);
+                <span class="self">self</span>.<span class="ident">note_and_explain_region</span>(<span class="ident">db</span>, <span class="string">&quot;...does not overlap &quot;</span>,
+                                           <span class="ident">region2</span>, <span class="string">&quot;&quot;</span>);
             }
-            <span class='ident'>RegionsInsufficientlyPolymorphic</span>(_, <span class='ident'>conc_region</span>) <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>note_and_explain_region</span>(<span class='ident'>db</span>, <span class='string'>&quot;concrete lifetime that was found is &quot;</span>,
-                                           <span class='ident'>conc_region</span>, <span class='string'>&quot;&quot;</span>);
+            <span class="ident">RegionsInsufficientlyPolymorphic</span>(_, <span class="ident">conc_region</span>) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">note_and_explain_region</span>(<span class="ident">db</span>, <span class="string">&quot;concrete lifetime that was found is &quot;</span>,
+                                           <span class="ident">conc_region</span>, <span class="string">&quot;&quot;</span>);
             }
-            <span class='ident'>RegionsOverlyPolymorphic</span>(_, <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>ReVar</span>(_)) <span class='op'>=&gt;</span> {
-                <span class='comment'>// don&#39;t bother to print out the message below for</span>
-                <span class='comment'>// inference variables, it&#39;s not very illuminating.</span>
+            <span class="ident">RegionsOverlyPolymorphic</span>(_, <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">ReVar</span>(_)) <span class="op">=&gt;</span> {
+                <span class="comment">// don&#39;t bother to print out the message below for</span>
+                <span class="comment">// inference variables, it&#39;s not very illuminating.</span>
             }
-            <span class='ident'>RegionsOverlyPolymorphic</span>(_, <span class='ident'>conc_region</span>) <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>note_and_explain_region</span>(<span class='ident'>db</span>, <span class='string'>&quot;expected concrete lifetime is &quot;</span>,
-                                           <span class='ident'>conc_region</span>, <span class='string'>&quot;&quot;</span>);
+            <span class="ident">RegionsOverlyPolymorphic</span>(_, <span class="ident">conc_region</span>) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">note_and_explain_region</span>(<span class="ident">db</span>, <span class="string">&quot;expected concrete lifetime is &quot;</span>,
+                                           <span class="ident">conc_region</span>, <span class="string">&quot;&quot;</span>);
             }
-            <span class='ident'>Sorts</span>(<span class='ident'>values</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>let</span> <span class='ident'>expected_str</span> <span class='op'>=</span> <span class='ident'>values</span>.<span class='ident'>expected</span>.<span class='ident'>sort_string</span>(<span class='self'>self</span>);
-                <span class='kw'>let</span> <span class='ident'>found_str</span> <span class='op'>=</span> <span class='ident'>values</span>.<span class='ident'>found</span>.<span class='ident'>sort_string</span>(<span class='self'>self</span>);
-                <span class='kw'>if</span> <span class='ident'>expected_str</span> <span class='op'>==</span> <span class='ident'>found_str</span> <span class='op'>&amp;&amp;</span> <span class='ident'>expected_str</span> <span class='op'>==</span> <span class='string'>&quot;closure&quot;</span> {
-                    <span class='ident'>db</span>.<span class='ident'>span_note</span>(<span class='ident'>sp</span>,
-                        <span class='string'>&quot;no two closures, even if identical, have the same type&quot;</span>);
-                    <span class='ident'>db</span>.<span class='ident'>span_help</span>(<span class='ident'>sp</span>,
-                        <span class='string'>&quot;consider boxing your closure and/or using it as a trait object&quot;</span>);
+            <span class="ident">Sorts</span>(<span class="ident">values</span>) <span class="op">=&gt;</span> {
+                <span class="kw">let</span> <span class="ident">expected_str</span> <span class="op">=</span> <span class="ident">values</span>.<span class="ident">expected</span>.<span class="ident">sort_string</span>(<span class="self">self</span>);
+                <span class="kw">let</span> <span class="ident">found_str</span> <span class="op">=</span> <span class="ident">values</span>.<span class="ident">found</span>.<span class="ident">sort_string</span>(<span class="self">self</span>);
+                <span class="kw">if</span> <span class="ident">expected_str</span> <span class="op">==</span> <span class="ident">found_str</span> <span class="op">&amp;&amp;</span> <span class="ident">expected_str</span> <span class="op">==</span> <span class="string">&quot;closure&quot;</span> {
+                    <span class="ident">db</span>.<span class="ident">span_note</span>(<span class="ident">sp</span>,
+                        <span class="string">&quot;no two closures, even if identical, have the same type&quot;</span>);
+                    <span class="ident">db</span>.<span class="ident">span_help</span>(<span class="ident">sp</span>,
+                        <span class="string">&quot;consider boxing your closure and/or using it as a trait object&quot;</span>);
                 }
             },
-            <span class='ident'>TyParamDefaultMismatch</span>(<span class='ident'>values</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>let</span> <span class='ident'>expected</span> <span class='op'>=</span> <span class='ident'>values</span>.<span class='ident'>expected</span>;
-                <span class='kw'>let</span> <span class='ident'>found</span> <span class='op'>=</span> <span class='ident'>values</span>.<span class='ident'>found</span>;
-                <span class='ident'>db</span>.<span class='ident'>span_note</span>(<span class='ident'>sp</span>, <span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;conflicting type parameter defaults `{}` and `{}`&quot;</span>,
-                                          <span class='ident'>expected</span>.<span class='ident'>ty</span>,
-                                          <span class='ident'>found</span>.<span class='ident'>ty</span>));
+            <span class="ident">TyParamDefaultMismatch</span>(<span class="ident">values</span>) <span class="op">=&gt;</span> {
+                <span class="kw">let</span> <span class="ident">expected</span> <span class="op">=</span> <span class="ident">values</span>.<span class="ident">expected</span>;
+                <span class="kw">let</span> <span class="ident">found</span> <span class="op">=</span> <span class="ident">values</span>.<span class="ident">found</span>;
+                <span class="ident">db</span>.<span class="ident">span_note</span>(<span class="ident">sp</span>, <span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;conflicting type parameter defaults `{}` and `{}`&quot;</span>,
+                                          <span class="ident">expected</span>.<span class="ident">ty</span>,
+                                          <span class="ident">found</span>.<span class="ident">ty</span>));
 
-                <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>hir</span>.<span class='ident'>span_if_local</span>(<span class='ident'>expected</span>.<span class='ident'>def_id</span>) {
-                    <span class='prelude-val'>Some</span>(<span class='ident'>span</span>) <span class='op'>=&gt;</span> {
-                        <span class='ident'>db</span>.<span class='ident'>span_note</span>(<span class='ident'>span</span>, <span class='string'>&quot;a default was defined here...&quot;</span>);
+                <span class="kw">match</span> <span class="self">self</span>.<span class="ident">hir</span>.<span class="ident">span_if_local</span>(<span class="ident">expected</span>.<span class="ident">def_id</span>) {
+                    <span class="prelude-val">Some</span>(<span class="ident">span</span>) <span class="op">=&gt;</span> {
+                        <span class="ident">db</span>.<span class="ident">span_note</span>(<span class="ident">span</span>, <span class="string">&quot;a default was defined here...&quot;</span>);
                     }
-                    <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> {
-                        <span class='ident'>db</span>.<span class='ident'>note</span>(<span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;a default is defined on `{}`&quot;</span>,
-                                         <span class='self'>self</span>.<span class='ident'>item_path_str</span>(<span class='ident'>expected</span>.<span class='ident'>def_id</span>)));
-                    }
-                }
-
-                <span class='ident'>db</span>.<span class='ident'>span_note</span>(
-                    <span class='ident'>expected</span>.<span class='ident'>origin_span</span>,
-                    <span class='string'>&quot;...that was applied to an unconstrained type variable here&quot;</span>);
-
-                <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>hir</span>.<span class='ident'>span_if_local</span>(<span class='ident'>found</span>.<span class='ident'>def_id</span>) {
-                    <span class='prelude-val'>Some</span>(<span class='ident'>span</span>) <span class='op'>=&gt;</span> {
-                        <span class='ident'>db</span>.<span class='ident'>span_note</span>(<span class='ident'>span</span>, <span class='string'>&quot;a second default was defined here...&quot;</span>);
-                    }
-                    <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> {
-                        <span class='ident'>db</span>.<span class='ident'>note</span>(<span class='kw-2'>&amp;</span><span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;a second default is defined on `{}`&quot;</span>,
-                                         <span class='self'>self</span>.<span class='ident'>item_path_str</span>(<span class='ident'>found</span>.<span class='ident'>def_id</span>)));
+                    <span class="prelude-val">None</span> <span class="op">=&gt;</span> {
+                        <span class="kw">let</span> <span class="ident">item_def_id</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">parent</span>(<span class="ident">expected</span>.<span class="ident">def_id</span>).<span class="ident">unwrap</span>();
+                        <span class="ident">db</span>.<span class="ident">note</span>(<span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;a default is defined on `{}`&quot;</span>,
+                                         <span class="self">self</span>.<span class="ident">item_path_str</span>(<span class="ident">item_def_id</span>)));
                     }
                 }
 
-                <span class='ident'>db</span>.<span class='ident'>span_note</span>(<span class='ident'>found</span>.<span class='ident'>origin_span</span>,
-                             <span class='string'>&quot;...that also applies to the same type variable here&quot;</span>);
+                <span class="ident">db</span>.<span class="ident">span_note</span>(
+                    <span class="ident">expected</span>.<span class="ident">origin_span</span>,
+                    <span class="string">&quot;...that was applied to an unconstrained type variable here&quot;</span>);
+
+                <span class="kw">match</span> <span class="self">self</span>.<span class="ident">hir</span>.<span class="ident">span_if_local</span>(<span class="ident">found</span>.<span class="ident">def_id</span>) {
+                    <span class="prelude-val">Some</span>(<span class="ident">span</span>) <span class="op">=&gt;</span> {
+                        <span class="ident">db</span>.<span class="ident">span_note</span>(<span class="ident">span</span>, <span class="string">&quot;a second default was defined here...&quot;</span>);
+                    }
+                    <span class="prelude-val">None</span> <span class="op">=&gt;</span> {
+                        <span class="kw">let</span> <span class="ident">item_def_id</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">parent</span>(<span class="ident">found</span>.<span class="ident">def_id</span>).<span class="ident">unwrap</span>();
+                        <span class="ident">db</span>.<span class="ident">note</span>(<span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;a second default is defined on `{}`&quot;</span>,
+                                         <span class="self">self</span>.<span class="ident">item_path_str</span>(<span class="ident">item_def_id</span>)));
+                    }
+                }
+
+                <span class="ident">db</span>.<span class="ident">span_note</span>(<span class="ident">found</span>.<span class="ident">origin_span</span>,
+                             <span class="string">&quot;...that also applies to the same type variable here&quot;</span>);
             }
-            _ <span class='op'>=&gt;</span> {}
+            _ <span class="op">=&gt;</span> {}
         }
     }
 }

@@ -645,610 +645,608 @@
 <span id="600">600</span>
 <span id="601">601</span>
 <span id="602">602</span>
-<span id="603">603</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2013 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2013 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='comment'>// This implements the dead-code warning pass. It follows middle::reachable</span>
-<span class='comment'>// closely. The idea is that all reachable symbols are live, codes called</span>
-<span class='comment'>// from live codes are live, and everything else is dead.</span>
+<span class="comment">// This implements the dead-code warning pass. It follows middle::reachable</span>
+<span class="comment">// closely. The idea is that all reachable symbols are live, codes called</span>
+<span class="comment">// from live codes are live, and everything else is dead.</span>
 
-<span class='kw'>use</span> <span class='ident'>dep_graph</span>::<span class='ident'>DepNode</span>;
-<span class='kw'>use</span> <span class='ident'>hir</span>::<span class='ident'>map</span> <span class='kw'>as</span> <span class='ident'>hir_map</span>;
-<span class='kw'>use</span> <span class='ident'>hir</span>::{<span class='self'>self</span>, <span class='ident'>PatKind</span>};
-<span class='kw'>use</span> <span class='ident'>hir</span>::<span class='ident'>intravisit</span>::{<span class='self'>self</span>, <span class='ident'>Visitor</span>, <span class='ident'>NestedVisitorMap</span>};
-<span class='kw'>use</span> <span class='ident'>hir</span>::<span class='ident'>itemlikevisit</span>::<span class='ident'>ItemLikeVisitor</span>;
+<span class="kw">use</span> <span class="ident">dep_graph</span>::<span class="ident">DepNode</span>;
+<span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">map</span> <span class="kw">as</span> <span class="ident">hir_map</span>;
+<span class="kw">use</span> <span class="ident">hir</span>::{<span class="self">self</span>, <span class="ident">PatKind</span>};
+<span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">intravisit</span>::{<span class="self">self</span>, <span class="ident">Visitor</span>, <span class="ident">NestedVisitorMap</span>};
+<span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">itemlikevisit</span>::<span class="ident">ItemLikeVisitor</span>;
 
-<span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>privacy</span>;
-<span class='kw'>use</span> <span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>TyCtxt</span>};
-<span class='kw'>use</span> <span class='ident'>hir</span>::<span class='ident'>def</span>::<span class='ident'>Def</span>;
-<span class='kw'>use</span> <span class='ident'>hir</span>::<span class='ident'>def_id</span>::{<span class='ident'>DefId</span>};
-<span class='kw'>use</span> <span class='ident'>lint</span>;
-<span class='kw'>use</span> <span class='ident'>util</span>::<span class='ident'>nodemap</span>::<span class='ident'>FxHashSet</span>;
+<span class="kw">use</span> <span class="ident">middle</span>::<span class="ident">privacy</span>;
+<span class="kw">use</span> <span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">TyCtxt</span>};
+<span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">def</span>::<span class="ident">Def</span>;
+<span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">def_id</span>::{<span class="ident">DefId</span>};
+<span class="kw">use</span> <span class="ident">lint</span>;
+<span class="kw">use</span> <span class="ident">util</span>::<span class="ident">nodemap</span>::<span class="ident">FxHashSet</span>;
 
-<span class='kw'>use</span> <span class='ident'>syntax</span>::{<span class='ident'>ast</span>, <span class='ident'>codemap</span>};
-<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>attr</span>;
-<span class='kw'>use</span> <span class='ident'>syntax_pos</span>;
+<span class="kw">use</span> <span class="ident">syntax</span>::{<span class="ident">ast</span>, <span class="ident">codemap</span>};
+<span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">attr</span>;
+<span class="kw">use</span> <span class="ident">syntax_pos</span>;
 
-<span class='comment'>// Any local node that may call something in its body block should be</span>
-<span class='comment'>// explored. For example, if it&#39;s a live NodeItem that is a</span>
-<span class='comment'>// function, then we should explore its block to check for codes that</span>
-<span class='comment'>// may need to be marked as live.</span>
-<span class='kw'>fn</span> <span class='ident'>should_explore</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                            <span class='ident'>node_id</span>: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-    <span class='kw'>match</span> <span class='ident'>tcx</span>.<span class='ident'>hir</span>.<span class='ident'>find</span>(<span class='ident'>node_id</span>) {
-        <span class='prelude-val'>Some</span>(<span class='ident'>hir_map</span>::<span class='ident'>NodeItem</span>(..)) <span class='op'>|</span>
-        <span class='prelude-val'>Some</span>(<span class='ident'>hir_map</span>::<span class='ident'>NodeImplItem</span>(..)) <span class='op'>|</span>
-        <span class='prelude-val'>Some</span>(<span class='ident'>hir_map</span>::<span class='ident'>NodeForeignItem</span>(..)) <span class='op'>|</span>
-        <span class='prelude-val'>Some</span>(<span class='ident'>hir_map</span>::<span class='ident'>NodeTraitItem</span>(..)) <span class='op'>=&gt;</span>
-            <span class='bool-val'>true</span>,
-        _ <span class='op'>=&gt;</span>
-            <span class='bool-val'>false</span>
+<span class="comment">// Any local node that may call something in its body block should be</span>
+<span class="comment">// explored. For example, if it&#39;s a live NodeItem that is a</span>
+<span class="comment">// function, then we should explore its block to check for codes that</span>
+<span class="comment">// may need to be marked as live.</span>
+<span class="kw">fn</span> <span class="ident">should_explore</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                            <span class="ident">node_id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+    <span class="kw">match</span> <span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">find</span>(<span class="ident">node_id</span>) {
+        <span class="prelude-val">Some</span>(<span class="ident">hir_map</span>::<span class="ident">NodeItem</span>(..)) <span class="op">|</span>
+        <span class="prelude-val">Some</span>(<span class="ident">hir_map</span>::<span class="ident">NodeImplItem</span>(..)) <span class="op">|</span>
+        <span class="prelude-val">Some</span>(<span class="ident">hir_map</span>::<span class="ident">NodeForeignItem</span>(..)) <span class="op">|</span>
+        <span class="prelude-val">Some</span>(<span class="ident">hir_map</span>::<span class="ident">NodeTraitItem</span>(..)) <span class="op">=&gt;</span>
+            <span class="bool-val">true</span>,
+        _ <span class="op">=&gt;</span>
+            <span class="bool-val">false</span>
     }
 }
 
-<span class='kw'>struct</span> <span class='ident'>MarkSymbolVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>: <span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-    <span class='ident'>worklist</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>NodeId</span><span class='op'>&gt;</span>,
-    <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>tables</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>ty</span>::<span class='ident'>TypeckTables</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>live_symbols</span>: <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>FxHashSet</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>NodeId</span><span class='op'>&gt;&gt;</span>,
-    <span class='ident'>struct_has_extern_repr</span>: <span class='ident'>bool</span>,
-    <span class='ident'>ignore_non_const_paths</span>: <span class='ident'>bool</span>,
-    <span class='ident'>inherited_pub_visibility</span>: <span class='ident'>bool</span>,
-    <span class='ident'>ignore_variant_stack</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>DefId</span><span class='op'>&gt;</span>,
+<span class="kw">struct</span> <span class="ident">MarkSymbolVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>: <span class="lifetime">&#39;a</span><span class="op">&gt;</span> {
+    <span class="ident">worklist</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">NodeId</span><span class="op">&gt;</span>,
+    <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">tables</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">ty</span>::<span class="ident">TypeckTables</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">live_symbols</span>: <span class="ident">Box</span><span class="op">&lt;</span><span class="ident">FxHashSet</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">NodeId</span><span class="op">&gt;&gt;</span>,
+    <span class="ident">struct_has_extern_repr</span>: <span class="ident">bool</span>,
+    <span class="ident">ignore_non_const_paths</span>: <span class="ident">bool</span>,
+    <span class="ident">inherited_pub_visibility</span>: <span class="ident">bool</span>,
+    <span class="ident">ignore_variant_stack</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">DefId</span><span class="op">&gt;</span>,
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>MarkSymbolVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>check_def_id</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>def_id</span>: <span class='ident'>DefId</span>) {
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>node_id</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>hir</span>.<span class='ident'>as_local_node_id</span>(<span class='ident'>def_id</span>) {
-            <span class='kw'>if</span> <span class='ident'>should_explore</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>, <span class='ident'>node_id</span>) {
-                <span class='self'>self</span>.<span class='ident'>worklist</span>.<span class='ident'>push</span>(<span class='ident'>node_id</span>);
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">MarkSymbolVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">check_def_id</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">def_id</span>: <span class="ident">DefId</span>) {
+        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">node_id</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">as_local_node_id</span>(<span class="ident">def_id</span>) {
+            <span class="kw">if</span> <span class="ident">should_explore</span>(<span class="self">self</span>.<span class="ident">tcx</span>, <span class="ident">node_id</span>) {
+                <span class="self">self</span>.<span class="ident">worklist</span>.<span class="ident">push</span>(<span class="ident">node_id</span>);
             }
-            <span class='self'>self</span>.<span class='ident'>live_symbols</span>.<span class='ident'>insert</span>(<span class='ident'>node_id</span>);
+            <span class="self">self</span>.<span class="ident">live_symbols</span>.<span class="ident">insert</span>(<span class="ident">node_id</span>);
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>insert_def_id</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>def_id</span>: <span class='ident'>DefId</span>) {
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>node_id</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>hir</span>.<span class='ident'>as_local_node_id</span>(<span class='ident'>def_id</span>) {
-            <span class='macro'>debug_assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>should_explore</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>, <span class='ident'>node_id</span>));
-            <span class='self'>self</span>.<span class='ident'>live_symbols</span>.<span class='ident'>insert</span>(<span class='ident'>node_id</span>);
+    <span class="kw">fn</span> <span class="ident">insert_def_id</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">def_id</span>: <span class="ident">DefId</span>) {
+        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">node_id</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">as_local_node_id</span>(<span class="ident">def_id</span>) {
+            <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="op">!</span><span class="ident">should_explore</span>(<span class="self">self</span>.<span class="ident">tcx</span>, <span class="ident">node_id</span>));
+            <span class="self">self</span>.<span class="ident">live_symbols</span>.<span class="ident">insert</span>(<span class="ident">node_id</span>);
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>handle_definition</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>def</span>: <span class='ident'>Def</span>) {
-        <span class='kw'>match</span> <span class='ident'>def</span> {
-            <span class='ident'>Def</span>::<span class='ident'>Const</span>(_) <span class='op'>|</span> <span class='ident'>Def</span>::<span class='ident'>AssociatedConst</span>(..) <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>check_def_id</span>(<span class='ident'>def</span>.<span class='ident'>def_id</span>());
+    <span class="kw">fn</span> <span class="ident">handle_definition</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">def</span>: <span class="ident">Def</span>) {
+        <span class="kw">match</span> <span class="ident">def</span> {
+            <span class="ident">Def</span>::<span class="ident">Const</span>(_) <span class="op">|</span> <span class="ident">Def</span>::<span class="ident">AssociatedConst</span>(..) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">check_def_id</span>(<span class="ident">def</span>.<span class="ident">def_id</span>());
             }
-            _ <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>ignore_non_const_paths</span> <span class='op'>=&gt;</span> (),
-            <span class='ident'>Def</span>::<span class='ident'>PrimTy</span>(..) <span class='op'>|</span> <span class='ident'>Def</span>::<span class='ident'>SelfTy</span>(..) <span class='op'>=&gt;</span> (),
-            <span class='ident'>Def</span>::<span class='ident'>Variant</span>(<span class='ident'>variant_id</span>) <span class='op'>|</span> <span class='ident'>Def</span>::<span class='ident'>VariantCtor</span>(<span class='ident'>variant_id</span>, ..) <span class='op'>=&gt;</span> {
-                <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>enum_id</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>parent_def_id</span>(<span class='ident'>variant_id</span>) {
-                    <span class='self'>self</span>.<span class='ident'>check_def_id</span>(<span class='ident'>enum_id</span>);
+            _ <span class="kw">if</span> <span class="self">self</span>.<span class="ident">ignore_non_const_paths</span> <span class="op">=&gt;</span> (),
+            <span class="ident">Def</span>::<span class="ident">PrimTy</span>(..) <span class="op">|</span> <span class="ident">Def</span>::<span class="ident">SelfTy</span>(..) <span class="op">=&gt;</span> (),
+            <span class="ident">Def</span>::<span class="ident">Variant</span>(<span class="ident">variant_id</span>) <span class="op">|</span> <span class="ident">Def</span>::<span class="ident">VariantCtor</span>(<span class="ident">variant_id</span>, ..) <span class="op">=&gt;</span> {
+                <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">enum_id</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">parent_def_id</span>(<span class="ident">variant_id</span>) {
+                    <span class="self">self</span>.<span class="ident">check_def_id</span>(<span class="ident">enum_id</span>);
                 }
-                <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>ignore_variant_stack</span>.<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>variant_id</span>) {
-                    <span class='self'>self</span>.<span class='ident'>check_def_id</span>(<span class='ident'>variant_id</span>);
+                <span class="kw">if</span> <span class="op">!</span><span class="self">self</span>.<span class="ident">ignore_variant_stack</span>.<span class="ident">contains</span>(<span class="kw-2">&amp;</span><span class="ident">variant_id</span>) {
+                    <span class="self">self</span>.<span class="ident">check_def_id</span>(<span class="ident">variant_id</span>);
                 }
             }
-            _ <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>check_def_id</span>(<span class='ident'>def</span>.<span class='ident'>def_id</span>());
+            _ <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">check_def_id</span>(<span class="ident">def</span>.<span class="ident">def_id</span>());
             }
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>lookup_and_handle_method</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>id</span>: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>) {
-        <span class='kw'>let</span> <span class='ident'>method_call</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>MethodCall</span>::<span class='ident'>expr</span>(<span class='ident'>id</span>);
-        <span class='kw'>let</span> <span class='ident'>method</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tables</span>.<span class='ident'>method_map</span>[<span class='kw-2'>&amp;</span><span class='ident'>method_call</span>];
-        <span class='self'>self</span>.<span class='ident'>check_def_id</span>(<span class='ident'>method</span>.<span class='ident'>def_id</span>);
+    <span class="kw">fn</span> <span class="ident">lookup_and_handle_method</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>) {
+        <span class="kw">let</span> <span class="ident">method_call</span> <span class="op">=</span> <span class="ident">ty</span>::<span class="ident">MethodCall</span>::<span class="ident">expr</span>(<span class="ident">id</span>);
+        <span class="kw">let</span> <span class="ident">method</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tables</span>.<span class="ident">method_map</span>[<span class="kw-2">&amp;</span><span class="ident">method_call</span>];
+        <span class="self">self</span>.<span class="ident">check_def_id</span>(<span class="ident">method</span>.<span class="ident">def_id</span>);
     }
 
-    <span class='kw'>fn</span> <span class='ident'>handle_field_access</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>lhs</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Expr</span>, <span class='ident'>name</span>: <span class='ident'>ast</span>::<span class='ident'>Name</span>) {
-        <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>tables</span>.<span class='ident'>expr_ty_adjusted</span>(<span class='ident'>lhs</span>).<span class='ident'>sty</span> {
-            <span class='ident'>ty</span>::<span class='ident'>TyAdt</span>(<span class='ident'>def</span>, _) <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>insert_def_id</span>(<span class='ident'>def</span>.<span class='ident'>struct_variant</span>().<span class='ident'>field_named</span>(<span class='ident'>name</span>).<span class='ident'>did</span>);
+    <span class="kw">fn</span> <span class="ident">handle_field_access</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">lhs</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">Expr</span>, <span class="ident">name</span>: <span class="ident">ast</span>::<span class="ident">Name</span>) {
+        <span class="kw">match</span> <span class="self">self</span>.<span class="ident">tables</span>.<span class="ident">expr_ty_adjusted</span>(<span class="ident">lhs</span>).<span class="ident">sty</span> {
+            <span class="ident">ty</span>::<span class="ident">TyAdt</span>(<span class="ident">def</span>, _) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">insert_def_id</span>(<span class="ident">def</span>.<span class="ident">struct_variant</span>().<span class="ident">field_named</span>(<span class="ident">name</span>).<span class="ident">did</span>);
             }
-            _ <span class='op'>=&gt;</span> <span class='macro'>span_bug</span><span class='macro'>!</span>(<span class='ident'>lhs</span>.<span class='ident'>span</span>, <span class='string'>&quot;named field access on non-ADT&quot;</span>),
+            _ <span class="op">=&gt;</span> <span class="macro">span_bug</span><span class="macro">!</span>(<span class="ident">lhs</span>.<span class="ident">span</span>, <span class="string">&quot;named field access on non-ADT&quot;</span>),
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>handle_tup_field_access</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>lhs</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Expr</span>, <span class='ident'>idx</span>: <span class='ident'>usize</span>) {
-        <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>tables</span>.<span class='ident'>expr_ty_adjusted</span>(<span class='ident'>lhs</span>).<span class='ident'>sty</span> {
-            <span class='ident'>ty</span>::<span class='ident'>TyAdt</span>(<span class='ident'>def</span>, _) <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>insert_def_id</span>(<span class='ident'>def</span>.<span class='ident'>struct_variant</span>().<span class='ident'>fields</span>[<span class='ident'>idx</span>].<span class='ident'>did</span>);
+    <span class="kw">fn</span> <span class="ident">handle_tup_field_access</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">lhs</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">Expr</span>, <span class="ident">idx</span>: <span class="ident">usize</span>) {
+        <span class="kw">match</span> <span class="self">self</span>.<span class="ident">tables</span>.<span class="ident">expr_ty_adjusted</span>(<span class="ident">lhs</span>).<span class="ident">sty</span> {
+            <span class="ident">ty</span>::<span class="ident">TyAdt</span>(<span class="ident">def</span>, _) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">insert_def_id</span>(<span class="ident">def</span>.<span class="ident">struct_variant</span>().<span class="ident">fields</span>[<span class="ident">idx</span>].<span class="ident">did</span>);
             }
-            <span class='ident'>ty</span>::<span class='ident'>TyTuple</span>(..) <span class='op'>=&gt;</span> {}
-            _ <span class='op'>=&gt;</span> <span class='macro'>span_bug</span><span class='macro'>!</span>(<span class='ident'>lhs</span>.<span class='ident'>span</span>, <span class='string'>&quot;numeric field access on non-ADT&quot;</span>),
+            <span class="ident">ty</span>::<span class="ident">TyTuple</span>(..) <span class="op">=&gt;</span> {}
+            _ <span class="op">=&gt;</span> <span class="macro">span_bug</span><span class="macro">!</span>(<span class="ident">lhs</span>.<span class="ident">span</span>, <span class="string">&quot;numeric field access on non-ADT&quot;</span>),
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>handle_field_pattern_match</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>lhs</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Pat</span>, <span class='ident'>def</span>: <span class='ident'>Def</span>,
-                                  <span class='ident'>pats</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>codemap</span>::<span class='ident'>Spanned</span><span class='op'>&lt;</span><span class='ident'>hir</span>::<span class='ident'>FieldPat</span><span class='op'>&gt;</span>]) {
-        <span class='kw'>let</span> <span class='ident'>variant</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>tables</span>.<span class='ident'>node_id_to_type</span>(<span class='ident'>lhs</span>.<span class='ident'>id</span>).<span class='ident'>sty</span> {
-            <span class='ident'>ty</span>::<span class='ident'>TyAdt</span>(<span class='ident'>adt</span>, _) <span class='op'>=&gt;</span> <span class='ident'>adt</span>.<span class='ident'>variant_of_def</span>(<span class='ident'>def</span>),
-            _ <span class='op'>=&gt;</span> <span class='macro'>span_bug</span><span class='macro'>!</span>(<span class='ident'>lhs</span>.<span class='ident'>span</span>, <span class='string'>&quot;non-ADT in struct pattern&quot;</span>)
+    <span class="kw">fn</span> <span class="ident">handle_field_pattern_match</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">lhs</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">Pat</span>, <span class="ident">def</span>: <span class="ident">Def</span>,
+                                  <span class="ident">pats</span>: <span class="kw-2">&amp;</span>[<span class="ident">codemap</span>::<span class="ident">Spanned</span><span class="op">&lt;</span><span class="ident">hir</span>::<span class="ident">FieldPat</span><span class="op">&gt;</span>]) {
+        <span class="kw">let</span> <span class="ident">variant</span> <span class="op">=</span> <span class="kw">match</span> <span class="self">self</span>.<span class="ident">tables</span>.<span class="ident">node_id_to_type</span>(<span class="ident">lhs</span>.<span class="ident">id</span>).<span class="ident">sty</span> {
+            <span class="ident">ty</span>::<span class="ident">TyAdt</span>(<span class="ident">adt</span>, _) <span class="op">=&gt;</span> <span class="ident">adt</span>.<span class="ident">variant_of_def</span>(<span class="ident">def</span>),
+            _ <span class="op">=&gt;</span> <span class="macro">span_bug</span><span class="macro">!</span>(<span class="ident">lhs</span>.<span class="ident">span</span>, <span class="string">&quot;non-ADT in struct pattern&quot;</span>)
         };
-        <span class='kw'>for</span> <span class='ident'>pat</span> <span class='kw'>in</span> <span class='ident'>pats</span> {
-            <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>PatKind</span>::<span class='ident'>Wild</span> <span class='op'>=</span> <span class='ident'>pat</span>.<span class='ident'>node</span>.<span class='ident'>pat</span>.<span class='ident'>node</span> {
-                <span class='kw'>continue</span>;
+        <span class="kw">for</span> <span class="ident">pat</span> <span class="kw">in</span> <span class="ident">pats</span> {
+            <span class="kw">if</span> <span class="kw">let</span> <span class="ident">PatKind</span>::<span class="ident">Wild</span> <span class="op">=</span> <span class="ident">pat</span>.<span class="ident">node</span>.<span class="ident">pat</span>.<span class="ident">node</span> {
+                <span class="kw">continue</span>;
             }
-            <span class='self'>self</span>.<span class='ident'>insert_def_id</span>(<span class='ident'>variant</span>.<span class='ident'>field_named</span>(<span class='ident'>pat</span>.<span class='ident'>node</span>.<span class='ident'>name</span>).<span class='ident'>did</span>);
+            <span class="self">self</span>.<span class="ident">insert_def_id</span>(<span class="ident">variant</span>.<span class="ident">field_named</span>(<span class="ident">pat</span>.<span class="ident">node</span>.<span class="ident">name</span>).<span class="ident">did</span>);
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>mark_live_symbols</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) {
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>scanned</span> <span class='op'>=</span> <span class='ident'>FxHashSet</span>();
-        <span class='kw'>while</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>worklist</span>.<span class='ident'>is_empty</span>() {
-            <span class='kw'>let</span> <span class='ident'>id</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>worklist</span>.<span class='ident'>pop</span>().<span class='ident'>unwrap</span>();
-            <span class='kw'>if</span> <span class='ident'>scanned</span>.<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>id</span>) {
-                <span class='kw'>continue</span>
+    <span class="kw">fn</span> <span class="ident">mark_live_symbols</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) {
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">scanned</span> <span class="op">=</span> <span class="ident">FxHashSet</span>();
+        <span class="kw">while</span> <span class="op">!</span><span class="self">self</span>.<span class="ident">worklist</span>.<span class="ident">is_empty</span>() {
+            <span class="kw">let</span> <span class="ident">id</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">worklist</span>.<span class="ident">pop</span>().<span class="ident">unwrap</span>();
+            <span class="kw">if</span> <span class="ident">scanned</span>.<span class="ident">contains</span>(<span class="kw-2">&amp;</span><span class="ident">id</span>) {
+                <span class="kw">continue</span>
             }
-            <span class='ident'>scanned</span>.<span class='ident'>insert</span>(<span class='ident'>id</span>);
+            <span class="ident">scanned</span>.<span class="ident">insert</span>(<span class="ident">id</span>);
 
-            <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='kw-2'>ref</span> <span class='ident'>node</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>hir</span>.<span class='ident'>find</span>(<span class='ident'>id</span>) {
-                <span class='self'>self</span>.<span class='ident'>live_symbols</span>.<span class='ident'>insert</span>(<span class='ident'>id</span>);
-                <span class='self'>self</span>.<span class='ident'>visit_node</span>(<span class='ident'>node</span>);
+            <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="kw-2">ref</span> <span class="ident">node</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">find</span>(<span class="ident">id</span>) {
+                <span class="self">self</span>.<span class="ident">live_symbols</span>.<span class="ident">insert</span>(<span class="ident">id</span>);
+                <span class="self">self</span>.<span class="ident">visit_node</span>(<span class="ident">node</span>);
             }
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_node</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>node</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir_map</span>::<span class='ident'>Node</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) {
-        <span class='kw'>let</span> <span class='ident'>had_extern_repr</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>struct_has_extern_repr</span>;
-        <span class='self'>self</span>.<span class='ident'>struct_has_extern_repr</span> <span class='op'>=</span> <span class='bool-val'>false</span>;
-        <span class='kw'>let</span> <span class='ident'>had_inherited_pub_visibility</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>inherited_pub_visibility</span>;
-        <span class='self'>self</span>.<span class='ident'>inherited_pub_visibility</span> <span class='op'>=</span> <span class='bool-val'>false</span>;
-        <span class='kw'>match</span> <span class='kw-2'>*</span><span class='ident'>node</span> {
-            <span class='ident'>hir_map</span>::<span class='ident'>NodeItem</span>(<span class='ident'>item</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>match</span> <span class='ident'>item</span>.<span class='ident'>node</span> {
-                    <span class='ident'>hir</span>::<span class='ident'>ItemStruct</span>(..) <span class='op'>|</span> <span class='ident'>hir</span>::<span class='ident'>ItemUnion</span>(..) <span class='op'>=&gt;</span> {
-                        <span class='self'>self</span>.<span class='ident'>struct_has_extern_repr</span> <span class='op'>=</span> <span class='ident'>item</span>.<span class='ident'>attrs</span>.<span class='ident'>iter</span>().<span class='ident'>any</span>(<span class='op'>|</span><span class='ident'>attr</span><span class='op'>|</span> {
-                            <span class='ident'>attr</span>::<span class='ident'>find_repr_attrs</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>diagnostic</span>(), <span class='ident'>attr</span>)
-                                .<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>attr</span>::<span class='ident'>ReprExtern</span>)
-                        });
+    <span class="kw">fn</span> <span class="ident">visit_node</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">node</span>: <span class="kw-2">&amp;</span><span class="ident">hir_map</span>::<span class="ident">Node</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) {
+        <span class="kw">let</span> <span class="ident">had_extern_repr</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">struct_has_extern_repr</span>;
+        <span class="self">self</span>.<span class="ident">struct_has_extern_repr</span> <span class="op">=</span> <span class="bool-val">false</span>;
+        <span class="kw">let</span> <span class="ident">had_inherited_pub_visibility</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">inherited_pub_visibility</span>;
+        <span class="self">self</span>.<span class="ident">inherited_pub_visibility</span> <span class="op">=</span> <span class="bool-val">false</span>;
+        <span class="kw">match</span> <span class="kw-2">*</span><span class="ident">node</span> {
+            <span class="ident">hir_map</span>::<span class="ident">NodeItem</span>(<span class="ident">item</span>) <span class="op">=&gt;</span> {
+                <span class="kw">match</span> <span class="ident">item</span>.<span class="ident">node</span> {
+                    <span class="ident">hir</span>::<span class="ident">ItemStruct</span>(..) <span class="op">|</span> <span class="ident">hir</span>::<span class="ident">ItemUnion</span>(..) <span class="op">=&gt;</span> {
+                        <span class="kw">let</span> <span class="ident">def_id</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">local_def_id</span>(<span class="ident">item</span>.<span class="ident">id</span>);
+                        <span class="kw">let</span> <span class="ident">def</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">lookup_adt_def</span>(<span class="ident">def_id</span>);
+                        <span class="self">self</span>.<span class="ident">struct_has_extern_repr</span> <span class="op">=</span> <span class="ident">def</span>.<span class="ident">repr</span>.<span class="ident">c</span>;
 
-                        <span class='ident'>intravisit</span>::<span class='ident'>walk_item</span>(<span class='self'>self</span>, <span class='kw-2'>&amp;</span><span class='ident'>item</span>);
+                        <span class="ident">intravisit</span>::<span class="ident">walk_item</span>(<span class="self">self</span>, <span class="kw-2">&amp;</span><span class="ident">item</span>);
                     }
-                    <span class='ident'>hir</span>::<span class='ident'>ItemEnum</span>(..) <span class='op'>=&gt;</span> {
-                        <span class='self'>self</span>.<span class='ident'>inherited_pub_visibility</span> <span class='op'>=</span> <span class='ident'>item</span>.<span class='ident'>vis</span> <span class='op'>==</span> <span class='ident'>hir</span>::<span class='ident'>Public</span>;
-                        <span class='ident'>intravisit</span>::<span class='ident'>walk_item</span>(<span class='self'>self</span>, <span class='kw-2'>&amp;</span><span class='ident'>item</span>);
+                    <span class="ident">hir</span>::<span class="ident">ItemEnum</span>(..) <span class="op">=&gt;</span> {
+                        <span class="self">self</span>.<span class="ident">inherited_pub_visibility</span> <span class="op">=</span> <span class="ident">item</span>.<span class="ident">vis</span> <span class="op">==</span> <span class="ident">hir</span>::<span class="ident">Public</span>;
+                        <span class="ident">intravisit</span>::<span class="ident">walk_item</span>(<span class="self">self</span>, <span class="kw-2">&amp;</span><span class="ident">item</span>);
                     }
-                    <span class='ident'>hir</span>::<span class='ident'>ItemFn</span>(..)
-                    <span class='op'>|</span> <span class='ident'>hir</span>::<span class='ident'>ItemTy</span>(..)
-                    <span class='op'>|</span> <span class='ident'>hir</span>::<span class='ident'>ItemStatic</span>(..)
-                    <span class='op'>|</span> <span class='ident'>hir</span>::<span class='ident'>ItemConst</span>(..) <span class='op'>=&gt;</span> {
-                        <span class='ident'>intravisit</span>::<span class='ident'>walk_item</span>(<span class='self'>self</span>, <span class='kw-2'>&amp;</span><span class='ident'>item</span>);
+                    <span class="ident">hir</span>::<span class="ident">ItemFn</span>(..)
+                    <span class="op">|</span> <span class="ident">hir</span>::<span class="ident">ItemTy</span>(..)
+                    <span class="op">|</span> <span class="ident">hir</span>::<span class="ident">ItemStatic</span>(..)
+                    <span class="op">|</span> <span class="ident">hir</span>::<span class="ident">ItemConst</span>(..) <span class="op">=&gt;</span> {
+                        <span class="ident">intravisit</span>::<span class="ident">walk_item</span>(<span class="self">self</span>, <span class="kw-2">&amp;</span><span class="ident">item</span>);
                     }
-                    _ <span class='op'>=&gt;</span> ()
+                    _ <span class="op">=&gt;</span> ()
                 }
             }
-            <span class='ident'>hir_map</span>::<span class='ident'>NodeTraitItem</span>(<span class='ident'>trait_item</span>) <span class='op'>=&gt;</span> {
-                <span class='ident'>intravisit</span>::<span class='ident'>walk_trait_item</span>(<span class='self'>self</span>, <span class='ident'>trait_item</span>);
+            <span class="ident">hir_map</span>::<span class="ident">NodeTraitItem</span>(<span class="ident">trait_item</span>) <span class="op">=&gt;</span> {
+                <span class="ident">intravisit</span>::<span class="ident">walk_trait_item</span>(<span class="self">self</span>, <span class="ident">trait_item</span>);
             }
-            <span class='ident'>hir_map</span>::<span class='ident'>NodeImplItem</span>(<span class='ident'>impl_item</span>) <span class='op'>=&gt;</span> {
-                <span class='ident'>intravisit</span>::<span class='ident'>walk_impl_item</span>(<span class='self'>self</span>, <span class='ident'>impl_item</span>);
+            <span class="ident">hir_map</span>::<span class="ident">NodeImplItem</span>(<span class="ident">impl_item</span>) <span class="op">=&gt;</span> {
+                <span class="ident">intravisit</span>::<span class="ident">walk_impl_item</span>(<span class="self">self</span>, <span class="ident">impl_item</span>);
             }
-            <span class='ident'>hir_map</span>::<span class='ident'>NodeForeignItem</span>(<span class='ident'>foreign_item</span>) <span class='op'>=&gt;</span> {
-                <span class='ident'>intravisit</span>::<span class='ident'>walk_foreign_item</span>(<span class='self'>self</span>, <span class='kw-2'>&amp;</span><span class='ident'>foreign_item</span>);
+            <span class="ident">hir_map</span>::<span class="ident">NodeForeignItem</span>(<span class="ident">foreign_item</span>) <span class="op">=&gt;</span> {
+                <span class="ident">intravisit</span>::<span class="ident">walk_foreign_item</span>(<span class="self">self</span>, <span class="kw-2">&amp;</span><span class="ident">foreign_item</span>);
             }
-            _ <span class='op'>=&gt;</span> ()
+            _ <span class="op">=&gt;</span> ()
         }
-        <span class='self'>self</span>.<span class='ident'>struct_has_extern_repr</span> <span class='op'>=</span> <span class='ident'>had_extern_repr</span>;
-        <span class='self'>self</span>.<span class='ident'>inherited_pub_visibility</span> <span class='op'>=</span> <span class='ident'>had_inherited_pub_visibility</span>;
+        <span class="self">self</span>.<span class="ident">struct_has_extern_repr</span> <span class="op">=</span> <span class="ident">had_extern_repr</span>;
+        <span class="self">self</span>.<span class="ident">inherited_pub_visibility</span> <span class="op">=</span> <span class="ident">had_inherited_pub_visibility</span>;
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>Visitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>MarkSymbolVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>nested_visit_map</span><span class='op'>&lt;</span><span class='lifetime'>&#39;this</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;this</span> <span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>NestedVisitorMap</span><span class='op'>&lt;</span><span class='lifetime'>&#39;this</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='ident'>NestedVisitorMap</span>::<span class='prelude-val'>None</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">Visitor</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">MarkSymbolVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">nested_visit_map</span><span class="op">&lt;</span><span class="lifetime">&#39;this</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;this</span> <span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">NestedVisitorMap</span><span class="op">&lt;</span><span class="lifetime">&#39;this</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="ident">NestedVisitorMap</span>::<span class="prelude-val">None</span>
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_nested_body</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>body</span>: <span class='ident'>hir</span>::<span class='ident'>BodyId</span>) {
-        <span class='kw'>let</span> <span class='ident'>old_tables</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tables</span>;
-        <span class='self'>self</span>.<span class='ident'>tables</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>body_tables</span>(<span class='ident'>body</span>);
-        <span class='kw'>let</span> <span class='ident'>body</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>hir</span>.<span class='ident'>body</span>(<span class='ident'>body</span>);
-        <span class='self'>self</span>.<span class='ident'>visit_body</span>(<span class='ident'>body</span>);
-        <span class='self'>self</span>.<span class='ident'>tables</span> <span class='op'>=</span> <span class='ident'>old_tables</span>;
+    <span class="kw">fn</span> <span class="ident">visit_nested_body</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">body</span>: <span class="ident">hir</span>::<span class="ident">BodyId</span>) {
+        <span class="kw">let</span> <span class="ident">old_tables</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tables</span>;
+        <span class="self">self</span>.<span class="ident">tables</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">body_tables</span>(<span class="ident">body</span>);
+        <span class="kw">let</span> <span class="ident">body</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">body</span>(<span class="ident">body</span>);
+        <span class="self">self</span>.<span class="ident">visit_body</span>(<span class="ident">body</span>);
+        <span class="self">self</span>.<span class="ident">tables</span> <span class="op">=</span> <span class="ident">old_tables</span>;
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_variant_data</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>def</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>hir</span>::<span class='ident'>VariantData</span>, _: <span class='ident'>ast</span>::<span class='ident'>Name</span>,
-                        _: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Generics</span>, _: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>, _: <span class='ident'>syntax_pos</span>::<span class='ident'>Span</span>) {
-        <span class='kw'>let</span> <span class='ident'>has_extern_repr</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>struct_has_extern_repr</span>;
-        <span class='kw'>let</span> <span class='ident'>inherited_pub_visibility</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>inherited_pub_visibility</span>;
-        <span class='kw'>let</span> <span class='ident'>live_fields</span> <span class='op'>=</span> <span class='ident'>def</span>.<span class='ident'>fields</span>().<span class='ident'>iter</span>().<span class='ident'>filter</span>(<span class='op'>|</span><span class='ident'>f</span><span class='op'>|</span> {
-            <span class='ident'>has_extern_repr</span> <span class='op'>||</span> <span class='ident'>inherited_pub_visibility</span> <span class='op'>||</span> <span class='ident'>f</span>.<span class='ident'>vis</span> <span class='op'>==</span> <span class='ident'>hir</span>::<span class='ident'>Public</span>
+    <span class="kw">fn</span> <span class="ident">visit_variant_data</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">def</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">hir</span>::<span class="ident">VariantData</span>, _: <span class="ident">ast</span>::<span class="ident">Name</span>,
+                        _: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">Generics</span>, _: <span class="ident">ast</span>::<span class="ident">NodeId</span>, _: <span class="ident">syntax_pos</span>::<span class="ident">Span</span>) {
+        <span class="kw">let</span> <span class="ident">has_extern_repr</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">struct_has_extern_repr</span>;
+        <span class="kw">let</span> <span class="ident">inherited_pub_visibility</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">inherited_pub_visibility</span>;
+        <span class="kw">let</span> <span class="ident">live_fields</span> <span class="op">=</span> <span class="ident">def</span>.<span class="ident">fields</span>().<span class="ident">iter</span>().<span class="ident">filter</span>(<span class="op">|</span><span class="ident">f</span><span class="op">|</span> {
+            <span class="ident">has_extern_repr</span> <span class="op">||</span> <span class="ident">inherited_pub_visibility</span> <span class="op">||</span> <span class="ident">f</span>.<span class="ident">vis</span> <span class="op">==</span> <span class="ident">hir</span>::<span class="ident">Public</span>
         });
-        <span class='self'>self</span>.<span class='ident'>live_symbols</span>.<span class='ident'>extend</span>(<span class='ident'>live_fields</span>.<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>f</span><span class='op'>|</span> <span class='ident'>f</span>.<span class='ident'>id</span>));
+        <span class="self">self</span>.<span class="ident">live_symbols</span>.<span class="ident">extend</span>(<span class="ident">live_fields</span>.<span class="ident">map</span>(<span class="op">|</span><span class="ident">f</span><span class="op">|</span> <span class="ident">f</span>.<span class="ident">id</span>));
 
-        <span class='ident'>intravisit</span>::<span class='ident'>walk_struct_def</span>(<span class='self'>self</span>, <span class='ident'>def</span>);
+        <span class="ident">intravisit</span>::<span class="ident">walk_struct_def</span>(<span class="self">self</span>, <span class="ident">def</span>);
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_expr</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>expr</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>hir</span>::<span class='ident'>Expr</span>) {
-        <span class='kw'>match</span> <span class='ident'>expr</span>.<span class='ident'>node</span> {
-            <span class='ident'>hir</span>::<span class='ident'>ExprPath</span>(<span class='kw-2'>ref</span> <span class='ident'>qpath</span> @ <span class='ident'>hir</span>::<span class='ident'>QPath</span>::<span class='ident'>TypeRelative</span>(..)) <span class='op'>=&gt;</span> {
-                <span class='kw'>let</span> <span class='ident'>def</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tables</span>.<span class='ident'>qpath_def</span>(<span class='ident'>qpath</span>, <span class='ident'>expr</span>.<span class='ident'>id</span>);
-                <span class='self'>self</span>.<span class='ident'>handle_definition</span>(<span class='ident'>def</span>);
+    <span class="kw">fn</span> <span class="ident">visit_expr</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">expr</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">hir</span>::<span class="ident">Expr</span>) {
+        <span class="kw">match</span> <span class="ident">expr</span>.<span class="ident">node</span> {
+            <span class="ident">hir</span>::<span class="ident">ExprPath</span>(<span class="kw-2">ref</span> <span class="ident">qpath</span> @ <span class="ident">hir</span>::<span class="ident">QPath</span>::<span class="ident">TypeRelative</span>(..)) <span class="op">=&gt;</span> {
+                <span class="kw">let</span> <span class="ident">def</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tables</span>.<span class="ident">qpath_def</span>(<span class="ident">qpath</span>, <span class="ident">expr</span>.<span class="ident">id</span>);
+                <span class="self">self</span>.<span class="ident">handle_definition</span>(<span class="ident">def</span>);
             }
-            <span class='ident'>hir</span>::<span class='ident'>ExprMethodCall</span>(..) <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>lookup_and_handle_method</span>(<span class='ident'>expr</span>.<span class='ident'>id</span>);
+            <span class="ident">hir</span>::<span class="ident">ExprMethodCall</span>(..) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">lookup_and_handle_method</span>(<span class="ident">expr</span>.<span class="ident">id</span>);
             }
-            <span class='ident'>hir</span>::<span class='ident'>ExprField</span>(<span class='kw-2'>ref</span> <span class='ident'>lhs</span>, <span class='kw-2'>ref</span> <span class='ident'>name</span>) <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>handle_field_access</span>(<span class='kw-2'>&amp;</span><span class='ident'>lhs</span>, <span class='ident'>name</span>.<span class='ident'>node</span>);
+            <span class="ident">hir</span>::<span class="ident">ExprField</span>(<span class="kw-2">ref</span> <span class="ident">lhs</span>, <span class="kw-2">ref</span> <span class="ident">name</span>) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">handle_field_access</span>(<span class="kw-2">&amp;</span><span class="ident">lhs</span>, <span class="ident">name</span>.<span class="ident">node</span>);
             }
-            <span class='ident'>hir</span>::<span class='ident'>ExprTupField</span>(<span class='kw-2'>ref</span> <span class='ident'>lhs</span>, <span class='ident'>idx</span>) <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>handle_tup_field_access</span>(<span class='kw-2'>&amp;</span><span class='ident'>lhs</span>, <span class='ident'>idx</span>.<span class='ident'>node</span>);
+            <span class="ident">hir</span>::<span class="ident">ExprTupField</span>(<span class="kw-2">ref</span> <span class="ident">lhs</span>, <span class="ident">idx</span>) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">handle_tup_field_access</span>(<span class="kw-2">&amp;</span><span class="ident">lhs</span>, <span class="ident">idx</span>.<span class="ident">node</span>);
             }
-            _ <span class='op'>=&gt;</span> ()
+            _ <span class="op">=&gt;</span> ()
         }
 
-        <span class='ident'>intravisit</span>::<span class='ident'>walk_expr</span>(<span class='self'>self</span>, <span class='ident'>expr</span>);
+        <span class="ident">intravisit</span>::<span class="ident">walk_expr</span>(<span class="self">self</span>, <span class="ident">expr</span>);
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_arm</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>arm</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>hir</span>::<span class='ident'>Arm</span>) {
-        <span class='kw'>if</span> <span class='ident'>arm</span>.<span class='ident'>pats</span>.<span class='ident'>len</span>() <span class='op'>==</span> <span class='number'>1</span> {
-            <span class='kw'>let</span> <span class='ident'>variants</span> <span class='op'>=</span> <span class='ident'>arm</span>.<span class='ident'>pats</span>[<span class='number'>0</span>].<span class='ident'>necessary_variants</span>();
+    <span class="kw">fn</span> <span class="ident">visit_arm</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">arm</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">hir</span>::<span class="ident">Arm</span>) {
+        <span class="kw">if</span> <span class="ident">arm</span>.<span class="ident">pats</span>.<span class="ident">len</span>() <span class="op">==</span> <span class="number">1</span> {
+            <span class="kw">let</span> <span class="ident">variants</span> <span class="op">=</span> <span class="ident">arm</span>.<span class="ident">pats</span>[<span class="number">0</span>].<span class="ident">necessary_variants</span>();
 
-            <span class='comment'>// Inside the body, ignore constructions of variants</span>
-            <span class='comment'>// necessary for the pattern to match. Those construction sites</span>
-            <span class='comment'>// can&#39;t be reached unless the variant is constructed elsewhere.</span>
-            <span class='kw'>let</span> <span class='ident'>len</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>ignore_variant_stack</span>.<span class='ident'>len</span>();
-            <span class='self'>self</span>.<span class='ident'>ignore_variant_stack</span>.<span class='ident'>extend_from_slice</span>(<span class='kw-2'>&amp;</span><span class='ident'>variants</span>);
-            <span class='ident'>intravisit</span>::<span class='ident'>walk_arm</span>(<span class='self'>self</span>, <span class='ident'>arm</span>);
-            <span class='self'>self</span>.<span class='ident'>ignore_variant_stack</span>.<span class='ident'>truncate</span>(<span class='ident'>len</span>);
-        } <span class='kw'>else</span> {
-            <span class='ident'>intravisit</span>::<span class='ident'>walk_arm</span>(<span class='self'>self</span>, <span class='ident'>arm</span>);
+            <span class="comment">// Inside the body, ignore constructions of variants</span>
+            <span class="comment">// necessary for the pattern to match. Those construction sites</span>
+            <span class="comment">// can&#39;t be reached unless the variant is constructed elsewhere.</span>
+            <span class="kw">let</span> <span class="ident">len</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">ignore_variant_stack</span>.<span class="ident">len</span>();
+            <span class="self">self</span>.<span class="ident">ignore_variant_stack</span>.<span class="ident">extend_from_slice</span>(<span class="kw-2">&amp;</span><span class="ident">variants</span>);
+            <span class="ident">intravisit</span>::<span class="ident">walk_arm</span>(<span class="self">self</span>, <span class="ident">arm</span>);
+            <span class="self">self</span>.<span class="ident">ignore_variant_stack</span>.<span class="ident">truncate</span>(<span class="ident">len</span>);
+        } <span class="kw">else</span> {
+            <span class="ident">intravisit</span>::<span class="ident">walk_arm</span>(<span class="self">self</span>, <span class="ident">arm</span>);
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_pat</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>pat</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>hir</span>::<span class='ident'>Pat</span>) {
-        <span class='kw'>match</span> <span class='ident'>pat</span>.<span class='ident'>node</span> {
-            <span class='ident'>PatKind</span>::<span class='ident'>Struct</span>(<span class='ident'>hir</span>::<span class='ident'>QPath</span>::<span class='ident'>Resolved</span>(_, <span class='kw-2'>ref</span> <span class='ident'>path</span>), <span class='kw-2'>ref</span> <span class='ident'>fields</span>, _) <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>handle_field_pattern_match</span>(<span class='ident'>pat</span>, <span class='ident'>path</span>.<span class='ident'>def</span>, <span class='ident'>fields</span>);
+    <span class="kw">fn</span> <span class="ident">visit_pat</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">pat</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">hir</span>::<span class="ident">Pat</span>) {
+        <span class="kw">match</span> <span class="ident">pat</span>.<span class="ident">node</span> {
+            <span class="ident">PatKind</span>::<span class="ident">Struct</span>(<span class="ident">hir</span>::<span class="ident">QPath</span>::<span class="ident">Resolved</span>(_, <span class="kw-2">ref</span> <span class="ident">path</span>), <span class="kw-2">ref</span> <span class="ident">fields</span>, _) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">handle_field_pattern_match</span>(<span class="ident">pat</span>, <span class="ident">path</span>.<span class="ident">def</span>, <span class="ident">fields</span>);
             }
-            <span class='ident'>PatKind</span>::<span class='ident'>Path</span>(<span class='kw-2'>ref</span> <span class='ident'>qpath</span> @ <span class='ident'>hir</span>::<span class='ident'>QPath</span>::<span class='ident'>TypeRelative</span>(..)) <span class='op'>=&gt;</span> {
-                <span class='kw'>let</span> <span class='ident'>def</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tables</span>.<span class='ident'>qpath_def</span>(<span class='ident'>qpath</span>, <span class='ident'>pat</span>.<span class='ident'>id</span>);
-                <span class='self'>self</span>.<span class='ident'>handle_definition</span>(<span class='ident'>def</span>);
+            <span class="ident">PatKind</span>::<span class="ident">Path</span>(<span class="kw-2">ref</span> <span class="ident">qpath</span> @ <span class="ident">hir</span>::<span class="ident">QPath</span>::<span class="ident">TypeRelative</span>(..)) <span class="op">=&gt;</span> {
+                <span class="kw">let</span> <span class="ident">def</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tables</span>.<span class="ident">qpath_def</span>(<span class="ident">qpath</span>, <span class="ident">pat</span>.<span class="ident">id</span>);
+                <span class="self">self</span>.<span class="ident">handle_definition</span>(<span class="ident">def</span>);
             }
-            _ <span class='op'>=&gt;</span> ()
+            _ <span class="op">=&gt;</span> ()
         }
 
-        <span class='self'>self</span>.<span class='ident'>ignore_non_const_paths</span> <span class='op'>=</span> <span class='bool-val'>true</span>;
-        <span class='ident'>intravisit</span>::<span class='ident'>walk_pat</span>(<span class='self'>self</span>, <span class='ident'>pat</span>);
-        <span class='self'>self</span>.<span class='ident'>ignore_non_const_paths</span> <span class='op'>=</span> <span class='bool-val'>false</span>;
+        <span class="self">self</span>.<span class="ident">ignore_non_const_paths</span> <span class="op">=</span> <span class="bool-val">true</span>;
+        <span class="ident">intravisit</span>::<span class="ident">walk_pat</span>(<span class="self">self</span>, <span class="ident">pat</span>);
+        <span class="self">self</span>.<span class="ident">ignore_non_const_paths</span> <span class="op">=</span> <span class="bool-val">false</span>;
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_path</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>path</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>hir</span>::<span class='ident'>Path</span>, _: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>) {
-        <span class='self'>self</span>.<span class='ident'>handle_definition</span>(<span class='ident'>path</span>.<span class='ident'>def</span>);
-        <span class='ident'>intravisit</span>::<span class='ident'>walk_path</span>(<span class='self'>self</span>, <span class='ident'>path</span>);
+    <span class="kw">fn</span> <span class="ident">visit_path</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">path</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">hir</span>::<span class="ident">Path</span>, _: <span class="ident">ast</span>::<span class="ident">NodeId</span>) {
+        <span class="self">self</span>.<span class="ident">handle_definition</span>(<span class="ident">path</span>.<span class="ident">def</span>);
+        <span class="ident">intravisit</span>::<span class="ident">walk_path</span>(<span class="self">self</span>, <span class="ident">path</span>);
     }
 }
 
-<span class='kw'>fn</span> <span class='ident'>has_allow_dead_code_or_lang_attr</span>(<span class='ident'>attrs</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>ast</span>::<span class='ident'>Attribute</span>]) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-    <span class='kw'>if</span> <span class='ident'>attr</span>::<span class='ident'>contains_name</span>(<span class='ident'>attrs</span>, <span class='string'>&quot;lang&quot;</span>) {
-        <span class='kw'>return</span> <span class='bool-val'>true</span>;
+<span class="kw">fn</span> <span class="ident">has_allow_dead_code_or_lang_attr</span>(<span class="ident">attrs</span>: <span class="kw-2">&amp;</span>[<span class="ident">ast</span>::<span class="ident">Attribute</span>]) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+    <span class="kw">if</span> <span class="ident">attr</span>::<span class="ident">contains_name</span>(<span class="ident">attrs</span>, <span class="string">&quot;lang&quot;</span>) {
+        <span class="kw">return</span> <span class="bool-val">true</span>;
     }
 
-    <span class='kw'>let</span> <span class='ident'>dead_code</span> <span class='op'>=</span> <span class='ident'>lint</span>::<span class='ident'>builtin</span>::<span class='ident'>DEAD_CODE</span>.<span class='ident'>name_lower</span>();
-    <span class='kw'>for</span> <span class='ident'>attr</span> <span class='kw'>in</span> <span class='ident'>lint</span>::<span class='ident'>gather_attrs</span>(<span class='ident'>attrs</span>) {
-        <span class='kw'>match</span> <span class='ident'>attr</span> {
-            <span class='prelude-val'>Ok</span>((<span class='ident'>name</span>, <span class='ident'>lint</span>::<span class='ident'>Allow</span>, _)) <span class='kw'>if</span> <span class='ident'>name</span> <span class='op'>==</span> <span class='kw-2'>&amp;</span><span class='kw-2'>*</span><span class='ident'>dead_code</span> <span class='op'>=&gt;</span> <span class='kw'>return</span> <span class='bool-val'>true</span>,
-            _ <span class='op'>=&gt;</span> (),
+    <span class="kw">let</span> <span class="ident">dead_code</span> <span class="op">=</span> <span class="ident">lint</span>::<span class="ident">builtin</span>::<span class="ident">DEAD_CODE</span>.<span class="ident">name_lower</span>();
+    <span class="kw">for</span> <span class="ident">attr</span> <span class="kw">in</span> <span class="ident">lint</span>::<span class="ident">gather_attrs</span>(<span class="ident">attrs</span>) {
+        <span class="kw">match</span> <span class="ident">attr</span> {
+            <span class="prelude-val">Ok</span>((<span class="ident">name</span>, <span class="ident">lint</span>::<span class="ident">Allow</span>, _)) <span class="kw">if</span> <span class="ident">name</span> <span class="op">==</span> <span class="kw-2">&amp;</span><span class="kw-2">*</span><span class="ident">dead_code</span> <span class="op">=&gt;</span> <span class="kw">return</span> <span class="bool-val">true</span>,
+            _ <span class="op">=&gt;</span> (),
         }
     }
-    <span class='bool-val'>false</span>
+    <span class="bool-val">false</span>
 }
 
-<span class='comment'>// This visitor seeds items that</span>
-<span class='comment'>//   1) We want to explicitly consider as live:</span>
-<span class='comment'>//     * Item annotated with #[allow(dead_code)]</span>
-<span class='comment'>//         - This is done so that if we want to suppress warnings for a</span>
-<span class='comment'>//           group of dead functions, we only have to annotate the &quot;root&quot;.</span>
-<span class='comment'>//           For example, if both `f` and `g` are dead and `f` calls `g`,</span>
-<span class='comment'>//           then annotating `f` with `#[allow(dead_code)]` will suppress</span>
-<span class='comment'>//           warning for both `f` and `g`.</span>
-<span class='comment'>//     * Item annotated with #[lang=&quot;..&quot;]</span>
-<span class='comment'>//         - This is because lang items are always callable from elsewhere.</span>
-<span class='comment'>//   or</span>
-<span class='comment'>//   2) We are not sure to be live or not</span>
-<span class='comment'>//     * Implementation of a trait method</span>
-<span class='kw'>struct</span> <span class='ident'>LifeSeeder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;k</span><span class='op'>&gt;</span> {
-    <span class='ident'>worklist</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>NodeId</span><span class='op'>&gt;</span>,
-    <span class='ident'>krate</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;k</span> <span class='ident'>hir</span>::<span class='ident'>Crate</span>,
+<span class="comment">// This visitor seeds items that</span>
+<span class="comment">//   1) We want to explicitly consider as live:</span>
+<span class="comment">//     * Item annotated with #[allow(dead_code)]</span>
+<span class="comment">//         - This is done so that if we want to suppress warnings for a</span>
+<span class="comment">//           group of dead functions, we only have to annotate the &quot;root&quot;.</span>
+<span class="comment">//           For example, if both `f` and `g` are dead and `f` calls `g`,</span>
+<span class="comment">//           then annotating `f` with `#[allow(dead_code)]` will suppress</span>
+<span class="comment">//           warning for both `f` and `g`.</span>
+<span class="comment">//     * Item annotated with #[lang=&quot;..&quot;]</span>
+<span class="comment">//         - This is because lang items are always callable from elsewhere.</span>
+<span class="comment">//   or</span>
+<span class="comment">//   2) We are not sure to be live or not</span>
+<span class="comment">//     * Implementation of a trait method</span>
+<span class="kw">struct</span> <span class="ident">LifeSeeder</span><span class="op">&lt;</span><span class="lifetime">&#39;k</span><span class="op">&gt;</span> {
+    <span class="ident">worklist</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">NodeId</span><span class="op">&gt;</span>,
+    <span class="ident">krate</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;k</span> <span class="ident">hir</span>::<span class="ident">Crate</span>,
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;v</span>, <span class='lifetime'>&#39;k</span><span class='op'>&gt;</span> <span class='ident'>ItemLikeVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;v</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>LifeSeeder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;k</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>visit_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>item</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Item</span>) {
-        <span class='kw'>let</span> <span class='ident'>allow_dead_code</span> <span class='op'>=</span> <span class='ident'>has_allow_dead_code_or_lang_attr</span>(<span class='kw-2'>&amp;</span><span class='ident'>item</span>.<span class='ident'>attrs</span>);
-        <span class='kw'>if</span> <span class='ident'>allow_dead_code</span> {
-            <span class='self'>self</span>.<span class='ident'>worklist</span>.<span class='ident'>push</span>(<span class='ident'>item</span>.<span class='ident'>id</span>);
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;v</span>, <span class="lifetime">&#39;k</span><span class="op">&gt;</span> <span class="ident">ItemLikeVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;v</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">LifeSeeder</span><span class="op">&lt;</span><span class="lifetime">&#39;k</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">visit_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">item</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">Item</span>) {
+        <span class="kw">let</span> <span class="ident">allow_dead_code</span> <span class="op">=</span> <span class="ident">has_allow_dead_code_or_lang_attr</span>(<span class="kw-2">&amp;</span><span class="ident">item</span>.<span class="ident">attrs</span>);
+        <span class="kw">if</span> <span class="ident">allow_dead_code</span> {
+            <span class="self">self</span>.<span class="ident">worklist</span>.<span class="ident">push</span>(<span class="ident">item</span>.<span class="ident">id</span>);
         }
-        <span class='kw'>match</span> <span class='ident'>item</span>.<span class='ident'>node</span> {
-            <span class='ident'>hir</span>::<span class='ident'>ItemEnum</span>(<span class='kw-2'>ref</span> <span class='ident'>enum_def</span>, _) <span class='kw'>if</span> <span class='ident'>allow_dead_code</span> <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>worklist</span>.<span class='ident'>extend</span>(<span class='ident'>enum_def</span>.<span class='ident'>variants</span>.<span class='ident'>iter</span>()
-                                                      .<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>variant</span><span class='op'>|</span> <span class='ident'>variant</span>.<span class='ident'>node</span>.<span class='ident'>data</span>.<span class='ident'>id</span>()));
+        <span class="kw">match</span> <span class="ident">item</span>.<span class="ident">node</span> {
+            <span class="ident">hir</span>::<span class="ident">ItemEnum</span>(<span class="kw-2">ref</span> <span class="ident">enum_def</span>, _) <span class="kw">if</span> <span class="ident">allow_dead_code</span> <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">worklist</span>.<span class="ident">extend</span>(<span class="ident">enum_def</span>.<span class="ident">variants</span>.<span class="ident">iter</span>()
+                                                      .<span class="ident">map</span>(<span class="op">|</span><span class="ident">variant</span><span class="op">|</span> <span class="ident">variant</span>.<span class="ident">node</span>.<span class="ident">data</span>.<span class="ident">id</span>()));
             }
-            <span class='ident'>hir</span>::<span class='ident'>ItemTrait</span>(.., <span class='kw-2'>ref</span> <span class='ident'>trait_item_refs</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>for</span> <span class='ident'>trait_item_ref</span> <span class='kw'>in</span> <span class='ident'>trait_item_refs</span> {
-                    <span class='kw'>let</span> <span class='ident'>trait_item</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>krate</span>.<span class='ident'>trait_item</span>(<span class='ident'>trait_item_ref</span>.<span class='ident'>id</span>);
-                    <span class='kw'>match</span> <span class='ident'>trait_item</span>.<span class='ident'>node</span> {
-                        <span class='ident'>hir</span>::<span class='ident'>TraitItemKind</span>::<span class='ident'>Const</span>(_, <span class='prelude-val'>Some</span>(_)) <span class='op'>|</span>
-                        <span class='ident'>hir</span>::<span class='ident'>TraitItemKind</span>::<span class='ident'>Method</span>(_, <span class='ident'>hir</span>::<span class='ident'>TraitMethod</span>::<span class='ident'>Provided</span>(_)) <span class='op'>=&gt;</span> {
-                            <span class='kw'>if</span> <span class='ident'>has_allow_dead_code_or_lang_attr</span>(<span class='kw-2'>&amp;</span><span class='ident'>trait_item</span>.<span class='ident'>attrs</span>) {
-                                <span class='self'>self</span>.<span class='ident'>worklist</span>.<span class='ident'>push</span>(<span class='ident'>trait_item</span>.<span class='ident'>id</span>);
+            <span class="ident">hir</span>::<span class="ident">ItemTrait</span>(.., <span class="kw-2">ref</span> <span class="ident">trait_item_refs</span>) <span class="op">=&gt;</span> {
+                <span class="kw">for</span> <span class="ident">trait_item_ref</span> <span class="kw">in</span> <span class="ident">trait_item_refs</span> {
+                    <span class="kw">let</span> <span class="ident">trait_item</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">krate</span>.<span class="ident">trait_item</span>(<span class="ident">trait_item_ref</span>.<span class="ident">id</span>);
+                    <span class="kw">match</span> <span class="ident">trait_item</span>.<span class="ident">node</span> {
+                        <span class="ident">hir</span>::<span class="ident">TraitItemKind</span>::<span class="ident">Const</span>(_, <span class="prelude-val">Some</span>(_)) <span class="op">|</span>
+                        <span class="ident">hir</span>::<span class="ident">TraitItemKind</span>::<span class="ident">Method</span>(_, <span class="ident">hir</span>::<span class="ident">TraitMethod</span>::<span class="ident">Provided</span>(_)) <span class="op">=&gt;</span> {
+                            <span class="kw">if</span> <span class="ident">has_allow_dead_code_or_lang_attr</span>(<span class="kw-2">&amp;</span><span class="ident">trait_item</span>.<span class="ident">attrs</span>) {
+                                <span class="self">self</span>.<span class="ident">worklist</span>.<span class="ident">push</span>(<span class="ident">trait_item</span>.<span class="ident">id</span>);
                             }
                         }
-                        _ <span class='op'>=&gt;</span> {}
+                        _ <span class="op">=&gt;</span> {}
                     }
                 }
             }
-            <span class='ident'>hir</span>::<span class='ident'>ItemImpl</span>(.., <span class='kw-2'>ref</span> <span class='ident'>opt_trait</span>, _, <span class='kw-2'>ref</span> <span class='ident'>impl_item_refs</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>for</span> <span class='ident'>impl_item_ref</span> <span class='kw'>in</span> <span class='ident'>impl_item_refs</span> {
-                    <span class='kw'>let</span> <span class='ident'>impl_item</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>krate</span>.<span class='ident'>impl_item</span>(<span class='ident'>impl_item_ref</span>.<span class='ident'>id</span>);
-                    <span class='kw'>if</span> <span class='ident'>opt_trait</span>.<span class='ident'>is_some</span>() <span class='op'>||</span>
-                            <span class='ident'>has_allow_dead_code_or_lang_attr</span>(<span class='kw-2'>&amp;</span><span class='ident'>impl_item</span>.<span class='ident'>attrs</span>) {
-                        <span class='self'>self</span>.<span class='ident'>worklist</span>.<span class='ident'>push</span>(<span class='ident'>impl_item_ref</span>.<span class='ident'>id</span>.<span class='ident'>node_id</span>);
+            <span class="ident">hir</span>::<span class="ident">ItemImpl</span>(.., <span class="kw-2">ref</span> <span class="ident">opt_trait</span>, _, <span class="kw-2">ref</span> <span class="ident">impl_item_refs</span>) <span class="op">=&gt;</span> {
+                <span class="kw">for</span> <span class="ident">impl_item_ref</span> <span class="kw">in</span> <span class="ident">impl_item_refs</span> {
+                    <span class="kw">let</span> <span class="ident">impl_item</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">krate</span>.<span class="ident">impl_item</span>(<span class="ident">impl_item_ref</span>.<span class="ident">id</span>);
+                    <span class="kw">if</span> <span class="ident">opt_trait</span>.<span class="ident">is_some</span>() <span class="op">||</span>
+                            <span class="ident">has_allow_dead_code_or_lang_attr</span>(<span class="kw-2">&amp;</span><span class="ident">impl_item</span>.<span class="ident">attrs</span>) {
+                        <span class="self">self</span>.<span class="ident">worklist</span>.<span class="ident">push</span>(<span class="ident">impl_item_ref</span>.<span class="ident">id</span>.<span class="ident">node_id</span>);
                     }
                 }
             }
-            _ <span class='op'>=&gt;</span> ()
+            _ <span class="op">=&gt;</span> ()
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_trait_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>_item</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>TraitItem</span>) {
-        <span class='comment'>// ignore: we are handling this in `visit_item` above</span>
+    <span class="kw">fn</span> <span class="ident">visit_trait_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">_item</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">TraitItem</span>) {
+        <span class="comment">// ignore: we are handling this in `visit_item` above</span>
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_impl_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>_item</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>ImplItem</span>) {
-        <span class='comment'>// ignore: we are handling this in `visit_item` above</span>
+    <span class="kw">fn</span> <span class="ident">visit_impl_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">_item</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">ImplItem</span>) {
+        <span class="comment">// ignore: we are handling this in `visit_item` above</span>
     }
 }
 
-<span class='kw'>fn</span> <span class='ident'>create_and_seed_worklist</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                      <span class='ident'>access_levels</span>: <span class='kw-2'>&amp;</span><span class='ident'>privacy</span>::<span class='ident'>AccessLevels</span>,
-                                      <span class='ident'>krate</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Crate</span>)
-                                      <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>NodeId</span><span class='op'>&gt;</span> {
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>worklist</span> <span class='op'>=</span> <span class='ident'>Vec</span>::<span class='ident'>new</span>();
-    <span class='kw'>for</span> (<span class='ident'>id</span>, _) <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='ident'>access_levels</span>.<span class='ident'>map</span> {
-        <span class='ident'>worklist</span>.<span class='ident'>push</span>(<span class='kw-2'>*</span><span class='ident'>id</span>);
+<span class="kw">fn</span> <span class="ident">create_and_seed_worklist</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                      <span class="ident">access_levels</span>: <span class="kw-2">&amp;</span><span class="ident">privacy</span>::<span class="ident">AccessLevels</span>,
+                                      <span class="ident">krate</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">Crate</span>)
+                                      <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">NodeId</span><span class="op">&gt;</span> {
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">worklist</span> <span class="op">=</span> <span class="ident">Vec</span>::<span class="ident">new</span>();
+    <span class="kw">for</span> (<span class="ident">id</span>, _) <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="ident">access_levels</span>.<span class="ident">map</span> {
+        <span class="ident">worklist</span>.<span class="ident">push</span>(<span class="kw-2">*</span><span class="ident">id</span>);
     }
 
-    <span class='comment'>// Seed entry point</span>
-    <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>((<span class='ident'>id</span>, _)) <span class='op'>=</span> <span class='kw-2'>*</span><span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>entry_fn</span>.<span class='ident'>borrow</span>() {
-        <span class='ident'>worklist</span>.<span class='ident'>push</span>(<span class='ident'>id</span>);
+    <span class="comment">// Seed entry point</span>
+    <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>((<span class="ident">id</span>, _)) <span class="op">=</span> <span class="kw-2">*</span><span class="ident">tcx</span>.<span class="ident">sess</span>.<span class="ident">entry_fn</span>.<span class="ident">borrow</span>() {
+        <span class="ident">worklist</span>.<span class="ident">push</span>(<span class="ident">id</span>);
     }
 
-    <span class='comment'>// Seed implemented trait items</span>
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>life_seeder</span> <span class='op'>=</span> <span class='ident'>LifeSeeder</span> {
-        <span class='ident'>worklist</span>: <span class='ident'>worklist</span>,
-        <span class='ident'>krate</span>: <span class='ident'>krate</span>,
+    <span class="comment">// Seed implemented trait items</span>
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">life_seeder</span> <span class="op">=</span> <span class="ident">LifeSeeder</span> {
+        <span class="ident">worklist</span>: <span class="ident">worklist</span>,
+        <span class="ident">krate</span>: <span class="ident">krate</span>,
     };
-    <span class='ident'>krate</span>.<span class='ident'>visit_all_item_likes</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>life_seeder</span>);
+    <span class="ident">krate</span>.<span class="ident">visit_all_item_likes</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">life_seeder</span>);
 
-    <span class='kw'>return</span> <span class='ident'>life_seeder</span>.<span class='ident'>worklist</span>;
+    <span class="kw">return</span> <span class="ident">life_seeder</span>.<span class="ident">worklist</span>;
 }
 
-<span class='kw'>fn</span> <span class='ident'>find_live</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                       <span class='ident'>access_levels</span>: <span class='kw-2'>&amp;</span><span class='ident'>privacy</span>::<span class='ident'>AccessLevels</span>,
-                       <span class='ident'>krate</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Crate</span>)
-                       <span class='op'>-&gt;</span> <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>FxHashSet</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>NodeId</span><span class='op'>&gt;&gt;</span> {
-    <span class='kw'>let</span> <span class='ident'>worklist</span> <span class='op'>=</span> <span class='ident'>create_and_seed_worklist</span>(<span class='ident'>tcx</span>, <span class='ident'>access_levels</span>, <span class='ident'>krate</span>);
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>symbol_visitor</span> <span class='op'>=</span> <span class='ident'>MarkSymbolVisitor</span> {
-        <span class='ident'>worklist</span>: <span class='ident'>worklist</span>,
-        <span class='ident'>tcx</span>: <span class='ident'>tcx</span>,
-        <span class='ident'>tables</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>TypeckTables</span>::<span class='ident'>empty</span>(),
-        <span class='ident'>live_symbols</span>: <span class='kw'>box</span> <span class='ident'>FxHashSet</span>(),
-        <span class='ident'>struct_has_extern_repr</span>: <span class='bool-val'>false</span>,
-        <span class='ident'>ignore_non_const_paths</span>: <span class='bool-val'>false</span>,
-        <span class='ident'>inherited_pub_visibility</span>: <span class='bool-val'>false</span>,
-        <span class='ident'>ignore_variant_stack</span>: <span class='macro'>vec</span><span class='macro'>!</span>[],
+<span class="kw">fn</span> <span class="ident">find_live</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                       <span class="ident">access_levels</span>: <span class="kw-2">&amp;</span><span class="ident">privacy</span>::<span class="ident">AccessLevels</span>,
+                       <span class="ident">krate</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">Crate</span>)
+                       <span class="op">-&gt;</span> <span class="ident">Box</span><span class="op">&lt;</span><span class="ident">FxHashSet</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">NodeId</span><span class="op">&gt;&gt;</span> {
+    <span class="kw">let</span> <span class="ident">worklist</span> <span class="op">=</span> <span class="ident">create_and_seed_worklist</span>(<span class="ident">tcx</span>, <span class="ident">access_levels</span>, <span class="ident">krate</span>);
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">symbol_visitor</span> <span class="op">=</span> <span class="ident">MarkSymbolVisitor</span> {
+        <span class="ident">worklist</span>: <span class="ident">worklist</span>,
+        <span class="ident">tcx</span>: <span class="ident">tcx</span>,
+        <span class="ident">tables</span>: <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TypeckTables</span>::<span class="ident">empty</span>(),
+        <span class="ident">live_symbols</span>: <span class="kw">box</span> <span class="ident">FxHashSet</span>(),
+        <span class="ident">struct_has_extern_repr</span>: <span class="bool-val">false</span>,
+        <span class="ident">ignore_non_const_paths</span>: <span class="bool-val">false</span>,
+        <span class="ident">inherited_pub_visibility</span>: <span class="bool-val">false</span>,
+        <span class="ident">ignore_variant_stack</span>: <span class="macro">vec</span><span class="macro">!</span>[],
     };
-    <span class='ident'>symbol_visitor</span>.<span class='ident'>mark_live_symbols</span>();
-    <span class='ident'>symbol_visitor</span>.<span class='ident'>live_symbols</span>
+    <span class="ident">symbol_visitor</span>.<span class="ident">mark_live_symbols</span>();
+    <span class="ident">symbol_visitor</span>.<span class="ident">live_symbols</span>
 }
 
-<span class='kw'>fn</span> <span class='ident'>get_struct_ctor_id</span>(<span class='ident'>item</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Item</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>NodeId</span><span class='op'>&gt;</span> {
-    <span class='kw'>match</span> <span class='ident'>item</span>.<span class='ident'>node</span> {
-        <span class='ident'>hir</span>::<span class='ident'>ItemStruct</span>(<span class='kw-2'>ref</span> <span class='ident'>struct_def</span>, _) <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>struct_def</span>.<span class='ident'>is_struct</span>() <span class='op'>=&gt;</span> {
-            <span class='prelude-val'>Some</span>(<span class='ident'>struct_def</span>.<span class='ident'>id</span>())
+<span class="kw">fn</span> <span class="ident">get_struct_ctor_id</span>(<span class="ident">item</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">Item</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">NodeId</span><span class="op">&gt;</span> {
+    <span class="kw">match</span> <span class="ident">item</span>.<span class="ident">node</span> {
+        <span class="ident">hir</span>::<span class="ident">ItemStruct</span>(<span class="kw-2">ref</span> <span class="ident">struct_def</span>, _) <span class="kw">if</span> <span class="op">!</span><span class="ident">struct_def</span>.<span class="ident">is_struct</span>() <span class="op">=&gt;</span> {
+            <span class="prelude-val">Some</span>(<span class="ident">struct_def</span>.<span class="ident">id</span>())
         }
-        _ <span class='op'>=&gt;</span> <span class='prelude-val'>None</span>
+        _ <span class="op">=&gt;</span> <span class="prelude-val">None</span>
     }
 }
 
-<span class='kw'>struct</span> <span class='ident'>DeadVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>: <span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-    <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>live_symbols</span>: <span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>FxHashSet</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>NodeId</span><span class='op'>&gt;&gt;</span>,
+<span class="kw">struct</span> <span class="ident">DeadVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>: <span class="lifetime">&#39;a</span><span class="op">&gt;</span> {
+    <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">live_symbols</span>: <span class="ident">Box</span><span class="op">&lt;</span><span class="ident">FxHashSet</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">NodeId</span><span class="op">&gt;&gt;</span>,
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>DeadVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>should_warn_about_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>item</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Item</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-        <span class='kw'>let</span> <span class='ident'>should_warn</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>item</span>.<span class='ident'>node</span> {
-            <span class='ident'>hir</span>::<span class='ident'>ItemStatic</span>(..)
-            <span class='op'>|</span> <span class='ident'>hir</span>::<span class='ident'>ItemConst</span>(..)
-            <span class='op'>|</span> <span class='ident'>hir</span>::<span class='ident'>ItemFn</span>(..)
-            <span class='op'>|</span> <span class='ident'>hir</span>::<span class='ident'>ItemTy</span>(..)
-            <span class='op'>|</span> <span class='ident'>hir</span>::<span class='ident'>ItemEnum</span>(..)
-            <span class='op'>|</span> <span class='ident'>hir</span>::<span class='ident'>ItemStruct</span>(..)
-            <span class='op'>|</span> <span class='ident'>hir</span>::<span class='ident'>ItemUnion</span>(..) <span class='op'>=&gt;</span> <span class='bool-val'>true</span>,
-            _ <span class='op'>=&gt;</span> <span class='bool-val'>false</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">DeadVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">should_warn_about_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">item</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">Item</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+        <span class="kw">let</span> <span class="ident">should_warn</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">item</span>.<span class="ident">node</span> {
+            <span class="ident">hir</span>::<span class="ident">ItemStatic</span>(..)
+            <span class="op">|</span> <span class="ident">hir</span>::<span class="ident">ItemConst</span>(..)
+            <span class="op">|</span> <span class="ident">hir</span>::<span class="ident">ItemFn</span>(..)
+            <span class="op">|</span> <span class="ident">hir</span>::<span class="ident">ItemTy</span>(..)
+            <span class="op">|</span> <span class="ident">hir</span>::<span class="ident">ItemEnum</span>(..)
+            <span class="op">|</span> <span class="ident">hir</span>::<span class="ident">ItemStruct</span>(..)
+            <span class="op">|</span> <span class="ident">hir</span>::<span class="ident">ItemUnion</span>(..) <span class="op">=&gt;</span> <span class="bool-val">true</span>,
+            _ <span class="op">=&gt;</span> <span class="bool-val">false</span>
         };
-        <span class='kw'>let</span> <span class='ident'>ctor_id</span> <span class='op'>=</span> <span class='ident'>get_struct_ctor_id</span>(<span class='ident'>item</span>);
-        <span class='ident'>should_warn</span> <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>symbol_is_live</span>(<span class='ident'>item</span>.<span class='ident'>id</span>, <span class='ident'>ctor_id</span>)
+        <span class="kw">let</span> <span class="ident">ctor_id</span> <span class="op">=</span> <span class="ident">get_struct_ctor_id</span>(<span class="ident">item</span>);
+        <span class="ident">should_warn</span> <span class="op">&amp;&amp;</span> <span class="op">!</span><span class="self">self</span>.<span class="ident">symbol_is_live</span>(<span class="ident">item</span>.<span class="ident">id</span>, <span class="ident">ctor_id</span>)
     }
 
-    <span class='kw'>fn</span> <span class='ident'>should_warn_about_field</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>field</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>StructField</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-        <span class='kw'>let</span> <span class='ident'>field_type</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>item_type</span>(<span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>hir</span>.<span class='ident'>local_def_id</span>(<span class='ident'>field</span>.<span class='ident'>id</span>));
-        <span class='kw'>let</span> <span class='ident'>is_marker_field</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>field_type</span>.<span class='ident'>ty_to_def_id</span>() {
-            <span class='prelude-val'>Some</span>(<span class='ident'>def_id</span>) <span class='op'>=&gt;</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>lang_items</span>.<span class='ident'>items</span>().<span class='ident'>iter</span>().<span class='ident'>any</span>(<span class='op'>|</span><span class='ident'>item</span><span class='op'>|</span> <span class='kw-2'>*</span><span class='ident'>item</span> <span class='op'>==</span> <span class='prelude-val'>Some</span>(<span class='ident'>def_id</span>)),
-            _ <span class='op'>=&gt;</span> <span class='bool-val'>false</span>
+    <span class="kw">fn</span> <span class="ident">should_warn_about_field</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">field</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">StructField</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+        <span class="kw">let</span> <span class="ident">field_type</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">item_type</span>(<span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">local_def_id</span>(<span class="ident">field</span>.<span class="ident">id</span>));
+        <span class="kw">let</span> <span class="ident">is_marker_field</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">field_type</span>.<span class="ident">ty_to_def_id</span>() {
+            <span class="prelude-val">Some</span>(<span class="ident">def_id</span>) <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">lang_items</span>.<span class="ident">items</span>().<span class="ident">iter</span>().<span class="ident">any</span>(<span class="op">|</span><span class="ident">item</span><span class="op">|</span> <span class="kw-2">*</span><span class="ident">item</span> <span class="op">==</span> <span class="prelude-val">Some</span>(<span class="ident">def_id</span>)),
+            _ <span class="op">=&gt;</span> <span class="bool-val">false</span>
         };
-        <span class='op'>!</span><span class='ident'>field</span>.<span class='ident'>is_positional</span>()
-            <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>symbol_is_live</span>(<span class='ident'>field</span>.<span class='ident'>id</span>, <span class='prelude-val'>None</span>)
-            <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='ident'>is_marker_field</span>
-            <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='ident'>has_allow_dead_code_or_lang_attr</span>(<span class='kw-2'>&amp;</span><span class='ident'>field</span>.<span class='ident'>attrs</span>)
+        <span class="op">!</span><span class="ident">field</span>.<span class="ident">is_positional</span>()
+            <span class="op">&amp;&amp;</span> <span class="op">!</span><span class="self">self</span>.<span class="ident">symbol_is_live</span>(<span class="ident">field</span>.<span class="ident">id</span>, <span class="prelude-val">None</span>)
+            <span class="op">&amp;&amp;</span> <span class="op">!</span><span class="ident">is_marker_field</span>
+            <span class="op">&amp;&amp;</span> <span class="op">!</span><span class="ident">has_allow_dead_code_or_lang_attr</span>(<span class="kw-2">&amp;</span><span class="ident">field</span>.<span class="ident">attrs</span>)
     }
 
-    <span class='kw'>fn</span> <span class='ident'>should_warn_about_variant</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>variant</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>Variant_</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-        <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>symbol_is_live</span>(<span class='ident'>variant</span>.<span class='ident'>data</span>.<span class='ident'>id</span>(), <span class='prelude-val'>None</span>)
-            <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='ident'>has_allow_dead_code_or_lang_attr</span>(<span class='kw-2'>&amp;</span><span class='ident'>variant</span>.<span class='ident'>attrs</span>)
+    <span class="kw">fn</span> <span class="ident">should_warn_about_variant</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">variant</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">Variant_</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+        <span class="op">!</span><span class="self">self</span>.<span class="ident">symbol_is_live</span>(<span class="ident">variant</span>.<span class="ident">data</span>.<span class="ident">id</span>(), <span class="prelude-val">None</span>)
+            <span class="op">&amp;&amp;</span> <span class="op">!</span><span class="ident">has_allow_dead_code_or_lang_attr</span>(<span class="kw-2">&amp;</span><span class="ident">variant</span>.<span class="ident">attrs</span>)
     }
 
-    <span class='kw'>fn</span> <span class='ident'>should_warn_about_foreign_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>fi</span>: <span class='kw-2'>&amp;</span><span class='ident'>hir</span>::<span class='ident'>ForeignItem</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-        <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>symbol_is_live</span>(<span class='ident'>fi</span>.<span class='ident'>id</span>, <span class='prelude-val'>None</span>)
-            <span class='op'>&amp;&amp;</span> <span class='op'>!</span><span class='ident'>has_allow_dead_code_or_lang_attr</span>(<span class='kw-2'>&amp;</span><span class='ident'>fi</span>.<span class='ident'>attrs</span>)
+    <span class="kw">fn</span> <span class="ident">should_warn_about_foreign_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">fi</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">ForeignItem</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+        <span class="op">!</span><span class="self">self</span>.<span class="ident">symbol_is_live</span>(<span class="ident">fi</span>.<span class="ident">id</span>, <span class="prelude-val">None</span>)
+            <span class="op">&amp;&amp;</span> <span class="op">!</span><span class="ident">has_allow_dead_code_or_lang_attr</span>(<span class="kw-2">&amp;</span><span class="ident">fi</span>.<span class="ident">attrs</span>)
     }
 
-    <span class='comment'>// id := node id of an item&#39;s definition.</span>
-    <span class='comment'>// ctor_id := `Some` if the item is a struct_ctor (tuple struct),</span>
-    <span class='comment'>//            `None` otherwise.</span>
-    <span class='comment'>// If the item is a struct_ctor, then either its `id` or</span>
-    <span class='comment'>// `ctor_id` (unwrapped) is in the live_symbols set. More specifically,</span>
-    <span class='comment'>// DefMap maps the ExprPath of a struct_ctor to the node referred by</span>
-    <span class='comment'>// `ctor_id`. On the other hand, in a statement like</span>
-    <span class='comment'>// `type &lt;ident&gt; &lt;generics&gt; = &lt;ty&gt;;` where &lt;ty&gt; refers to a struct_ctor,</span>
-    <span class='comment'>// DefMap maps &lt;ty&gt; to `id` instead.</span>
-    <span class='kw'>fn</span> <span class='ident'>symbol_is_live</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                      <span class='ident'>id</span>: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>,
-                      <span class='ident'>ctor_id</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>NodeId</span><span class='op'>&gt;</span>)
-                      <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>live_symbols</span>.<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>id</span>)
-           <span class='op'>||</span> <span class='ident'>ctor_id</span>.<span class='ident'>map_or</span>(<span class='bool-val'>false</span>,
-                             <span class='op'>|</span><span class='ident'>ctor</span><span class='op'>|</span> <span class='self'>self</span>.<span class='ident'>live_symbols</span>.<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>ctor</span>)) {
-            <span class='kw'>return</span> <span class='bool-val'>true</span>;
+    <span class="comment">// id := node id of an item&#39;s definition.</span>
+    <span class="comment">// ctor_id := `Some` if the item is a struct_ctor (tuple struct),</span>
+    <span class="comment">//            `None` otherwise.</span>
+    <span class="comment">// If the item is a struct_ctor, then either its `id` or</span>
+    <span class="comment">// `ctor_id` (unwrapped) is in the live_symbols set. More specifically,</span>
+    <span class="comment">// DefMap maps the ExprPath of a struct_ctor to the node referred by</span>
+    <span class="comment">// `ctor_id`. On the other hand, in a statement like</span>
+    <span class="comment">// `type &lt;ident&gt; &lt;generics&gt; = &lt;ty&gt;;` where &lt;ty&gt; refers to a struct_ctor,</span>
+    <span class="comment">// DefMap maps &lt;ty&gt; to `id` instead.</span>
+    <span class="kw">fn</span> <span class="ident">symbol_is_live</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                      <span class="ident">id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>,
+                      <span class="ident">ctor_id</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">NodeId</span><span class="op">&gt;</span>)
+                      <span class="op">-&gt;</span> <span class="ident">bool</span> {
+        <span class="kw">if</span> <span class="self">self</span>.<span class="ident">live_symbols</span>.<span class="ident">contains</span>(<span class="kw-2">&amp;</span><span class="ident">id</span>)
+           <span class="op">||</span> <span class="ident">ctor_id</span>.<span class="ident">map_or</span>(<span class="bool-val">false</span>,
+                             <span class="op">|</span><span class="ident">ctor</span><span class="op">|</span> <span class="self">self</span>.<span class="ident">live_symbols</span>.<span class="ident">contains</span>(<span class="kw-2">&amp;</span><span class="ident">ctor</span>)) {
+            <span class="kw">return</span> <span class="bool-val">true</span>;
         }
-        <span class='comment'>// If it&#39;s a type whose items are live, then it&#39;s live, too.</span>
-        <span class='comment'>// This is done to handle the case where, for example, the static</span>
-        <span class='comment'>// method of a private type is used, but the type itself is never</span>
-        <span class='comment'>// called directly.</span>
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>impl_list</span>) <span class='op'>=</span>
-                <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>inherent_impls</span>.<span class='ident'>borrow</span>().<span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>hir</span>.<span class='ident'>local_def_id</span>(<span class='ident'>id</span>)) {
-            <span class='kw'>for</span> <span class='kw-2'>&amp;</span><span class='ident'>impl_did</span> <span class='kw'>in</span> <span class='ident'>impl_list</span>.<span class='ident'>iter</span>() {
-                <span class='kw'>for</span> <span class='kw-2'>&amp;</span><span class='ident'>item_did</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>associated_item_def_ids</span>(<span class='ident'>impl_did</span>)[..] {
-                    <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>item_node_id</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>hir</span>.<span class='ident'>as_local_node_id</span>(<span class='ident'>item_did</span>) {
-                        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>live_symbols</span>.<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>item_node_id</span>) {
-                            <span class='kw'>return</span> <span class='bool-val'>true</span>;
+        <span class="comment">// If it&#39;s a type whose items are live, then it&#39;s live, too.</span>
+        <span class="comment">// This is done to handle the case where, for example, the static</span>
+        <span class="comment">// method of a private type is used, but the type itself is never</span>
+        <span class="comment">// called directly.</span>
+        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">impl_list</span>) <span class="op">=</span>
+                <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">maps</span>.<span class="ident">inherent_impls</span>.<span class="ident">borrow</span>().<span class="ident">get</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">local_def_id</span>(<span class="ident">id</span>)) {
+            <span class="kw">for</span> <span class="kw-2">&amp;</span><span class="ident">impl_did</span> <span class="kw">in</span> <span class="ident">impl_list</span>.<span class="ident">iter</span>() {
+                <span class="kw">for</span> <span class="kw-2">&amp;</span><span class="ident">item_did</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">associated_item_def_ids</span>(<span class="ident">impl_did</span>)[..] {
+                    <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">item_node_id</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">as_local_node_id</span>(<span class="ident">item_did</span>) {
+                        <span class="kw">if</span> <span class="self">self</span>.<span class="ident">live_symbols</span>.<span class="ident">contains</span>(<span class="kw-2">&amp;</span><span class="ident">item_node_id</span>) {
+                            <span class="kw">return</span> <span class="bool-val">true</span>;
                         }
                     }
                 }
             }
         }
-        <span class='bool-val'>false</span>
+        <span class="bool-val">false</span>
     }
 
-    <span class='kw'>fn</span> <span class='ident'>warn_dead_code</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                      <span class='ident'>id</span>: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>,
-                      <span class='ident'>span</span>: <span class='ident'>syntax_pos</span>::<span class='ident'>Span</span>,
-                      <span class='ident'>name</span>: <span class='ident'>ast</span>::<span class='ident'>Name</span>,
-                      <span class='ident'>node_type</span>: <span class='kw-2'>&amp;</span><span class='ident'>str</span>) {
-        <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>name</span>.<span class='ident'>as_str</span>().<span class='ident'>starts_with</span>(<span class='string'>&quot;_&quot;</span>) {
-            <span class='self'>self</span>.<span class='ident'>tcx</span>
-                .<span class='ident'>sess</span>
-                .<span class='ident'>add_lint</span>(<span class='ident'>lint</span>::<span class='ident'>builtin</span>::<span class='ident'>DEAD_CODE</span>,
-                          <span class='ident'>id</span>,
-                          <span class='ident'>span</span>,
-                          <span class='macro'>format</span><span class='macro'>!</span>(<span class='string'>&quot;{} is never used: `{}`&quot;</span>, <span class='ident'>node_type</span>, <span class='ident'>name</span>));
+    <span class="kw">fn</span> <span class="ident">warn_dead_code</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                      <span class="ident">id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>,
+                      <span class="ident">span</span>: <span class="ident">syntax_pos</span>::<span class="ident">Span</span>,
+                      <span class="ident">name</span>: <span class="ident">ast</span>::<span class="ident">Name</span>,
+                      <span class="ident">node_type</span>: <span class="kw-2">&amp;</span><span class="ident">str</span>) {
+        <span class="kw">if</span> <span class="op">!</span><span class="ident">name</span>.<span class="ident">as_str</span>().<span class="ident">starts_with</span>(<span class="string">&quot;_&quot;</span>) {
+            <span class="self">self</span>.<span class="ident">tcx</span>
+                .<span class="ident">sess</span>
+                .<span class="ident">add_lint</span>(<span class="ident">lint</span>::<span class="ident">builtin</span>::<span class="ident">DEAD_CODE</span>,
+                          <span class="ident">id</span>,
+                          <span class="ident">span</span>,
+                          <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;{} is never used: `{}`&quot;</span>, <span class="ident">node_type</span>, <span class="ident">name</span>));
         }
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>Visitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>DeadVisitor</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='doccomment'>/// Walk nested items in place so that we don&#39;t report dead-code</span>
-    <span class='doccomment'>/// on inner functions when the outer function is already getting</span>
-    <span class='doccomment'>/// an error. We could do this also by checking the parents, but</span>
-    <span class='doccomment'>/// this is how the code is setup and it seems harmless enough.</span>
-    <span class='kw'>fn</span> <span class='ident'>nested_visit_map</span><span class='op'>&lt;</span><span class='lifetime'>&#39;this</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;this</span> <span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>NestedVisitorMap</span><span class='op'>&lt;</span><span class='lifetime'>&#39;this</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='ident'>NestedVisitorMap</span>::<span class='ident'>All</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>tcx</span>.<span class='ident'>hir</span>)
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">Visitor</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">DeadVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// Walk nested items in place so that we don&#39;t report dead-code</span>
+    <span class="doccomment">/// on inner functions when the outer function is already getting</span>
+    <span class="doccomment">/// an error. We could do this also by checking the parents, but</span>
+    <span class="doccomment">/// this is how the code is setup and it seems harmless enough.</span>
+    <span class="kw">fn</span> <span class="ident">nested_visit_map</span><span class="op">&lt;</span><span class="lifetime">&#39;this</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;this</span> <span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">NestedVisitorMap</span><span class="op">&lt;</span><span class="lifetime">&#39;this</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="ident">NestedVisitorMap</span>::<span class="ident">All</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">hir</span>)
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>item</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>hir</span>::<span class='ident'>Item</span>) {
-        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>should_warn_about_item</span>(<span class='ident'>item</span>) {
-            <span class='self'>self</span>.<span class='ident'>warn_dead_code</span>(
-                <span class='ident'>item</span>.<span class='ident'>id</span>,
-                <span class='ident'>item</span>.<span class='ident'>span</span>,
-                <span class='ident'>item</span>.<span class='ident'>name</span>,
-                <span class='ident'>item</span>.<span class='ident'>node</span>.<span class='ident'>descriptive_variant</span>()
+    <span class="kw">fn</span> <span class="ident">visit_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">item</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">hir</span>::<span class="ident">Item</span>) {
+        <span class="kw">if</span> <span class="self">self</span>.<span class="ident">should_warn_about_item</span>(<span class="ident">item</span>) {
+            <span class="self">self</span>.<span class="ident">warn_dead_code</span>(
+                <span class="ident">item</span>.<span class="ident">id</span>,
+                <span class="ident">item</span>.<span class="ident">span</span>,
+                <span class="ident">item</span>.<span class="ident">name</span>,
+                <span class="ident">item</span>.<span class="ident">node</span>.<span class="ident">descriptive_variant</span>()
             );
-        } <span class='kw'>else</span> {
-            <span class='comment'>// Only continue if we didn&#39;t warn</span>
-            <span class='ident'>intravisit</span>::<span class='ident'>walk_item</span>(<span class='self'>self</span>, <span class='ident'>item</span>);
+        } <span class="kw">else</span> {
+            <span class="comment">// Only continue if we didn&#39;t warn</span>
+            <span class="ident">intravisit</span>::<span class="ident">walk_item</span>(<span class="self">self</span>, <span class="ident">item</span>);
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_variant</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>,
-                     <span class='ident'>variant</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>hir</span>::<span class='ident'>Variant</span>,
-                     <span class='ident'>g</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>hir</span>::<span class='ident'>Generics</span>,
-                     <span class='ident'>id</span>: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>) {
-        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>should_warn_about_variant</span>(<span class='kw-2'>&amp;</span><span class='ident'>variant</span>.<span class='ident'>node</span>) {
-            <span class='self'>self</span>.<span class='ident'>warn_dead_code</span>(<span class='ident'>variant</span>.<span class='ident'>node</span>.<span class='ident'>data</span>.<span class='ident'>id</span>(), <span class='ident'>variant</span>.<span class='ident'>span</span>,
-                                <span class='ident'>variant</span>.<span class='ident'>node</span>.<span class='ident'>name</span>, <span class='string'>&quot;variant&quot;</span>);
-        } <span class='kw'>else</span> {
-            <span class='ident'>intravisit</span>::<span class='ident'>walk_variant</span>(<span class='self'>self</span>, <span class='ident'>variant</span>, <span class='ident'>g</span>, <span class='ident'>id</span>);
+    <span class="kw">fn</span> <span class="ident">visit_variant</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                     <span class="ident">variant</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">hir</span>::<span class="ident">Variant</span>,
+                     <span class="ident">g</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">hir</span>::<span class="ident">Generics</span>,
+                     <span class="ident">id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>) {
+        <span class="kw">if</span> <span class="self">self</span>.<span class="ident">should_warn_about_variant</span>(<span class="kw-2">&amp;</span><span class="ident">variant</span>.<span class="ident">node</span>) {
+            <span class="self">self</span>.<span class="ident">warn_dead_code</span>(<span class="ident">variant</span>.<span class="ident">node</span>.<span class="ident">data</span>.<span class="ident">id</span>(), <span class="ident">variant</span>.<span class="ident">span</span>,
+                                <span class="ident">variant</span>.<span class="ident">node</span>.<span class="ident">name</span>, <span class="string">&quot;variant&quot;</span>);
+        } <span class="kw">else</span> {
+            <span class="ident">intravisit</span>::<span class="ident">walk_variant</span>(<span class="self">self</span>, <span class="ident">variant</span>, <span class="ident">g</span>, <span class="ident">id</span>);
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_foreign_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>fi</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>hir</span>::<span class='ident'>ForeignItem</span>) {
-        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>should_warn_about_foreign_item</span>(<span class='ident'>fi</span>) {
-            <span class='self'>self</span>.<span class='ident'>warn_dead_code</span>(<span class='ident'>fi</span>.<span class='ident'>id</span>, <span class='ident'>fi</span>.<span class='ident'>span</span>, <span class='ident'>fi</span>.<span class='ident'>name</span>, <span class='ident'>fi</span>.<span class='ident'>node</span>.<span class='ident'>descriptive_variant</span>());
+    <span class="kw">fn</span> <span class="ident">visit_foreign_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">fi</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">hir</span>::<span class="ident">ForeignItem</span>) {
+        <span class="kw">if</span> <span class="self">self</span>.<span class="ident">should_warn_about_foreign_item</span>(<span class="ident">fi</span>) {
+            <span class="self">self</span>.<span class="ident">warn_dead_code</span>(<span class="ident">fi</span>.<span class="ident">id</span>, <span class="ident">fi</span>.<span class="ident">span</span>, <span class="ident">fi</span>.<span class="ident">name</span>, <span class="ident">fi</span>.<span class="ident">node</span>.<span class="ident">descriptive_variant</span>());
         }
-        <span class='ident'>intravisit</span>::<span class='ident'>walk_foreign_item</span>(<span class='self'>self</span>, <span class='ident'>fi</span>);
+        <span class="ident">intravisit</span>::<span class="ident">walk_foreign_item</span>(<span class="self">self</span>, <span class="ident">fi</span>);
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_struct_field</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>field</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>hir</span>::<span class='ident'>StructField</span>) {
-        <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>should_warn_about_field</span>(<span class='kw-2'>&amp;</span><span class='ident'>field</span>) {
-            <span class='self'>self</span>.<span class='ident'>warn_dead_code</span>(<span class='ident'>field</span>.<span class='ident'>id</span>, <span class='ident'>field</span>.<span class='ident'>span</span>,
-                                <span class='ident'>field</span>.<span class='ident'>name</span>, <span class='string'>&quot;field&quot;</span>);
+    <span class="kw">fn</span> <span class="ident">visit_struct_field</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">field</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">hir</span>::<span class="ident">StructField</span>) {
+        <span class="kw">if</span> <span class="self">self</span>.<span class="ident">should_warn_about_field</span>(<span class="kw-2">&amp;</span><span class="ident">field</span>) {
+            <span class="self">self</span>.<span class="ident">warn_dead_code</span>(<span class="ident">field</span>.<span class="ident">id</span>, <span class="ident">field</span>.<span class="ident">span</span>,
+                                <span class="ident">field</span>.<span class="ident">name</span>, <span class="string">&quot;field&quot;</span>);
         }
 
-        <span class='ident'>intravisit</span>::<span class='ident'>walk_struct_field</span>(<span class='self'>self</span>, <span class='ident'>field</span>);
+        <span class="ident">intravisit</span>::<span class="ident">walk_struct_field</span>(<span class="self">self</span>, <span class="ident">field</span>);
     }
 
-    <span class='kw'>fn</span> <span class='ident'>visit_impl_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>impl_item</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>hir</span>::<span class='ident'>ImplItem</span>) {
-        <span class='kw'>match</span> <span class='ident'>impl_item</span>.<span class='ident'>node</span> {
-            <span class='ident'>hir</span>::<span class='ident'>ImplItemKind</span>::<span class='ident'>Const</span>(_, <span class='ident'>body_id</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>symbol_is_live</span>(<span class='ident'>impl_item</span>.<span class='ident'>id</span>, <span class='prelude-val'>None</span>) {
-                    <span class='self'>self</span>.<span class='ident'>warn_dead_code</span>(<span class='ident'>impl_item</span>.<span class='ident'>id</span>, <span class='ident'>impl_item</span>.<span class='ident'>span</span>,
-                                        <span class='ident'>impl_item</span>.<span class='ident'>name</span>, <span class='string'>&quot;associated const&quot;</span>);
+    <span class="kw">fn</span> <span class="ident">visit_impl_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">impl_item</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">hir</span>::<span class="ident">ImplItem</span>) {
+        <span class="kw">match</span> <span class="ident">impl_item</span>.<span class="ident">node</span> {
+            <span class="ident">hir</span>::<span class="ident">ImplItemKind</span>::<span class="ident">Const</span>(_, <span class="ident">body_id</span>) <span class="op">=&gt;</span> {
+                <span class="kw">if</span> <span class="op">!</span><span class="self">self</span>.<span class="ident">symbol_is_live</span>(<span class="ident">impl_item</span>.<span class="ident">id</span>, <span class="prelude-val">None</span>) {
+                    <span class="self">self</span>.<span class="ident">warn_dead_code</span>(<span class="ident">impl_item</span>.<span class="ident">id</span>, <span class="ident">impl_item</span>.<span class="ident">span</span>,
+                                        <span class="ident">impl_item</span>.<span class="ident">name</span>, <span class="string">&quot;associated const&quot;</span>);
                 }
-                <span class='self'>self</span>.<span class='ident'>visit_nested_body</span>(<span class='ident'>body_id</span>)
+                <span class="self">self</span>.<span class="ident">visit_nested_body</span>(<span class="ident">body_id</span>)
             }
-            <span class='ident'>hir</span>::<span class='ident'>ImplItemKind</span>::<span class='ident'>Method</span>(_, <span class='ident'>body_id</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>if</span> <span class='op'>!</span><span class='self'>self</span>.<span class='ident'>symbol_is_live</span>(<span class='ident'>impl_item</span>.<span class='ident'>id</span>, <span class='prelude-val'>None</span>) {
-                    <span class='self'>self</span>.<span class='ident'>warn_dead_code</span>(<span class='ident'>impl_item</span>.<span class='ident'>id</span>, <span class='ident'>impl_item</span>.<span class='ident'>span</span>,
-                                        <span class='ident'>impl_item</span>.<span class='ident'>name</span>, <span class='string'>&quot;method&quot;</span>);
+            <span class="ident">hir</span>::<span class="ident">ImplItemKind</span>::<span class="ident">Method</span>(_, <span class="ident">body_id</span>) <span class="op">=&gt;</span> {
+                <span class="kw">if</span> <span class="op">!</span><span class="self">self</span>.<span class="ident">symbol_is_live</span>(<span class="ident">impl_item</span>.<span class="ident">id</span>, <span class="prelude-val">None</span>) {
+                    <span class="self">self</span>.<span class="ident">warn_dead_code</span>(<span class="ident">impl_item</span>.<span class="ident">id</span>, <span class="ident">impl_item</span>.<span class="ident">span</span>,
+                                        <span class="ident">impl_item</span>.<span class="ident">name</span>, <span class="string">&quot;method&quot;</span>);
                 }
-                <span class='self'>self</span>.<span class='ident'>visit_nested_body</span>(<span class='ident'>body_id</span>)
+                <span class="self">self</span>.<span class="ident">visit_nested_body</span>(<span class="ident">body_id</span>)
             }
-            <span class='ident'>hir</span>::<span class='ident'>ImplItemKind</span>::<span class='ident'>Type</span>(..) <span class='op'>=&gt;</span> {}
+            <span class="ident">hir</span>::<span class="ident">ImplItemKind</span>::<span class="ident">Type</span>(..) <span class="op">=&gt;</span> {}
         }
     }
 
-    <span class='comment'>// Overwrite so that we don&#39;t warn the trait item itself.</span>
-    <span class='kw'>fn</span> <span class='ident'>visit_trait_item</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>trait_item</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>hir</span>::<span class='ident'>TraitItem</span>) {
-        <span class='kw'>match</span> <span class='ident'>trait_item</span>.<span class='ident'>node</span> {
-            <span class='ident'>hir</span>::<span class='ident'>TraitItemKind</span>::<span class='ident'>Const</span>(_, <span class='prelude-val'>Some</span>(<span class='ident'>body_id</span>)) <span class='op'>|</span>
-            <span class='ident'>hir</span>::<span class='ident'>TraitItemKind</span>::<span class='ident'>Method</span>(_, <span class='ident'>hir</span>::<span class='ident'>TraitMethod</span>::<span class='ident'>Provided</span>(<span class='ident'>body_id</span>)) <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>visit_nested_body</span>(<span class='ident'>body_id</span>)
+    <span class="comment">// Overwrite so that we don&#39;t warn the trait item itself.</span>
+    <span class="kw">fn</span> <span class="ident">visit_trait_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">trait_item</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">hir</span>::<span class="ident">TraitItem</span>) {
+        <span class="kw">match</span> <span class="ident">trait_item</span>.<span class="ident">node</span> {
+            <span class="ident">hir</span>::<span class="ident">TraitItemKind</span>::<span class="ident">Const</span>(_, <span class="prelude-val">Some</span>(<span class="ident">body_id</span>)) <span class="op">|</span>
+            <span class="ident">hir</span>::<span class="ident">TraitItemKind</span>::<span class="ident">Method</span>(_, <span class="ident">hir</span>::<span class="ident">TraitMethod</span>::<span class="ident">Provided</span>(<span class="ident">body_id</span>)) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">visit_nested_body</span>(<span class="ident">body_id</span>)
             }
-            <span class='ident'>hir</span>::<span class='ident'>TraitItemKind</span>::<span class='ident'>Const</span>(_, <span class='prelude-val'>None</span>) <span class='op'>|</span>
-            <span class='ident'>hir</span>::<span class='ident'>TraitItemKind</span>::<span class='ident'>Method</span>(_, <span class='ident'>hir</span>::<span class='ident'>TraitMethod</span>::<span class='ident'>Required</span>(_)) <span class='op'>|</span>
-            <span class='ident'>hir</span>::<span class='ident'>TraitItemKind</span>::<span class='ident'>Type</span>(..) <span class='op'>=&gt;</span> {}
+            <span class="ident">hir</span>::<span class="ident">TraitItemKind</span>::<span class="ident">Const</span>(_, <span class="prelude-val">None</span>) <span class="op">|</span>
+            <span class="ident">hir</span>::<span class="ident">TraitItemKind</span>::<span class="ident">Method</span>(_, <span class="ident">hir</span>::<span class="ident">TraitMethod</span>::<span class="ident">Required</span>(_)) <span class="op">|</span>
+            <span class="ident">hir</span>::<span class="ident">TraitItemKind</span>::<span class="ident">Type</span>(..) <span class="op">=&gt;</span> {}
         }
     }
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>check_crate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                             <span class='ident'>access_levels</span>: <span class='kw-2'>&amp;</span><span class='ident'>privacy</span>::<span class='ident'>AccessLevels</span>) {
-    <span class='kw'>let</span> <span class='ident'>_task</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>dep_graph</span>.<span class='ident'>in_task</span>(<span class='ident'>DepNode</span>::<span class='ident'>DeadCheck</span>);
-    <span class='kw'>let</span> <span class='ident'>krate</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>hir</span>.<span class='ident'>krate</span>();
-    <span class='kw'>let</span> <span class='ident'>live_symbols</span> <span class='op'>=</span> <span class='ident'>find_live</span>(<span class='ident'>tcx</span>, <span class='ident'>access_levels</span>, <span class='ident'>krate</span>);
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>visitor</span> <span class='op'>=</span> <span class='ident'>DeadVisitor</span> { <span class='ident'>tcx</span>: <span class='ident'>tcx</span>, <span class='ident'>live_symbols</span>: <span class='ident'>live_symbols</span> };
-    <span class='ident'>intravisit</span>::<span class='ident'>walk_crate</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>visitor</span>, <span class='ident'>krate</span>);
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">check_crate</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                             <span class="ident">access_levels</span>: <span class="kw-2">&amp;</span><span class="ident">privacy</span>::<span class="ident">AccessLevels</span>) {
+    <span class="kw">let</span> <span class="ident">_task</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">dep_graph</span>.<span class="ident">in_task</span>(<span class="ident">DepNode</span>::<span class="ident">DeadCheck</span>);
+    <span class="kw">let</span> <span class="ident">krate</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">krate</span>();
+    <span class="kw">let</span> <span class="ident">live_symbols</span> <span class="op">=</span> <span class="ident">find_live</span>(<span class="ident">tcx</span>, <span class="ident">access_levels</span>, <span class="ident">krate</span>);
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">visitor</span> <span class="op">=</span> <span class="ident">DeadVisitor</span> { <span class="ident">tcx</span>: <span class="ident">tcx</span>, <span class="ident">live_symbols</span>: <span class="ident">live_symbols</span> };
+    <span class="ident">intravisit</span>::<span class="ident">walk_crate</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">visitor</span>, <span class="ident">krate</span>);
 }
 </pre>
 </section>

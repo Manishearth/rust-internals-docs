@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["AttrProcMacro",""]]});
+initSidebarItems({"struct":[["AttrProcMacro",""],["BangProcMacro",""]]});

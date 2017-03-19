@@ -180,140 +180,140 @@
 <span id="135">135</span>
 <span id="136">136</span>
 <span id="137">137</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='kw'>use</span> <span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>TyCtxt</span>};
-<span class='kw'>use</span> <span class='ident'>ty</span>::<span class='ident'>fold</span>::{<span class='ident'>TypeFoldable</span>, <span class='ident'>TypeFolder</span>};
+<span class="kw">use</span> <span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">TyCtxt</span>};
+<span class="kw">use</span> <span class="ident">ty</span>::<span class="ident">fold</span>::{<span class="ident">TypeFoldable</span>, <span class="ident">TypeFolder</span>};
 
-<span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>InferCtxt</span>;
-<span class='kw'>use</span> <span class='kw'>super</span>::<span class='ident'>RegionVariableOrigin</span>;
+<span class="kw">use</span> <span class="kw">super</span>::<span class="ident">InferCtxt</span>;
+<span class="kw">use</span> <span class="kw">super</span>::<span class="ident">RegionVariableOrigin</span>;
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>InferCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='doccomment'>/// This rather funky routine is used while processing expected</span>
-    <span class='doccomment'>/// types. What happens here is that we want to propagate a</span>
-    <span class='doccomment'>/// coercion through the return type of a fn to its</span>
-    <span class='doccomment'>/// argument. Consider the type of `Option::Some`, which is</span>
-    <span class='doccomment'>/// basically `for&lt;T&gt; fn(T) -&gt; Option&lt;T&gt;`. So if we have an</span>
-    <span class='doccomment'>/// expression `Some(&amp;[1, 2, 3])`, and that has the expected type</span>
-    <span class='doccomment'>/// `Option&lt;&amp;[u32]&gt;`, we would like to type check `&amp;[1, 2, 3]`</span>
-    <span class='doccomment'>/// with the expectation of `&amp;[u32]`. This will cause us to coerce</span>
-    <span class='doccomment'>/// from `&amp;[u32; 3]` to `&amp;[u32]` and make the users life more</span>
-    <span class='doccomment'>/// pleasant.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// The way we do this is using `fudge_regions_if_ok`. What the</span>
-    <span class='doccomment'>/// routine actually does is to start a snapshot and execute the</span>
-    <span class='doccomment'>/// closure `f`. In our example above, what this closure will do</span>
-    <span class='doccomment'>/// is to unify the expectation (`Option&lt;&amp;[u32]&gt;`) with the actual</span>
-    <span class='doccomment'>/// return type (`Option&lt;?T&gt;`, where `?T` represents the variable</span>
-    <span class='doccomment'>/// instantiated for `T`).  This will cause `?T` to be unified</span>
-    <span class='doccomment'>/// with `&amp;?a [u32]`, where `?a` is a fresh lifetime variable. The</span>
-    <span class='doccomment'>/// input type (`?T`) is then returned by `f()`.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// At this point, `fudge_regions_if_ok` will normalize all type</span>
-    <span class='doccomment'>/// variables, converting `?T` to `&amp;?a [u32]` and end the</span>
-    <span class='doccomment'>/// snapshot.  The problem is that we can&#39;t just return this type</span>
-    <span class='doccomment'>/// out, because it references the region variable `?a`, and that</span>
-    <span class='doccomment'>/// region variable was popped when we popped the snapshot.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// So what we do is to keep a list (`region_vars`, in the code below)</span>
-    <span class='doccomment'>/// of region variables created during the snapshot (here, `?a`). We</span>
-    <span class='doccomment'>/// fold the return value and replace any such regions with a *new*</span>
-    <span class='doccomment'>/// region variable (e.g., `?b`) and return the result (`&amp;?b [u32]`).</span>
-    <span class='doccomment'>/// This can then be used as the expectation for the fn argument.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// The important point here is that, for soundness purposes, the</span>
-    <span class='doccomment'>/// regions in question are not particularly important. We will</span>
-    <span class='doccomment'>/// use the expected types to guide coercions, but we will still</span>
-    <span class='doccomment'>/// type-check the resulting types from those coercions against</span>
-    <span class='doccomment'>/// the actual types (`?T`, `Option&lt;?T`) -- and remember that</span>
-    <span class='doccomment'>/// after the snapshot is popped, the variable `?T` is no longer</span>
-    <span class='doccomment'>/// unified.</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// Assumptions:</span>
-    <span class='doccomment'>/// - no new type variables are created during `f()` (asserted</span>
-    <span class='doccomment'>///   below); this simplifies our logic since we don&#39;t have to</span>
-    <span class='doccomment'>///   check for escaping type variables</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>fudge_regions_if_ok</span><span class='op'>&lt;</span><span class='ident'>T</span>, <span class='ident'>E</span>, <span class='ident'>F</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>,
-                                        <span class='ident'>origin</span>: <span class='kw-2'>&amp;</span><span class='ident'>RegionVariableOrigin</span>,
-                                        <span class='ident'>f</span>: <span class='ident'>F</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>T</span>, <span class='ident'>E</span><span class='op'>&gt;</span> <span class='kw'>where</span>
-        <span class='ident'>F</span>: <span class='ident'>FnOnce</span>() <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>T</span>, <span class='ident'>E</span><span class='op'>&gt;</span>,
-        <span class='ident'>T</span>: <span class='ident'>TypeFoldable</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">InferCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// This rather funky routine is used while processing expected</span>
+    <span class="doccomment">/// types. What happens here is that we want to propagate a</span>
+    <span class="doccomment">/// coercion through the return type of a fn to its</span>
+    <span class="doccomment">/// argument. Consider the type of `Option::Some`, which is</span>
+    <span class="doccomment">/// basically `for&lt;T&gt; fn(T) -&gt; Option&lt;T&gt;`. So if we have an</span>
+    <span class="doccomment">/// expression `Some(&amp;[1, 2, 3])`, and that has the expected type</span>
+    <span class="doccomment">/// `Option&lt;&amp;[u32]&gt;`, we would like to type check `&amp;[1, 2, 3]`</span>
+    <span class="doccomment">/// with the expectation of `&amp;[u32]`. This will cause us to coerce</span>
+    <span class="doccomment">/// from `&amp;[u32; 3]` to `&amp;[u32]` and make the users life more</span>
+    <span class="doccomment">/// pleasant.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// The way we do this is using `fudge_regions_if_ok`. What the</span>
+    <span class="doccomment">/// routine actually does is to start a snapshot and execute the</span>
+    <span class="doccomment">/// closure `f`. In our example above, what this closure will do</span>
+    <span class="doccomment">/// is to unify the expectation (`Option&lt;&amp;[u32]&gt;`) with the actual</span>
+    <span class="doccomment">/// return type (`Option&lt;?T&gt;`, where `?T` represents the variable</span>
+    <span class="doccomment">/// instantiated for `T`).  This will cause `?T` to be unified</span>
+    <span class="doccomment">/// with `&amp;?a [u32]`, where `?a` is a fresh lifetime variable. The</span>
+    <span class="doccomment">/// input type (`?T`) is then returned by `f()`.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// At this point, `fudge_regions_if_ok` will normalize all type</span>
+    <span class="doccomment">/// variables, converting `?T` to `&amp;?a [u32]` and end the</span>
+    <span class="doccomment">/// snapshot.  The problem is that we can&#39;t just return this type</span>
+    <span class="doccomment">/// out, because it references the region variable `?a`, and that</span>
+    <span class="doccomment">/// region variable was popped when we popped the snapshot.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// So what we do is to keep a list (`region_vars`, in the code below)</span>
+    <span class="doccomment">/// of region variables created during the snapshot (here, `?a`). We</span>
+    <span class="doccomment">/// fold the return value and replace any such regions with a *new*</span>
+    <span class="doccomment">/// region variable (e.g., `?b`) and return the result (`&amp;?b [u32]`).</span>
+    <span class="doccomment">/// This can then be used as the expectation for the fn argument.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// The important point here is that, for soundness purposes, the</span>
+    <span class="doccomment">/// regions in question are not particularly important. We will</span>
+    <span class="doccomment">/// use the expected types to guide coercions, but we will still</span>
+    <span class="doccomment">/// type-check the resulting types from those coercions against</span>
+    <span class="doccomment">/// the actual types (`?T`, `Option&lt;?T`) -- and remember that</span>
+    <span class="doccomment">/// after the snapshot is popped, the variable `?T` is no longer</span>
+    <span class="doccomment">/// unified.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Assumptions:</span>
+    <span class="doccomment">/// - no new type variables are created during `f()` (asserted</span>
+    <span class="doccomment">///   below); this simplifies our logic since we don&#39;t have to</span>
+    <span class="doccomment">///   check for escaping type variables</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">fudge_regions_if_ok</span><span class="op">&lt;</span><span class="ident">T</span>, <span class="ident">E</span>, <span class="ident">F</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="self">self</span>,
+                                        <span class="ident">origin</span>: <span class="kw-2">&amp;</span><span class="ident">RegionVariableOrigin</span>,
+                                        <span class="ident">f</span>: <span class="ident">F</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">T</span>, <span class="ident">E</span><span class="op">&gt;</span> <span class="kw">where</span>
+        <span class="ident">F</span>: <span class="ident">FnOnce</span>() <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">T</span>, <span class="ident">E</span><span class="op">&gt;</span>,
+        <span class="ident">T</span>: <span class="ident">TypeFoldable</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
     {
-        <span class='kw'>let</span> (<span class='ident'>region_vars</span>, <span class='ident'>value</span>) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>probe</span>(<span class='op'>|</span><span class='ident'>snapshot</span><span class='op'>|</span> {
-            <span class='kw'>let</span> <span class='ident'>vars_at_start</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>type_variables</span>.<span class='ident'>borrow</span>().<span class='ident'>num_vars</span>();
+        <span class="kw">let</span> (<span class="ident">region_vars</span>, <span class="ident">value</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">probe</span>(<span class="op">|</span><span class="ident">snapshot</span><span class="op">|</span> {
+            <span class="kw">let</span> <span class="ident">vars_at_start</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">type_variables</span>.<span class="ident">borrow</span>().<span class="ident">num_vars</span>();
 
-            <span class='kw'>match</span> <span class='ident'>f</span>() {
-                <span class='prelude-val'>Ok</span>(<span class='ident'>value</span>) <span class='op'>=&gt;</span> {
-                    <span class='kw'>let</span> <span class='ident'>value</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>resolve_type_vars_if_possible</span>(<span class='kw-2'>&amp;</span><span class='ident'>value</span>);
+            <span class="kw">match</span> <span class="ident">f</span>() {
+                <span class="prelude-val">Ok</span>(<span class="ident">value</span>) <span class="op">=&gt;</span> {
+                    <span class="kw">let</span> <span class="ident">value</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">resolve_type_vars_if_possible</span>(<span class="kw-2">&amp;</span><span class="ident">value</span>);
 
-                    <span class='comment'>// At this point, `value` could in principle refer</span>
-                    <span class='comment'>// to regions that have been created during the</span>
-                    <span class='comment'>// snapshot (we assert below that `f()` does not</span>
-                    <span class='comment'>// create any new type variables, so there</span>
-                    <span class='comment'>// shouldn&#39;t be any of those). Once we exit</span>
-                    <span class='comment'>// `probe()`, those are going to be popped, so we</span>
-                    <span class='comment'>// will have to eliminate any references to them.</span>
+                    <span class="comment">// At this point, `value` could in principle refer</span>
+                    <span class="comment">// to regions that have been created during the</span>
+                    <span class="comment">// snapshot (we assert below that `f()` does not</span>
+                    <span class="comment">// create any new type variables, so there</span>
+                    <span class="comment">// shouldn&#39;t be any of those). Once we exit</span>
+                    <span class="comment">// `probe()`, those are going to be popped, so we</span>
+                    <span class="comment">// will have to eliminate any references to them.</span>
 
-                    <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='self'>self</span>.<span class='ident'>type_variables</span>.<span class='ident'>borrow</span>().<span class='ident'>num_vars</span>(), <span class='ident'>vars_at_start</span>,
-                               <span class='string'>&quot;type variables were created during fudge_regions_if_ok&quot;</span>);
-                    <span class='kw'>let</span> <span class='ident'>region_vars</span> <span class='op'>=</span>
-                        <span class='self'>self</span>.<span class='ident'>region_vars</span>.<span class='ident'>vars_created_since_snapshot</span>(
-                            <span class='kw-2'>&amp;</span><span class='ident'>snapshot</span>.<span class='ident'>region_vars_snapshot</span>);
+                    <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">type_variables</span>.<span class="ident">borrow</span>().<span class="ident">num_vars</span>(), <span class="ident">vars_at_start</span>,
+                               <span class="string">&quot;type variables were created during fudge_regions_if_ok&quot;</span>);
+                    <span class="kw">let</span> <span class="ident">region_vars</span> <span class="op">=</span>
+                        <span class="self">self</span>.<span class="ident">region_vars</span>.<span class="ident">vars_created_since_snapshot</span>(
+                            <span class="kw-2">&amp;</span><span class="ident">snapshot</span>.<span class="ident">region_vars_snapshot</span>);
 
-                    <span class='prelude-val'>Ok</span>((<span class='ident'>region_vars</span>, <span class='ident'>value</span>))
+                    <span class="prelude-val">Ok</span>((<span class="ident">region_vars</span>, <span class="ident">value</span>))
                 }
-                <span class='prelude-val'>Err</span>(<span class='ident'>e</span>) <span class='op'>=&gt;</span> <span class='prelude-val'>Err</span>(<span class='ident'>e</span>),
+                <span class="prelude-val">Err</span>(<span class="ident">e</span>) <span class="op">=&gt;</span> <span class="prelude-val">Err</span>(<span class="ident">e</span>),
             }
-        })<span class='question-mark'>?</span>;
+        })<span class="question-mark">?</span>;
 
-        <span class='comment'>// At this point, we need to replace any of the now-popped</span>
-        <span class='comment'>// region variables that appear in `value` with a fresh region</span>
-        <span class='comment'>// variable. We can&#39;t do this during the probe because they</span>
-        <span class='comment'>// would just get popped then too. =)</span>
+        <span class="comment">// At this point, we need to replace any of the now-popped</span>
+        <span class="comment">// region variables that appear in `value` with a fresh region</span>
+        <span class="comment">// variable. We can&#39;t do this during the probe because they</span>
+        <span class="comment">// would just get popped then too. =)</span>
 
-        <span class='comment'>// Micro-optimization: if no variables have been created, then</span>
-        <span class='comment'>// `value` can&#39;t refer to any of them. =) So we can just return it.</span>
-        <span class='kw'>if</span> <span class='ident'>region_vars</span>.<span class='ident'>is_empty</span>() {
-            <span class='kw'>return</span> <span class='prelude-val'>Ok</span>(<span class='ident'>value</span>);
+        <span class="comment">// Micro-optimization: if no variables have been created, then</span>
+        <span class="comment">// `value` can&#39;t refer to any of them. =) So we can just return it.</span>
+        <span class="kw">if</span> <span class="ident">region_vars</span>.<span class="ident">is_empty</span>() {
+            <span class="kw">return</span> <span class="prelude-val">Ok</span>(<span class="ident">value</span>);
         }
 
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>fudger</span> <span class='op'>=</span> <span class='ident'>RegionFudger</span> {
-            <span class='ident'>infcx</span>: <span class='self'>self</span>,
-            <span class='ident'>region_vars</span>: <span class='kw-2'>&amp;</span><span class='ident'>region_vars</span>,
-            <span class='ident'>origin</span>: <span class='ident'>origin</span>
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">fudger</span> <span class="op">=</span> <span class="ident">RegionFudger</span> {
+            <span class="ident">infcx</span>: <span class="self">self</span>,
+            <span class="ident">region_vars</span>: <span class="kw-2">&amp;</span><span class="ident">region_vars</span>,
+            <span class="ident">origin</span>: <span class="ident">origin</span>
         };
 
-        <span class='prelude-val'>Ok</span>(<span class='ident'>value</span>.<span class='ident'>fold_with</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>fudger</span>))
+        <span class="prelude-val">Ok</span>(<span class="ident">value</span>.<span class="ident">fold_with</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">fudger</span>))
     }
 }
 
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>RegionFudger</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>: <span class='lifetime'>&#39;a</span><span class='op'>+</span><span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span>: <span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-    <span class='ident'>infcx</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>InferCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>region_vars</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>RegionVid</span><span class='op'>&gt;</span>,
-    <span class='ident'>origin</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>RegionVariableOrigin</span>,
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">RegionFudger</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>: <span class="lifetime">&#39;a</span><span class="op">+</span><span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span>: <span class="lifetime">&#39;a</span><span class="op">&gt;</span> {
+    <span class="ident">infcx</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">InferCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">region_vars</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">RegionVid</span><span class="op">&gt;</span>,
+    <span class="ident">origin</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">RegionVariableOrigin</span>,
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>TypeFolder</span><span class='op'>&lt;</span><span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='kw'>for</span> <span class='ident'>RegionFudger</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>tcx</span><span class='op'>&lt;</span><span class='lifetime'>&#39;b</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;b</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;b</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>tcx</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">TypeFolder</span><span class="op">&lt;</span><span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">RegionFudger</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">tcx</span><span class="op">&lt;</span><span class="lifetime">&#39;b</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;b</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;b</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">tcx</span>
     }
 
-    <span class='kw'>fn</span> <span class='ident'>fold_region</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>r</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span> {
-        <span class='kw'>match</span> <span class='kw-2'>*</span><span class='ident'>r</span> {
-            <span class='ident'>ty</span>::<span class='ident'>ReVar</span>(<span class='ident'>v</span>) <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>region_vars</span>.<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>v</span>) <span class='op'>=&gt;</span> {
-                <span class='self'>self</span>.<span class='ident'>infcx</span>.<span class='ident'>next_region_var</span>(<span class='self'>self</span>.<span class='ident'>origin</span>.<span class='ident'>clone</span>())
+    <span class="kw">fn</span> <span class="ident">fold_region</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">r</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span> {
+        <span class="kw">match</span> <span class="kw-2">*</span><span class="ident">r</span> {
+            <span class="ident">ty</span>::<span class="ident">ReVar</span>(<span class="ident">v</span>) <span class="kw">if</span> <span class="self">self</span>.<span class="ident">region_vars</span>.<span class="ident">contains</span>(<span class="kw-2">&amp;</span><span class="ident">v</span>) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">infcx</span>.<span class="ident">next_region_var</span>(<span class="self">self</span>.<span class="ident">origin</span>.<span class="ident">clone</span>())
             }
-            _ <span class='op'>=&gt;</span> {
-                <span class='ident'>r</span>
+            _ <span class="op">=&gt;</span> {
+                <span class="ident">r</span>
             }
         }
     }

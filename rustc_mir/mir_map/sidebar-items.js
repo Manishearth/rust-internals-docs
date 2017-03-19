@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["build_mir_for_crate",""]]});
+initSidebarItems({"fn":[["build_mir_for_crate",""],["provide",""]]});

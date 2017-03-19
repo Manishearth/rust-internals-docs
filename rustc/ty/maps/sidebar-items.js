@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["AdtDefs",""],["AdtSizedConstraint",""],["AssociatedItemDefIds",""],["AssociatedItems",""],["ClosureKinds",""],["ClosureTypes",""],["Generics",""],["ImplTraitRefs",""],["InherentImpls",""],["ItemVariances",""],["Mir",""],["Predicates",""],["ReprHints",""],["SuperPredicates",""],["TraitDefs",""],["TypeckTables",""],["Types",""],["UsedTraitImports",""]]});
+initSidebarItems({"enum":[["Query",""]],"mod":[["queries",""]],"struct":[["CycleError",""],["Maps",""],["Providers",""]]});

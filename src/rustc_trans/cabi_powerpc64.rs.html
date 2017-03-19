@@ -237,199 +237,199 @@
 <span id="192">192</span>
 <span id="193">193</span>
 <span id="194">194</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2014-2016 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2014-2016 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='comment'>// FIXME: The PowerPC64 ABI needs to zero or sign extend function</span>
-<span class='comment'>// call parameters, but compute_abi_info() is passed LLVM types</span>
-<span class='comment'>// which have no sign information.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Alignment of 128 bit types is not currently handled, this will</span>
-<span class='comment'>// need to be fixed when PowerPC vector support is added.</span>
+<span class="comment">// FIXME: The PowerPC64 ABI needs to zero or sign extend function</span>
+<span class="comment">// call parameters, but compute_abi_info() is passed LLVM types</span>
+<span class="comment">// which have no sign information.</span>
+<span class="comment">//</span>
+<span class="comment">// Alignment of 128 bit types is not currently handled, this will</span>
+<span class="comment">// need to be fixed when PowerPC vector support is added.</span>
 
-<span class='kw'>use</span> <span class='ident'>llvm</span>::{<span class='ident'>Integer</span>, <span class='ident'>Pointer</span>, <span class='ident'>Float</span>, <span class='ident'>Double</span>, <span class='ident'>Struct</span>, <span class='ident'>Vector</span>, <span class='ident'>Array</span>};
-<span class='kw'>use</span> <span class='ident'>abi</span>::{<span class='self'>self</span>, <span class='ident'>FnType</span>, <span class='ident'>ArgType</span>};
-<span class='kw'>use</span> <span class='ident'>context</span>::<span class='ident'>CrateContext</span>;
-<span class='kw'>use</span> <span class='ident'>type_</span>::<span class='ident'>Type</span>;
+<span class="kw">use</span> <span class="ident">llvm</span>::{<span class="ident">Integer</span>, <span class="ident">Pointer</span>, <span class="ident">Float</span>, <span class="ident">Double</span>, <span class="ident">Struct</span>, <span class="ident">Vector</span>, <span class="ident">Array</span>};
+<span class="kw">use</span> <span class="ident">abi</span>::{<span class="self">self</span>, <span class="ident">FnType</span>, <span class="ident">ArgType</span>};
+<span class="kw">use</span> <span class="ident">context</span>::<span class="ident">CrateContext</span>;
+<span class="kw">use</span> <span class="ident">type_</span>::<span class="ident">Type</span>;
 
-<span class='kw'>fn</span> <span class='ident'>ty_size</span>(<span class='ident'>ty</span>: <span class='ident'>Type</span>) <span class='op'>-&gt;</span> <span class='ident'>usize</span> {
-    <span class='kw'>if</span> <span class='ident'>ty</span>.<span class='ident'>kind</span>() <span class='op'>==</span> <span class='ident'>Vector</span> {
-        <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;ty_size: unhandled type&quot;</span>)
-    } <span class='kw'>else</span> {
-        <span class='ident'>abi</span>::<span class='ident'>ty_size</span>(<span class='ident'>ty</span>, <span class='number'>8</span>)
+<span class="kw">fn</span> <span class="ident">ty_size</span>(<span class="ident">ty</span>: <span class="ident">Type</span>) <span class="op">-&gt;</span> <span class="ident">usize</span> {
+    <span class="kw">if</span> <span class="ident">ty</span>.<span class="ident">kind</span>() <span class="op">==</span> <span class="ident">Vector</span> {
+        <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;ty_size: unhandled type&quot;</span>)
+    } <span class="kw">else</span> {
+        <span class="ident">abi</span>::<span class="ident">ty_size</span>(<span class="ident">ty</span>, <span class="number">8</span>)
     }
 }
 
-<span class='kw'>fn</span> <span class='ident'>is_homogenous_aggregate_ty</span>(<span class='ident'>ty</span>: <span class='ident'>Type</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span>(<span class='ident'>Type</span>, <span class='ident'>u64</span>)<span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>check_array</span>(<span class='ident'>ty</span>: <span class='ident'>Type</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span>(<span class='ident'>Type</span>, <span class='ident'>u64</span>)<span class='op'>&gt;</span> {
-        <span class='kw'>let</span> <span class='ident'>len</span> <span class='op'>=</span> <span class='ident'>ty</span>.<span class='ident'>array_length</span>() <span class='kw'>as</span> <span class='ident'>u64</span>;
-        <span class='kw'>if</span> <span class='ident'>len</span> <span class='op'>==</span> <span class='number'>0</span> {
-            <span class='kw'>return</span> <span class='prelude-val'>None</span>
+<span class="kw">fn</span> <span class="ident">is_homogenous_aggregate_ty</span>(<span class="ident">ty</span>: <span class="ident">Type</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span>(<span class="ident">Type</span>, <span class="ident">u64</span>)<span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">check_array</span>(<span class="ident">ty</span>: <span class="ident">Type</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span>(<span class="ident">Type</span>, <span class="ident">u64</span>)<span class="op">&gt;</span> {
+        <span class="kw">let</span> <span class="ident">len</span> <span class="op">=</span> <span class="ident">ty</span>.<span class="ident">array_length</span>() <span class="kw">as</span> <span class="ident">u64</span>;
+        <span class="kw">if</span> <span class="ident">len</span> <span class="op">==</span> <span class="number">0</span> {
+            <span class="kw">return</span> <span class="prelude-val">None</span>
         }
-        <span class='kw'>let</span> <span class='ident'>elt</span> <span class='op'>=</span> <span class='ident'>ty</span>.<span class='ident'>element_type</span>();
+        <span class="kw">let</span> <span class="ident">elt</span> <span class="op">=</span> <span class="ident">ty</span>.<span class="ident">element_type</span>();
 
-        <span class='comment'>// if our element is an HFA/HVA, so are we; multiply members by our len</span>
-        <span class='ident'>is_homogenous_aggregate_ty</span>(<span class='ident'>elt</span>).<span class='ident'>map</span>(<span class='op'>|</span>(<span class='ident'>base_ty</span>, <span class='ident'>members</span>)<span class='op'>|</span> (<span class='ident'>base_ty</span>, <span class='ident'>len</span> <span class='op'>*</span> <span class='ident'>members</span>))
+        <span class="comment">// if our element is an HFA/HVA, so are we; multiply members by our len</span>
+        <span class="ident">is_homogenous_aggregate_ty</span>(<span class="ident">elt</span>).<span class="ident">map</span>(<span class="op">|</span>(<span class="ident">base_ty</span>, <span class="ident">members</span>)<span class="op">|</span> (<span class="ident">base_ty</span>, <span class="ident">len</span> <span class="op">*</span> <span class="ident">members</span>))
     }
 
-    <span class='kw'>fn</span> <span class='ident'>check_struct</span>(<span class='ident'>ty</span>: <span class='ident'>Type</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span>(<span class='ident'>Type</span>, <span class='ident'>u64</span>)<span class='op'>&gt;</span> {
-        <span class='kw'>let</span> <span class='ident'>str_tys</span> <span class='op'>=</span> <span class='ident'>ty</span>.<span class='ident'>field_types</span>();
-        <span class='kw'>if</span> <span class='ident'>str_tys</span>.<span class='ident'>len</span>() <span class='op'>==</span> <span class='number'>0</span> {
-            <span class='kw'>return</span> <span class='prelude-val'>None</span>
+    <span class="kw">fn</span> <span class="ident">check_struct</span>(<span class="ident">ty</span>: <span class="ident">Type</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span>(<span class="ident">Type</span>, <span class="ident">u64</span>)<span class="op">&gt;</span> {
+        <span class="kw">let</span> <span class="ident">str_tys</span> <span class="op">=</span> <span class="ident">ty</span>.<span class="ident">field_types</span>();
+        <span class="kw">if</span> <span class="ident">str_tys</span>.<span class="ident">len</span>() <span class="op">==</span> <span class="number">0</span> {
+            <span class="kw">return</span> <span class="prelude-val">None</span>
         }
 
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>prev_base_ty</span> <span class='op'>=</span> <span class='prelude-val'>None</span>;
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>members</span> <span class='op'>=</span> <span class='number'>0</span>;
-        <span class='kw'>for</span> <span class='ident'>opt_homog_agg</span> <span class='kw'>in</span> <span class='ident'>str_tys</span>.<span class='ident'>iter</span>().<span class='ident'>map</span>(<span class='op'>|</span><span class='ident'>t</span><span class='op'>|</span> <span class='ident'>is_homogenous_aggregate_ty</span>(<span class='kw-2'>*</span><span class='ident'>t</span>)) {
-            <span class='kw'>match</span> (<span class='ident'>prev_base_ty</span>, <span class='ident'>opt_homog_agg</span>) {
-                <span class='comment'>// field isn&#39;t itself an HFA, so we aren&#39;t either</span>
-                (_, <span class='prelude-val'>None</span>) <span class='op'>=&gt;</span> <span class='kw'>return</span> <span class='prelude-val'>None</span>,
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">prev_base_ty</span> <span class="op">=</span> <span class="prelude-val">None</span>;
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">members</span> <span class="op">=</span> <span class="number">0</span>;
+        <span class="kw">for</span> <span class="ident">opt_homog_agg</span> <span class="kw">in</span> <span class="ident">str_tys</span>.<span class="ident">iter</span>().<span class="ident">map</span>(<span class="op">|</span><span class="ident">t</span><span class="op">|</span> <span class="ident">is_homogenous_aggregate_ty</span>(<span class="kw-2">*</span><span class="ident">t</span>)) {
+            <span class="kw">match</span> (<span class="ident">prev_base_ty</span>, <span class="ident">opt_homog_agg</span>) {
+                <span class="comment">// field isn&#39;t itself an HFA, so we aren&#39;t either</span>
+                (_, <span class="prelude-val">None</span>) <span class="op">=&gt;</span> <span class="kw">return</span> <span class="prelude-val">None</span>,
 
-                <span class='comment'>// first field - store its type and number of members</span>
-                (<span class='prelude-val'>None</span>, <span class='prelude-val'>Some</span>((<span class='ident'>field_ty</span>, <span class='ident'>field_members</span>))) <span class='op'>=&gt;</span> {
-                    <span class='ident'>prev_base_ty</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='ident'>field_ty</span>);
-                    <span class='ident'>members</span> <span class='op'>=</span> <span class='ident'>field_members</span>;
+                <span class="comment">// first field - store its type and number of members</span>
+                (<span class="prelude-val">None</span>, <span class="prelude-val">Some</span>((<span class="ident">field_ty</span>, <span class="ident">field_members</span>))) <span class="op">=&gt;</span> {
+                    <span class="ident">prev_base_ty</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="ident">field_ty</span>);
+                    <span class="ident">members</span> <span class="op">=</span> <span class="ident">field_members</span>;
                 },
 
-                <span class='comment'>// 2nd or later field - give up if it&#39;s a different type; otherwise incr. members</span>
-                (<span class='prelude-val'>Some</span>(<span class='ident'>prev_ty</span>), <span class='prelude-val'>Some</span>((<span class='ident'>field_ty</span>, <span class='ident'>field_members</span>))) <span class='op'>=&gt;</span> {
-                    <span class='kw'>if</span> <span class='ident'>prev_ty</span> <span class='op'>!=</span> <span class='ident'>field_ty</span> {
-                        <span class='kw'>return</span> <span class='prelude-val'>None</span>;
+                <span class="comment">// 2nd or later field - give up if it&#39;s a different type; otherwise incr. members</span>
+                (<span class="prelude-val">Some</span>(<span class="ident">prev_ty</span>), <span class="prelude-val">Some</span>((<span class="ident">field_ty</span>, <span class="ident">field_members</span>))) <span class="op">=&gt;</span> {
+                    <span class="kw">if</span> <span class="ident">prev_ty</span> <span class="op">!=</span> <span class="ident">field_ty</span> {
+                        <span class="kw">return</span> <span class="prelude-val">None</span>;
                     }
-                    <span class='ident'>members</span> <span class='op'>+=</span> <span class='ident'>field_members</span>;
+                    <span class="ident">members</span> <span class="op">+=</span> <span class="ident">field_members</span>;
                 }
             }
         }
 
-        <span class='comment'>// Because of previous checks, we know prev_base_ty is Some(...) because</span>
-        <span class='comment'>//   1. str_tys has at least one element; and</span>
-        <span class='comment'>//   2. prev_base_ty was filled in (or we would&#39;ve returned early)</span>
-        <span class='kw'>let</span> (<span class='ident'>base_ty</span>, <span class='ident'>members</span>) <span class='op'>=</span> (<span class='ident'>prev_base_ty</span>.<span class='ident'>unwrap</span>(), <span class='ident'>members</span>);
+        <span class="comment">// Because of previous checks, we know prev_base_ty is Some(...) because</span>
+        <span class="comment">//   1. str_tys has at least one element; and</span>
+        <span class="comment">//   2. prev_base_ty was filled in (or we would&#39;ve returned early)</span>
+        <span class="kw">let</span> (<span class="ident">base_ty</span>, <span class="ident">members</span>) <span class="op">=</span> (<span class="ident">prev_base_ty</span>.<span class="ident">unwrap</span>(), <span class="ident">members</span>);
 
-        <span class='comment'>// Ensure there is no padding.</span>
-        <span class='kw'>if</span> <span class='ident'>ty_size</span>(<span class='ident'>ty</span>) <span class='op'>==</span> <span class='ident'>ty_size</span>(<span class='ident'>base_ty</span>) <span class='op'>*</span> (<span class='ident'>members</span> <span class='kw'>as</span> <span class='ident'>usize</span>) {
-            <span class='prelude-val'>Some</span>((<span class='ident'>base_ty</span>, <span class='ident'>members</span>))
-        } <span class='kw'>else</span> {
-            <span class='prelude-val'>None</span>
+        <span class="comment">// Ensure there is no padding.</span>
+        <span class="kw">if</span> <span class="ident">ty_size</span>(<span class="ident">ty</span>) <span class="op">==</span> <span class="ident">ty_size</span>(<span class="ident">base_ty</span>) <span class="op">*</span> (<span class="ident">members</span> <span class="kw">as</span> <span class="ident">usize</span>) {
+            <span class="prelude-val">Some</span>((<span class="ident">base_ty</span>, <span class="ident">members</span>))
+        } <span class="kw">else</span> {
+            <span class="prelude-val">None</span>
         }
     }
 
-    <span class='kw'>let</span> <span class='ident'>homog_agg</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>ty</span>.<span class='ident'>kind</span>() {
-        <span class='ident'>Float</span>  <span class='op'>=&gt;</span> <span class='prelude-val'>Some</span>((<span class='ident'>ty</span>, <span class='number'>1</span>)),
-        <span class='ident'>Double</span> <span class='op'>=&gt;</span> <span class='prelude-val'>Some</span>((<span class='ident'>ty</span>, <span class='number'>1</span>)),
-        <span class='ident'>Array</span>  <span class='op'>=&gt;</span> <span class='ident'>check_array</span>(<span class='ident'>ty</span>),
-        <span class='ident'>Struct</span> <span class='op'>=&gt;</span> <span class='ident'>check_struct</span>(<span class='ident'>ty</span>),
-        _ <span class='op'>=&gt;</span> <span class='prelude-val'>None</span>
+    <span class="kw">let</span> <span class="ident">homog_agg</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">ty</span>.<span class="ident">kind</span>() {
+        <span class="ident">Float</span>  <span class="op">=&gt;</span> <span class="prelude-val">Some</span>((<span class="ident">ty</span>, <span class="number">1</span>)),
+        <span class="ident">Double</span> <span class="op">=&gt;</span> <span class="prelude-val">Some</span>((<span class="ident">ty</span>, <span class="number">1</span>)),
+        <span class="ident">Array</span>  <span class="op">=&gt;</span> <span class="ident">check_array</span>(<span class="ident">ty</span>),
+        <span class="ident">Struct</span> <span class="op">=&gt;</span> <span class="ident">check_struct</span>(<span class="ident">ty</span>),
+        _ <span class="op">=&gt;</span> <span class="prelude-val">None</span>
     };
 
-    <span class='comment'>// Ensure we have at most eight uniquely addressable members</span>
-    <span class='ident'>homog_agg</span>.<span class='ident'>and_then</span>(<span class='op'>|</span>(<span class='ident'>base_ty</span>, <span class='ident'>members</span>)<span class='op'>|</span> {
-        <span class='kw'>if</span> <span class='ident'>members</span> <span class='op'>&gt;</span> <span class='number'>0</span> <span class='op'>&amp;&amp;</span> <span class='ident'>members</span> <span class='op'>&lt;=</span> <span class='number'>8</span> {
-            <span class='prelude-val'>Some</span>((<span class='ident'>base_ty</span>, <span class='ident'>members</span>))
-        } <span class='kw'>else</span> {
-            <span class='prelude-val'>None</span>
+    <span class="comment">// Ensure we have at most eight uniquely addressable members</span>
+    <span class="ident">homog_agg</span>.<span class="ident">and_then</span>(<span class="op">|</span>(<span class="ident">base_ty</span>, <span class="ident">members</span>)<span class="op">|</span> {
+        <span class="kw">if</span> <span class="ident">members</span> <span class="op">&gt;</span> <span class="number">0</span> <span class="op">&amp;&amp;</span> <span class="ident">members</span> <span class="op">&lt;=</span> <span class="number">8</span> {
+            <span class="prelude-val">Some</span>((<span class="ident">base_ty</span>, <span class="ident">members</span>))
+        } <span class="kw">else</span> {
+            <span class="prelude-val">None</span>
         }
     })
 }
 
-<span class='kw'>fn</span> <span class='ident'>classify_ret_ty</span>(<span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateContext</span>, <span class='ident'>ret</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>ArgType</span>) {
-    <span class='kw'>if</span> <span class='ident'>is_reg_ty</span>(<span class='ident'>ret</span>.<span class='ident'>ty</span>) {
-        <span class='ident'>ret</span>.<span class='ident'>extend_integer_width_to</span>(<span class='number'>64</span>);
-        <span class='kw'>return</span>;
+<span class="kw">fn</span> <span class="ident">classify_ret_ty</span>(<span class="ident">ccx</span>: <span class="kw-2">&amp;</span><span class="ident">CrateContext</span>, <span class="ident">ret</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">ArgType</span>) {
+    <span class="kw">if</span> <span class="ident">is_reg_ty</span>(<span class="ident">ret</span>.<span class="ident">ty</span>) {
+        <span class="ident">ret</span>.<span class="ident">extend_integer_width_to</span>(<span class="number">64</span>);
+        <span class="kw">return</span>;
     }
 
-    <span class='comment'>// The PowerPC64 big endian ABI doesn&#39;t return aggregates in registers</span>
-    <span class='kw'>if</span> <span class='ident'>ccx</span>.<span class='ident'>sess</span>().<span class='ident'>target</span>.<span class='ident'>target</span>.<span class='ident'>target_endian</span> <span class='op'>==</span> <span class='string'>&quot;big&quot;</span> {
-        <span class='ident'>ret</span>.<span class='ident'>make_indirect</span>(<span class='ident'>ccx</span>);
+    <span class="comment">// The PowerPC64 big endian ABI doesn&#39;t return aggregates in registers</span>
+    <span class="kw">if</span> <span class="ident">ccx</span>.<span class="ident">sess</span>().<span class="ident">target</span>.<span class="ident">target</span>.<span class="ident">target_endian</span> <span class="op">==</span> <span class="string">&quot;big&quot;</span> {
+        <span class="ident">ret</span>.<span class="ident">make_indirect</span>(<span class="ident">ccx</span>);
     }
 
-    <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>((<span class='ident'>base_ty</span>, <span class='ident'>members</span>)) <span class='op'>=</span> <span class='ident'>is_homogenous_aggregate_ty</span>(<span class='ident'>ret</span>.<span class='ident'>ty</span>) {
-        <span class='ident'>ret</span>.<span class='ident'>cast</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='ident'>Type</span>::<span class='ident'>array</span>(<span class='kw-2'>&amp;</span><span class='ident'>base_ty</span>, <span class='ident'>members</span>));
-        <span class='kw'>return</span>;
+    <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>((<span class="ident">base_ty</span>, <span class="ident">members</span>)) <span class="op">=</span> <span class="ident">is_homogenous_aggregate_ty</span>(<span class="ident">ret</span>.<span class="ident">ty</span>) {
+        <span class="ident">ret</span>.<span class="ident">cast</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="ident">Type</span>::<span class="ident">array</span>(<span class="kw-2">&amp;</span><span class="ident">base_ty</span>, <span class="ident">members</span>));
+        <span class="kw">return</span>;
     }
-    <span class='kw'>let</span> <span class='ident'>size</span> <span class='op'>=</span> <span class='ident'>ty_size</span>(<span class='ident'>ret</span>.<span class='ident'>ty</span>);
-    <span class='kw'>if</span> <span class='ident'>size</span> <span class='op'>&lt;=</span> <span class='number'>16</span> {
-        <span class='kw'>let</span> <span class='ident'>llty</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='ident'>size</span> <span class='op'>&lt;=</span> <span class='number'>1</span> {
-            <span class='ident'>Type</span>::<span class='ident'>i8</span>(<span class='ident'>ccx</span>)
-        } <span class='kw'>else</span> <span class='kw'>if</span> <span class='ident'>size</span> <span class='op'>&lt;=</span> <span class='number'>2</span> {
-            <span class='ident'>Type</span>::<span class='ident'>i16</span>(<span class='ident'>ccx</span>)
-        } <span class='kw'>else</span> <span class='kw'>if</span> <span class='ident'>size</span> <span class='op'>&lt;=</span> <span class='number'>4</span> {
-            <span class='ident'>Type</span>::<span class='ident'>i32</span>(<span class='ident'>ccx</span>)
-        } <span class='kw'>else</span> <span class='kw'>if</span> <span class='ident'>size</span> <span class='op'>&lt;=</span> <span class='number'>8</span> {
-            <span class='ident'>Type</span>::<span class='ident'>i64</span>(<span class='ident'>ccx</span>)
-        } <span class='kw'>else</span> {
-            <span class='ident'>Type</span>::<span class='ident'>array</span>(<span class='kw-2'>&amp;</span><span class='ident'>Type</span>::<span class='ident'>i64</span>(<span class='ident'>ccx</span>), ((<span class='ident'>size</span> <span class='op'>+</span> <span class='number'>7</span> ) <span class='op'>/</span> <span class='number'>8</span> ) <span class='kw'>as</span> <span class='ident'>u64</span>)
+    <span class="kw">let</span> <span class="ident">size</span> <span class="op">=</span> <span class="ident">ty_size</span>(<span class="ident">ret</span>.<span class="ident">ty</span>);
+    <span class="kw">if</span> <span class="ident">size</span> <span class="op">&lt;=</span> <span class="number">16</span> {
+        <span class="kw">let</span> <span class="ident">llty</span> <span class="op">=</span> <span class="kw">if</span> <span class="ident">size</span> <span class="op">&lt;=</span> <span class="number">1</span> {
+            <span class="ident">Type</span>::<span class="ident">i8</span>(<span class="ident">ccx</span>)
+        } <span class="kw">else</span> <span class="kw">if</span> <span class="ident">size</span> <span class="op">&lt;=</span> <span class="number">2</span> {
+            <span class="ident">Type</span>::<span class="ident">i16</span>(<span class="ident">ccx</span>)
+        } <span class="kw">else</span> <span class="kw">if</span> <span class="ident">size</span> <span class="op">&lt;=</span> <span class="number">4</span> {
+            <span class="ident">Type</span>::<span class="ident">i32</span>(<span class="ident">ccx</span>)
+        } <span class="kw">else</span> <span class="kw">if</span> <span class="ident">size</span> <span class="op">&lt;=</span> <span class="number">8</span> {
+            <span class="ident">Type</span>::<span class="ident">i64</span>(<span class="ident">ccx</span>)
+        } <span class="kw">else</span> {
+            <span class="ident">Type</span>::<span class="ident">array</span>(<span class="kw-2">&amp;</span><span class="ident">Type</span>::<span class="ident">i64</span>(<span class="ident">ccx</span>), ((<span class="ident">size</span> <span class="op">+</span> <span class="number">7</span> ) <span class="op">/</span> <span class="number">8</span> ) <span class="kw">as</span> <span class="ident">u64</span>)
         };
-        <span class='ident'>ret</span>.<span class='ident'>cast</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='ident'>llty</span>);
-        <span class='kw'>return</span>;
+        <span class="ident">ret</span>.<span class="ident">cast</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="ident">llty</span>);
+        <span class="kw">return</span>;
     }
 
-    <span class='ident'>ret</span>.<span class='ident'>make_indirect</span>(<span class='ident'>ccx</span>);
+    <span class="ident">ret</span>.<span class="ident">make_indirect</span>(<span class="ident">ccx</span>);
 }
 
-<span class='kw'>fn</span> <span class='ident'>classify_arg_ty</span>(<span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateContext</span>, <span class='ident'>arg</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>ArgType</span>) {
-    <span class='kw'>if</span> <span class='ident'>is_reg_ty</span>(<span class='ident'>arg</span>.<span class='ident'>ty</span>) {
-        <span class='ident'>arg</span>.<span class='ident'>extend_integer_width_to</span>(<span class='number'>64</span>);
-        <span class='kw'>return</span>;
+<span class="kw">fn</span> <span class="ident">classify_arg_ty</span>(<span class="ident">ccx</span>: <span class="kw-2">&amp;</span><span class="ident">CrateContext</span>, <span class="ident">arg</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">ArgType</span>) {
+    <span class="kw">if</span> <span class="ident">is_reg_ty</span>(<span class="ident">arg</span>.<span class="ident">ty</span>) {
+        <span class="ident">arg</span>.<span class="ident">extend_integer_width_to</span>(<span class="number">64</span>);
+        <span class="kw">return</span>;
     }
 
-    <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>((<span class='ident'>base_ty</span>, <span class='ident'>members</span>)) <span class='op'>=</span> <span class='ident'>is_homogenous_aggregate_ty</span>(<span class='ident'>arg</span>.<span class='ident'>ty</span>) {
-        <span class='ident'>arg</span>.<span class='ident'>cast</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='ident'>Type</span>::<span class='ident'>array</span>(<span class='kw-2'>&amp;</span><span class='ident'>base_ty</span>, <span class='ident'>members</span>));
-        <span class='kw'>return</span>;
+    <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>((<span class="ident">base_ty</span>, <span class="ident">members</span>)) <span class="op">=</span> <span class="ident">is_homogenous_aggregate_ty</span>(<span class="ident">arg</span>.<span class="ident">ty</span>) {
+        <span class="ident">arg</span>.<span class="ident">cast</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="ident">Type</span>::<span class="ident">array</span>(<span class="kw-2">&amp;</span><span class="ident">base_ty</span>, <span class="ident">members</span>));
+        <span class="kw">return</span>;
     }
 
-    <span class='ident'>arg</span>.<span class='ident'>cast</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='ident'>struct_ty</span>(<span class='ident'>ccx</span>, <span class='ident'>arg</span>.<span class='ident'>ty</span>));
+    <span class="ident">arg</span>.<span class="ident">cast</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="ident">struct_ty</span>(<span class="ident">ccx</span>, <span class="ident">arg</span>.<span class="ident">ty</span>));
 }
 
-<span class='kw'>fn</span> <span class='ident'>is_reg_ty</span>(<span class='ident'>ty</span>: <span class='ident'>Type</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-    <span class='kw'>match</span> <span class='ident'>ty</span>.<span class='ident'>kind</span>() {
-        <span class='ident'>Integer</span>
-        <span class='op'>|</span> <span class='ident'>Pointer</span>
-        <span class='op'>|</span> <span class='ident'>Float</span>
-        <span class='op'>|</span> <span class='ident'>Double</span> <span class='op'>=&gt;</span> <span class='bool-val'>true</span>,
-        _ <span class='op'>=&gt;</span> <span class='bool-val'>false</span>
+<span class="kw">fn</span> <span class="ident">is_reg_ty</span>(<span class="ident">ty</span>: <span class="ident">Type</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+    <span class="kw">match</span> <span class="ident">ty</span>.<span class="ident">kind</span>() {
+        <span class="ident">Integer</span>
+        <span class="op">|</span> <span class="ident">Pointer</span>
+        <span class="op">|</span> <span class="ident">Float</span>
+        <span class="op">|</span> <span class="ident">Double</span> <span class="op">=&gt;</span> <span class="bool-val">true</span>,
+        _ <span class="op">=&gt;</span> <span class="bool-val">false</span>
     }
 }
 
-<span class='kw'>fn</span> <span class='ident'>coerce_to_long</span>(<span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateContext</span>, <span class='ident'>size</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Type</span><span class='op'>&gt;</span> {
-    <span class='kw'>let</span> <span class='ident'>long_ty</span> <span class='op'>=</span> <span class='ident'>Type</span>::<span class='ident'>i64</span>(<span class='ident'>ccx</span>);
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>args</span> <span class='op'>=</span> <span class='ident'>Vec</span>::<span class='ident'>new</span>();
+<span class="kw">fn</span> <span class="ident">coerce_to_long</span>(<span class="ident">ccx</span>: <span class="kw-2">&amp;</span><span class="ident">CrateContext</span>, <span class="ident">size</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Type</span><span class="op">&gt;</span> {
+    <span class="kw">let</span> <span class="ident">long_ty</span> <span class="op">=</span> <span class="ident">Type</span>::<span class="ident">i64</span>(<span class="ident">ccx</span>);
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">args</span> <span class="op">=</span> <span class="ident">Vec</span>::<span class="ident">new</span>();
 
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>n</span> <span class='op'>=</span> <span class='ident'>size</span> <span class='op'>/</span> <span class='number'>64</span>;
-    <span class='kw'>while</span> <span class='ident'>n</span> <span class='op'>&gt;</span> <span class='number'>0</span> {
-        <span class='ident'>args</span>.<span class='ident'>push</span>(<span class='ident'>long_ty</span>);
-        <span class='ident'>n</span> <span class='op'>-=</span> <span class='number'>1</span>;
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">n</span> <span class="op">=</span> <span class="ident">size</span> <span class="op">/</span> <span class="number">64</span>;
+    <span class="kw">while</span> <span class="ident">n</span> <span class="op">&gt;</span> <span class="number">0</span> {
+        <span class="ident">args</span>.<span class="ident">push</span>(<span class="ident">long_ty</span>);
+        <span class="ident">n</span> <span class="op">-=</span> <span class="number">1</span>;
     }
 
-    <span class='kw'>let</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='ident'>size</span> <span class='op'>%</span> <span class='number'>64</span>;
-    <span class='kw'>if</span> <span class='ident'>r</span> <span class='op'>&gt;</span> <span class='number'>0</span> {
-        <span class='ident'>args</span>.<span class='ident'>push</span>(<span class='ident'>Type</span>::<span class='ident'>ix</span>(<span class='ident'>ccx</span>, <span class='ident'>r</span> <span class='kw'>as</span> <span class='ident'>u64</span>));
+    <span class="kw">let</span> <span class="ident">r</span> <span class="op">=</span> <span class="ident">size</span> <span class="op">%</span> <span class="number">64</span>;
+    <span class="kw">if</span> <span class="ident">r</span> <span class="op">&gt;</span> <span class="number">0</span> {
+        <span class="ident">args</span>.<span class="ident">push</span>(<span class="ident">Type</span>::<span class="ident">ix</span>(<span class="ident">ccx</span>, <span class="ident">r</span> <span class="kw">as</span> <span class="ident">u64</span>));
     }
 
-    <span class='ident'>args</span>
+    <span class="ident">args</span>
 }
 
-<span class='kw'>fn</span> <span class='ident'>struct_ty</span>(<span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateContext</span>, <span class='ident'>ty</span>: <span class='ident'>Type</span>) <span class='op'>-&gt;</span> <span class='ident'>Type</span> {
-    <span class='kw'>let</span> <span class='ident'>size</span> <span class='op'>=</span> <span class='ident'>ty_size</span>(<span class='ident'>ty</span>) <span class='op'>*</span> <span class='number'>8</span>;
-    <span class='ident'>Type</span>::<span class='ident'>struct_</span>(<span class='ident'>ccx</span>, <span class='kw-2'>&amp;</span><span class='ident'>coerce_to_long</span>(<span class='ident'>ccx</span>, <span class='ident'>size</span>), <span class='bool-val'>false</span>)
+<span class="kw">fn</span> <span class="ident">struct_ty</span>(<span class="ident">ccx</span>: <span class="kw-2">&amp;</span><span class="ident">CrateContext</span>, <span class="ident">ty</span>: <span class="ident">Type</span>) <span class="op">-&gt;</span> <span class="ident">Type</span> {
+    <span class="kw">let</span> <span class="ident">size</span> <span class="op">=</span> <span class="ident">ty_size</span>(<span class="ident">ty</span>) <span class="op">*</span> <span class="number">8</span>;
+    <span class="ident">Type</span>::<span class="ident">struct_</span>(<span class="ident">ccx</span>, <span class="kw-2">&amp;</span><span class="ident">coerce_to_long</span>(<span class="ident">ccx</span>, <span class="ident">size</span>), <span class="bool-val">false</span>)
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>compute_abi_info</span>(<span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateContext</span>, <span class='ident'>fty</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>FnType</span>) {
-    <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>fty</span>.<span class='ident'>ret</span>.<span class='ident'>is_ignore</span>() {
-        <span class='ident'>classify_ret_ty</span>(<span class='ident'>ccx</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>fty</span>.<span class='ident'>ret</span>);
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">compute_abi_info</span>(<span class="ident">ccx</span>: <span class="kw-2">&amp;</span><span class="ident">CrateContext</span>, <span class="ident">fty</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">FnType</span>) {
+    <span class="kw">if</span> <span class="op">!</span><span class="ident">fty</span>.<span class="ident">ret</span>.<span class="ident">is_ignore</span>() {
+        <span class="ident">classify_ret_ty</span>(<span class="ident">ccx</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">fty</span>.<span class="ident">ret</span>);
     }
 
-    <span class='kw'>for</span> <span class='ident'>arg</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>fty</span>.<span class='ident'>args</span> {
-        <span class='kw'>if</span> <span class='ident'>arg</span>.<span class='ident'>is_ignore</span>() { <span class='kw'>continue</span>; }
-        <span class='ident'>classify_arg_ty</span>(<span class='ident'>ccx</span>, <span class='ident'>arg</span>);
+    <span class="kw">for</span> <span class="ident">arg</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">fty</span>.<span class="ident">args</span> {
+        <span class="kw">if</span> <span class="ident">arg</span>.<span class="ident">is_ignore</span>() { <span class="kw">continue</span>; }
+        <span class="ident">classify_arg_ty</span>(<span class="ident">ccx</span>, <span class="ident">arg</span>);
     }
 }
 </pre>

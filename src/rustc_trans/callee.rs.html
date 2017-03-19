@@ -655,678 +655,618 @@
 <span id="610">610</span>
 <span id="611">611</span>
 <span id="612">612</span>
-<span id="613">613</span>
-<span id="614">614</span>
-<span id="615">615</span>
-<span id="616">616</span>
-<span id="617">617</span>
-<span id="618">618</span>
-<span id="619">619</span>
-<span id="620">620</span>
-<span id="621">621</span>
-<span id="622">622</span>
-<span id="623">623</span>
-<span id="624">624</span>
-<span id="625">625</span>
-<span id="626">626</span>
-<span id="627">627</span>
-<span id="628">628</span>
-<span id="629">629</span>
-<span id="630">630</span>
-<span id="631">631</span>
-<span id="632">632</span>
-<span id="633">633</span>
-<span id="634">634</span>
-<span id="635">635</span>
-<span id="636">636</span>
-<span id="637">637</span>
-<span id="638">638</span>
-<span id="639">639</span>
-<span id="640">640</span>
-<span id="641">641</span>
-<span id="642">642</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2012 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2012 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='doccomment'>//! Handles translation of callees as well as other call-related</span>
-<span class='doccomment'>//! things.  Callees are a superset of normal rust values and sometimes</span>
-<span class='doccomment'>//! have different representations.  In particular, top-level fn items</span>
-<span class='doccomment'>//! and methods are represented as just a fn ptr and not a full</span>
-<span class='doccomment'>//! closure.</span>
+<span class="doccomment">//! Handles translation of callees as well as other call-related</span>
+<span class="doccomment">//! things.  Callees are a superset of normal rust values and sometimes</span>
+<span class="doccomment">//! have different representations.  In particular, top-level fn items</span>
+<span class="doccomment">//! and methods are represented as just a fn ptr and not a full</span>
+<span class="doccomment">//! closure.</span>
 
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>CalleeData</span>::<span class='kw-2'>*</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">CalleeData</span>::<span class="kw-2">*</span>;
 
-<span class='kw'>use</span> <span class='ident'>llvm</span>::{<span class='self'>self</span>, <span class='ident'>ValueRef</span>, <span class='ident'>get_params</span>};
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>::<span class='ident'>def_id</span>::<span class='ident'>DefId</span>;
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::<span class='ident'>subst</span>::<span class='ident'>Substs</span>;
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>traits</span>;
-<span class='kw'>use</span> <span class='ident'>abi</span>::{<span class='ident'>Abi</span>, <span class='ident'>FnType</span>};
-<span class='kw'>use</span> <span class='ident'>attributes</span>;
-<span class='kw'>use</span> <span class='ident'>base</span>;
-<span class='kw'>use</span> <span class='ident'>builder</span>::<span class='ident'>Builder</span>;
-<span class='kw'>use</span> <span class='ident'>common</span>::{<span class='self'>self</span>, <span class='ident'>CrateContext</span>, <span class='ident'>SharedCrateContext</span>};
-<span class='kw'>use</span> <span class='ident'>cleanup</span>::<span class='ident'>CleanupScope</span>;
-<span class='kw'>use</span> <span class='ident'>mir</span>::<span class='ident'>lvalue</span>::<span class='ident'>LvalueRef</span>;
-<span class='kw'>use</span> <span class='ident'>consts</span>;
-<span class='kw'>use</span> <span class='ident'>declare</span>;
-<span class='kw'>use</span> <span class='ident'>value</span>::<span class='ident'>Value</span>;
-<span class='kw'>use</span> <span class='ident'>meth</span>;
-<span class='kw'>use</span> <span class='ident'>monomorphize</span>::{<span class='self'>self</span>, <span class='ident'>Instance</span>};
-<span class='kw'>use</span> <span class='ident'>trans_item</span>::<span class='ident'>TransItem</span>;
-<span class='kw'>use</span> <span class='ident'>type_of</span>;
-<span class='kw'>use</span> <span class='ident'>Disr</span>;
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>Ty</span>, <span class='ident'>TypeFoldable</span>};
-<span class='kw'>use</span> <span class='ident'>rustc</span>::<span class='ident'>hir</span>;
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>iter</span>;
+<span class="kw">use</span> <span class="ident">llvm</span>::{<span class="self">self</span>, <span class="ident">ValueRef</span>, <span class="ident">get_params</span>};
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">hir</span>::<span class="ident">def_id</span>::<span class="ident">DefId</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::<span class="ident">subst</span>::{<span class="ident">Substs</span>, <span class="ident">Subst</span>};
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">traits</span>;
+<span class="kw">use</span> <span class="ident">abi</span>::{<span class="ident">Abi</span>, <span class="ident">FnType</span>};
+<span class="kw">use</span> <span class="ident">attributes</span>;
+<span class="kw">use</span> <span class="ident">base</span>;
+<span class="kw">use</span> <span class="ident">builder</span>::<span class="ident">Builder</span>;
+<span class="kw">use</span> <span class="ident">common</span>::{<span class="self">self</span>, <span class="ident">CrateContext</span>};
+<span class="kw">use</span> <span class="ident">cleanup</span>::<span class="ident">CleanupScope</span>;
+<span class="kw">use</span> <span class="ident">mir</span>::<span class="ident">lvalue</span>::<span class="ident">LvalueRef</span>;
+<span class="kw">use</span> <span class="ident">consts</span>;
+<span class="kw">use</span> <span class="ident">common</span>::<span class="ident">def_ty</span>;
+<span class="kw">use</span> <span class="ident">declare</span>;
+<span class="kw">use</span> <span class="ident">value</span>::<span class="ident">Value</span>;
+<span class="kw">use</span> <span class="ident">meth</span>;
+<span class="kw">use</span> <span class="ident">monomorphize</span>::<span class="ident">Instance</span>;
+<span class="kw">use</span> <span class="ident">trans_item</span>::<span class="ident">TransItem</span>;
+<span class="kw">use</span> <span class="ident">type_of</span>;
+<span class="kw">use</span> <span class="ident">Disr</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">Ty</span>, <span class="ident">TypeFoldable</span>};
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">hir</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">iter</span>;
 
-<span class='kw'>use</span> <span class='ident'>syntax_pos</span>::<span class='ident'>DUMMY_SP</span>;
+<span class="kw">use</span> <span class="ident">syntax_pos</span>::<span class="ident">DUMMY_SP</span>;
 
-<span class='kw'>use</span> <span class='ident'>mir</span>::<span class='ident'>lvalue</span>::<span class='ident'>Alignment</span>;
+<span class="kw">use</span> <span class="ident">mir</span>::<span class="ident">lvalue</span>::<span class="ident">Alignment</span>;
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Debug</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>CalleeData</span> {
-    <span class='doccomment'>/// Constructor for enum variant/tuple-like-struct.</span>
-    <span class='ident'>NamedTupleConstructor</span>(<span class='ident'>Disr</span>),
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>)]</span>
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">CalleeData</span> {
+    <span class="doccomment">/// Constructor for enum variant/tuple-like-struct.</span>
+    <span class="ident">NamedTupleConstructor</span>(<span class="ident">Disr</span>),
 
-    <span class='doccomment'>/// Function pointer.</span>
-    <span class='ident'>Fn</span>(<span class='ident'>ValueRef</span>),
+    <span class="doccomment">/// Function pointer.</span>
+    <span class="ident">Fn</span>(<span class="ident">ValueRef</span>),
 
-    <span class='ident'>Intrinsic</span>,
+    <span class="ident">Intrinsic</span>,
 
-    <span class='doccomment'>/// Trait object found in the vtable at that index.</span>
-    <span class='ident'>Virtual</span>(<span class='ident'>usize</span>)
+    <span class="doccomment">/// Trait object found in the vtable at that index.</span>
+    <span class="ident">Virtual</span>(<span class="ident">usize</span>)
 }
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Debug</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>Callee</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='ident'>data</span>: <span class='ident'>CalleeData</span>,
-    <span class='kw'>pub</span> <span class='ident'>ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">Callee</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="ident">data</span>: <span class="ident">CalleeData</span>,
+    <span class="kw">pub</span> <span class="ident">ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>Callee</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='doccomment'>/// Function pointer.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>ptr</span>(<span class='ident'>llfn</span>: <span class='ident'>ValueRef</span>, <span class='ident'>ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>Callee</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='ident'>Callee</span> {
-            <span class='ident'>data</span>: <span class='ident'>Fn</span>(<span class='ident'>llfn</span>),
-            <span class='ident'>ty</span>: <span class='ident'>ty</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">Callee</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// Function pointer.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">ptr</span>(<span class="ident">llfn</span>: <span class="ident">ValueRef</span>, <span class="ident">ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">Callee</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="ident">Callee</span> {
+            <span class="ident">data</span>: <span class="ident">Fn</span>(<span class="ident">llfn</span>),
+            <span class="ident">ty</span>: <span class="ident">ty</span>
         }
     }
 
-    <span class='doccomment'>/// Function or method definition.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>def</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='ident'>def_id</span>: <span class='ident'>DefId</span>, <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-                   <span class='op'>-&gt;</span> <span class='ident'>Callee</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='kw'>let</span> <span class='ident'>tcx</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>();
+    <span class="doccomment">/// Function or method definition.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">def</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>(<span class="ident">ccx</span>: <span class="kw-2">&amp;</span><span class="ident">CrateContext</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">def_id</span>: <span class="ident">DefId</span>, <span class="ident">substs</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+                   <span class="op">-&gt;</span> <span class="ident">Callee</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="kw">let</span> <span class="ident">tcx</span> <span class="op">=</span> <span class="ident">ccx</span>.<span class="ident">tcx</span>();
 
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>trait_id</span>) <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>trait_of_item</span>(<span class='ident'>def_id</span>) {
-            <span class='kw'>return</span> <span class='ident'>Callee</span>::<span class='ident'>trait_method</span>(<span class='ident'>ccx</span>, <span class='ident'>trait_id</span>, <span class='ident'>def_id</span>, <span class='ident'>substs</span>);
+        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">trait_id</span>) <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">trait_of_item</span>(<span class="ident">def_id</span>) {
+            <span class="kw">return</span> <span class="ident">Callee</span>::<span class="ident">trait_method</span>(<span class="ident">ccx</span>, <span class="ident">trait_id</span>, <span class="ident">def_id</span>, <span class="ident">substs</span>);
         }
 
-        <span class='kw'>let</span> <span class='ident'>fn_ty</span> <span class='op'>=</span> <span class='ident'>def_ty</span>(<span class='ident'>ccx</span>.<span class='ident'>shared</span>(), <span class='ident'>def_id</span>, <span class='ident'>substs</span>);
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>ty</span>::<span class='ident'>TyFnDef</span>(.., <span class='ident'>f</span>) <span class='op'>=</span> <span class='ident'>fn_ty</span>.<span class='ident'>sty</span> {
-            <span class='kw'>if</span> <span class='ident'>f</span>.<span class='ident'>abi</span> <span class='op'>==</span> <span class='ident'>Abi</span>::<span class='ident'>RustIntrinsic</span> <span class='op'>||</span> <span class='ident'>f</span>.<span class='ident'>abi</span> <span class='op'>==</span> <span class='ident'>Abi</span>::<span class='ident'>PlatformIntrinsic</span> {
-                <span class='kw'>return</span> <span class='ident'>Callee</span> {
-                    <span class='ident'>data</span>: <span class='ident'>Intrinsic</span>,
-                    <span class='ident'>ty</span>: <span class='ident'>fn_ty</span>
+        <span class="kw">let</span> <span class="ident">fn_ty</span> <span class="op">=</span> <span class="ident">def_ty</span>(<span class="ident">ccx</span>.<span class="ident">shared</span>(), <span class="ident">def_id</span>, <span class="ident">substs</span>);
+        <span class="kw">if</span> <span class="kw">let</span> <span class="ident">ty</span>::<span class="ident">TyFnDef</span>(.., <span class="ident">f</span>) <span class="op">=</span> <span class="ident">fn_ty</span>.<span class="ident">sty</span> {
+            <span class="kw">if</span> <span class="ident">f</span>.<span class="ident">abi</span>() <span class="op">==</span> <span class="ident">Abi</span>::<span class="ident">RustIntrinsic</span> <span class="op">||</span> <span class="ident">f</span>.<span class="ident">abi</span>() <span class="op">==</span> <span class="ident">Abi</span>::<span class="ident">PlatformIntrinsic</span> {
+                <span class="kw">return</span> <span class="ident">Callee</span> {
+                    <span class="ident">data</span>: <span class="ident">Intrinsic</span>,
+                    <span class="ident">ty</span>: <span class="ident">fn_ty</span>
                 };
             }
         }
 
-        <span class='comment'>// FIXME(eddyb) Detect ADT constructors more efficiently.</span>
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>adt_def</span>) <span class='op'>=</span> <span class='ident'>fn_ty</span>.<span class='ident'>fn_ret</span>().<span class='ident'>skip_binder</span>().<span class='ident'>ty_adt_def</span>() {
-            <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>v</span>) <span class='op'>=</span> <span class='ident'>adt_def</span>.<span class='ident'>variants</span>.<span class='ident'>iter</span>().<span class='ident'>find</span>(<span class='op'>|</span><span class='ident'>v</span><span class='op'>|</span> <span class='ident'>def_id</span> <span class='op'>==</span> <span class='ident'>v</span>.<span class='ident'>did</span>) {
-                <span class='kw'>return</span> <span class='ident'>Callee</span> {
-                    <span class='ident'>data</span>: <span class='ident'>NamedTupleConstructor</span>(<span class='ident'>Disr</span>::<span class='ident'>from</span>(<span class='ident'>v</span>.<span class='ident'>disr_val</span>)),
-                    <span class='ident'>ty</span>: <span class='ident'>fn_ty</span>
+        <span class="comment">// FIXME(eddyb) Detect ADT constructors more efficiently.</span>
+        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">adt_def</span>) <span class="op">=</span> <span class="ident">fn_ty</span>.<span class="ident">fn_ret</span>().<span class="ident">skip_binder</span>().<span class="ident">ty_adt_def</span>() {
+            <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">i</span>) <span class="op">=</span> <span class="ident">adt_def</span>.<span class="ident">variants</span>.<span class="ident">iter</span>().<span class="ident">position</span>(<span class="op">|</span><span class="ident">v</span><span class="op">|</span> <span class="ident">def_id</span> <span class="op">==</span> <span class="ident">v</span>.<span class="ident">did</span>) {
+                <span class="kw">return</span> <span class="ident">Callee</span> {
+                    <span class="ident">data</span>: <span class="ident">NamedTupleConstructor</span>(<span class="ident">Disr</span>::<span class="ident">for_variant</span>(<span class="ident">tcx</span>, <span class="ident">adt_def</span>, <span class="ident">i</span>)),
+                    <span class="ident">ty</span>: <span class="ident">fn_ty</span>
                 };
             }
         }
 
-        <span class='kw'>let</span> (<span class='ident'>llfn</span>, <span class='ident'>ty</span>) <span class='op'>=</span> <span class='ident'>get_fn</span>(<span class='ident'>ccx</span>, <span class='ident'>def_id</span>, <span class='ident'>substs</span>);
-        <span class='ident'>Callee</span>::<span class='ident'>ptr</span>(<span class='ident'>llfn</span>, <span class='ident'>ty</span>)
+        <span class="kw">let</span> (<span class="ident">llfn</span>, <span class="ident">ty</span>) <span class="op">=</span> <span class="ident">get_fn</span>(<span class="ident">ccx</span>, <span class="ident">def_id</span>, <span class="ident">substs</span>);
+        <span class="ident">Callee</span>::<span class="ident">ptr</span>(<span class="ident">llfn</span>, <span class="ident">ty</span>)
     }
 
-    <span class='doccomment'>/// Trait method, which has to be resolved to an impl method.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>trait_method</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                            <span class='ident'>trait_id</span>: <span class='ident'>DefId</span>,
-                            <span class='ident'>def_id</span>: <span class='ident'>DefId</span>,
-                            <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-                            <span class='op'>-&gt;</span> <span class='ident'>Callee</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='kw'>let</span> <span class='ident'>tcx</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>();
+    <span class="doccomment">/// Trait method, which has to be resolved to an impl method.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">trait_method</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>(<span class="ident">ccx</span>: <span class="kw-2">&amp;</span><span class="ident">CrateContext</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                            <span class="ident">trait_id</span>: <span class="ident">DefId</span>,
+                            <span class="ident">def_id</span>: <span class="ident">DefId</span>,
+                            <span class="ident">substs</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+                            <span class="op">-&gt;</span> <span class="ident">Callee</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="kw">let</span> <span class="ident">tcx</span> <span class="op">=</span> <span class="ident">ccx</span>.<span class="ident">tcx</span>();
 
-        <span class='kw'>let</span> <span class='ident'>trait_ref</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>TraitRef</span>::<span class='ident'>from_method</span>(<span class='ident'>tcx</span>, <span class='ident'>trait_id</span>, <span class='ident'>substs</span>);
-        <span class='kw'>let</span> <span class='ident'>trait_ref</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>normalize_associated_type</span>(<span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>Binder</span>(<span class='ident'>trait_ref</span>));
-        <span class='kw'>match</span> <span class='ident'>common</span>::<span class='ident'>fulfill_obligation</span>(<span class='ident'>ccx</span>.<span class='ident'>shared</span>(), <span class='ident'>DUMMY_SP</span>, <span class='ident'>trait_ref</span>) {
-            <span class='ident'>traits</span>::<span class='ident'>VtableImpl</span>(<span class='ident'>vtable_impl</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>let</span> <span class='ident'>name</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>item_name</span>(<span class='ident'>def_id</span>);
-                <span class='kw'>let</span> (<span class='ident'>def_id</span>, <span class='ident'>substs</span>) <span class='op'>=</span> <span class='ident'>traits</span>::<span class='ident'>find_method</span>(<span class='ident'>tcx</span>, <span class='ident'>name</span>, <span class='ident'>substs</span>, <span class='kw-2'>&amp;</span><span class='ident'>vtable_impl</span>);
+        <span class="kw">let</span> <span class="ident">trait_ref</span> <span class="op">=</span> <span class="ident">ty</span>::<span class="ident">TraitRef</span>::<span class="ident">from_method</span>(<span class="ident">tcx</span>, <span class="ident">trait_id</span>, <span class="ident">substs</span>);
+        <span class="kw">let</span> <span class="ident">trait_ref</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">normalize_associated_type</span>(<span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">Binder</span>(<span class="ident">trait_ref</span>));
+        <span class="kw">match</span> <span class="ident">common</span>::<span class="ident">fulfill_obligation</span>(<span class="ident">ccx</span>.<span class="ident">shared</span>(), <span class="ident">DUMMY_SP</span>, <span class="ident">trait_ref</span>) {
+            <span class="ident">traits</span>::<span class="ident">VtableImpl</span>(<span class="ident">vtable_impl</span>) <span class="op">=&gt;</span> {
+                <span class="kw">let</span> <span class="ident">name</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">item_name</span>(<span class="ident">def_id</span>);
+                <span class="kw">let</span> (<span class="ident">def_id</span>, <span class="ident">substs</span>) <span class="op">=</span> <span class="ident">traits</span>::<span class="ident">find_method</span>(<span class="ident">tcx</span>, <span class="ident">name</span>, <span class="ident">substs</span>, <span class="kw-2">&amp;</span><span class="ident">vtable_impl</span>);
 
-                <span class='comment'>// Translate the function, bypassing Callee::def.</span>
-                <span class='comment'>// That is because default methods have the same ID as the</span>
-                <span class='comment'>// trait method used to look up the impl method that ended</span>
-                <span class='comment'>// up here, so calling Callee::def would infinitely recurse.</span>
-                <span class='kw'>let</span> (<span class='ident'>llfn</span>, <span class='ident'>ty</span>) <span class='op'>=</span> <span class='ident'>get_fn</span>(<span class='ident'>ccx</span>, <span class='ident'>def_id</span>, <span class='ident'>substs</span>);
-                <span class='ident'>Callee</span>::<span class='ident'>ptr</span>(<span class='ident'>llfn</span>, <span class='ident'>ty</span>)
+                <span class="comment">// Translate the function, bypassing Callee::def.</span>
+                <span class="comment">// That is because default methods have the same ID as the</span>
+                <span class="comment">// trait method used to look up the impl method that ended</span>
+                <span class="comment">// up here, so calling Callee::def would infinitely recurse.</span>
+                <span class="kw">let</span> (<span class="ident">llfn</span>, <span class="ident">ty</span>) <span class="op">=</span> <span class="ident">get_fn</span>(<span class="ident">ccx</span>, <span class="ident">def_id</span>, <span class="ident">substs</span>);
+                <span class="ident">Callee</span>::<span class="ident">ptr</span>(<span class="ident">llfn</span>, <span class="ident">ty</span>)
             }
-            <span class='ident'>traits</span>::<span class='ident'>VtableClosure</span>(<span class='ident'>vtable_closure</span>) <span class='op'>=&gt;</span> {
-                <span class='comment'>// The substitutions should have no type parameters remaining</span>
-                <span class='comment'>// after passing through fulfill_obligation</span>
-                <span class='kw'>let</span> <span class='ident'>trait_closure_kind</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>lang_items</span>.<span class='ident'>fn_trait_kind</span>(<span class='ident'>trait_id</span>).<span class='ident'>unwrap</span>();
-                <span class='kw'>let</span> <span class='ident'>instance</span> <span class='op'>=</span> <span class='ident'>Instance</span>::<span class='ident'>new</span>(<span class='ident'>def_id</span>, <span class='ident'>substs</span>);
-                <span class='kw'>let</span> <span class='ident'>llfn</span> <span class='op'>=</span> <span class='ident'>trans_closure_method</span>(
-                    <span class='ident'>ccx</span>,
-                    <span class='ident'>vtable_closure</span>.<span class='ident'>closure_def_id</span>,
-                    <span class='ident'>vtable_closure</span>.<span class='ident'>substs</span>,
-                    <span class='ident'>instance</span>,
-                    <span class='ident'>trait_closure_kind</span>);
+            <span class="ident">traits</span>::<span class="ident">VtableClosure</span>(<span class="ident">vtable_closure</span>) <span class="op">=&gt;</span> {
+                <span class="comment">// The substitutions should have no type parameters remaining</span>
+                <span class="comment">// after passing through fulfill_obligation</span>
+                <span class="kw">let</span> <span class="ident">trait_closure_kind</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">lang_items</span>.<span class="ident">fn_trait_kind</span>(<span class="ident">trait_id</span>).<span class="ident">unwrap</span>();
+                <span class="kw">let</span> <span class="ident">instance</span> <span class="op">=</span> <span class="ident">Instance</span>::<span class="ident">new</span>(<span class="ident">def_id</span>, <span class="ident">substs</span>);
+                <span class="kw">let</span> <span class="ident">llfn</span> <span class="op">=</span> <span class="ident">trans_closure_method</span>(
+                    <span class="ident">ccx</span>,
+                    <span class="ident">vtable_closure</span>.<span class="ident">closure_def_id</span>,
+                    <span class="ident">vtable_closure</span>.<span class="ident">substs</span>,
+                    <span class="ident">instance</span>,
+                    <span class="ident">trait_closure_kind</span>);
 
-                <span class='kw'>let</span> <span class='ident'>method_ty</span> <span class='op'>=</span> <span class='ident'>def_ty</span>(<span class='ident'>ccx</span>.<span class='ident'>shared</span>(), <span class='ident'>def_id</span>, <span class='ident'>substs</span>);
-                <span class='ident'>Callee</span>::<span class='ident'>ptr</span>(<span class='ident'>llfn</span>, <span class='ident'>method_ty</span>)
+                <span class="kw">let</span> <span class="ident">method_ty</span> <span class="op">=</span> <span class="ident">def_ty</span>(<span class="ident">ccx</span>.<span class="ident">shared</span>(), <span class="ident">def_id</span>, <span class="ident">substs</span>);
+                <span class="ident">Callee</span>::<span class="ident">ptr</span>(<span class="ident">llfn</span>, <span class="ident">method_ty</span>)
             }
-            <span class='ident'>traits</span>::<span class='ident'>VtableFnPointer</span>(<span class='ident'>vtable_fn_pointer</span>) <span class='op'>=&gt;</span> {
-                <span class='kw'>let</span> <span class='ident'>trait_closure_kind</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>lang_items</span>.<span class='ident'>fn_trait_kind</span>(<span class='ident'>trait_id</span>).<span class='ident'>unwrap</span>();
-                <span class='kw'>let</span> <span class='ident'>instance</span> <span class='op'>=</span> <span class='ident'>Instance</span>::<span class='ident'>new</span>(<span class='ident'>def_id</span>, <span class='ident'>substs</span>);
-                <span class='kw'>let</span> <span class='ident'>llfn</span> <span class='op'>=</span> <span class='ident'>trans_fn_pointer_shim</span>(<span class='ident'>ccx</span>, <span class='ident'>instance</span>,
-                                                 <span class='ident'>trait_closure_kind</span>,
-                                                 <span class='ident'>vtable_fn_pointer</span>.<span class='ident'>fn_ty</span>);
+            <span class="ident">traits</span>::<span class="ident">VtableFnPointer</span>(<span class="ident">vtable_fn_pointer</span>) <span class="op">=&gt;</span> {
+                <span class="kw">let</span> <span class="ident">trait_closure_kind</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">lang_items</span>.<span class="ident">fn_trait_kind</span>(<span class="ident">trait_id</span>).<span class="ident">unwrap</span>();
+                <span class="kw">let</span> <span class="ident">instance</span> <span class="op">=</span> <span class="ident">Instance</span>::<span class="ident">new</span>(<span class="ident">def_id</span>, <span class="ident">substs</span>);
+                <span class="kw">let</span> <span class="ident">llfn</span> <span class="op">=</span> <span class="ident">trans_fn_pointer_shim</span>(<span class="ident">ccx</span>, <span class="ident">instance</span>,
+                                                 <span class="ident">trait_closure_kind</span>,
+                                                 <span class="ident">vtable_fn_pointer</span>.<span class="ident">fn_ty</span>);
 
-                <span class='kw'>let</span> <span class='ident'>method_ty</span> <span class='op'>=</span> <span class='ident'>def_ty</span>(<span class='ident'>ccx</span>.<span class='ident'>shared</span>(), <span class='ident'>def_id</span>, <span class='ident'>substs</span>);
-                <span class='ident'>Callee</span>::<span class='ident'>ptr</span>(<span class='ident'>llfn</span>, <span class='ident'>method_ty</span>)
+                <span class="kw">let</span> <span class="ident">method_ty</span> <span class="op">=</span> <span class="ident">def_ty</span>(<span class="ident">ccx</span>.<span class="ident">shared</span>(), <span class="ident">def_id</span>, <span class="ident">substs</span>);
+                <span class="ident">Callee</span>::<span class="ident">ptr</span>(<span class="ident">llfn</span>, <span class="ident">method_ty</span>)
             }
-            <span class='ident'>traits</span>::<span class='ident'>VtableObject</span>(<span class='kw-2'>ref</span> <span class='ident'>data</span>) <span class='op'>=&gt;</span> {
-                <span class='ident'>Callee</span> {
-                    <span class='ident'>data</span>: <span class='ident'>Virtual</span>(<span class='ident'>tcx</span>.<span class='ident'>get_vtable_index_of_object_method</span>(<span class='ident'>data</span>, <span class='ident'>def_id</span>)),
-                    <span class='ident'>ty</span>: <span class='ident'>def_ty</span>(<span class='ident'>ccx</span>.<span class='ident'>shared</span>(), <span class='ident'>def_id</span>, <span class='ident'>substs</span>)
+            <span class="ident">traits</span>::<span class="ident">VtableObject</span>(<span class="kw-2">ref</span> <span class="ident">data</span>) <span class="op">=&gt;</span> {
+                <span class="ident">Callee</span> {
+                    <span class="ident">data</span>: <span class="ident">Virtual</span>(<span class="ident">tcx</span>.<span class="ident">get_vtable_index_of_object_method</span>(<span class="ident">data</span>, <span class="ident">def_id</span>)),
+                    <span class="ident">ty</span>: <span class="ident">def_ty</span>(<span class="ident">ccx</span>.<span class="ident">shared</span>(), <span class="ident">def_id</span>, <span class="ident">substs</span>)
                 }
             }
-            <span class='ident'>vtable</span> <span class='op'>=&gt;</span> {
-                <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;resolved vtable bad vtable {:?} in trans&quot;</span>, <span class='ident'>vtable</span>);
+            <span class="ident">vtable</span> <span class="op">=&gt;</span> {
+                <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;resolved vtable bad vtable {:?} in trans&quot;</span>, <span class="ident">vtable</span>);
             }
         }
     }
 
-    <span class='doccomment'>/// Get the abi::FnType for a direct call. Mainly deals with the fact</span>
-    <span class='doccomment'>/// that a Virtual call doesn&#39;t take the vtable, like its shim does.</span>
-    <span class='doccomment'>/// The extra argument types are for variadic (extern &quot;C&quot;) functions.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>direct_fn_type</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                              <span class='ident'>extra_args</span>: <span class='kw-2'>&amp;</span>[<span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>]) <span class='op'>-&gt;</span> <span class='ident'>FnType</span> {
-        <span class='kw'>let</span> <span class='ident'>abi</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>ty</span>.<span class='ident'>fn_abi</span>();
-        <span class='kw'>let</span> <span class='ident'>sig</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>().<span class='ident'>erase_late_bound_regions_and_normalize</span>(<span class='self'>self</span>.<span class='ident'>ty</span>.<span class='ident'>fn_sig</span>());
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>fn_ty</span> <span class='op'>=</span> <span class='ident'>FnType</span>::<span class='ident'>unadjusted</span>(<span class='ident'>ccx</span>, <span class='ident'>abi</span>, <span class='kw-2'>&amp;</span><span class='ident'>sig</span>, <span class='ident'>extra_args</span>);
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='ident'>Virtual</span>(_) <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>data</span> {
-            <span class='comment'>// Don&#39;t pass the vtable, it&#39;s not an argument of the virtual fn.</span>
-            <span class='ident'>fn_ty</span>.<span class='ident'>args</span>[<span class='number'>1</span>].<span class='ident'>ignore</span>();
+    <span class="doccomment">/// Get the abi::FnType for a direct call. Mainly deals with the fact</span>
+    <span class="doccomment">/// that a Virtual call doesn&#39;t take the vtable, like its shim does.</span>
+    <span class="doccomment">/// The extra argument types are for variadic (extern &quot;C&quot;) functions.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">direct_fn_type</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">ccx</span>: <span class="kw-2">&amp;</span><span class="ident">CrateContext</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                              <span class="ident">extra_args</span>: <span class="kw-2">&amp;</span>[<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>]) <span class="op">-&gt;</span> <span class="ident">FnType</span> {
+        <span class="kw">let</span> <span class="ident">sig</span> <span class="op">=</span> <span class="ident">ccx</span>.<span class="ident">tcx</span>().<span class="ident">erase_late_bound_regions_and_normalize</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">ty</span>.<span class="ident">fn_sig</span>());
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">fn_ty</span> <span class="op">=</span> <span class="ident">FnType</span>::<span class="ident">unadjusted</span>(<span class="ident">ccx</span>, <span class="ident">sig</span>, <span class="ident">extra_args</span>);
+        <span class="kw">if</span> <span class="kw">let</span> <span class="ident">Virtual</span>(_) <span class="op">=</span> <span class="self">self</span>.<span class="ident">data</span> {
+            <span class="comment">// Don&#39;t pass the vtable, it&#39;s not an argument of the virtual fn.</span>
+            <span class="ident">fn_ty</span>.<span class="ident">args</span>[<span class="number">1</span>].<span class="ident">ignore</span>();
         }
-        <span class='ident'>fn_ty</span>.<span class='ident'>adjust_for_abi</span>(<span class='ident'>ccx</span>, <span class='ident'>abi</span>, <span class='kw-2'>&amp;</span><span class='ident'>sig</span>);
-        <span class='ident'>fn_ty</span>
+        <span class="ident">fn_ty</span>.<span class="ident">adjust_for_abi</span>(<span class="ident">ccx</span>, <span class="ident">sig</span>);
+        <span class="ident">fn_ty</span>
     }
 
-    <span class='doccomment'>/// Turn the callee into a function pointer.</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>reify</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='self'>self</span>, <span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) <span class='op'>-&gt;</span> <span class='ident'>ValueRef</span> {
-        <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>data</span> {
-            <span class='ident'>Fn</span>(<span class='ident'>llfn</span>) <span class='op'>=&gt;</span> <span class='ident'>llfn</span>,
-            <span class='ident'>Virtual</span>(_) <span class='op'>=&gt;</span> <span class='ident'>meth</span>::<span class='ident'>trans_object_shim</span>(<span class='ident'>ccx</span>, <span class='self'>self</span>),
-            <span class='ident'>NamedTupleConstructor</span>(<span class='ident'>disr</span>) <span class='op'>=&gt;</span> <span class='kw'>match</span> <span class='self'>self</span>.<span class='ident'>ty</span>.<span class='ident'>sty</span> {
-                <span class='ident'>ty</span>::<span class='ident'>TyFnDef</span>(<span class='ident'>def_id</span>, <span class='ident'>substs</span>, _) <span class='op'>=&gt;</span> {
-                    <span class='kw'>let</span> <span class='ident'>instance</span> <span class='op'>=</span> <span class='ident'>Instance</span>::<span class='ident'>new</span>(<span class='ident'>def_id</span>, <span class='ident'>substs</span>);
-                    <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>llfn</span>) <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>instances</span>().<span class='ident'>borrow</span>().<span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='ident'>instance</span>) {
-                        <span class='kw'>return</span> <span class='ident'>llfn</span>;
+    <span class="doccomment">/// Turn the callee into a function pointer.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">reify</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">ccx</span>: <span class="kw-2">&amp;</span><span class="ident">CrateContext</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">ValueRef</span> {
+        <span class="kw">match</span> <span class="self">self</span>.<span class="ident">data</span> {
+            <span class="ident">Fn</span>(<span class="ident">llfn</span>) <span class="op">=&gt;</span> <span class="ident">llfn</span>,
+            <span class="ident">Virtual</span>(_) <span class="op">=&gt;</span> <span class="ident">meth</span>::<span class="ident">trans_object_shim</span>(<span class="ident">ccx</span>, <span class="self">self</span>),
+            <span class="ident">NamedTupleConstructor</span>(<span class="ident">disr</span>) <span class="op">=&gt;</span> <span class="kw">match</span> <span class="self">self</span>.<span class="ident">ty</span>.<span class="ident">sty</span> {
+                <span class="ident">ty</span>::<span class="ident">TyFnDef</span>(<span class="ident">def_id</span>, <span class="ident">substs</span>, _) <span class="op">=&gt;</span> {
+                    <span class="kw">let</span> <span class="ident">instance</span> <span class="op">=</span> <span class="ident">Instance</span>::<span class="ident">new</span>(<span class="ident">def_id</span>, <span class="ident">substs</span>);
+                    <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="ident">llfn</span>) <span class="op">=</span> <span class="ident">ccx</span>.<span class="ident">instances</span>().<span class="ident">borrow</span>().<span class="ident">get</span>(<span class="kw-2">&amp;</span><span class="ident">instance</span>) {
+                        <span class="kw">return</span> <span class="ident">llfn</span>;
                     }
 
-                    <span class='kw'>let</span> <span class='ident'>sym</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>symbol_map</span>().<span class='ident'>get_or_compute</span>(<span class='ident'>ccx</span>.<span class='ident'>shared</span>(),
-                                                              <span class='ident'>TransItem</span>::<span class='ident'>Fn</span>(<span class='ident'>instance</span>));
-                    <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>ccx</span>.<span class='ident'>codegen_unit</span>().<span class='ident'>contains_item</span>(<span class='kw-2'>&amp;</span><span class='ident'>TransItem</span>::<span class='ident'>Fn</span>(<span class='ident'>instance</span>)));
-                    <span class='kw'>let</span> <span class='ident'>lldecl</span> <span class='op'>=</span> <span class='ident'>declare</span>::<span class='ident'>define_internal_fn</span>(<span class='ident'>ccx</span>, <span class='kw-2'>&amp;</span><span class='ident'>sym</span>, <span class='self'>self</span>.<span class='ident'>ty</span>);
-                    <span class='ident'>base</span>::<span class='ident'>trans_ctor_shim</span>(<span class='ident'>ccx</span>, <span class='ident'>def_id</span>, <span class='ident'>substs</span>, <span class='ident'>disr</span>, <span class='ident'>lldecl</span>);
-                    <span class='ident'>ccx</span>.<span class='ident'>instances</span>().<span class='ident'>borrow_mut</span>().<span class='ident'>insert</span>(<span class='ident'>instance</span>, <span class='ident'>lldecl</span>);
+                    <span class="kw">let</span> <span class="ident">sym</span> <span class="op">=</span> <span class="ident">ccx</span>.<span class="ident">symbol_map</span>().<span class="ident">get_or_compute</span>(<span class="ident">ccx</span>.<span class="ident">shared</span>(),
+                                                              <span class="ident">TransItem</span>::<span class="ident">Fn</span>(<span class="ident">instance</span>));
+                    <span class="macro">assert</span><span class="macro">!</span>(<span class="op">!</span><span class="ident">ccx</span>.<span class="ident">codegen_unit</span>().<span class="ident">contains_item</span>(<span class="kw-2">&amp;</span><span class="ident">TransItem</span>::<span class="ident">Fn</span>(<span class="ident">instance</span>)));
+                    <span class="kw">let</span> <span class="ident">lldecl</span> <span class="op">=</span> <span class="ident">declare</span>::<span class="ident">define_internal_fn</span>(<span class="ident">ccx</span>, <span class="kw-2">&amp;</span><span class="ident">sym</span>, <span class="self">self</span>.<span class="ident">ty</span>);
+                    <span class="ident">base</span>::<span class="ident">trans_ctor_shim</span>(<span class="ident">ccx</span>, <span class="ident">def_id</span>, <span class="ident">substs</span>, <span class="ident">disr</span>, <span class="ident">lldecl</span>);
+                    <span class="ident">ccx</span>.<span class="ident">instances</span>().<span class="ident">borrow_mut</span>().<span class="ident">insert</span>(<span class="ident">instance</span>, <span class="ident">lldecl</span>);
 
-                    <span class='ident'>lldecl</span>
+                    <span class="ident">lldecl</span>
                 }
-                _ <span class='op'>=&gt;</span> <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;expected fn item type, found {}&quot;</span>, <span class='self'>self</span>.<span class='ident'>ty</span>)
+                _ <span class="op">=&gt;</span> <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;expected fn item type, found {}&quot;</span>, <span class="self">self</span>.<span class="ident">ty</span>)
             },
-            <span class='ident'>Intrinsic</span> <span class='op'>=&gt;</span> <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;intrinsic {} getting reified&quot;</span>, <span class='self'>self</span>.<span class='ident'>ty</span>)
+            <span class="ident">Intrinsic</span> <span class="op">=&gt;</span> <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;intrinsic {} getting reified&quot;</span>, <span class="self">self</span>.<span class="ident">ty</span>)
         }
     }
 }
 
-<span class='doccomment'>/// Given a DefId and some Substs, produces the monomorphic item type.</span>
-<span class='kw'>fn</span> <span class='ident'>def_ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>shared</span>: <span class='kw-2'>&amp;</span><span class='ident'>SharedCrateContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                    <span class='ident'>def_id</span>: <span class='ident'>DefId</span>,
-                    <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-                    <span class='op'>-&gt;</span> <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>let</span> <span class='ident'>ty</span> <span class='op'>=</span> <span class='ident'>shared</span>.<span class='ident'>tcx</span>().<span class='ident'>item_type</span>(<span class='ident'>def_id</span>);
-    <span class='ident'>monomorphize</span>::<span class='ident'>apply_param_substs</span>(<span class='ident'>shared</span>, <span class='ident'>substs</span>, <span class='kw-2'>&amp;</span><span class='ident'>ty</span>)
-}
-
-
-<span class='kw'>fn</span> <span class='ident'>trans_closure_method</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>CrateContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                  <span class='ident'>def_id</span>: <span class='ident'>DefId</span>,
-                                  <span class='ident'>substs</span>: <span class='ident'>ty</span>::<span class='ident'>ClosureSubsts</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                  <span class='ident'>method_instance</span>: <span class='ident'>Instance</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                  <span class='ident'>trait_closure_kind</span>: <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>)
-                                  <span class='op'>-&gt;</span> <span class='ident'>ValueRef</span>
+<span class="kw">fn</span> <span class="ident">trans_closure_method</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">ccx</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">CrateContext</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                  <span class="ident">def_id</span>: <span class="ident">DefId</span>,
+                                  <span class="ident">substs</span>: <span class="ident">ty</span>::<span class="ident">ClosureSubsts</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                  <span class="ident">method_instance</span>: <span class="ident">Instance</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                  <span class="ident">trait_closure_kind</span>: <span class="ident">ty</span>::<span class="ident">ClosureKind</span>)
+                                  <span class="op">-&gt;</span> <span class="ident">ValueRef</span>
 {
-    <span class='comment'>// If this is a closure, redirect to it.</span>
-    <span class='kw'>let</span> (<span class='ident'>llfn</span>, _) <span class='op'>=</span> <span class='ident'>get_fn</span>(<span class='ident'>ccx</span>, <span class='ident'>def_id</span>, <span class='ident'>substs</span>.<span class='ident'>substs</span>);
+    <span class="comment">// If this is a closure, redirect to it.</span>
+    <span class="kw">let</span> (<span class="ident">llfn</span>, _) <span class="op">=</span> <span class="ident">get_fn</span>(<span class="ident">ccx</span>, <span class="ident">def_id</span>, <span class="ident">substs</span>.<span class="ident">substs</span>);
 
-    <span class='comment'>// If the closure is a Fn closure, but a FnOnce is needed (etc),</span>
-    <span class='comment'>// then adapt the self type</span>
-    <span class='kw'>let</span> <span class='ident'>llfn_closure_kind</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>().<span class='ident'>closure_kind</span>(<span class='ident'>def_id</span>);
+    <span class="comment">// If the closure is a Fn closure, but a FnOnce is needed (etc),</span>
+    <span class="comment">// then adapt the self type</span>
+    <span class="kw">let</span> <span class="ident">llfn_closure_kind</span> <span class="op">=</span> <span class="ident">ccx</span>.<span class="ident">tcx</span>().<span class="ident">closure_kind</span>(<span class="ident">def_id</span>);
 
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;trans_closure_adapter_shim(llfn_closure_kind={:?}, \
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;trans_closure_adapter_shim(llfn_closure_kind={:?}, \
            trait_closure_kind={:?}, llfn={:?})&quot;</span>,
-           <span class='ident'>llfn_closure_kind</span>, <span class='ident'>trait_closure_kind</span>, <span class='ident'>Value</span>(<span class='ident'>llfn</span>));
+           <span class="ident">llfn_closure_kind</span>, <span class="ident">trait_closure_kind</span>, <span class="ident">Value</span>(<span class="ident">llfn</span>));
 
-    <span class='kw'>match</span> <span class='ident'>needs_fn_once_adapter_shim</span>(<span class='ident'>llfn_closure_kind</span>, <span class='ident'>trait_closure_kind</span>) {
-        <span class='prelude-val'>Ok</span>(<span class='bool-val'>true</span>) <span class='op'>=&gt;</span> <span class='ident'>trans_fn_once_adapter_shim</span>(<span class='ident'>ccx</span>,
-                                               <span class='ident'>def_id</span>,
-                                               <span class='ident'>substs</span>,
-                                               <span class='ident'>method_instance</span>,
-                                               <span class='ident'>llfn</span>),
-        <span class='prelude-val'>Ok</span>(<span class='bool-val'>false</span>) <span class='op'>=&gt;</span> <span class='ident'>llfn</span>,
-        <span class='prelude-val'>Err</span>(()) <span class='op'>=&gt;</span> {
-            <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;trans_closure_adapter_shim: cannot convert {:?} to {:?}&quot;</span>,
-                 <span class='ident'>llfn_closure_kind</span>,
-                 <span class='ident'>trait_closure_kind</span>);
+    <span class="kw">match</span> <span class="ident">needs_fn_once_adapter_shim</span>(<span class="ident">llfn_closure_kind</span>, <span class="ident">trait_closure_kind</span>) {
+        <span class="prelude-val">Ok</span>(<span class="bool-val">true</span>) <span class="op">=&gt;</span> <span class="ident">trans_fn_once_adapter_shim</span>(<span class="ident">ccx</span>,
+                                               <span class="ident">def_id</span>,
+                                               <span class="ident">substs</span>,
+                                               <span class="ident">method_instance</span>,
+                                               <span class="ident">llfn</span>),
+        <span class="prelude-val">Ok</span>(<span class="bool-val">false</span>) <span class="op">=&gt;</span> <span class="ident">llfn</span>,
+        <span class="prelude-val">Err</span>(()) <span class="op">=&gt;</span> {
+            <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;trans_closure_adapter_shim: cannot convert {:?} to {:?}&quot;</span>,
+                 <span class="ident">llfn_closure_kind</span>,
+                 <span class="ident">trait_closure_kind</span>);
         }
     }
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>needs_fn_once_adapter_shim</span>(<span class='ident'>actual_closure_kind</span>: <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>,
-                                  <span class='ident'>trait_closure_kind</span>: <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>)
-                                  <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>bool</span>, ()<span class='op'>&gt;</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">needs_fn_once_adapter_shim</span>(<span class="ident">actual_closure_kind</span>: <span class="ident">ty</span>::<span class="ident">ClosureKind</span>,
+                                  <span class="ident">trait_closure_kind</span>: <span class="ident">ty</span>::<span class="ident">ClosureKind</span>)
+                                  <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">bool</span>, ()<span class="op">&gt;</span>
 {
-    <span class='kw'>match</span> (<span class='ident'>actual_closure_kind</span>, <span class='ident'>trait_closure_kind</span>) {
-        (<span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>Fn</span>, <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>Fn</span>) <span class='op'>|</span>
-        (<span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnMut</span>, <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnMut</span>) <span class='op'>|</span>
-        (<span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnOnce</span>, <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnOnce</span>) <span class='op'>=&gt;</span> {
-            <span class='comment'>// No adapter needed.</span>
-           <span class='prelude-val'>Ok</span>(<span class='bool-val'>false</span>)
+    <span class="kw">match</span> (<span class="ident">actual_closure_kind</span>, <span class="ident">trait_closure_kind</span>) {
+        (<span class="ident">ty</span>::<span class="ident">ClosureKind</span>::<span class="ident">Fn</span>, <span class="ident">ty</span>::<span class="ident">ClosureKind</span>::<span class="ident">Fn</span>) <span class="op">|</span>
+        (<span class="ident">ty</span>::<span class="ident">ClosureKind</span>::<span class="ident">FnMut</span>, <span class="ident">ty</span>::<span class="ident">ClosureKind</span>::<span class="ident">FnMut</span>) <span class="op">|</span>
+        (<span class="ident">ty</span>::<span class="ident">ClosureKind</span>::<span class="ident">FnOnce</span>, <span class="ident">ty</span>::<span class="ident">ClosureKind</span>::<span class="ident">FnOnce</span>) <span class="op">=&gt;</span> {
+            <span class="comment">// No adapter needed.</span>
+           <span class="prelude-val">Ok</span>(<span class="bool-val">false</span>)
         }
-        (<span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>Fn</span>, <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnMut</span>) <span class='op'>=&gt;</span> {
-            <span class='comment'>// The closure fn `llfn` is a `fn(&amp;self, ...)`.  We want a</span>
-            <span class='comment'>// `fn(&amp;mut self, ...)`. In fact, at trans time, these are</span>
-            <span class='comment'>// basically the same thing, so we can just return llfn.</span>
-            <span class='prelude-val'>Ok</span>(<span class='bool-val'>false</span>)
+        (<span class="ident">ty</span>::<span class="ident">ClosureKind</span>::<span class="ident">Fn</span>, <span class="ident">ty</span>::<span class="ident">ClosureKind</span>::<span class="ident">FnMut</span>) <span class="op">=&gt;</span> {
+            <span class="comment">// The closure fn `llfn` is a `fn(&amp;self, ...)`.  We want a</span>
+            <span class="comment">// `fn(&amp;mut self, ...)`. In fact, at trans time, these are</span>
+            <span class="comment">// basically the same thing, so we can just return llfn.</span>
+            <span class="prelude-val">Ok</span>(<span class="bool-val">false</span>)
         }
-        (<span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>Fn</span>, <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnOnce</span>) <span class='op'>|</span>
-        (<span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnMut</span>, <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnOnce</span>) <span class='op'>=&gt;</span> {
-            <span class='comment'>// The closure fn `llfn` is a `fn(&amp;self, ...)` or `fn(&amp;mut</span>
-            <span class='comment'>// self, ...)`.  We want a `fn(self, ...)`. We can produce</span>
-            <span class='comment'>// this by doing something like:</span>
-            <span class='comment'>//</span>
-            <span class='comment'>//     fn call_once(self, ...) { call_mut(&amp;self, ...) }</span>
-            <span class='comment'>//     fn call_once(mut self, ...) { call_mut(&amp;mut self, ...) }</span>
-            <span class='comment'>//</span>
-            <span class='comment'>// These are both the same at trans time.</span>
-            <span class='prelude-val'>Ok</span>(<span class='bool-val'>true</span>)
+        (<span class="ident">ty</span>::<span class="ident">ClosureKind</span>::<span class="ident">Fn</span>, <span class="ident">ty</span>::<span class="ident">ClosureKind</span>::<span class="ident">FnOnce</span>) <span class="op">|</span>
+        (<span class="ident">ty</span>::<span class="ident">ClosureKind</span>::<span class="ident">FnMut</span>, <span class="ident">ty</span>::<span class="ident">ClosureKind</span>::<span class="ident">FnOnce</span>) <span class="op">=&gt;</span> {
+            <span class="comment">// The closure fn `llfn` is a `fn(&amp;self, ...)` or `fn(&amp;mut</span>
+            <span class="comment">// self, ...)`.  We want a `fn(self, ...)`. We can produce</span>
+            <span class="comment">// this by doing something like:</span>
+            <span class="comment">//</span>
+            <span class="comment">//     fn call_once(self, ...) { call_mut(&amp;self, ...) }</span>
+            <span class="comment">//     fn call_once(mut self, ...) { call_mut(&amp;mut self, ...) }</span>
+            <span class="comment">//</span>
+            <span class="comment">// These are both the same at trans time.</span>
+            <span class="prelude-val">Ok</span>(<span class="bool-val">true</span>)
         }
-        _ <span class='op'>=&gt;</span> <span class='prelude-val'>Err</span>(()),
+        _ <span class="op">=&gt;</span> <span class="prelude-val">Err</span>(()),
     }
 }
 
-<span class='kw'>fn</span> <span class='ident'>trans_fn_once_adapter_shim</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(
-    <span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>CrateContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>def_id</span>: <span class='ident'>DefId</span>,
-    <span class='ident'>substs</span>: <span class='ident'>ty</span>::<span class='ident'>ClosureSubsts</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>method_instance</span>: <span class='ident'>Instance</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>llreffn</span>: <span class='ident'>ValueRef</span>)
-    <span class='op'>-&gt;</span> <span class='ident'>ValueRef</span>
+<span class="kw">fn</span> <span class="ident">trans_fn_once_adapter_shim</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(
+    <span class="ident">ccx</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">CrateContext</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">def_id</span>: <span class="ident">DefId</span>,
+    <span class="ident">substs</span>: <span class="ident">ty</span>::<span class="ident">ClosureSubsts</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">method_instance</span>: <span class="ident">Instance</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">llreffn</span>: <span class="ident">ValueRef</span>)
+    <span class="op">-&gt;</span> <span class="ident">ValueRef</span>
 {
-    <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>llfn</span>) <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>instances</span>().<span class='ident'>borrow</span>().<span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='ident'>method_instance</span>) {
-        <span class='kw'>return</span> <span class='ident'>llfn</span>;
+    <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="ident">llfn</span>) <span class="op">=</span> <span class="ident">ccx</span>.<span class="ident">instances</span>().<span class="ident">borrow</span>().<span class="ident">get</span>(<span class="kw-2">&amp;</span><span class="ident">method_instance</span>) {
+        <span class="kw">return</span> <span class="ident">llfn</span>;
     }
 
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;trans_fn_once_adapter_shim(def_id={:?}, substs={:?}, llreffn={:?})&quot;</span>,
-           <span class='ident'>def_id</span>, <span class='ident'>substs</span>, <span class='ident'>Value</span>(<span class='ident'>llreffn</span>));
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;trans_fn_once_adapter_shim(def_id={:?}, substs={:?}, llreffn={:?})&quot;</span>,
+           <span class="ident">def_id</span>, <span class="ident">substs</span>, <span class="ident">Value</span>(<span class="ident">llreffn</span>));
 
-    <span class='kw'>let</span> <span class='ident'>tcx</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>();
+    <span class="kw">let</span> <span class="ident">tcx</span> <span class="op">=</span> <span class="ident">ccx</span>.<span class="ident">tcx</span>();
 
-    <span class='comment'>// Find a version of the closure type. Substitute static for the</span>
-    <span class='comment'>// region since it doesn&#39;t really matter.</span>
-    <span class='kw'>let</span> <span class='ident'>closure_ty</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>mk_closure_from_closure_substs</span>(<span class='ident'>def_id</span>, <span class='ident'>substs</span>);
-    <span class='kw'>let</span> <span class='ident'>ref_closure_ty</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>mk_imm_ref</span>(<span class='ident'>tcx</span>.<span class='ident'>mk_region</span>(<span class='ident'>ty</span>::<span class='ident'>ReErased</span>), <span class='ident'>closure_ty</span>);
+    <span class="comment">// Find a version of the closure type. Substitute static for the</span>
+    <span class="comment">// region since it doesn&#39;t really matter.</span>
+    <span class="kw">let</span> <span class="ident">closure_ty</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">mk_closure_from_closure_substs</span>(<span class="ident">def_id</span>, <span class="ident">substs</span>);
+    <span class="kw">let</span> <span class="ident">ref_closure_ty</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">mk_imm_ref</span>(<span class="ident">tcx</span>.<span class="ident">mk_region</span>(<span class="ident">ty</span>::<span class="ident">ReErased</span>), <span class="ident">closure_ty</span>);
 
-    <span class='comment'>// Make a version with the type of by-ref closure.</span>
-    <span class='kw'>let</span> <span class='ident'>ty</span>::<span class='ident'>ClosureTy</span> { <span class='ident'>unsafety</span>, <span class='ident'>abi</span>, <span class='kw-2'>mut</span> <span class='ident'>sig</span> } <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>closure_type</span>(<span class='ident'>def_id</span>, <span class='ident'>substs</span>);
-    <span class='ident'>sig</span>.<span class='number'>0</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>mk_fn_sig</span>(
-        <span class='ident'>iter</span>::<span class='ident'>once</span>(<span class='ident'>ref_closure_ty</span>).<span class='ident'>chain</span>(<span class='ident'>sig</span>.<span class='number'>0</span>.<span class='ident'>inputs</span>().<span class='ident'>iter</span>().<span class='ident'>cloned</span>()),
-        <span class='ident'>sig</span>.<span class='number'>0</span>.<span class='ident'>output</span>(),
-        <span class='ident'>sig</span>.<span class='number'>0</span>.<span class='ident'>variadic</span>
+    <span class="comment">// Make a version with the type of by-ref closure.</span>
+    <span class="kw">let</span> <span class="ident">sig</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">closure_type</span>(<span class="ident">def_id</span>).<span class="ident">subst</span>(<span class="ident">tcx</span>, <span class="ident">substs</span>.<span class="ident">substs</span>);
+    <span class="kw">let</span> <span class="ident">sig</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">erase_late_bound_regions_and_normalize</span>(<span class="kw-2">&amp;</span><span class="ident">sig</span>);
+    <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">sig</span>.<span class="ident">abi</span>, <span class="ident">Abi</span>::<span class="ident">RustCall</span>);
+    <span class="kw">let</span> <span class="ident">llref_fn_ty</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">mk_fn_ptr</span>(<span class="ident">ty</span>::<span class="ident">Binder</span>(<span class="ident">tcx</span>.<span class="ident">mk_fn_sig</span>(
+        <span class="ident">iter</span>::<span class="ident">once</span>(<span class="ident">ref_closure_ty</span>).<span class="ident">chain</span>(<span class="ident">sig</span>.<span class="ident">inputs</span>().<span class="ident">iter</span>().<span class="ident">cloned</span>()),
+        <span class="ident">sig</span>.<span class="ident">output</span>(),
+        <span class="ident">sig</span>.<span class="ident">variadic</span>,
+        <span class="ident">sig</span>.<span class="ident">unsafety</span>,
+        <span class="ident">Abi</span>::<span class="ident">RustCall</span>
+    )));
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;trans_fn_once_adapter_shim: llref_fn_ty={:?}&quot;</span>,
+           <span class="ident">llref_fn_ty</span>);
+
+
+    <span class="comment">// Make a version of the closure type with the same arguments, but</span>
+    <span class="comment">// with argument #0 being by value.</span>
+    <span class="kw">let</span> <span class="ident">sig</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">mk_fn_sig</span>(
+        <span class="ident">iter</span>::<span class="ident">once</span>(<span class="ident">closure_ty</span>).<span class="ident">chain</span>(<span class="ident">sig</span>.<span class="ident">inputs</span>().<span class="ident">iter</span>().<span class="ident">cloned</span>()),
+        <span class="ident">sig</span>.<span class="ident">output</span>(),
+        <span class="ident">sig</span>.<span class="ident">variadic</span>,
+        <span class="ident">sig</span>.<span class="ident">unsafety</span>,
+        <span class="ident">Abi</span>::<span class="ident">RustCall</span>
     );
-    <span class='kw'>let</span> <span class='ident'>llref_fn_ty</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>mk_fn_ptr</span>(<span class='ident'>tcx</span>.<span class='ident'>mk_bare_fn</span>(<span class='ident'>ty</span>::<span class='ident'>BareFnTy</span> {
-        <span class='ident'>unsafety</span>: <span class='ident'>unsafety</span>,
-        <span class='ident'>abi</span>: <span class='ident'>abi</span>,
-        <span class='ident'>sig</span>: <span class='ident'>sig</span>.<span class='ident'>clone</span>()
-    }));
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;trans_fn_once_adapter_shim: llref_fn_ty={:?}&quot;</span>,
-           <span class='ident'>llref_fn_ty</span>);
 
+    <span class="kw">let</span> <span class="ident">fn_ty</span> <span class="op">=</span> <span class="ident">FnType</span>::<span class="ident">new</span>(<span class="ident">ccx</span>, <span class="ident">sig</span>, <span class="kw-2">&amp;</span>[]);
+    <span class="kw">let</span> <span class="ident">llonce_fn_ty</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">mk_fn_ptr</span>(<span class="ident">ty</span>::<span class="ident">Binder</span>(<span class="ident">sig</span>));
 
-    <span class='comment'>// Make a version of the closure type with the same arguments, but</span>
-    <span class='comment'>// with argument #0 being by value.</span>
-    <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>abi</span>, <span class='ident'>Abi</span>::<span class='ident'>RustCall</span>);
-    <span class='ident'>sig</span>.<span class='number'>0</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>mk_fn_sig</span>(
-        <span class='ident'>iter</span>::<span class='ident'>once</span>(<span class='ident'>closure_ty</span>).<span class='ident'>chain</span>(<span class='ident'>sig</span>.<span class='number'>0</span>.<span class='ident'>inputs</span>().<span class='ident'>iter</span>().<span class='ident'>skip</span>(<span class='number'>1</span>).<span class='ident'>cloned</span>()),
-        <span class='ident'>sig</span>.<span class='number'>0</span>.<span class='ident'>output</span>(),
-        <span class='ident'>sig</span>.<span class='number'>0</span>.<span class='ident'>variadic</span>
-    );
+    <span class="comment">// Create the by-value helper.</span>
+    <span class="kw">let</span> <span class="ident">function_name</span> <span class="op">=</span> <span class="ident">method_instance</span>.<span class="ident">symbol_name</span>(<span class="ident">ccx</span>.<span class="ident">shared</span>());
+    <span class="kw">let</span> <span class="ident">lloncefn</span> <span class="op">=</span> <span class="ident">declare</span>::<span class="ident">define_internal_fn</span>(<span class="ident">ccx</span>, <span class="kw-2">&amp;</span><span class="ident">function_name</span>, <span class="ident">llonce_fn_ty</span>);
+    <span class="ident">attributes</span>::<span class="ident">set_frame_pointer_elimination</span>(<span class="ident">ccx</span>, <span class="ident">lloncefn</span>);
 
-    <span class='kw'>let</span> <span class='ident'>sig</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>erase_late_bound_regions_and_normalize</span>(<span class='kw-2'>&amp;</span><span class='ident'>sig</span>);
-    <span class='kw'>let</span> <span class='ident'>fn_ty</span> <span class='op'>=</span> <span class='ident'>FnType</span>::<span class='ident'>new</span>(<span class='ident'>ccx</span>, <span class='ident'>abi</span>, <span class='kw-2'>&amp;</span><span class='ident'>sig</span>, <span class='kw-2'>&amp;</span>[]);
+    <span class="kw">let</span> <span class="ident">orig_fn_ty</span> <span class="op">=</span> <span class="ident">fn_ty</span>;
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">bcx</span> <span class="op">=</span> <span class="ident">Builder</span>::<span class="ident">new_block</span>(<span class="ident">ccx</span>, <span class="ident">lloncefn</span>, <span class="string">&quot;entry-block&quot;</span>);
 
-    <span class='kw'>let</span> <span class='ident'>llonce_fn_ty</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>mk_fn_ptr</span>(<span class='ident'>tcx</span>.<span class='ident'>mk_bare_fn</span>(<span class='ident'>ty</span>::<span class='ident'>BareFnTy</span> {
-        <span class='ident'>unsafety</span>: <span class='ident'>unsafety</span>,
-        <span class='ident'>abi</span>: <span class='ident'>abi</span>,
-        <span class='ident'>sig</span>: <span class='ident'>ty</span>::<span class='ident'>Binder</span>(<span class='ident'>sig</span>)
-    }));
-
-    <span class='comment'>// Create the by-value helper.</span>
-    <span class='kw'>let</span> <span class='ident'>function_name</span> <span class='op'>=</span> <span class='ident'>method_instance</span>.<span class='ident'>symbol_name</span>(<span class='ident'>ccx</span>.<span class='ident'>shared</span>());
-    <span class='kw'>let</span> <span class='ident'>lloncefn</span> <span class='op'>=</span> <span class='ident'>declare</span>::<span class='ident'>define_internal_fn</span>(<span class='ident'>ccx</span>, <span class='kw-2'>&amp;</span><span class='ident'>function_name</span>, <span class='ident'>llonce_fn_ty</span>);
-    <span class='ident'>attributes</span>::<span class='ident'>set_frame_pointer_elimination</span>(<span class='ident'>ccx</span>, <span class='ident'>lloncefn</span>);
-
-    <span class='kw'>let</span> <span class='ident'>orig_fn_ty</span> <span class='op'>=</span> <span class='ident'>fn_ty</span>;
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>bcx</span> <span class='op'>=</span> <span class='ident'>Builder</span>::<span class='ident'>new_block</span>(<span class='ident'>ccx</span>, <span class='ident'>lloncefn</span>, <span class='string'>&quot;entry-block&quot;</span>);
-
-    <span class='kw'>let</span> <span class='ident'>callee</span> <span class='op'>=</span> <span class='ident'>Callee</span> {
-        <span class='ident'>data</span>: <span class='ident'>Fn</span>(<span class='ident'>llreffn</span>),
-        <span class='ident'>ty</span>: <span class='ident'>llref_fn_ty</span>
+    <span class="kw">let</span> <span class="ident">callee</span> <span class="op">=</span> <span class="ident">Callee</span> {
+        <span class="ident">data</span>: <span class="ident">Fn</span>(<span class="ident">llreffn</span>),
+        <span class="ident">ty</span>: <span class="ident">llref_fn_ty</span>
     };
 
-    <span class='comment'>// the first argument (`self`) will be the (by value) closure env.</span>
+    <span class="comment">// the first argument (`self`) will be the (by value) closure env.</span>
 
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>llargs</span> <span class='op'>=</span> <span class='ident'>get_params</span>(<span class='ident'>lloncefn</span>);
-    <span class='kw'>let</span> <span class='ident'>fn_ret</span> <span class='op'>=</span> <span class='ident'>callee</span>.<span class='ident'>ty</span>.<span class='ident'>fn_ret</span>();
-    <span class='kw'>let</span> <span class='ident'>fn_ty</span> <span class='op'>=</span> <span class='ident'>callee</span>.<span class='ident'>direct_fn_type</span>(<span class='ident'>bcx</span>.<span class='ident'>ccx</span>, <span class='kw-2'>&amp;</span>[]);
-    <span class='kw'>let</span> <span class='ident'>self_idx</span> <span class='op'>=</span> <span class='ident'>fn_ty</span>.<span class='ident'>ret</span>.<span class='ident'>is_indirect</span>() <span class='kw'>as</span> <span class='ident'>usize</span>;
-    <span class='kw'>let</span> <span class='ident'>env_arg</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='ident'>orig_fn_ty</span>.<span class='ident'>args</span>[<span class='number'>0</span>];
-    <span class='kw'>let</span> <span class='ident'>env</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='ident'>env_arg</span>.<span class='ident'>is_indirect</span>() {
-        <span class='ident'>LvalueRef</span>::<span class='ident'>new_sized_ty</span>(<span class='ident'>llargs</span>[<span class='ident'>self_idx</span>], <span class='ident'>closure_ty</span>, <span class='ident'>Alignment</span>::<span class='ident'>AbiAligned</span>)
-    } <span class='kw'>else</span> {
-        <span class='kw'>let</span> <span class='ident'>scratch</span> <span class='op'>=</span> <span class='ident'>LvalueRef</span>::<span class='ident'>alloca</span>(<span class='kw-2'>&amp;</span><span class='ident'>bcx</span>, <span class='ident'>closure_ty</span>, <span class='string'>&quot;self&quot;</span>);
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>llarg_idx</span> <span class='op'>=</span> <span class='ident'>self_idx</span>;
-        <span class='ident'>env_arg</span>.<span class='ident'>store_fn_arg</span>(<span class='kw-2'>&amp;</span><span class='ident'>bcx</span>, <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>llarg_idx</span>, <span class='ident'>scratch</span>.<span class='ident'>llval</span>);
-        <span class='ident'>scratch</span>
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">llargs</span> <span class="op">=</span> <span class="ident">get_params</span>(<span class="ident">lloncefn</span>);
+    <span class="kw">let</span> <span class="ident">fn_ret</span> <span class="op">=</span> <span class="ident">callee</span>.<span class="ident">ty</span>.<span class="ident">fn_ret</span>();
+    <span class="kw">let</span> <span class="ident">fn_ty</span> <span class="op">=</span> <span class="ident">callee</span>.<span class="ident">direct_fn_type</span>(<span class="ident">bcx</span>.<span class="ident">ccx</span>, <span class="kw-2">&amp;</span>[]);
+    <span class="kw">let</span> <span class="ident">self_idx</span> <span class="op">=</span> <span class="ident">fn_ty</span>.<span class="ident">ret</span>.<span class="ident">is_indirect</span>() <span class="kw">as</span> <span class="ident">usize</span>;
+    <span class="kw">let</span> <span class="ident">env_arg</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="ident">orig_fn_ty</span>.<span class="ident">args</span>[<span class="number">0</span>];
+    <span class="kw">let</span> <span class="ident">env</span> <span class="op">=</span> <span class="kw">if</span> <span class="ident">env_arg</span>.<span class="ident">is_indirect</span>() {
+        <span class="ident">LvalueRef</span>::<span class="ident">new_sized_ty</span>(<span class="ident">llargs</span>[<span class="ident">self_idx</span>], <span class="ident">closure_ty</span>, <span class="ident">Alignment</span>::<span class="ident">AbiAligned</span>)
+    } <span class="kw">else</span> {
+        <span class="kw">let</span> <span class="ident">scratch</span> <span class="op">=</span> <span class="ident">LvalueRef</span>::<span class="ident">alloca</span>(<span class="kw-2">&amp;</span><span class="ident">bcx</span>, <span class="ident">closure_ty</span>, <span class="string">&quot;self&quot;</span>);
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">llarg_idx</span> <span class="op">=</span> <span class="ident">self_idx</span>;
+        <span class="ident">env_arg</span>.<span class="ident">store_fn_arg</span>(<span class="kw-2">&amp;</span><span class="ident">bcx</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">llarg_idx</span>, <span class="ident">scratch</span>.<span class="ident">llval</span>);
+        <span class="ident">scratch</span>
     };
 
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;trans_fn_once_adapter_shim: env={:?}&quot;</span>, <span class='ident'>env</span>);
-    <span class='comment'>// Adjust llargs such that llargs[self_idx..] has the call arguments.</span>
-    <span class='comment'>// For zero-sized closures that means sneaking in a new argument.</span>
-    <span class='kw'>if</span> <span class='ident'>env_arg</span>.<span class='ident'>is_ignore</span>() {
-        <span class='ident'>llargs</span>.<span class='ident'>insert</span>(<span class='ident'>self_idx</span>, <span class='ident'>env</span>.<span class='ident'>llval</span>);
-    } <span class='kw'>else</span> {
-        <span class='ident'>llargs</span>[<span class='ident'>self_idx</span>] <span class='op'>=</span> <span class='ident'>env</span>.<span class='ident'>llval</span>;
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;trans_fn_once_adapter_shim: env={:?}&quot;</span>, <span class="ident">env</span>);
+    <span class="comment">// Adjust llargs such that llargs[self_idx..] has the call arguments.</span>
+    <span class="comment">// For zero-sized closures that means sneaking in a new argument.</span>
+    <span class="kw">if</span> <span class="ident">env_arg</span>.<span class="ident">is_ignore</span>() {
+        <span class="ident">llargs</span>.<span class="ident">insert</span>(<span class="ident">self_idx</span>, <span class="ident">env</span>.<span class="ident">llval</span>);
+    } <span class="kw">else</span> {
+        <span class="ident">llargs</span>[<span class="ident">self_idx</span>] <span class="op">=</span> <span class="ident">env</span>.<span class="ident">llval</span>;
     }
 
-    <span class='comment'>// Call the by-ref closure body with `self` in a cleanup scope,</span>
-    <span class='comment'>// to drop `self` when the body returns, or in case it unwinds.</span>
-    <span class='kw'>let</span> <span class='ident'>self_scope</span> <span class='op'>=</span> <span class='ident'>CleanupScope</span>::<span class='ident'>schedule_drop_mem</span>(<span class='kw-2'>&amp;</span><span class='ident'>bcx</span>, <span class='ident'>env</span>);
+    <span class="comment">// Call the by-ref closure body with `self` in a cleanup scope,</span>
+    <span class="comment">// to drop `self` when the body returns, or in case it unwinds.</span>
+    <span class="kw">let</span> <span class="ident">self_scope</span> <span class="op">=</span> <span class="ident">CleanupScope</span>::<span class="ident">schedule_drop_mem</span>(<span class="kw-2">&amp;</span><span class="ident">bcx</span>, <span class="ident">env</span>);
 
-    <span class='kw'>let</span> <span class='ident'>llfn</span> <span class='op'>=</span> <span class='ident'>callee</span>.<span class='ident'>reify</span>(<span class='ident'>bcx</span>.<span class='ident'>ccx</span>);
-    <span class='kw'>let</span> <span class='ident'>llret</span>;
-    <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>landing_pad</span>) <span class='op'>=</span> <span class='ident'>self_scope</span>.<span class='ident'>landing_pad</span> {
-        <span class='kw'>let</span> <span class='ident'>normal_bcx</span> <span class='op'>=</span> <span class='ident'>bcx</span>.<span class='ident'>build_sibling_block</span>(<span class='string'>&quot;normal-return&quot;</span>);
-        <span class='ident'>llret</span> <span class='op'>=</span> <span class='ident'>bcx</span>.<span class='ident'>invoke</span>(<span class='ident'>llfn</span>, <span class='kw-2'>&amp;</span><span class='ident'>llargs</span>[..], <span class='ident'>normal_bcx</span>.<span class='ident'>llbb</span>(), <span class='ident'>landing_pad</span>, <span class='prelude-val'>None</span>);
-        <span class='ident'>bcx</span> <span class='op'>=</span> <span class='ident'>normal_bcx</span>;
-    } <span class='kw'>else</span> {
-        <span class='ident'>llret</span> <span class='op'>=</span> <span class='ident'>bcx</span>.<span class='ident'>call</span>(<span class='ident'>llfn</span>, <span class='kw-2'>&amp;</span><span class='ident'>llargs</span>[..], <span class='prelude-val'>None</span>);
+    <span class="kw">let</span> <span class="ident">llfn</span> <span class="op">=</span> <span class="ident">callee</span>.<span class="ident">reify</span>(<span class="ident">bcx</span>.<span class="ident">ccx</span>);
+    <span class="kw">let</span> <span class="ident">llret</span>;
+    <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">landing_pad</span>) <span class="op">=</span> <span class="ident">self_scope</span>.<span class="ident">landing_pad</span> {
+        <span class="kw">let</span> <span class="ident">normal_bcx</span> <span class="op">=</span> <span class="ident">bcx</span>.<span class="ident">build_sibling_block</span>(<span class="string">&quot;normal-return&quot;</span>);
+        <span class="ident">llret</span> <span class="op">=</span> <span class="ident">bcx</span>.<span class="ident">invoke</span>(<span class="ident">llfn</span>, <span class="kw-2">&amp;</span><span class="ident">llargs</span>[..], <span class="ident">normal_bcx</span>.<span class="ident">llbb</span>(), <span class="ident">landing_pad</span>, <span class="prelude-val">None</span>);
+        <span class="ident">bcx</span> <span class="op">=</span> <span class="ident">normal_bcx</span>;
+    } <span class="kw">else</span> {
+        <span class="ident">llret</span> <span class="op">=</span> <span class="ident">bcx</span>.<span class="ident">call</span>(<span class="ident">llfn</span>, <span class="kw-2">&amp;</span><span class="ident">llargs</span>[..], <span class="prelude-val">None</span>);
     }
-    <span class='ident'>fn_ty</span>.<span class='ident'>apply_attrs_callsite</span>(<span class='ident'>llret</span>);
+    <span class="ident">fn_ty</span>.<span class="ident">apply_attrs_callsite</span>(<span class="ident">llret</span>);
 
-    <span class='kw'>if</span> <span class='ident'>fn_ret</span>.<span class='number'>0</span>.<span class='ident'>is_never</span>() {
-        <span class='ident'>bcx</span>.<span class='ident'>unreachable</span>();
-    } <span class='kw'>else</span> {
-        <span class='ident'>self_scope</span>.<span class='ident'>trans</span>(<span class='kw-2'>&amp;</span><span class='ident'>bcx</span>);
+    <span class="kw">if</span> <span class="ident">fn_ret</span>.<span class="number">0</span>.<span class="ident">is_never</span>() {
+        <span class="ident">bcx</span>.<span class="ident">unreachable</span>();
+    } <span class="kw">else</span> {
+        <span class="ident">self_scope</span>.<span class="ident">trans</span>(<span class="kw-2">&amp;</span><span class="ident">bcx</span>);
 
-        <span class='kw'>if</span> <span class='ident'>fn_ty</span>.<span class='ident'>ret</span>.<span class='ident'>is_indirect</span>() <span class='op'>||</span> <span class='ident'>fn_ty</span>.<span class='ident'>ret</span>.<span class='ident'>is_ignore</span>() {
-            <span class='ident'>bcx</span>.<span class='ident'>ret_void</span>();
-        } <span class='kw'>else</span> {
-            <span class='ident'>bcx</span>.<span class='ident'>ret</span>(<span class='ident'>llret</span>);
+        <span class="kw">if</span> <span class="ident">fn_ty</span>.<span class="ident">ret</span>.<span class="ident">is_indirect</span>() <span class="op">||</span> <span class="ident">fn_ty</span>.<span class="ident">ret</span>.<span class="ident">is_ignore</span>() {
+            <span class="ident">bcx</span>.<span class="ident">ret_void</span>();
+        } <span class="kw">else</span> {
+            <span class="ident">bcx</span>.<span class="ident">ret</span>(<span class="ident">llret</span>);
         }
     }
 
-    <span class='ident'>ccx</span>.<span class='ident'>instances</span>().<span class='ident'>borrow_mut</span>().<span class='ident'>insert</span>(<span class='ident'>method_instance</span>, <span class='ident'>lloncefn</span>);
+    <span class="ident">ccx</span>.<span class="ident">instances</span>().<span class="ident">borrow_mut</span>().<span class="ident">insert</span>(<span class="ident">method_instance</span>, <span class="ident">lloncefn</span>);
 
-    <span class='ident'>lloncefn</span>
+    <span class="ident">lloncefn</span>
 }
 
-<span class='doccomment'>/// Translates an adapter that implements the `Fn` trait for a fn</span>
-<span class='doccomment'>/// pointer. This is basically the equivalent of something like:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// impl&lt;&#39;a&gt; Fn(&amp;&#39;a int) -&gt; &amp;&#39;a int for fn(&amp;int) -&gt; &amp;int {</span>
-<span class='doccomment'>///     extern &quot;rust-abi&quot; fn call(&amp;self, args: (&amp;&#39;a int,)) -&gt; &amp;&#39;a int {</span>
-<span class='doccomment'>///         (*self)(args.0)</span>
-<span class='doccomment'>///     }</span>
-<span class='doccomment'>/// }</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// but for the bare function type given.</span>
-<span class='kw'>fn</span> <span class='ident'>trans_fn_pointer_shim</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(
-    <span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>CrateContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>method_instance</span>: <span class='ident'>Instance</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>closure_kind</span>: <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>,
-    <span class='ident'>bare_fn_ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-    <span class='op'>-&gt;</span> <span class='ident'>ValueRef</span>
+<span class="doccomment">/// Translates an adapter that implements the `Fn` trait for a fn</span>
+<span class="doccomment">/// pointer. This is basically the equivalent of something like:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// impl&lt;&#39;a&gt; Fn(&amp;&#39;a int) -&gt; &amp;&#39;a int for fn(&amp;int) -&gt; &amp;int {</span>
+<span class="doccomment">///     extern &quot;rust-abi&quot; fn call(&amp;self, args: (&amp;&#39;a int,)) -&gt; &amp;&#39;a int {</span>
+<span class="doccomment">///         (*self)(args.0)</span>
+<span class="doccomment">///     }</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// but for the bare function type given.</span>
+<span class="kw">fn</span> <span class="ident">trans_fn_pointer_shim</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(
+    <span class="ident">ccx</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">CrateContext</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">method_instance</span>: <span class="ident">Instance</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">closure_kind</span>: <span class="ident">ty</span>::<span class="ident">ClosureKind</span>,
+    <span class="ident">bare_fn_ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+    <span class="op">-&gt;</span> <span class="ident">ValueRef</span>
 {
-    <span class='kw'>let</span> <span class='ident'>tcx</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>();
+    <span class="kw">let</span> <span class="ident">tcx</span> <span class="op">=</span> <span class="ident">ccx</span>.<span class="ident">tcx</span>();
 
-    <span class='comment'>// Normalize the type for better caching.</span>
-    <span class='kw'>let</span> <span class='ident'>bare_fn_ty</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>normalize_associated_type</span>(<span class='kw-2'>&amp;</span><span class='ident'>bare_fn_ty</span>);
+    <span class="comment">// Normalize the type for better caching.</span>
+    <span class="kw">let</span> <span class="ident">bare_fn_ty</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">normalize_associated_type</span>(<span class="kw-2">&amp;</span><span class="ident">bare_fn_ty</span>);
 
-    <span class='comment'>// If this is an impl of `Fn` or `FnMut` trait, the receiver is `&amp;self`.</span>
-    <span class='kw'>let</span> <span class='ident'>is_by_ref</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>closure_kind</span> {
-        <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>Fn</span> <span class='op'>|</span> <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnMut</span> <span class='op'>=&gt;</span> <span class='bool-val'>true</span>,
-        <span class='ident'>ty</span>::<span class='ident'>ClosureKind</span>::<span class='ident'>FnOnce</span> <span class='op'>=&gt;</span> <span class='bool-val'>false</span>,
+    <span class="comment">// If this is an impl of `Fn` or `FnMut` trait, the receiver is `&amp;self`.</span>
+    <span class="kw">let</span> <span class="ident">is_by_ref</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">closure_kind</span> {
+        <span class="ident">ty</span>::<span class="ident">ClosureKind</span>::<span class="ident">Fn</span> <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">ClosureKind</span>::<span class="ident">FnMut</span> <span class="op">=&gt;</span> <span class="bool-val">true</span>,
+        <span class="ident">ty</span>::<span class="ident">ClosureKind</span>::<span class="ident">FnOnce</span> <span class="op">=&gt;</span> <span class="bool-val">false</span>,
     };
 
-    <span class='kw'>let</span> <span class='ident'>llfnpointer</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>bare_fn_ty</span>.<span class='ident'>sty</span> {
-        <span class='ident'>ty</span>::<span class='ident'>TyFnDef</span>(<span class='ident'>def_id</span>, <span class='ident'>substs</span>, _) <span class='op'>=&gt;</span> {
-            <span class='comment'>// Function definitions have to be turned into a pointer.</span>
-            <span class='kw'>let</span> <span class='ident'>llfn</span> <span class='op'>=</span> <span class='ident'>Callee</span>::<span class='ident'>def</span>(<span class='ident'>ccx</span>, <span class='ident'>def_id</span>, <span class='ident'>substs</span>).<span class='ident'>reify</span>(<span class='ident'>ccx</span>);
-            <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>is_by_ref</span> {
-                <span class='comment'>// A by-value fn item is ignored, so the shim has</span>
-                <span class='comment'>// the same signature as the original function.</span>
-                <span class='kw'>return</span> <span class='ident'>llfn</span>;
+    <span class="kw">let</span> <span class="ident">llfnpointer</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">bare_fn_ty</span>.<span class="ident">sty</span> {
+        <span class="ident">ty</span>::<span class="ident">TyFnDef</span>(<span class="ident">def_id</span>, <span class="ident">substs</span>, _) <span class="op">=&gt;</span> {
+            <span class="comment">// Function definitions have to be turned into a pointer.</span>
+            <span class="kw">let</span> <span class="ident">llfn</span> <span class="op">=</span> <span class="ident">Callee</span>::<span class="ident">def</span>(<span class="ident">ccx</span>, <span class="ident">def_id</span>, <span class="ident">substs</span>).<span class="ident">reify</span>(<span class="ident">ccx</span>);
+            <span class="kw">if</span> <span class="op">!</span><span class="ident">is_by_ref</span> {
+                <span class="comment">// A by-value fn item is ignored, so the shim has</span>
+                <span class="comment">// the same signature as the original function.</span>
+                <span class="kw">return</span> <span class="ident">llfn</span>;
             }
-            <span class='prelude-val'>Some</span>(<span class='ident'>llfn</span>)
+            <span class="prelude-val">Some</span>(<span class="ident">llfn</span>)
         }
-        _ <span class='op'>=&gt;</span> <span class='prelude-val'>None</span>
+        _ <span class="op">=&gt;</span> <span class="prelude-val">None</span>
     };
 
-    <span class='kw'>let</span> <span class='ident'>bare_fn_ty_maybe_ref</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='ident'>is_by_ref</span> {
-        <span class='ident'>tcx</span>.<span class='ident'>mk_imm_ref</span>(<span class='ident'>tcx</span>.<span class='ident'>mk_region</span>(<span class='ident'>ty</span>::<span class='ident'>ReErased</span>), <span class='ident'>bare_fn_ty</span>)
-    } <span class='kw'>else</span> {
-        <span class='ident'>bare_fn_ty</span>
+    <span class="kw">let</span> <span class="ident">bare_fn_ty_maybe_ref</span> <span class="op">=</span> <span class="kw">if</span> <span class="ident">is_by_ref</span> {
+        <span class="ident">tcx</span>.<span class="ident">mk_imm_ref</span>(<span class="ident">tcx</span>.<span class="ident">mk_region</span>(<span class="ident">ty</span>::<span class="ident">ReErased</span>), <span class="ident">bare_fn_ty</span>)
+    } <span class="kw">else</span> {
+        <span class="ident">bare_fn_ty</span>
     };
 
-    <span class='comment'>// Check if we already trans&#39;d this shim.</span>
-    <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>llval</span>) <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>fn_pointer_shims</span>().<span class='ident'>borrow</span>().<span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='ident'>bare_fn_ty_maybe_ref</span>) {
-        <span class='kw'>return</span> <span class='ident'>llval</span>;
+    <span class="comment">// Check if we already trans&#39;d this shim.</span>
+    <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="ident">llval</span>) <span class="op">=</span> <span class="ident">ccx</span>.<span class="ident">fn_pointer_shims</span>().<span class="ident">borrow</span>().<span class="ident">get</span>(<span class="kw-2">&amp;</span><span class="ident">bare_fn_ty_maybe_ref</span>) {
+        <span class="kw">return</span> <span class="ident">llval</span>;
     }
 
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;trans_fn_pointer_shim(bare_fn_ty={:?})&quot;</span>,
-           <span class='ident'>bare_fn_ty</span>);
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;trans_fn_pointer_shim(bare_fn_ty={:?})&quot;</span>,
+           <span class="ident">bare_fn_ty</span>);
 
-    <span class='comment'>// Construct the &quot;tuply&quot; version of `bare_fn_ty`. It takes two arguments: `self`,</span>
-    <span class='comment'>// which is the fn pointer, and `args`, which is the arguments tuple.</span>
-    <span class='kw'>let</span> <span class='ident'>sig</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>bare_fn_ty</span>.<span class='ident'>sty</span> {
-        <span class='ident'>ty</span>::<span class='ident'>TyFnDef</span>(..,
-                    <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>BareFnTy</span> { <span class='ident'>unsafety</span>: <span class='ident'>hir</span>::<span class='ident'>Unsafety</span>::<span class='ident'>Normal</span>,
-                                    <span class='ident'>abi</span>: <span class='ident'>Abi</span>::<span class='ident'>Rust</span>,
-                                    <span class='kw-2'>ref</span> <span class='ident'>sig</span> }) <span class='op'>|</span>
-        <span class='ident'>ty</span>::<span class='ident'>TyFnPtr</span>(<span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>BareFnTy</span> { <span class='ident'>unsafety</span>: <span class='ident'>hir</span>::<span class='ident'>Unsafety</span>::<span class='ident'>Normal</span>,
-                                    <span class='ident'>abi</span>: <span class='ident'>Abi</span>::<span class='ident'>Rust</span>,
-                                    <span class='kw-2'>ref</span> <span class='ident'>sig</span> }) <span class='op'>=&gt;</span> <span class='ident'>sig</span>,
-
-        _ <span class='op'>=&gt;</span> {
-            <span class='macro'>bug</span><span class='macro'>!</span>(<span class='string'>&quot;trans_fn_pointer_shim invoked on invalid type: {}&quot;</span>,
-                 <span class='ident'>bare_fn_ty</span>);
-        }
-    };
-    <span class='kw'>let</span> <span class='ident'>sig</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>erase_late_bound_regions_and_normalize</span>(<span class='ident'>sig</span>);
-    <span class='kw'>let</span> <span class='ident'>tuple_input_ty</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>intern_tup</span>(<span class='ident'>sig</span>.<span class='ident'>inputs</span>(), <span class='bool-val'>false</span>);
-    <span class='kw'>let</span> <span class='ident'>sig</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>mk_fn_sig</span>(
-        [<span class='ident'>bare_fn_ty_maybe_ref</span>, <span class='ident'>tuple_input_ty</span>].<span class='ident'>iter</span>().<span class='ident'>cloned</span>(),
-        <span class='ident'>sig</span>.<span class='ident'>output</span>(),
-        <span class='bool-val'>false</span>
+    <span class="comment">// Construct the &quot;tuply&quot; version of `bare_fn_ty`. It takes two arguments: `self`,</span>
+    <span class="comment">// which is the fn pointer, and `args`, which is the arguments tuple.</span>
+    <span class="kw">let</span> <span class="ident">sig</span> <span class="op">=</span> <span class="ident">bare_fn_ty</span>.<span class="ident">fn_sig</span>();
+    <span class="kw">let</span> <span class="ident">sig</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">erase_late_bound_regions_and_normalize</span>(<span class="kw-2">&amp;</span><span class="ident">sig</span>);
+    <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">sig</span>.<span class="ident">unsafety</span>, <span class="ident">hir</span>::<span class="ident">Unsafety</span>::<span class="ident">Normal</span>);
+    <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">sig</span>.<span class="ident">abi</span>, <span class="ident">Abi</span>::<span class="ident">Rust</span>);
+    <span class="kw">let</span> <span class="ident">tuple_input_ty</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">intern_tup</span>(<span class="ident">sig</span>.<span class="ident">inputs</span>(), <span class="bool-val">false</span>);
+    <span class="kw">let</span> <span class="ident">sig</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">mk_fn_sig</span>(
+        [<span class="ident">bare_fn_ty_maybe_ref</span>, <span class="ident">tuple_input_ty</span>].<span class="ident">iter</span>().<span class="ident">cloned</span>(),
+        <span class="ident">sig</span>.<span class="ident">output</span>(),
+        <span class="bool-val">false</span>,
+        <span class="ident">hir</span>::<span class="ident">Unsafety</span>::<span class="ident">Normal</span>,
+        <span class="ident">Abi</span>::<span class="ident">RustCall</span>
     );
-    <span class='kw'>let</span> <span class='ident'>fn_ty</span> <span class='op'>=</span> <span class='ident'>FnType</span>::<span class='ident'>new</span>(<span class='ident'>ccx</span>, <span class='ident'>Abi</span>::<span class='ident'>RustCall</span>, <span class='kw-2'>&amp;</span><span class='ident'>sig</span>, <span class='kw-2'>&amp;</span>[]);
-    <span class='kw'>let</span> <span class='ident'>tuple_fn_ty</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>mk_fn_ptr</span>(<span class='ident'>tcx</span>.<span class='ident'>mk_bare_fn</span>(<span class='ident'>ty</span>::<span class='ident'>BareFnTy</span> {
-        <span class='ident'>unsafety</span>: <span class='ident'>hir</span>::<span class='ident'>Unsafety</span>::<span class='ident'>Normal</span>,
-        <span class='ident'>abi</span>: <span class='ident'>Abi</span>::<span class='ident'>RustCall</span>,
-        <span class='ident'>sig</span>: <span class='ident'>ty</span>::<span class='ident'>Binder</span>(<span class='ident'>sig</span>)
-    }));
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;tuple_fn_ty: {:?}&quot;</span>, <span class='ident'>tuple_fn_ty</span>);
+    <span class="kw">let</span> <span class="ident">fn_ty</span> <span class="op">=</span> <span class="ident">FnType</span>::<span class="ident">new</span>(<span class="ident">ccx</span>, <span class="ident">sig</span>, <span class="kw-2">&amp;</span>[]);
+    <span class="kw">let</span> <span class="ident">tuple_fn_ty</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">mk_fn_ptr</span>(<span class="ident">ty</span>::<span class="ident">Binder</span>(<span class="ident">sig</span>));
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;tuple_fn_ty: {:?}&quot;</span>, <span class="ident">tuple_fn_ty</span>);
 
-    <span class='comment'>//</span>
-    <span class='kw'>let</span> <span class='ident'>function_name</span> <span class='op'>=</span> <span class='ident'>method_instance</span>.<span class='ident'>symbol_name</span>(<span class='ident'>ccx</span>.<span class='ident'>shared</span>());
-    <span class='kw'>let</span> <span class='ident'>llfn</span> <span class='op'>=</span> <span class='ident'>declare</span>::<span class='ident'>define_internal_fn</span>(<span class='ident'>ccx</span>, <span class='kw-2'>&amp;</span><span class='ident'>function_name</span>, <span class='ident'>tuple_fn_ty</span>);
-    <span class='ident'>attributes</span>::<span class='ident'>set_frame_pointer_elimination</span>(<span class='ident'>ccx</span>, <span class='ident'>llfn</span>);
-    <span class='comment'>//</span>
-    <span class='kw'>let</span> <span class='ident'>bcx</span> <span class='op'>=</span> <span class='ident'>Builder</span>::<span class='ident'>new_block</span>(<span class='ident'>ccx</span>, <span class='ident'>llfn</span>, <span class='string'>&quot;entry-block&quot;</span>);
+    <span class="comment">//</span>
+    <span class="kw">let</span> <span class="ident">function_name</span> <span class="op">=</span> <span class="ident">method_instance</span>.<span class="ident">symbol_name</span>(<span class="ident">ccx</span>.<span class="ident">shared</span>());
+    <span class="kw">let</span> <span class="ident">llfn</span> <span class="op">=</span> <span class="ident">declare</span>::<span class="ident">define_internal_fn</span>(<span class="ident">ccx</span>, <span class="kw-2">&amp;</span><span class="ident">function_name</span>, <span class="ident">tuple_fn_ty</span>);
+    <span class="ident">attributes</span>::<span class="ident">set_frame_pointer_elimination</span>(<span class="ident">ccx</span>, <span class="ident">llfn</span>);
+    <span class="comment">//</span>
+    <span class="kw">let</span> <span class="ident">bcx</span> <span class="op">=</span> <span class="ident">Builder</span>::<span class="ident">new_block</span>(<span class="ident">ccx</span>, <span class="ident">llfn</span>, <span class="string">&quot;entry-block&quot;</span>);
 
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>llargs</span> <span class='op'>=</span> <span class='ident'>get_params</span>(<span class='ident'>llfn</span>);
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">llargs</span> <span class="op">=</span> <span class="ident">get_params</span>(<span class="ident">llfn</span>);
 
-    <span class='kw'>let</span> <span class='ident'>self_arg</span> <span class='op'>=</span> <span class='ident'>llargs</span>.<span class='ident'>remove</span>(<span class='ident'>fn_ty</span>.<span class='ident'>ret</span>.<span class='ident'>is_indirect</span>() <span class='kw'>as</span> <span class='ident'>usize</span>);
-    <span class='kw'>let</span> <span class='ident'>llfnpointer</span> <span class='op'>=</span> <span class='ident'>llfnpointer</span>.<span class='ident'>unwrap_or_else</span>(<span class='op'>||</span> {
-        <span class='comment'>// the first argument (`self`) will be ptr to the fn pointer</span>
-        <span class='kw'>if</span> <span class='ident'>is_by_ref</span> {
-            <span class='ident'>bcx</span>.<span class='ident'>load</span>(<span class='ident'>self_arg</span>, <span class='prelude-val'>None</span>)
-        } <span class='kw'>else</span> {
-            <span class='ident'>self_arg</span>
+    <span class="kw">let</span> <span class="ident">self_arg</span> <span class="op">=</span> <span class="ident">llargs</span>.<span class="ident">remove</span>(<span class="ident">fn_ty</span>.<span class="ident">ret</span>.<span class="ident">is_indirect</span>() <span class="kw">as</span> <span class="ident">usize</span>);
+    <span class="kw">let</span> <span class="ident">llfnpointer</span> <span class="op">=</span> <span class="ident">llfnpointer</span>.<span class="ident">unwrap_or_else</span>(<span class="op">||</span> {
+        <span class="comment">// the first argument (`self`) will be ptr to the fn pointer</span>
+        <span class="kw">if</span> <span class="ident">is_by_ref</span> {
+            <span class="ident">bcx</span>.<span class="ident">load</span>(<span class="ident">self_arg</span>, <span class="prelude-val">None</span>)
+        } <span class="kw">else</span> {
+            <span class="ident">self_arg</span>
         }
     });
 
-    <span class='kw'>let</span> <span class='ident'>callee</span> <span class='op'>=</span> <span class='ident'>Callee</span> {
-        <span class='ident'>data</span>: <span class='ident'>Fn</span>(<span class='ident'>llfnpointer</span>),
-        <span class='ident'>ty</span>: <span class='ident'>bare_fn_ty</span>
+    <span class="kw">let</span> <span class="ident">callee</span> <span class="op">=</span> <span class="ident">Callee</span> {
+        <span class="ident">data</span>: <span class="ident">Fn</span>(<span class="ident">llfnpointer</span>),
+        <span class="ident">ty</span>: <span class="ident">bare_fn_ty</span>
     };
-    <span class='kw'>let</span> <span class='ident'>fn_ret</span> <span class='op'>=</span> <span class='ident'>callee</span>.<span class='ident'>ty</span>.<span class='ident'>fn_ret</span>();
-    <span class='kw'>let</span> <span class='ident'>fn_ty</span> <span class='op'>=</span> <span class='ident'>callee</span>.<span class='ident'>direct_fn_type</span>(<span class='ident'>ccx</span>, <span class='kw-2'>&amp;</span>[]);
-    <span class='kw'>let</span> <span class='ident'>llret</span> <span class='op'>=</span> <span class='ident'>bcx</span>.<span class='ident'>call</span>(<span class='ident'>llfnpointer</span>, <span class='kw-2'>&amp;</span><span class='ident'>llargs</span>, <span class='prelude-val'>None</span>);
-    <span class='ident'>fn_ty</span>.<span class='ident'>apply_attrs_callsite</span>(<span class='ident'>llret</span>);
+    <span class="kw">let</span> <span class="ident">fn_ret</span> <span class="op">=</span> <span class="ident">callee</span>.<span class="ident">ty</span>.<span class="ident">fn_ret</span>();
+    <span class="kw">let</span> <span class="ident">fn_ty</span> <span class="op">=</span> <span class="ident">callee</span>.<span class="ident">direct_fn_type</span>(<span class="ident">ccx</span>, <span class="kw-2">&amp;</span>[]);
+    <span class="kw">let</span> <span class="ident">llret</span> <span class="op">=</span> <span class="ident">bcx</span>.<span class="ident">call</span>(<span class="ident">llfnpointer</span>, <span class="kw-2">&amp;</span><span class="ident">llargs</span>, <span class="prelude-val">None</span>);
+    <span class="ident">fn_ty</span>.<span class="ident">apply_attrs_callsite</span>(<span class="ident">llret</span>);
 
-    <span class='kw'>if</span> <span class='ident'>fn_ret</span>.<span class='number'>0</span>.<span class='ident'>is_never</span>() {
-        <span class='ident'>bcx</span>.<span class='ident'>unreachable</span>();
-    } <span class='kw'>else</span> {
-        <span class='kw'>if</span> <span class='ident'>fn_ty</span>.<span class='ident'>ret</span>.<span class='ident'>is_indirect</span>() <span class='op'>||</span> <span class='ident'>fn_ty</span>.<span class='ident'>ret</span>.<span class='ident'>is_ignore</span>() {
-            <span class='ident'>bcx</span>.<span class='ident'>ret_void</span>();
-        } <span class='kw'>else</span> {
-            <span class='ident'>bcx</span>.<span class='ident'>ret</span>(<span class='ident'>llret</span>);
+    <span class="kw">if</span> <span class="ident">fn_ret</span>.<span class="number">0</span>.<span class="ident">is_never</span>() {
+        <span class="ident">bcx</span>.<span class="ident">unreachable</span>();
+    } <span class="kw">else</span> {
+        <span class="kw">if</span> <span class="ident">fn_ty</span>.<span class="ident">ret</span>.<span class="ident">is_indirect</span>() <span class="op">||</span> <span class="ident">fn_ty</span>.<span class="ident">ret</span>.<span class="ident">is_ignore</span>() {
+            <span class="ident">bcx</span>.<span class="ident">ret_void</span>();
+        } <span class="kw">else</span> {
+            <span class="ident">bcx</span>.<span class="ident">ret</span>(<span class="ident">llret</span>);
         }
     }
 
-    <span class='ident'>ccx</span>.<span class='ident'>fn_pointer_shims</span>().<span class='ident'>borrow_mut</span>().<span class='ident'>insert</span>(<span class='ident'>bare_fn_ty_maybe_ref</span>, <span class='ident'>llfn</span>);
+    <span class="ident">ccx</span>.<span class="ident">fn_pointer_shims</span>().<span class="ident">borrow_mut</span>().<span class="ident">insert</span>(<span class="ident">bare_fn_ty_maybe_ref</span>, <span class="ident">llfn</span>);
 
-    <span class='ident'>llfn</span>
+    <span class="ident">llfn</span>
 }
 
-<span class='doccomment'>/// Translates a reference to a fn/method item, monomorphizing and</span>
-<span class='doccomment'>/// inlining as it goes.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// # Parameters</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// - `ccx`: the crate context</span>
-<span class='doccomment'>/// - `def_id`: def id of the fn or method item being referenced</span>
-<span class='doccomment'>/// - `substs`: values for each of the fn/method&#39;s parameters</span>
-<span class='kw'>fn</span> <span class='ident'>get_fn</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>ccx</span>: <span class='kw-2'>&amp;</span><span class='ident'>CrateContext</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                    <span class='ident'>def_id</span>: <span class='ident'>DefId</span>,
-                    <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-                    <span class='op'>-&gt;</span> (<span class='ident'>ValueRef</span>, <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>) {
-    <span class='kw'>let</span> <span class='ident'>tcx</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>();
+<span class="doccomment">/// Translates a reference to a fn/method item, monomorphizing and</span>
+<span class="doccomment">/// inlining as it goes.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Parameters</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// - `ccx`: the crate context</span>
+<span class="doccomment">/// - `def_id`: def id of the fn or method item being referenced</span>
+<span class="doccomment">/// - `substs`: values for each of the fn/method&#39;s parameters</span>
+<span class="kw">fn</span> <span class="ident">get_fn</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">ccx</span>: <span class="kw-2">&amp;</span><span class="ident">CrateContext</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                    <span class="ident">def_id</span>: <span class="ident">DefId</span>,
+                    <span class="ident">substs</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+                    <span class="op">-&gt;</span> (<span class="ident">ValueRef</span>, <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) {
+    <span class="kw">let</span> <span class="ident">tcx</span> <span class="op">=</span> <span class="ident">ccx</span>.<span class="ident">tcx</span>();
 
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;get_fn(def_id={:?}, substs={:?})&quot;</span>, <span class='ident'>def_id</span>, <span class='ident'>substs</span>);
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;get_fn(def_id={:?}, substs={:?})&quot;</span>, <span class="ident">def_id</span>, <span class="ident">substs</span>);
 
-    <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>substs</span>.<span class='ident'>needs_infer</span>());
-    <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>substs</span>.<span class='ident'>has_escaping_regions</span>());
-    <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>substs</span>.<span class='ident'>has_param_types</span>());
+    <span class="macro">assert</span><span class="macro">!</span>(<span class="op">!</span><span class="ident">substs</span>.<span class="ident">needs_infer</span>());
+    <span class="macro">assert</span><span class="macro">!</span>(<span class="op">!</span><span class="ident">substs</span>.<span class="ident">has_escaping_regions</span>());
+    <span class="macro">assert</span><span class="macro">!</span>(<span class="op">!</span><span class="ident">substs</span>.<span class="ident">has_param_types</span>());
 
-    <span class='kw'>let</span> <span class='ident'>substs</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>normalize_associated_type</span>(<span class='kw-2'>&amp;</span><span class='ident'>substs</span>);
-    <span class='kw'>let</span> <span class='ident'>instance</span> <span class='op'>=</span> <span class='ident'>Instance</span>::<span class='ident'>new</span>(<span class='ident'>def_id</span>, <span class='ident'>substs</span>);
-    <span class='kw'>let</span> <span class='ident'>item_ty</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>().<span class='ident'>item_type</span>(<span class='ident'>def_id</span>);
-    <span class='kw'>let</span> <span class='ident'>fn_ty</span> <span class='op'>=</span> <span class='ident'>monomorphize</span>::<span class='ident'>apply_param_substs</span>(<span class='ident'>ccx</span>.<span class='ident'>shared</span>(), <span class='ident'>substs</span>, <span class='kw-2'>&amp;</span><span class='ident'>item_ty</span>);
+    <span class="kw">let</span> <span class="ident">substs</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">normalize_associated_type</span>(<span class="kw-2">&amp;</span><span class="ident">substs</span>);
+    <span class="kw">let</span> <span class="ident">instance</span> <span class="op">=</span> <span class="ident">Instance</span>::<span class="ident">new</span>(<span class="ident">def_id</span>, <span class="ident">substs</span>);
+    <span class="kw">let</span> <span class="ident">fn_ty</span> <span class="op">=</span> <span class="ident">common</span>::<span class="ident">def_ty</span>(<span class="ident">ccx</span>.<span class="ident">shared</span>(), <span class="ident">def_id</span>, <span class="ident">substs</span>);
 
-    <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='kw-2'>&amp;</span><span class='ident'>llfn</span>) <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>instances</span>().<span class='ident'>borrow</span>().<span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='ident'>instance</span>) {
-        <span class='kw'>return</span> (<span class='ident'>llfn</span>, <span class='ident'>fn_ty</span>);
+    <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="ident">llfn</span>) <span class="op">=</span> <span class="ident">ccx</span>.<span class="ident">instances</span>().<span class="ident">borrow</span>().<span class="ident">get</span>(<span class="kw-2">&amp;</span><span class="ident">instance</span>) {
+        <span class="kw">return</span> (<span class="ident">llfn</span>, <span class="ident">fn_ty</span>);
     }
 
-    <span class='kw'>let</span> <span class='ident'>sym</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>symbol_map</span>().<span class='ident'>get_or_compute</span>(<span class='ident'>ccx</span>.<span class='ident'>shared</span>(),
-                                              <span class='ident'>TransItem</span>::<span class='ident'>Fn</span>(<span class='ident'>instance</span>));
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;get_fn({:?}: {:?}) =&gt; {}&quot;</span>, <span class='ident'>instance</span>, <span class='ident'>fn_ty</span>, <span class='ident'>sym</span>);
+    <span class="kw">let</span> <span class="ident">sym</span> <span class="op">=</span> <span class="ident">ccx</span>.<span class="ident">symbol_map</span>().<span class="ident">get_or_compute</span>(<span class="ident">ccx</span>.<span class="ident">shared</span>(),
+                                              <span class="ident">TransItem</span>::<span class="ident">Fn</span>(<span class="ident">instance</span>));
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;get_fn({:?}: {:?}) =&gt; {}&quot;</span>, <span class="ident">instance</span>, <span class="ident">fn_ty</span>, <span class="ident">sym</span>);
 
-    <span class='comment'>// This is subtle and surprising, but sometimes we have to bitcast</span>
-    <span class='comment'>// the resulting fn pointer.  The reason has to do with external</span>
-    <span class='comment'>// functions.  If you have two crates that both bind the same C</span>
-    <span class='comment'>// library, they may not use precisely the same types: for</span>
-    <span class='comment'>// example, they will probably each declare their own structs,</span>
-    <span class='comment'>// which are distinct types from LLVM&#39;s point of view (nominal</span>
-    <span class='comment'>// types).</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// Now, if those two crates are linked into an application, and</span>
-    <span class='comment'>// they contain inlined code, you can wind up with a situation</span>
-    <span class='comment'>// where both of those functions wind up being loaded into this</span>
-    <span class='comment'>// application simultaneously. In that case, the same function</span>
-    <span class='comment'>// (from LLVM&#39;s point of view) requires two types. But of course</span>
-    <span class='comment'>// LLVM won&#39;t allow one function to have two types.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// What we currently do, therefore, is declare the function with</span>
-    <span class='comment'>// one of the two types (whichever happens to come first) and then</span>
-    <span class='comment'>// bitcast as needed when the function is referenced to make sure</span>
-    <span class='comment'>// it has the type we expect.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// This can occur on either a crate-local or crate-external</span>
-    <span class='comment'>// reference. It also occurs when testing libcore and in some</span>
-    <span class='comment'>// other weird situations. Annoying.</span>
+    <span class="comment">// This is subtle and surprising, but sometimes we have to bitcast</span>
+    <span class="comment">// the resulting fn pointer.  The reason has to do with external</span>
+    <span class="comment">// functions.  If you have two crates that both bind the same C</span>
+    <span class="comment">// library, they may not use precisely the same types: for</span>
+    <span class="comment">// example, they will probably each declare their own structs,</span>
+    <span class="comment">// which are distinct types from LLVM&#39;s point of view (nominal</span>
+    <span class="comment">// types).</span>
+    <span class="comment">//</span>
+    <span class="comment">// Now, if those two crates are linked into an application, and</span>
+    <span class="comment">// they contain inlined code, you can wind up with a situation</span>
+    <span class="comment">// where both of those functions wind up being loaded into this</span>
+    <span class="comment">// application simultaneously. In that case, the same function</span>
+    <span class="comment">// (from LLVM&#39;s point of view) requires two types. But of course</span>
+    <span class="comment">// LLVM won&#39;t allow one function to have two types.</span>
+    <span class="comment">//</span>
+    <span class="comment">// What we currently do, therefore, is declare the function with</span>
+    <span class="comment">// one of the two types (whichever happens to come first) and then</span>
+    <span class="comment">// bitcast as needed when the function is referenced to make sure</span>
+    <span class="comment">// it has the type we expect.</span>
+    <span class="comment">//</span>
+    <span class="comment">// This can occur on either a crate-local or crate-external</span>
+    <span class="comment">// reference. It also occurs when testing libcore and in some</span>
+    <span class="comment">// other weird situations. Annoying.</span>
 
-    <span class='comment'>// Create a fn pointer with the substituted signature.</span>
-    <span class='kw'>let</span> <span class='ident'>fn_ptr_ty</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>mk_fn_ptr</span>(<span class='ident'>tcx</span>.<span class='ident'>mk_bare_fn</span>(<span class='ident'>common</span>::<span class='ident'>ty_fn_ty</span>(<span class='ident'>ccx</span>, <span class='ident'>fn_ty</span>).<span class='ident'>into_owned</span>()));
-    <span class='kw'>let</span> <span class='ident'>llptrty</span> <span class='op'>=</span> <span class='ident'>type_of</span>::<span class='ident'>type_of</span>(<span class='ident'>ccx</span>, <span class='ident'>fn_ptr_ty</span>);
+    <span class="comment">// Create a fn pointer with the substituted signature.</span>
+    <span class="kw">let</span> <span class="ident">fn_ptr_ty</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">mk_fn_ptr</span>(<span class="ident">common</span>::<span class="ident">ty_fn_sig</span>(<span class="ident">ccx</span>, <span class="ident">fn_ty</span>));
+    <span class="kw">let</span> <span class="ident">llptrty</span> <span class="op">=</span> <span class="ident">type_of</span>::<span class="ident">type_of</span>(<span class="ident">ccx</span>, <span class="ident">fn_ptr_ty</span>);
 
-    <span class='kw'>let</span> <span class='ident'>llfn</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>llfn</span>) <span class='op'>=</span> <span class='ident'>declare</span>::<span class='ident'>get_declared_value</span>(<span class='ident'>ccx</span>, <span class='kw-2'>&amp;</span><span class='ident'>sym</span>) {
-        <span class='kw'>if</span> <span class='ident'>common</span>::<span class='ident'>val_ty</span>(<span class='ident'>llfn</span>) <span class='op'>!=</span> <span class='ident'>llptrty</span> {
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;get_fn: casting {:?} to {:?}&quot;</span>, <span class='ident'>llfn</span>, <span class='ident'>llptrty</span>);
-            <span class='ident'>consts</span>::<span class='ident'>ptrcast</span>(<span class='ident'>llfn</span>, <span class='ident'>llptrty</span>)
-        } <span class='kw'>else</span> {
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;get_fn: not casting pointer!&quot;</span>);
-            <span class='ident'>llfn</span>
+    <span class="kw">let</span> <span class="ident">llfn</span> <span class="op">=</span> <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">llfn</span>) <span class="op">=</span> <span class="ident">declare</span>::<span class="ident">get_declared_value</span>(<span class="ident">ccx</span>, <span class="kw-2">&amp;</span><span class="ident">sym</span>) {
+        <span class="kw">if</span> <span class="ident">common</span>::<span class="ident">val_ty</span>(<span class="ident">llfn</span>) <span class="op">!=</span> <span class="ident">llptrty</span> {
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;get_fn: casting {:?} to {:?}&quot;</span>, <span class="ident">llfn</span>, <span class="ident">llptrty</span>);
+            <span class="ident">consts</span>::<span class="ident">ptrcast</span>(<span class="ident">llfn</span>, <span class="ident">llptrty</span>)
+        } <span class="kw">else</span> {
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;get_fn: not casting pointer!&quot;</span>);
+            <span class="ident">llfn</span>
         }
-    } <span class='kw'>else</span> {
-        <span class='kw'>let</span> <span class='ident'>llfn</span> <span class='op'>=</span> <span class='ident'>declare</span>::<span class='ident'>declare_fn</span>(<span class='ident'>ccx</span>, <span class='kw-2'>&amp;</span><span class='ident'>sym</span>, <span class='ident'>fn_ty</span>);
-        <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>common</span>::<span class='ident'>val_ty</span>(<span class='ident'>llfn</span>), <span class='ident'>llptrty</span>);
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;get_fn: not casting pointer!&quot;</span>);
+    } <span class="kw">else</span> {
+        <span class="kw">let</span> <span class="ident">llfn</span> <span class="op">=</span> <span class="ident">declare</span>::<span class="ident">declare_fn</span>(<span class="ident">ccx</span>, <span class="kw-2">&amp;</span><span class="ident">sym</span>, <span class="ident">fn_ty</span>);
+        <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">common</span>::<span class="ident">val_ty</span>(<span class="ident">llfn</span>), <span class="ident">llptrty</span>);
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;get_fn: not casting pointer!&quot;</span>);
 
-        <span class='kw'>let</span> <span class='ident'>attrs</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>tcx</span>().<span class='ident'>get_attrs</span>(<span class='ident'>def_id</span>);
-        <span class='ident'>attributes</span>::<span class='ident'>from_fn_attrs</span>(<span class='ident'>ccx</span>, <span class='kw-2'>&amp;</span><span class='ident'>attrs</span>, <span class='ident'>llfn</span>);
+        <span class="kw">let</span> <span class="ident">attrs</span> <span class="op">=</span> <span class="ident">ccx</span>.<span class="ident">tcx</span>().<span class="ident">get_attrs</span>(<span class="ident">def_id</span>);
+        <span class="ident">attributes</span>::<span class="ident">from_fn_attrs</span>(<span class="ident">ccx</span>, <span class="kw-2">&amp;</span><span class="ident">attrs</span>, <span class="ident">llfn</span>);
 
-        <span class='kw'>let</span> <span class='ident'>is_local_def</span> <span class='op'>=</span> <span class='ident'>ccx</span>.<span class='ident'>shared</span>().<span class='ident'>translation_items</span>().<span class='ident'>borrow</span>()
-                              .<span class='ident'>contains</span>(<span class='kw-2'>&amp;</span><span class='ident'>TransItem</span>::<span class='ident'>Fn</span>(<span class='ident'>instance</span>));
-        <span class='kw'>if</span> <span class='ident'>is_local_def</span> {
-            <span class='comment'>// FIXME(eddyb) Doubt all extern fn should allow unwinding.</span>
-            <span class='ident'>attributes</span>::<span class='ident'>unwind</span>(<span class='ident'>llfn</span>, <span class='bool-val'>true</span>);
-            <span class='kw'>unsafe</span> {
-                <span class='ident'>llvm</span>::<span class='ident'>LLVMRustSetLinkage</span>(<span class='ident'>llfn</span>, <span class='ident'>llvm</span>::<span class='ident'>Linkage</span>::<span class='ident'>ExternalLinkage</span>);
+        <span class="kw">let</span> <span class="ident">is_local_def</span> <span class="op">=</span> <span class="ident">ccx</span>.<span class="ident">shared</span>().<span class="ident">translation_items</span>().<span class="ident">borrow</span>()
+                              .<span class="ident">contains</span>(<span class="kw-2">&amp;</span><span class="ident">TransItem</span>::<span class="ident">Fn</span>(<span class="ident">instance</span>));
+        <span class="kw">if</span> <span class="ident">is_local_def</span> {
+            <span class="comment">// FIXME(eddyb) Doubt all extern fn should allow unwinding.</span>
+            <span class="ident">attributes</span>::<span class="ident">unwind</span>(<span class="ident">llfn</span>, <span class="bool-val">true</span>);
+            <span class="kw">unsafe</span> {
+                <span class="ident">llvm</span>::<span class="ident">LLVMRustSetLinkage</span>(<span class="ident">llfn</span>, <span class="ident">llvm</span>::<span class="ident">Linkage</span>::<span class="ident">ExternalLinkage</span>);
             }
         }
-        <span class='kw'>if</span> <span class='ident'>ccx</span>.<span class='ident'>use_dll_storage_attrs</span>() <span class='op'>&amp;&amp;</span> <span class='ident'>ccx</span>.<span class='ident'>sess</span>().<span class='ident'>cstore</span>.<span class='ident'>is_dllimport_foreign_item</span>(<span class='ident'>def_id</span>) {
-            <span class='kw'>unsafe</span> {
-                <span class='ident'>llvm</span>::<span class='ident'>LLVMSetDLLStorageClass</span>(<span class='ident'>llfn</span>, <span class='ident'>llvm</span>::<span class='ident'>DLLStorageClass</span>::<span class='ident'>DllImport</span>);
+        <span class="kw">if</span> <span class="ident">ccx</span>.<span class="ident">use_dll_storage_attrs</span>() <span class="op">&amp;&amp;</span> <span class="ident">ccx</span>.<span class="ident">sess</span>().<span class="ident">cstore</span>.<span class="ident">is_dllimport_foreign_item</span>(<span class="ident">def_id</span>) {
+            <span class="kw">unsafe</span> {
+                <span class="ident">llvm</span>::<span class="ident">LLVMSetDLLStorageClass</span>(<span class="ident">llfn</span>, <span class="ident">llvm</span>::<span class="ident">DLLStorageClass</span>::<span class="ident">DllImport</span>);
             }
         }
-        <span class='ident'>llfn</span>
+        <span class="ident">llfn</span>
     };
 
-    <span class='ident'>ccx</span>.<span class='ident'>instances</span>().<span class='ident'>borrow_mut</span>().<span class='ident'>insert</span>(<span class='ident'>instance</span>, <span class='ident'>llfn</span>);
+    <span class="ident">ccx</span>.<span class="ident">instances</span>().<span class="ident">borrow_mut</span>().<span class="ident">insert</span>(<span class="ident">instance</span>, <span class="ident">llfn</span>);
 
-    (<span class='ident'>llfn</span>, <span class='ident'>fn_ty</span>)
+    (<span class="ident">llfn</span>, <span class="ident">fn_ty</span>)
 }
 </pre>
 </section>

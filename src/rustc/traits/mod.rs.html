@@ -812,776 +812,774 @@
 <span id="767">767</span>
 <span id="768">768</span>
 <span id="769">769</span>
-<span id="770">770</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='doccomment'>//! Trait Resolution. See README.md for an overview of how this works.</span>
+<span class="doccomment">//! Trait Resolution. See README.md for an overview of how this works.</span>
 
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>SelectionError</span>::<span class='kw-2'>*</span>;
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>FulfillmentErrorCode</span>::<span class='kw-2'>*</span>;
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>Vtable</span>::<span class='kw-2'>*</span>;
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>ObligationCauseCode</span>::<span class='kw-2'>*</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">SelectionError</span>::<span class="kw-2">*</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">FulfillmentErrorCode</span>::<span class="kw-2">*</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">Vtable</span>::<span class="kw-2">*</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">ObligationCauseCode</span>::<span class="kw-2">*</span>;
 
-<span class='kw'>use</span> <span class='ident'>hir</span>;
-<span class='kw'>use</span> <span class='ident'>hir</span>::<span class='ident'>def_id</span>::<span class='ident'>DefId</span>;
-<span class='kw'>use</span> <span class='ident'>middle</span>::<span class='ident'>free_region</span>::<span class='ident'>FreeRegionMap</span>;
-<span class='kw'>use</span> <span class='ident'>ty</span>::<span class='ident'>subst</span>::<span class='ident'>Substs</span>;
-<span class='kw'>use</span> <span class='ident'>ty</span>::{<span class='self'>self</span>, <span class='ident'>Ty</span>, <span class='ident'>TyCtxt</span>, <span class='ident'>TypeFoldable</span>, <span class='ident'>ToPredicate</span>};
-<span class='kw'>use</span> <span class='ident'>infer</span>::<span class='ident'>InferCtxt</span>;
+<span class="kw">use</span> <span class="ident">hir</span>;
+<span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">def_id</span>::<span class="ident">DefId</span>;
+<span class="kw">use</span> <span class="ident">middle</span>::<span class="ident">free_region</span>::<span class="ident">FreeRegionMap</span>;
+<span class="kw">use</span> <span class="ident">ty</span>::<span class="ident">subst</span>::<span class="ident">Substs</span>;
+<span class="kw">use</span> <span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">Ty</span>, <span class="ident">TyCtxt</span>, <span class="ident">TypeFoldable</span>, <span class="ident">ToPredicate</span>};
+<span class="kw">use</span> <span class="ident">infer</span>::<span class="ident">InferCtxt</span>;
 
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>rc</span>::<span class='ident'>Rc</span>;
-<span class='kw'>use</span> <span class='ident'>syntax</span>::<span class='ident'>ast</span>;
-<span class='kw'>use</span> <span class='ident'>syntax_pos</span>::{<span class='ident'>Span</span>, <span class='ident'>DUMMY_SP</span>};
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">rc</span>::<span class="ident">Rc</span>;
+<span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">ast</span>;
+<span class="kw">use</span> <span class="ident">syntax_pos</span>::{<span class="ident">Span</span>, <span class="ident">DUMMY_SP</span>};
 
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>error_reporting</span>::<span class='ident'>TraitErrorKey</span>;
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>coherence</span>::<span class='ident'>orphan_check</span>;
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>coherence</span>::<span class='ident'>overlapping_impls</span>;
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>coherence</span>::<span class='ident'>OrphanCheckErr</span>;
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>fulfill</span>::{<span class='ident'>FulfillmentContext</span>, <span class='ident'>GlobalFulfilledPredicates</span>, <span class='ident'>RegionObligation</span>};
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>fulfill</span>::<span class='ident'>DeferredObligation</span>;
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>project</span>::<span class='ident'>MismatchedProjectionTypes</span>;
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>project</span>::{<span class='ident'>normalize</span>, <span class='ident'>normalize_projection_type</span>, <span class='ident'>Normalized</span>};
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>project</span>::{<span class='ident'>ProjectionCache</span>, <span class='ident'>ProjectionCacheSnapshot</span>, <span class='ident'>Reveal</span>};
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>object_safety</span>::<span class='ident'>ObjectSafetyViolation</span>;
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>object_safety</span>::<span class='ident'>MethodViolationCode</span>;
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>select</span>::{<span class='ident'>EvaluationCache</span>, <span class='ident'>SelectionContext</span>, <span class='ident'>SelectionCache</span>};
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>select</span>::{<span class='ident'>MethodMatchResult</span>, <span class='ident'>MethodMatched</span>, <span class='ident'>MethodAmbiguous</span>, <span class='ident'>MethodDidNotMatch</span>};
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>select</span>::{<span class='ident'>MethodMatchedData</span>}; <span class='comment'>// intentionally don&#39;t export variants</span>
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>specialize</span>::{<span class='ident'>OverlapError</span>, <span class='ident'>specialization_graph</span>, <span class='ident'>specializes</span>, <span class='ident'>translate_substs</span>};
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>specialize</span>::{<span class='ident'>SpecializesCache</span>, <span class='ident'>find_method</span>};
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>util</span>::<span class='ident'>elaborate_predicates</span>;
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>util</span>::<span class='ident'>supertraits</span>;
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>util</span>::<span class='ident'>Supertraits</span>;
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>util</span>::<span class='ident'>supertrait_def_ids</span>;
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>util</span>::<span class='ident'>SupertraitDefIds</span>;
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='self'>self</span>::<span class='ident'>util</span>::<span class='ident'>transitive_bounds</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">error_reporting</span>::<span class="ident">TraitErrorKey</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">coherence</span>::<span class="ident">orphan_check</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">coherence</span>::<span class="ident">overlapping_impls</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">coherence</span>::<span class="ident">OrphanCheckErr</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">fulfill</span>::{<span class="ident">FulfillmentContext</span>, <span class="ident">GlobalFulfilledPredicates</span>, <span class="ident">RegionObligation</span>};
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">project</span>::<span class="ident">MismatchedProjectionTypes</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">project</span>::{<span class="ident">normalize</span>, <span class="ident">normalize_projection_type</span>, <span class="ident">Normalized</span>};
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">project</span>::{<span class="ident">ProjectionCache</span>, <span class="ident">ProjectionCacheSnapshot</span>, <span class="ident">Reveal</span>};
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">object_safety</span>::<span class="ident">ObjectSafetyViolation</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">object_safety</span>::<span class="ident">MethodViolationCode</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">select</span>::{<span class="ident">EvaluationCache</span>, <span class="ident">SelectionContext</span>, <span class="ident">SelectionCache</span>};
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">select</span>::{<span class="ident">MethodMatchResult</span>, <span class="ident">MethodMatched</span>, <span class="ident">MethodAmbiguous</span>, <span class="ident">MethodDidNotMatch</span>};
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">select</span>::{<span class="ident">MethodMatchedData</span>}; <span class="comment">// intentionally don&#39;t export variants</span>
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">specialize</span>::{<span class="ident">OverlapError</span>, <span class="ident">specialization_graph</span>, <span class="ident">specializes</span>, <span class="ident">translate_substs</span>};
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">specialize</span>::{<span class="ident">SpecializesCache</span>, <span class="ident">find_method</span>};
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">util</span>::<span class="ident">elaborate_predicates</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">util</span>::<span class="ident">supertraits</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">util</span>::<span class="ident">Supertraits</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">util</span>::<span class="ident">supertrait_def_ids</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">util</span>::<span class="ident">SupertraitDefIds</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">util</span>::<span class="ident">transitive_bounds</span>;
 
-<span class='kw'>mod</span> <span class='ident'>coherence</span>;
-<span class='kw'>mod</span> <span class='ident'>error_reporting</span>;
-<span class='kw'>mod</span> <span class='ident'>fulfill</span>;
-<span class='kw'>mod</span> <span class='ident'>project</span>;
-<span class='kw'>mod</span> <span class='ident'>object_safety</span>;
-<span class='kw'>mod</span> <span class='ident'>select</span>;
-<span class='kw'>mod</span> <span class='ident'>specialize</span>;
-<span class='kw'>mod</span> <span class='ident'>structural_impls</span>;
-<span class='kw'>mod</span> <span class='ident'>util</span>;
+<span class="kw">mod</span> <span class="ident">coherence</span>;
+<span class="kw">mod</span> <span class="ident">error_reporting</span>;
+<span class="kw">mod</span> <span class="ident">fulfill</span>;
+<span class="kw">mod</span> <span class="ident">project</span>;
+<span class="kw">mod</span> <span class="ident">object_safety</span>;
+<span class="kw">mod</span> <span class="ident">select</span>;
+<span class="kw">mod</span> <span class="ident">specialize</span>;
+<span class="kw">mod</span> <span class="ident">structural_impls</span>;
+<span class="kw">mod</span> <span class="ident">util</span>;
 
-<span class='doccomment'>/// An `Obligation` represents some trait reference (e.g. `int:Eq`) for</span>
-<span class='doccomment'>/// which the vtable must be found.  The process of finding a vtable is</span>
-<span class='doccomment'>/// called &quot;resolving&quot; the `Obligation`. This process consists of</span>
-<span class='doccomment'>/// either identifying an `impl` (e.g., `impl Eq for int`) that</span>
-<span class='doccomment'>/// provides the required vtable, or else finding a bound that is in</span>
-<span class='doccomment'>/// scope. The eventual result is usually a `Selection` (defined below).</span>
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>Obligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>T</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='ident'>cause</span>: <span class='ident'>ObligationCause</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='kw'>pub</span> <span class='ident'>recursion_depth</span>: <span class='ident'>usize</span>,
-    <span class='kw'>pub</span> <span class='ident'>predicate</span>: <span class='ident'>T</span>,
+<span class="doccomment">/// An `Obligation` represents some trait reference (e.g. `int:Eq`) for</span>
+<span class="doccomment">/// which the vtable must be found.  The process of finding a vtable is</span>
+<span class="doccomment">/// called &quot;resolving&quot; the `Obligation`. This process consists of</span>
+<span class="doccomment">/// either identifying an `impl` (e.g., `impl Eq for int`) that</span>
+<span class="doccomment">/// provides the required vtable, or else finding a bound that is in</span>
+<span class="doccomment">/// scope. The eventual result is usually a `Selection` (defined below).</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">PartialEq</span>, <span class="ident">Eq</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">Obligation</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="ident">cause</span>: <span class="ident">ObligationCause</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="kw">pub</span> <span class="ident">recursion_depth</span>: <span class="ident">usize</span>,
+    <span class="kw">pub</span> <span class="ident">predicate</span>: <span class="ident">T</span>,
 }
 
-<span class='kw'>pub</span> <span class='kw'>type</span> <span class='ident'>PredicateObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>Obligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>ty</span>::<span class='ident'>Predicate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>;
-<span class='kw'>pub</span> <span class='kw'>type</span> <span class='ident'>TraitObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>Obligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>ty</span>::<span class='ident'>PolyTraitPredicate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>;
+<span class="kw">pub</span> <span class="kw">type</span> <span class="ident">PredicateObligation</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">Obligation</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">ty</span>::<span class="ident">Predicate</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>;
+<span class="kw">pub</span> <span class="kw">type</span> <span class="ident">TraitObligation</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">Obligation</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">ty</span>::<span class="ident">PolyTraitPredicate</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>;
 
-<span class='doccomment'>/// Why did we incur this obligation? Used for error reporting.</span>
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Debug</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>ObligationCause</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='ident'>span</span>: <span class='ident'>Span</span>,
+<span class="doccomment">/// Why did we incur this obligation? Used for error reporting.</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">Debug</span>, <span class="ident">PartialEq</span>, <span class="ident">Eq</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">ObligationCause</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="ident">span</span>: <span class="ident">Span</span>,
 
-    <span class='comment'>// The id of the fn body that triggered this obligation. This is</span>
-    <span class='comment'>// used for region obligations to determine the precise</span>
-    <span class='comment'>// environment in which the region obligation should be evaluated</span>
-    <span class='comment'>// (in particular, closures can add new assumptions). See the</span>
-    <span class='comment'>// field `region_obligations` of the `FulfillmentContext` for more</span>
-    <span class='comment'>// information.</span>
-    <span class='kw'>pub</span> <span class='ident'>body_id</span>: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>,
+    <span class="comment">// The id of the fn body that triggered this obligation. This is</span>
+    <span class="comment">// used for region obligations to determine the precise</span>
+    <span class="comment">// environment in which the region obligation should be evaluated</span>
+    <span class="comment">// (in particular, closures can add new assumptions). See the</span>
+    <span class="comment">// field `region_obligations` of the `FulfillmentContext` for more</span>
+    <span class="comment">// information.</span>
+    <span class="kw">pub</span> <span class="ident">body_id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>,
 
-    <span class='kw'>pub</span> <span class='ident'>code</span>: <span class='ident'>ObligationCauseCode</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
+    <span class="kw">pub</span> <span class="ident">code</span>: <span class="ident">ObligationCauseCode</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>
 }
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Debug</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>ObligationCauseCode</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='doccomment'>/// Not well classified or should be obvious from span.</span>
-    <span class='ident'>MiscObligation</span>,
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">Debug</span>, <span class="ident">PartialEq</span>, <span class="ident">Eq</span>)]</span>
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">ObligationCauseCode</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// Not well classified or should be obvious from span.</span>
+    <span class="ident">MiscObligation</span>,
 
-    <span class='doccomment'>/// A slice or array is WF only if `T: Sized`</span>
-    <span class='ident'>SliceOrArrayElem</span>,
+    <span class="doccomment">/// A slice or array is WF only if `T: Sized`</span>
+    <span class="ident">SliceOrArrayElem</span>,
 
-    <span class='doccomment'>/// A tuple is WF only if its middle elements are Sized</span>
-    <span class='ident'>TupleElem</span>,
+    <span class="doccomment">/// A tuple is WF only if its middle elements are Sized</span>
+    <span class="ident">TupleElem</span>,
 
-    <span class='doccomment'>/// This is the trait reference from the given projection</span>
-    <span class='ident'>ProjectionWf</span>(<span class='ident'>ty</span>::<span class='ident'>ProjectionTy</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>),
+    <span class="doccomment">/// This is the trait reference from the given projection</span>
+    <span class="ident">ProjectionWf</span>(<span class="ident">ty</span>::<span class="ident">ProjectionTy</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>),
 
-    <span class='doccomment'>/// In an impl of trait X for type Y, type Y must</span>
-    <span class='doccomment'>/// also implement all supertraits of X.</span>
-    <span class='ident'>ItemObligation</span>(<span class='ident'>DefId</span>),
+    <span class="doccomment">/// In an impl of trait X for type Y, type Y must</span>
+    <span class="doccomment">/// also implement all supertraits of X.</span>
+    <span class="ident">ItemObligation</span>(<span class="ident">DefId</span>),
 
-    <span class='doccomment'>/// A type like `&amp;&#39;a T` is WF only if `T: &#39;a`.</span>
-    <span class='ident'>ReferenceOutlivesReferent</span>(<span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>),
+    <span class="doccomment">/// A type like `&amp;&#39;a T` is WF only if `T: &#39;a`.</span>
+    <span class="ident">ReferenceOutlivesReferent</span>(<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>),
 
-    <span class='doccomment'>/// A type like `Box&lt;Foo&lt;&#39;a&gt; + &#39;b&gt;` is WF only if `&#39;b: &#39;a`.</span>
-    <span class='ident'>ObjectTypeBound</span>(<span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>ty</span>::<span class='ident'>Region</span>),
+    <span class="doccomment">/// A type like `Box&lt;Foo&lt;&#39;a&gt; + &#39;b&gt;` is WF only if `&#39;b: &#39;a`.</span>
+    <span class="ident">ObjectTypeBound</span>(<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span>),
 
-    <span class='doccomment'>/// Obligation incurred due to an object cast.</span>
-    <span class='ident'>ObjectCastObligation</span>(<span class='comment'>/* Object type */</span> <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>),
+    <span class="doccomment">/// Obligation incurred due to an object cast.</span>
+    <span class="ident">ObjectCastObligation</span>(<span class="comment">/* Object type */</span> <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>),
 
-    <span class='doccomment'>/// Various cases where expressions must be sized/copy/etc:</span>
-    <span class='ident'>AssignmentLhsSized</span>,        <span class='comment'>// L = X implies that L is Sized</span>
-    <span class='ident'>StructInitializerSized</span>,    <span class='comment'>// S { ... } must be Sized</span>
-    <span class='ident'>VariableType</span>(<span class='ident'>ast</span>::<span class='ident'>NodeId</span>), <span class='comment'>// Type of each variable must be Sized</span>
-    <span class='ident'>ReturnType</span>,                <span class='comment'>// Return type must be Sized</span>
-    <span class='ident'>RepeatVec</span>,                 <span class='comment'>// [T,..n] --&gt; T must be Copy</span>
+    <span class="doccomment">/// Various cases where expressions must be sized/copy/etc:</span>
+    <span class="ident">AssignmentLhsSized</span>,        <span class="comment">// L = X implies that L is Sized</span>
+    <span class="ident">StructInitializerSized</span>,    <span class="comment">// S { ... } must be Sized</span>
+    <span class="ident">VariableType</span>(<span class="ident">ast</span>::<span class="ident">NodeId</span>), <span class="comment">// Type of each variable must be Sized</span>
+    <span class="ident">ReturnType</span>,                <span class="comment">// Return type must be Sized</span>
+    <span class="ident">RepeatVec</span>,                 <span class="comment">// [T,..n] --&gt; T must be Copy</span>
 
-    <span class='comment'>// Types of fields (other than the last) in a struct must be sized.</span>
-    <span class='ident'>FieldSized</span>,
+    <span class="comment">// Types of fields (other than the last) in a struct must be sized.</span>
+    <span class="ident">FieldSized</span>,
 
-    <span class='comment'>// Constant expressions must be sized.</span>
-    <span class='ident'>ConstSized</span>,
+    <span class="comment">// Constant expressions must be sized.</span>
+    <span class="ident">ConstSized</span>,
 
-    <span class='comment'>// static items must have `Sync` type</span>
-    <span class='ident'>SharedStatic</span>,
+    <span class="comment">// static items must have `Sync` type</span>
+    <span class="ident">SharedStatic</span>,
 
-    <span class='ident'>BuiltinDerivedObligation</span>(<span class='ident'>DerivedObligationCause</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>),
+    <span class="ident">BuiltinDerivedObligation</span>(<span class="ident">DerivedObligationCause</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>),
 
-    <span class='ident'>ImplDerivedObligation</span>(<span class='ident'>DerivedObligationCause</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>),
+    <span class="ident">ImplDerivedObligation</span>(<span class="ident">DerivedObligationCause</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>),
 
-    <span class='comment'>// error derived when matching traits/impls; see ObligationCause for more details</span>
-    <span class='ident'>CompareImplMethodObligation</span> {
-        <span class='ident'>item_name</span>: <span class='ident'>ast</span>::<span class='ident'>Name</span>,
-        <span class='ident'>impl_item_def_id</span>: <span class='ident'>DefId</span>,
-        <span class='ident'>trait_item_def_id</span>: <span class='ident'>DefId</span>,
-        <span class='ident'>lint_id</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>ast</span>::<span class='ident'>NodeId</span><span class='op'>&gt;</span>,
+    <span class="comment">// error derived when matching traits/impls; see ObligationCause for more details</span>
+    <span class="ident">CompareImplMethodObligation</span> {
+        <span class="ident">item_name</span>: <span class="ident">ast</span>::<span class="ident">Name</span>,
+        <span class="ident">impl_item_def_id</span>: <span class="ident">DefId</span>,
+        <span class="ident">trait_item_def_id</span>: <span class="ident">DefId</span>,
+        <span class="ident">lint_id</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">NodeId</span><span class="op">&gt;</span>,
     },
 
-    <span class='comment'>// Checking that this expression can be assigned where it needs to be</span>
-    <span class='comment'>// FIXME(eddyb) #11161 is the original Expr required?</span>
-    <span class='ident'>ExprAssignable</span>,
+    <span class="comment">// Checking that this expression can be assigned where it needs to be</span>
+    <span class="comment">// FIXME(eddyb) #11161 is the original Expr required?</span>
+    <span class="ident">ExprAssignable</span>,
 
-    <span class='comment'>// Computing common supertype in the arms of a match expression</span>
-    <span class='ident'>MatchExpressionArm</span> { <span class='ident'>arm_span</span>: <span class='ident'>Span</span>,
-                         <span class='ident'>source</span>: <span class='ident'>hir</span>::<span class='ident'>MatchSource</span> },
+    <span class="comment">// Computing common supertype in the arms of a match expression</span>
+    <span class="ident">MatchExpressionArm</span> { <span class="ident">arm_span</span>: <span class="ident">Span</span>,
+                         <span class="ident">source</span>: <span class="ident">hir</span>::<span class="ident">MatchSource</span> },
 
-    <span class='comment'>// Computing common supertype in an if expression</span>
-    <span class='ident'>IfExpression</span>,
+    <span class="comment">// Computing common supertype in an if expression</span>
+    <span class="ident">IfExpression</span>,
 
-    <span class='comment'>// Computing common supertype of an if expression with no else counter-part</span>
-    <span class='ident'>IfExpressionWithNoElse</span>,
+    <span class="comment">// Computing common supertype of an if expression with no else counter-part</span>
+    <span class="ident">IfExpressionWithNoElse</span>,
 
-    <span class='comment'>// `where a == b`</span>
-    <span class='ident'>EquatePredicate</span>,
+    <span class="comment">// `where a == b`</span>
+    <span class="ident">EquatePredicate</span>,
 
-    <span class='comment'>// `main` has wrong type</span>
-    <span class='ident'>MainFunctionType</span>,
+    <span class="comment">// `main` has wrong type</span>
+    <span class="ident">MainFunctionType</span>,
 
-    <span class='comment'>// `start` has wrong type</span>
-    <span class='ident'>StartFunctionType</span>,
+    <span class="comment">// `start` has wrong type</span>
+    <span class="ident">StartFunctionType</span>,
 
-    <span class='comment'>// intrinsic has wrong type</span>
-    <span class='ident'>IntrinsicType</span>,
+    <span class="comment">// intrinsic has wrong type</span>
+    <span class="ident">IntrinsicType</span>,
 
-    <span class='comment'>// method receiver</span>
-    <span class='ident'>MethodReceiver</span>,
+    <span class="comment">// method receiver</span>
+    <span class="ident">MethodReceiver</span>,
 }
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>Debug</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>DerivedObligationCause</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='doccomment'>/// The trait reference of the parent obligation that led to the</span>
-    <span class='doccomment'>/// current obligation. Note that only trait obligations lead to</span>
-    <span class='doccomment'>/// derived obligations, so we just store the trait reference here</span>
-    <span class='doccomment'>/// directly.</span>
-    <span class='ident'>parent_trait_ref</span>: <span class='ident'>ty</span>::<span class='ident'>PolyTraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">Debug</span>, <span class="ident">PartialEq</span>, <span class="ident">Eq</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">DerivedObligationCause</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// The trait reference of the parent obligation that led to the</span>
+    <span class="doccomment">/// current obligation. Note that only trait obligations lead to</span>
+    <span class="doccomment">/// derived obligations, so we just store the trait reference here</span>
+    <span class="doccomment">/// directly.</span>
+    <span class="ident">parent_trait_ref</span>: <span class="ident">ty</span>::<span class="ident">PolyTraitRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
 
-    <span class='doccomment'>/// The parent trait had this cause</span>
-    <span class='ident'>parent_code</span>: <span class='ident'>Rc</span><span class='op'>&lt;</span><span class='ident'>ObligationCauseCode</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>
+    <span class="doccomment">/// The parent trait had this cause</span>
+    <span class="ident">parent_code</span>: <span class="ident">Rc</span><span class="op">&lt;</span><span class="ident">ObligationCauseCode</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>
 }
 
-<span class='kw'>pub</span> <span class='kw'>type</span> <span class='ident'>Obligations</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>O</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Obligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>O</span><span class='op'>&gt;&gt;</span>;
-<span class='kw'>pub</span> <span class='kw'>type</span> <span class='ident'>PredicateObligations</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>PredicateObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>;
-<span class='kw'>pub</span> <span class='kw'>type</span> <span class='ident'>TraitObligations</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>TraitObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>;
+<span class="kw">pub</span> <span class="kw">type</span> <span class="ident">Obligations</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">O</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Obligation</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">O</span><span class="op">&gt;&gt;</span>;
+<span class="kw">pub</span> <span class="kw">type</span> <span class="ident">PredicateObligations</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">PredicateObligation</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>;
+<span class="kw">pub</span> <span class="kw">type</span> <span class="ident">TraitObligations</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">TraitObligation</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>;
 
-<span class='kw'>pub</span> <span class='kw'>type</span> <span class='ident'>Selection</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>Vtable</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>PredicateObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>;
+<span class="kw">pub</span> <span class="kw">type</span> <span class="ident">Selection</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">Vtable</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">PredicateObligation</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>;
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>,<span class='ident'>Debug</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>SelectionError</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='ident'>Unimplemented</span>,
-    <span class='ident'>OutputTypeParameterMismatch</span>(<span class='ident'>ty</span>::<span class='ident'>PolyTraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                <span class='ident'>ty</span>::<span class='ident'>PolyTraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                <span class='ident'>ty</span>::<span class='ident'>error</span>::<span class='ident'>TypeError</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>),
-    <span class='ident'>TraitNotObjectSafe</span>(<span class='ident'>DefId</span>),
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>,<span class="ident">Debug</span>)]</span>
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">SelectionError</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="ident">Unimplemented</span>,
+    <span class="ident">OutputTypeParameterMismatch</span>(<span class="ident">ty</span>::<span class="ident">PolyTraitRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                <span class="ident">ty</span>::<span class="ident">PolyTraitRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                <span class="ident">ty</span>::<span class="ident">error</span>::<span class="ident">TypeError</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>),
+    <span class="ident">TraitNotObjectSafe</span>(<span class="ident">DefId</span>),
 }
 
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>FulfillmentError</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='ident'>obligation</span>: <span class='ident'>PredicateObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='kw'>pub</span> <span class='ident'>code</span>: <span class='ident'>FulfillmentErrorCode</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">FulfillmentError</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="ident">obligation</span>: <span class="ident">PredicateObligation</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="kw">pub</span> <span class="ident">code</span>: <span class="ident">FulfillmentErrorCode</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>
 }
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>FulfillmentErrorCode</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='ident'>CodeSelectionError</span>(<span class='ident'>SelectionError</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>),
-    <span class='ident'>CodeProjectionError</span>(<span class='ident'>MismatchedProjectionTypes</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>),
-    <span class='ident'>CodeAmbiguity</span>,
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>)]</span>
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">FulfillmentErrorCode</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="ident">CodeSelectionError</span>(<span class="ident">SelectionError</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>),
+    <span class="ident">CodeProjectionError</span>(<span class="ident">MismatchedProjectionTypes</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>),
+    <span class="ident">CodeAmbiguity</span>,
 }
 
-<span class='doccomment'>/// When performing resolution, it is typically the case that there</span>
-<span class='doccomment'>/// can be one of three outcomes:</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// - `Ok(Some(r))`: success occurred with result `r`</span>
-<span class='doccomment'>/// - `Ok(None)`: could not definitely determine anything, usually due</span>
-<span class='doccomment'>///   to inconclusive type inference.</span>
-<span class='doccomment'>/// - `Err(e)`: error `e` occurred</span>
-<span class='kw'>pub</span> <span class='kw'>type</span> <span class='ident'>SelectionResult</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>T</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>, <span class='ident'>SelectionError</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>;
+<span class="doccomment">/// When performing resolution, it is typically the case that there</span>
+<span class="doccomment">/// can be one of three outcomes:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// - `Ok(Some(r))`: success occurred with result `r`</span>
+<span class="doccomment">/// - `Ok(None)`: could not definitely determine anything, usually due</span>
+<span class="doccomment">///   to inconclusive type inference.</span>
+<span class="doccomment">/// - `Err(e)`: error `e` occurred</span>
+<span class="kw">pub</span> <span class="kw">type</span> <span class="ident">SelectionResult</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">T</span><span class="op">&gt;</span> <span class="op">=</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>, <span class="ident">SelectionError</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>;
 
-<span class='doccomment'>/// Given the successful resolution of an obligation, the `Vtable`</span>
-<span class='doccomment'>/// indicates where the vtable comes from. Note that while we call this</span>
-<span class='doccomment'>/// a &quot;vtable&quot;, it does not necessarily indicate dynamic dispatch at</span>
-<span class='doccomment'>/// runtime. `Vtable` instances just tell the compiler where to find</span>
-<span class='doccomment'>/// methods, but in generic code those methods are typically statically</span>
-<span class='doccomment'>/// dispatched -- only when an object is constructed is a `Vtable`</span>
-<span class='doccomment'>/// instance reified into an actual vtable.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// For example, the vtable may be tied to a specific impl (case A),</span>
-<span class='doccomment'>/// or it may be relative to some bound that is in scope (case B).</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>/// impl&lt;T:Clone&gt; Clone&lt;T&gt; for Option&lt;T&gt; { ... } // Impl_1</span>
-<span class='doccomment'>/// impl&lt;T:Clone&gt; Clone&lt;T&gt; for Box&lt;T&gt; { ... }    // Impl_2</span>
-<span class='doccomment'>/// impl Clone for int { ... }             // Impl_3</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// fn foo&lt;T:Clone&gt;(concrete: Option&lt;Box&lt;int&gt;&gt;,</span>
-<span class='doccomment'>///                 param: T,</span>
-<span class='doccomment'>///                 mixed: Option&lt;T&gt;) {</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>///    // Case A: Vtable points at a specific impl. Only possible when</span>
-<span class='doccomment'>///    // type is concretely known. If the impl itself has bounded</span>
-<span class='doccomment'>///    // type parameters, Vtable will carry resolutions for those as well:</span>
-<span class='doccomment'>///    concrete.clone(); // Vtable(Impl_1, [Vtable(Impl_2, [Vtable(Impl_3)])])</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>///    // Case B: Vtable must be provided by caller. This applies when</span>
-<span class='doccomment'>///    // type is a type parameter.</span>
-<span class='doccomment'>///    param.clone();    // VtableParam</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>///    // Case C: A mix of cases A and B.</span>
-<span class='doccomment'>///    mixed.clone();    // Vtable(Impl_1, [VtableParam])</span>
-<span class='doccomment'>/// }</span>
-<span class='doccomment'>/// ```</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// ### The type parameter `N`</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// See explanation on `VtableImplData`.</span>
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>Vtable</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>N</span><span class='op'>&gt;</span> {
-    <span class='doccomment'>/// Vtable identifying a particular impl.</span>
-    <span class='ident'>VtableImpl</span>(<span class='ident'>VtableImplData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>N</span><span class='op'>&gt;</span>),
+<span class="doccomment">/// Given the successful resolution of an obligation, the `Vtable`</span>
+<span class="doccomment">/// indicates where the vtable comes from. Note that while we call this</span>
+<span class="doccomment">/// a &quot;vtable&quot;, it does not necessarily indicate dynamic dispatch at</span>
+<span class="doccomment">/// runtime. `Vtable` instances just tell the compiler where to find</span>
+<span class="doccomment">/// methods, but in generic code those methods are typically statically</span>
+<span class="doccomment">/// dispatched -- only when an object is constructed is a `Vtable`</span>
+<span class="doccomment">/// instance reified into an actual vtable.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// For example, the vtable may be tied to a specific impl (case A),</span>
+<span class="doccomment">/// or it may be relative to some bound that is in scope (case B).</span>
+<span class="doccomment">///</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// impl&lt;T:Clone&gt; Clone&lt;T&gt; for Option&lt;T&gt; { ... } // Impl_1</span>
+<span class="doccomment">/// impl&lt;T:Clone&gt; Clone&lt;T&gt; for Box&lt;T&gt; { ... }    // Impl_2</span>
+<span class="doccomment">/// impl Clone for int { ... }             // Impl_3</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// fn foo&lt;T:Clone&gt;(concrete: Option&lt;Box&lt;int&gt;&gt;,</span>
+<span class="doccomment">///                 param: T,</span>
+<span class="doccomment">///                 mixed: Option&lt;T&gt;) {</span>
+<span class="doccomment">///</span>
+<span class="doccomment">///    // Case A: Vtable points at a specific impl. Only possible when</span>
+<span class="doccomment">///    // type is concretely known. If the impl itself has bounded</span>
+<span class="doccomment">///    // type parameters, Vtable will carry resolutions for those as well:</span>
+<span class="doccomment">///    concrete.clone(); // Vtable(Impl_1, [Vtable(Impl_2, [Vtable(Impl_3)])])</span>
+<span class="doccomment">///</span>
+<span class="doccomment">///    // Case B: Vtable must be provided by caller. This applies when</span>
+<span class="doccomment">///    // type is a type parameter.</span>
+<span class="doccomment">///    param.clone();    // VtableParam</span>
+<span class="doccomment">///</span>
+<span class="doccomment">///    // Case C: A mix of cases A and B.</span>
+<span class="doccomment">///    mixed.clone();    // Vtable(Impl_1, [VtableParam])</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ### The type parameter `N`</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// See explanation on `VtableImplData`.</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>)]</span>
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">Vtable</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">N</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// Vtable identifying a particular impl.</span>
+    <span class="ident">VtableImpl</span>(<span class="ident">VtableImplData</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">N</span><span class="op">&gt;</span>),
 
-    <span class='doccomment'>/// Vtable for default trait implementations</span>
-    <span class='doccomment'>/// This carries the information and nested obligations with regards</span>
-    <span class='doccomment'>/// to a default implementation for a trait `Trait`. The nested obligations</span>
-    <span class='doccomment'>/// ensure the trait implementation holds for all the constituent types.</span>
-    <span class='ident'>VtableDefaultImpl</span>(<span class='ident'>VtableDefaultImplData</span><span class='op'>&lt;</span><span class='ident'>N</span><span class='op'>&gt;</span>),
+    <span class="doccomment">/// Vtable for default trait implementations</span>
+    <span class="doccomment">/// This carries the information and nested obligations with regards</span>
+    <span class="doccomment">/// to a default implementation for a trait `Trait`. The nested obligations</span>
+    <span class="doccomment">/// ensure the trait implementation holds for all the constituent types.</span>
+    <span class="ident">VtableDefaultImpl</span>(<span class="ident">VtableDefaultImplData</span><span class="op">&lt;</span><span class="ident">N</span><span class="op">&gt;</span>),
 
-    <span class='doccomment'>/// Successful resolution to an obligation provided by the caller</span>
-    <span class='doccomment'>/// for some type parameter. The `Vec&lt;N&gt;` represents the</span>
-    <span class='doccomment'>/// obligations incurred from normalizing the where-clause (if</span>
-    <span class='doccomment'>/// any).</span>
-    <span class='ident'>VtableParam</span>(<span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>N</span><span class='op'>&gt;</span>),
+    <span class="doccomment">/// Successful resolution to an obligation provided by the caller</span>
+    <span class="doccomment">/// for some type parameter. The `Vec&lt;N&gt;` represents the</span>
+    <span class="doccomment">/// obligations incurred from normalizing the where-clause (if</span>
+    <span class="doccomment">/// any).</span>
+    <span class="ident">VtableParam</span>(<span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">N</span><span class="op">&gt;</span>),
 
-    <span class='doccomment'>/// Virtual calls through an object</span>
-    <span class='ident'>VtableObject</span>(<span class='ident'>VtableObjectData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>N</span><span class='op'>&gt;</span>),
+    <span class="doccomment">/// Virtual calls through an object</span>
+    <span class="ident">VtableObject</span>(<span class="ident">VtableObjectData</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">N</span><span class="op">&gt;</span>),
 
-    <span class='doccomment'>/// Successful resolution for a builtin trait.</span>
-    <span class='ident'>VtableBuiltin</span>(<span class='ident'>VtableBuiltinData</span><span class='op'>&lt;</span><span class='ident'>N</span><span class='op'>&gt;</span>),
+    <span class="doccomment">/// Successful resolution for a builtin trait.</span>
+    <span class="ident">VtableBuiltin</span>(<span class="ident">VtableBuiltinData</span><span class="op">&lt;</span><span class="ident">N</span><span class="op">&gt;</span>),
 
-    <span class='doccomment'>/// Vtable automatically generated for a closure. The def ID is the ID</span>
-    <span class='doccomment'>/// of the closure expression. This is a `VtableImpl` in spirit, but the</span>
-    <span class='doccomment'>/// impl is generated by the compiler and does not appear in the source.</span>
-    <span class='ident'>VtableClosure</span>(<span class='ident'>VtableClosureData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>N</span><span class='op'>&gt;</span>),
+    <span class="doccomment">/// Vtable automatically generated for a closure. The def ID is the ID</span>
+    <span class="doccomment">/// of the closure expression. This is a `VtableImpl` in spirit, but the</span>
+    <span class="doccomment">/// impl is generated by the compiler and does not appear in the source.</span>
+    <span class="ident">VtableClosure</span>(<span class="ident">VtableClosureData</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">N</span><span class="op">&gt;</span>),
 
-    <span class='doccomment'>/// Same as above, but for a fn pointer type with the given signature.</span>
-    <span class='ident'>VtableFnPointer</span>(<span class='ident'>VtableFnPointerData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>N</span><span class='op'>&gt;</span>),
+    <span class="doccomment">/// Same as above, but for a fn pointer type with the given signature.</span>
+    <span class="ident">VtableFnPointer</span>(<span class="ident">VtableFnPointerData</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">N</span><span class="op">&gt;</span>),
 }
 
-<span class='doccomment'>/// Identifies a particular impl in the source, along with a set of</span>
-<span class='doccomment'>/// substitutions from the impl&#39;s type/lifetime parameters. The</span>
-<span class='doccomment'>/// `nested` vector corresponds to the nested obligations attached to</span>
-<span class='doccomment'>/// the impl&#39;s type parameters.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// The type parameter `N` indicates the type used for &quot;nested</span>
-<span class='doccomment'>/// obligations&quot; that are required by the impl. During type check, this</span>
-<span class='doccomment'>/// is `Obligation`, as one might expect. During trans, however, this</span>
-<span class='doccomment'>/// is `()`, because trans only requires a shallow resolution of an</span>
-<span class='doccomment'>/// impl, and nested obligations are satisfied later.</span>
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>VtableImplData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>N</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='ident'>impl_def_id</span>: <span class='ident'>DefId</span>,
-    <span class='kw'>pub</span> <span class='ident'>substs</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='kw'>pub</span> <span class='ident'>nested</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>N</span><span class='op'>&gt;</span>
+<span class="doccomment">/// Identifies a particular impl in the source, along with a set of</span>
+<span class="doccomment">/// substitutions from the impl&#39;s type/lifetime parameters. The</span>
+<span class="doccomment">/// `nested` vector corresponds to the nested obligations attached to</span>
+<span class="doccomment">/// the impl&#39;s type parameters.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// The type parameter `N` indicates the type used for &quot;nested</span>
+<span class="doccomment">/// obligations&quot; that are required by the impl. During type check, this</span>
+<span class="doccomment">/// is `Obligation`, as one might expect. During trans, however, this</span>
+<span class="doccomment">/// is `()`, because trans only requires a shallow resolution of an</span>
+<span class="doccomment">/// impl, and nested obligations are satisfied later.</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">PartialEq</span>, <span class="ident">Eq</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">VtableImplData</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">N</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="ident">impl_def_id</span>: <span class="ident">DefId</span>,
+    <span class="kw">pub</span> <span class="ident">substs</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="kw">pub</span> <span class="ident">nested</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">N</span><span class="op">&gt;</span>
 }
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>VtableClosureData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>N</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='ident'>closure_def_id</span>: <span class='ident'>DefId</span>,
-    <span class='kw'>pub</span> <span class='ident'>substs</span>: <span class='ident'>ty</span>::<span class='ident'>ClosureSubsts</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='doccomment'>/// Nested obligations. This can be non-empty if the closure</span>
-    <span class='doccomment'>/// signature contains associated types.</span>
-    <span class='kw'>pub</span> <span class='ident'>nested</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>N</span><span class='op'>&gt;</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">PartialEq</span>, <span class="ident">Eq</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">VtableClosureData</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">N</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="ident">closure_def_id</span>: <span class="ident">DefId</span>,
+    <span class="kw">pub</span> <span class="ident">substs</span>: <span class="ident">ty</span>::<span class="ident">ClosureSubsts</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="doccomment">/// Nested obligations. This can be non-empty if the closure</span>
+    <span class="doccomment">/// signature contains associated types.</span>
+    <span class="kw">pub</span> <span class="ident">nested</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">N</span><span class="op">&gt;</span>
 }
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>VtableDefaultImplData</span><span class='op'>&lt;</span><span class='ident'>N</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='ident'>trait_def_id</span>: <span class='ident'>DefId</span>,
-    <span class='kw'>pub</span> <span class='ident'>nested</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>N</span><span class='op'>&gt;</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">VtableDefaultImplData</span><span class="op">&lt;</span><span class="ident">N</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="ident">trait_def_id</span>: <span class="ident">DefId</span>,
+    <span class="kw">pub</span> <span class="ident">nested</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">N</span><span class="op">&gt;</span>
 }
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>VtableBuiltinData</span><span class='op'>&lt;</span><span class='ident'>N</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='ident'>nested</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>N</span><span class='op'>&gt;</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">VtableBuiltinData</span><span class="op">&lt;</span><span class="ident">N</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="ident">nested</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">N</span><span class="op">&gt;</span>
 }
 
-<span class='doccomment'>/// A vtable for some object-safe trait `Foo` automatically derived</span>
-<span class='doccomment'>/// for the object type `Foo`.</span>
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>PartialEq</span>,<span class='ident'>Eq</span>,<span class='ident'>Clone</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>VtableObjectData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>N</span><span class='op'>&gt;</span> {
-    <span class='doccomment'>/// `Foo` upcast to the obligation trait. This will be some supertrait of `Foo`.</span>
-    <span class='kw'>pub</span> <span class='ident'>upcast_trait_ref</span>: <span class='ident'>ty</span>::<span class='ident'>PolyTraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
+<span class="doccomment">/// A vtable for some object-safe trait `Foo` automatically derived</span>
+<span class="doccomment">/// for the object type `Foo`.</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">PartialEq</span>,<span class="ident">Eq</span>,<span class="ident">Clone</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">VtableObjectData</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">N</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// `Foo` upcast to the obligation trait. This will be some supertrait of `Foo`.</span>
+    <span class="kw">pub</span> <span class="ident">upcast_trait_ref</span>: <span class="ident">ty</span>::<span class="ident">PolyTraitRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
 
-    <span class='doccomment'>/// The vtable is formed by concatenating together the method lists of</span>
-    <span class='doccomment'>/// the base object trait and all supertraits; this is the start of</span>
-    <span class='doccomment'>/// `upcast_trait_ref`&#39;s methods in that vtable.</span>
-    <span class='kw'>pub</span> <span class='ident'>vtable_base</span>: <span class='ident'>usize</span>,
+    <span class="doccomment">/// The vtable is formed by concatenating together the method lists of</span>
+    <span class="doccomment">/// the base object trait and all supertraits; this is the start of</span>
+    <span class="doccomment">/// `upcast_trait_ref`&#39;s methods in that vtable.</span>
+    <span class="kw">pub</span> <span class="ident">vtable_base</span>: <span class="ident">usize</span>,
 
-    <span class='kw'>pub</span> <span class='ident'>nested</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>N</span><span class='op'>&gt;</span>,
+    <span class="kw">pub</span> <span class="ident">nested</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">N</span><span class="op">&gt;</span>,
 }
 
-<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Eq</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>VtableFnPointerData</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>N</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='ident'>fn_ty</span>: <span class='ident'>ty</span>::<span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='kw'>pub</span> <span class='ident'>nested</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>N</span><span class='op'>&gt;</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">PartialEq</span>, <span class="ident">Eq</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">VtableFnPointerData</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">N</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="ident">fn_ty</span>: <span class="ident">ty</span>::<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="kw">pub</span> <span class="ident">nested</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">N</span><span class="op">&gt;</span>
 }
 
-<span class='doccomment'>/// Creates predicate obligations from the generic bounds.</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>predicates_for_generics</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>cause</span>: <span class='ident'>ObligationCause</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                     <span class='ident'>generic_bounds</span>: <span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>InstantiatedPredicates</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-                                     <span class='op'>-&gt;</span> <span class='ident'>PredicateObligations</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
+<span class="doccomment">/// Creates predicate obligations from the generic bounds.</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">predicates_for_generics</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">cause</span>: <span class="ident">ObligationCause</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                     <span class="ident">generic_bounds</span>: <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">InstantiatedPredicates</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+                                     <span class="op">-&gt;</span> <span class="ident">PredicateObligations</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>
 {
-    <span class='ident'>util</span>::<span class='ident'>predicates_for_generics</span>(<span class='ident'>cause</span>, <span class='number'>0</span>, <span class='ident'>generic_bounds</span>)
+    <span class="ident">util</span>::<span class="ident">predicates_for_generics</span>(<span class="ident">cause</span>, <span class="number">0</span>, <span class="ident">generic_bounds</span>)
 }
 
-<span class='doccomment'>/// Determines whether the type `ty` is known to meet `bound` and</span>
-<span class='doccomment'>/// returns true if so. Returns false if `ty` either does not meet</span>
-<span class='doccomment'>/// `bound` or is not known to meet bound (note that this is</span>
-<span class='doccomment'>/// conservative towards *no impl*, which is the opposite of the</span>
-<span class='doccomment'>/// `evaluate` methods).</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>type_known_to_meet_bound</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>infcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>InferCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                                <span class='ident'>ty</span>: <span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                                <span class='ident'>def_id</span>: <span class='ident'>DefId</span>,
-                                                <span class='ident'>span</span>: <span class='ident'>Span</span>)
-<span class='op'>-&gt;</span> <span class='ident'>bool</span>
+<span class="doccomment">/// Determines whether the type `ty` is known to meet `bound` and</span>
+<span class="doccomment">/// returns true if so. Returns false if `ty` either does not meet</span>
+<span class="doccomment">/// `bound` or is not known to meet bound (note that this is</span>
+<span class="doccomment">/// conservative towards *no impl*, which is the opposite of the</span>
+<span class="doccomment">/// `evaluate` methods).</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">type_known_to_meet_bound</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">infcx</span>: <span class="kw-2">&amp;</span><span class="ident">InferCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                                <span class="ident">ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                                <span class="ident">def_id</span>: <span class="ident">DefId</span>,
+                                                <span class="ident">span</span>: <span class="ident">Span</span>)
+<span class="op">-&gt;</span> <span class="ident">bool</span>
 {
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;type_known_to_meet_bound(ty={:?}, bound={:?})&quot;</span>,
-           <span class='ident'>ty</span>,
-           <span class='ident'>infcx</span>.<span class='ident'>tcx</span>.<span class='ident'>item_path_str</span>(<span class='ident'>def_id</span>));
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;type_known_to_meet_bound(ty={:?}, bound={:?})&quot;</span>,
+           <span class="ident">ty</span>,
+           <span class="ident">infcx</span>.<span class="ident">tcx</span>.<span class="ident">item_path_str</span>(<span class="ident">def_id</span>));
 
-    <span class='kw'>let</span> <span class='ident'>trait_ref</span> <span class='op'>=</span> <span class='ident'>ty</span>::<span class='ident'>TraitRef</span> {
-        <span class='ident'>def_id</span>: <span class='ident'>def_id</span>,
-        <span class='ident'>substs</span>: <span class='ident'>infcx</span>.<span class='ident'>tcx</span>.<span class='ident'>mk_substs_trait</span>(<span class='ident'>ty</span>, <span class='kw-2'>&amp;</span>[]),
+    <span class="kw">let</span> <span class="ident">trait_ref</span> <span class="op">=</span> <span class="ident">ty</span>::<span class="ident">TraitRef</span> {
+        <span class="ident">def_id</span>: <span class="ident">def_id</span>,
+        <span class="ident">substs</span>: <span class="ident">infcx</span>.<span class="ident">tcx</span>.<span class="ident">mk_substs_trait</span>(<span class="ident">ty</span>, <span class="kw-2">&amp;</span>[]),
     };
-    <span class='kw'>let</span> <span class='ident'>obligation</span> <span class='op'>=</span> <span class='ident'>Obligation</span> {
-        <span class='ident'>cause</span>: <span class='ident'>ObligationCause</span>::<span class='ident'>misc</span>(<span class='ident'>span</span>, <span class='ident'>ast</span>::<span class='ident'>DUMMY_NODE_ID</span>),
-        <span class='ident'>recursion_depth</span>: <span class='number'>0</span>,
-        <span class='ident'>predicate</span>: <span class='ident'>trait_ref</span>.<span class='ident'>to_predicate</span>(),
+    <span class="kw">let</span> <span class="ident">obligation</span> <span class="op">=</span> <span class="ident">Obligation</span> {
+        <span class="ident">cause</span>: <span class="ident">ObligationCause</span>::<span class="ident">misc</span>(<span class="ident">span</span>, <span class="ident">ast</span>::<span class="ident">DUMMY_NODE_ID</span>),
+        <span class="ident">recursion_depth</span>: <span class="number">0</span>,
+        <span class="ident">predicate</span>: <span class="ident">trait_ref</span>.<span class="ident">to_predicate</span>(),
     };
 
-    <span class='kw'>let</span> <span class='ident'>result</span> <span class='op'>=</span> <span class='ident'>SelectionContext</span>::<span class='ident'>new</span>(<span class='ident'>infcx</span>)
-        .<span class='ident'>evaluate_obligation_conservatively</span>(<span class='kw-2'>&amp;</span><span class='ident'>obligation</span>);
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;type_known_to_meet_ty={:?} bound={} =&gt; {:?}&quot;</span>,
-           <span class='ident'>ty</span>, <span class='ident'>infcx</span>.<span class='ident'>tcx</span>.<span class='ident'>item_path_str</span>(<span class='ident'>def_id</span>), <span class='ident'>result</span>);
+    <span class="kw">let</span> <span class="ident">result</span> <span class="op">=</span> <span class="ident">SelectionContext</span>::<span class="ident">new</span>(<span class="ident">infcx</span>)
+        .<span class="ident">evaluate_obligation_conservatively</span>(<span class="kw-2">&amp;</span><span class="ident">obligation</span>);
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;type_known_to_meet_ty={:?} bound={} =&gt; {:?}&quot;</span>,
+           <span class="ident">ty</span>, <span class="ident">infcx</span>.<span class="ident">tcx</span>.<span class="ident">item_path_str</span>(<span class="ident">def_id</span>), <span class="ident">result</span>);
 
-    <span class='kw'>if</span> <span class='ident'>result</span> <span class='op'>&amp;&amp;</span> (<span class='ident'>ty</span>.<span class='ident'>has_infer_types</span>() <span class='op'>||</span> <span class='ident'>ty</span>.<span class='ident'>has_closure_types</span>()) {
-        <span class='comment'>// Because of inference &quot;guessing&quot;, selection can sometimes claim</span>
-        <span class='comment'>// to succeed while the success requires a guess. To ensure</span>
-        <span class='comment'>// this function&#39;s result remains infallible, we must confirm</span>
-        <span class='comment'>// that guess. While imperfect, I believe this is sound.</span>
+    <span class="kw">if</span> <span class="ident">result</span> <span class="op">&amp;&amp;</span> (<span class="ident">ty</span>.<span class="ident">has_infer_types</span>() <span class="op">||</span> <span class="ident">ty</span>.<span class="ident">has_closure_types</span>()) {
+        <span class="comment">// Because of inference &quot;guessing&quot;, selection can sometimes claim</span>
+        <span class="comment">// to succeed while the success requires a guess. To ensure</span>
+        <span class="comment">// this function&#39;s result remains infallible, we must confirm</span>
+        <span class="comment">// that guess. While imperfect, I believe this is sound.</span>
 
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>fulfill_cx</span> <span class='op'>=</span> <span class='ident'>FulfillmentContext</span>::<span class='ident'>new</span>();
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">fulfill_cx</span> <span class="op">=</span> <span class="ident">FulfillmentContext</span>::<span class="ident">new</span>();
 
-        <span class='comment'>// We can use a dummy node-id here because we won&#39;t pay any mind</span>
-        <span class='comment'>// to region obligations that arise (there shouldn&#39;t really be any</span>
-        <span class='comment'>// anyhow).</span>
-        <span class='kw'>let</span> <span class='ident'>cause</span> <span class='op'>=</span> <span class='ident'>ObligationCause</span>::<span class='ident'>misc</span>(<span class='ident'>span</span>, <span class='ident'>ast</span>::<span class='ident'>DUMMY_NODE_ID</span>);
+        <span class="comment">// We can use a dummy node-id here because we won&#39;t pay any mind</span>
+        <span class="comment">// to region obligations that arise (there shouldn&#39;t really be any</span>
+        <span class="comment">// anyhow).</span>
+        <span class="kw">let</span> <span class="ident">cause</span> <span class="op">=</span> <span class="ident">ObligationCause</span>::<span class="ident">misc</span>(<span class="ident">span</span>, <span class="ident">ast</span>::<span class="ident">DUMMY_NODE_ID</span>);
 
-        <span class='ident'>fulfill_cx</span>.<span class='ident'>register_bound</span>(<span class='ident'>infcx</span>, <span class='ident'>ty</span>, <span class='ident'>def_id</span>, <span class='ident'>cause</span>);
+        <span class="ident">fulfill_cx</span>.<span class="ident">register_bound</span>(<span class="ident">infcx</span>, <span class="ident">ty</span>, <span class="ident">def_id</span>, <span class="ident">cause</span>);
 
-        <span class='comment'>// Note: we only assume something is `Copy` if we can</span>
-        <span class='comment'>// *definitively* show that it implements `Copy`. Otherwise,</span>
-        <span class='comment'>// assume it is move; linear is always ok.</span>
-        <span class='kw'>match</span> <span class='ident'>fulfill_cx</span>.<span class='ident'>select_all_or_error</span>(<span class='ident'>infcx</span>) {
-            <span class='prelude-val'>Ok</span>(()) <span class='op'>=&gt;</span> {
-                <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;type_known_to_meet_bound: ty={:?} bound={} success&quot;</span>,
-                       <span class='ident'>ty</span>,
-                       <span class='ident'>infcx</span>.<span class='ident'>tcx</span>.<span class='ident'>item_path_str</span>(<span class='ident'>def_id</span>));
-                <span class='bool-val'>true</span>
+        <span class="comment">// Note: we only assume something is `Copy` if we can</span>
+        <span class="comment">// *definitively* show that it implements `Copy`. Otherwise,</span>
+        <span class="comment">// assume it is move; linear is always ok.</span>
+        <span class="kw">match</span> <span class="ident">fulfill_cx</span>.<span class="ident">select_all_or_error</span>(<span class="ident">infcx</span>) {
+            <span class="prelude-val">Ok</span>(()) <span class="op">=&gt;</span> {
+                <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;type_known_to_meet_bound: ty={:?} bound={} success&quot;</span>,
+                       <span class="ident">ty</span>,
+                       <span class="ident">infcx</span>.<span class="ident">tcx</span>.<span class="ident">item_path_str</span>(<span class="ident">def_id</span>));
+                <span class="bool-val">true</span>
             }
-            <span class='prelude-val'>Err</span>(<span class='ident'>e</span>) <span class='op'>=&gt;</span> {
-                <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;type_known_to_meet_bound: ty={:?} bound={} errors={:?}&quot;</span>,
-                       <span class='ident'>ty</span>,
-                       <span class='ident'>infcx</span>.<span class='ident'>tcx</span>.<span class='ident'>item_path_str</span>(<span class='ident'>def_id</span>),
-                       <span class='ident'>e</span>);
-                <span class='bool-val'>false</span>
+            <span class="prelude-val">Err</span>(<span class="ident">e</span>) <span class="op">=&gt;</span> {
+                <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;type_known_to_meet_bound: ty={:?} bound={} errors={:?}&quot;</span>,
+                       <span class="ident">ty</span>,
+                       <span class="ident">infcx</span>.<span class="ident">tcx</span>.<span class="ident">item_path_str</span>(<span class="ident">def_id</span>),
+                       <span class="ident">e</span>);
+                <span class="bool-val">false</span>
             }
         }
-    } <span class='kw'>else</span> {
-        <span class='ident'>result</span>
+    } <span class="kw">else</span> {
+        <span class="ident">result</span>
     }
 }
 
-<span class='comment'>// FIXME: this is gonna need to be removed ...</span>
-<span class='doccomment'>/// Normalizes the parameter environment, reporting errors if they occur.</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>normalize_param_env_or_error</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>unnormalized_env</span>: <span class='ident'>ty</span>::<span class='ident'>ParameterEnvironment</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>cause</span>: <span class='ident'>ObligationCause</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-    <span class='op'>-&gt;</span> <span class='ident'>ty</span>::<span class='ident'>ParameterEnvironment</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
+<span class="comment">// FIXME: this is gonna need to be removed ...</span>
+<span class="doccomment">/// Normalizes the parameter environment, reporting errors if they occur.</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">normalize_param_env_or_error</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">unnormalized_env</span>: <span class="ident">ty</span>::<span class="ident">ParameterEnvironment</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">cause</span>: <span class="ident">ObligationCause</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+    <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">ParameterEnvironment</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>
 {
-    <span class='comment'>// I&#39;m not wild about reporting errors here; I&#39;d prefer to</span>
-    <span class='comment'>// have the errors get reported at a defined place (e.g.,</span>
-    <span class='comment'>// during typeck). Instead I have all parameter</span>
-    <span class='comment'>// environments, in effect, going through this function</span>
-    <span class='comment'>// and hence potentially reporting errors. This ensurse of</span>
-    <span class='comment'>// course that we never forget to normalize (the</span>
-    <span class='comment'>// alternative seemed like it would involve a lot of</span>
-    <span class='comment'>// manual invocations of this fn -- and then we&#39;d have to</span>
-    <span class='comment'>// deal with the errors at each of those sites).</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// In any case, in practice, typeck constructs all the</span>
-    <span class='comment'>// parameter environments once for every fn as it goes,</span>
-    <span class='comment'>// and errors will get reported then; so after typeck we</span>
-    <span class='comment'>// can be sure that no errors should occur.</span>
+    <span class="comment">// I&#39;m not wild about reporting errors here; I&#39;d prefer to</span>
+    <span class="comment">// have the errors get reported at a defined place (e.g.,</span>
+    <span class="comment">// during typeck). Instead I have all parameter</span>
+    <span class="comment">// environments, in effect, going through this function</span>
+    <span class="comment">// and hence potentially reporting errors. This ensurse of</span>
+    <span class="comment">// course that we never forget to normalize (the</span>
+    <span class="comment">// alternative seemed like it would involve a lot of</span>
+    <span class="comment">// manual invocations of this fn -- and then we&#39;d have to</span>
+    <span class="comment">// deal with the errors at each of those sites).</span>
+    <span class="comment">//</span>
+    <span class="comment">// In any case, in practice, typeck constructs all the</span>
+    <span class="comment">// parameter environments once for every fn as it goes,</span>
+    <span class="comment">// and errors will get reported then; so after typeck we</span>
+    <span class="comment">// can be sure that no errors should occur.</span>
 
-    <span class='kw'>let</span> <span class='ident'>span</span> <span class='op'>=</span> <span class='ident'>cause</span>.<span class='ident'>span</span>;
-    <span class='kw'>let</span> <span class='ident'>body_id</span> <span class='op'>=</span> <span class='ident'>cause</span>.<span class='ident'>body_id</span>;
+    <span class="kw">let</span> <span class="ident">span</span> <span class="op">=</span> <span class="ident">cause</span>.<span class="ident">span</span>;
+    <span class="kw">let</span> <span class="ident">body_id</span> <span class="op">=</span> <span class="ident">cause</span>.<span class="ident">body_id</span>;
 
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;normalize_param_env_or_error(unnormalized_env={:?})&quot;</span>,
-           <span class='ident'>unnormalized_env</span>);
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;normalize_param_env_or_error(unnormalized_env={:?})&quot;</span>,
+           <span class="ident">unnormalized_env</span>);
 
-    <span class='kw'>let</span> <span class='ident'>predicates</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span>_<span class='op'>&gt;</span> <span class='op'>=</span>
-        <span class='ident'>util</span>::<span class='ident'>elaborate_predicates</span>(<span class='ident'>tcx</span>, <span class='ident'>unnormalized_env</span>.<span class='ident'>caller_bounds</span>.<span class='ident'>clone</span>())
-        .<span class='ident'>filter</span>(<span class='op'>|</span><span class='ident'>p</span><span class='op'>|</span> <span class='op'>!</span><span class='ident'>p</span>.<span class='ident'>is_global</span>()) <span class='comment'>// (*)</span>
-        .<span class='ident'>collect</span>();
+    <span class="kw">let</span> <span class="ident">predicates</span>: <span class="ident">Vec</span><span class="op">&lt;</span>_<span class="op">&gt;</span> <span class="op">=</span>
+        <span class="ident">util</span>::<span class="ident">elaborate_predicates</span>(<span class="ident">tcx</span>, <span class="ident">unnormalized_env</span>.<span class="ident">caller_bounds</span>.<span class="ident">clone</span>())
+        .<span class="ident">filter</span>(<span class="op">|</span><span class="ident">p</span><span class="op">|</span> <span class="op">!</span><span class="ident">p</span>.<span class="ident">is_global</span>()) <span class="comment">// (*)</span>
+        .<span class="ident">collect</span>();
 
-    <span class='comment'>// (*) Any predicate like `i32: Trait&lt;u32&gt;` or whatever doesn&#39;t</span>
-    <span class='comment'>// need to be in the *environment* to be proven, so screen those</span>
-    <span class='comment'>// out. This is important for the soundness of inter-fn</span>
-    <span class='comment'>// caching. Note though that we should probably check that these</span>
-    <span class='comment'>// predicates hold at the point where the environment is</span>
-    <span class='comment'>// constructed, but I am not currently doing so out of laziness.</span>
-    <span class='comment'>// -nmatsakis</span>
+    <span class="comment">// (*) Any predicate like `i32: Trait&lt;u32&gt;` or whatever doesn&#39;t</span>
+    <span class="comment">// need to be in the *environment* to be proven, so screen those</span>
+    <span class="comment">// out. This is important for the soundness of inter-fn</span>
+    <span class="comment">// caching. Note though that we should probably check that these</span>
+    <span class="comment">// predicates hold at the point where the environment is</span>
+    <span class="comment">// constructed, but I am not currently doing so out of laziness.</span>
+    <span class="comment">// -nmatsakis</span>
 
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;normalize_param_env_or_error: elaborated-predicates={:?}&quot;</span>,
-           <span class='ident'>predicates</span>);
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;normalize_param_env_or_error: elaborated-predicates={:?}&quot;</span>,
+           <span class="ident">predicates</span>);
 
-    <span class='kw'>let</span> <span class='ident'>elaborated_env</span> <span class='op'>=</span> <span class='ident'>unnormalized_env</span>.<span class='ident'>with_caller_bounds</span>(<span class='ident'>predicates</span>);
+    <span class="kw">let</span> <span class="ident">elaborated_env</span> <span class="op">=</span> <span class="ident">unnormalized_env</span>.<span class="ident">with_caller_bounds</span>(<span class="ident">predicates</span>);
 
-    <span class='ident'>tcx</span>.<span class='ident'>infer_ctxt</span>(<span class='ident'>elaborated_env</span>, <span class='ident'>Reveal</span>::<span class='ident'>NotSpecializable</span>).<span class='ident'>enter</span>(<span class='op'>|</span><span class='ident'>infcx</span><span class='op'>|</span> {
-        <span class='kw'>let</span> <span class='ident'>predicates</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>fully_normalize</span>(<span class='kw-2'>&amp;</span><span class='ident'>infcx</span>, <span class='ident'>cause</span>,
-                                               <span class='kw-2'>&amp;</span><span class='ident'>infcx</span>.<span class='ident'>parameter_environment</span>.<span class='ident'>caller_bounds</span>) {
-            <span class='prelude-val'>Ok</span>(<span class='ident'>predicates</span>) <span class='op'>=&gt;</span> <span class='ident'>predicates</span>,
-            <span class='prelude-val'>Err</span>(<span class='ident'>errors</span>) <span class='op'>=&gt;</span> {
-                <span class='ident'>infcx</span>.<span class='ident'>report_fulfillment_errors</span>(<span class='kw-2'>&amp;</span><span class='ident'>errors</span>);
-                <span class='comment'>// An unnormalized env is better than nothing.</span>
-                <span class='kw'>return</span> <span class='ident'>infcx</span>.<span class='ident'>parameter_environment</span>;
+    <span class="ident">tcx</span>.<span class="ident">infer_ctxt</span>(<span class="ident">elaborated_env</span>, <span class="ident">Reveal</span>::<span class="ident">UserFacing</span>).<span class="ident">enter</span>(<span class="op">|</span><span class="ident">infcx</span><span class="op">|</span> {
+        <span class="kw">let</span> <span class="ident">predicates</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">fully_normalize</span>(<span class="kw-2">&amp;</span><span class="ident">infcx</span>, <span class="ident">cause</span>,
+                                               <span class="kw-2">&amp;</span><span class="ident">infcx</span>.<span class="ident">parameter_environment</span>.<span class="ident">caller_bounds</span>) {
+            <span class="prelude-val">Ok</span>(<span class="ident">predicates</span>) <span class="op">=&gt;</span> <span class="ident">predicates</span>,
+            <span class="prelude-val">Err</span>(<span class="ident">errors</span>) <span class="op">=&gt;</span> {
+                <span class="ident">infcx</span>.<span class="ident">report_fulfillment_errors</span>(<span class="kw-2">&amp;</span><span class="ident">errors</span>);
+                <span class="comment">// An unnormalized env is better than nothing.</span>
+                <span class="kw">return</span> <span class="ident">infcx</span>.<span class="ident">parameter_environment</span>;
             }
         };
 
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;normalize_param_env_or_error: normalized predicates={:?}&quot;</span>,
-            <span class='ident'>predicates</span>);
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;normalize_param_env_or_error: normalized predicates={:?}&quot;</span>,
+            <span class="ident">predicates</span>);
 
-        <span class='kw'>let</span> <span class='ident'>free_regions</span> <span class='op'>=</span> <span class='ident'>FreeRegionMap</span>::<span class='ident'>new</span>();
-        <span class='ident'>infcx</span>.<span class='ident'>resolve_regions_and_report_errors</span>(<span class='kw-2'>&amp;</span><span class='ident'>free_regions</span>, <span class='ident'>body_id</span>);
-        <span class='kw'>let</span> <span class='ident'>predicates</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>infcx</span>.<span class='ident'>fully_resolve</span>(<span class='kw-2'>&amp;</span><span class='ident'>predicates</span>) {
-            <span class='prelude-val'>Ok</span>(<span class='ident'>predicates</span>) <span class='op'>=&gt;</span> <span class='ident'>predicates</span>,
-            <span class='prelude-val'>Err</span>(<span class='ident'>fixup_err</span>) <span class='op'>=&gt;</span> {
-                <span class='comment'>// If we encounter a fixup error, it means that some type</span>
-                <span class='comment'>// variable wound up unconstrained. I actually don&#39;t know</span>
-                <span class='comment'>// if this can happen, and I certainly don&#39;t expect it to</span>
-                <span class='comment'>// happen often, but if it did happen it probably</span>
-                <span class='comment'>// represents a legitimate failure due to some kind of</span>
-                <span class='comment'>// unconstrained variable, and it seems better not to ICE,</span>
-                <span class='comment'>// all things considered.</span>
-                <span class='ident'>tcx</span>.<span class='ident'>sess</span>.<span class='ident'>span_err</span>(<span class='ident'>span</span>, <span class='kw-2'>&amp;</span><span class='ident'>fixup_err</span>.<span class='ident'>to_string</span>());
-                <span class='comment'>// An unnormalized env is better than nothing.</span>
-                <span class='kw'>return</span> <span class='ident'>infcx</span>.<span class='ident'>parameter_environment</span>;
+        <span class="kw">let</span> <span class="ident">free_regions</span> <span class="op">=</span> <span class="ident">FreeRegionMap</span>::<span class="ident">new</span>();
+        <span class="ident">infcx</span>.<span class="ident">resolve_regions_and_report_errors</span>(<span class="kw-2">&amp;</span><span class="ident">free_regions</span>, <span class="ident">body_id</span>);
+        <span class="kw">let</span> <span class="ident">predicates</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">infcx</span>.<span class="ident">fully_resolve</span>(<span class="kw-2">&amp;</span><span class="ident">predicates</span>) {
+            <span class="prelude-val">Ok</span>(<span class="ident">predicates</span>) <span class="op">=&gt;</span> <span class="ident">predicates</span>,
+            <span class="prelude-val">Err</span>(<span class="ident">fixup_err</span>) <span class="op">=&gt;</span> {
+                <span class="comment">// If we encounter a fixup error, it means that some type</span>
+                <span class="comment">// variable wound up unconstrained. I actually don&#39;t know</span>
+                <span class="comment">// if this can happen, and I certainly don&#39;t expect it to</span>
+                <span class="comment">// happen often, but if it did happen it probably</span>
+                <span class="comment">// represents a legitimate failure due to some kind of</span>
+                <span class="comment">// unconstrained variable, and it seems better not to ICE,</span>
+                <span class="comment">// all things considered.</span>
+                <span class="ident">tcx</span>.<span class="ident">sess</span>.<span class="ident">span_err</span>(<span class="ident">span</span>, <span class="kw-2">&amp;</span><span class="ident">fixup_err</span>.<span class="ident">to_string</span>());
+                <span class="comment">// An unnormalized env is better than nothing.</span>
+                <span class="kw">return</span> <span class="ident">infcx</span>.<span class="ident">parameter_environment</span>;
             }
         };
 
-        <span class='kw'>let</span> <span class='ident'>predicates</span> <span class='op'>=</span> <span class='kw'>match</span> <span class='ident'>tcx</span>.<span class='ident'>lift_to_global</span>(<span class='kw-2'>&amp;</span><span class='ident'>predicates</span>) {
-            <span class='prelude-val'>Some</span>(<span class='ident'>predicates</span>) <span class='op'>=&gt;</span> <span class='ident'>predicates</span>,
-            <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='kw'>return</span> <span class='ident'>infcx</span>.<span class='ident'>parameter_environment</span>
+        <span class="kw">let</span> <span class="ident">predicates</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">tcx</span>.<span class="ident">lift_to_global</span>(<span class="kw-2">&amp;</span><span class="ident">predicates</span>) {
+            <span class="prelude-val">Some</span>(<span class="ident">predicates</span>) <span class="op">=&gt;</span> <span class="ident">predicates</span>,
+            <span class="prelude-val">None</span> <span class="op">=&gt;</span> <span class="kw">return</span> <span class="ident">infcx</span>.<span class="ident">parameter_environment</span>
         };
 
-        <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;normalize_param_env_or_error: resolved predicates={:?}&quot;</span>,
-            <span class='ident'>predicates</span>);
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;normalize_param_env_or_error: resolved predicates={:?}&quot;</span>,
+            <span class="ident">predicates</span>);
 
-        <span class='ident'>infcx</span>.<span class='ident'>parameter_environment</span>.<span class='ident'>with_caller_bounds</span>(<span class='ident'>predicates</span>)
+        <span class="ident">infcx</span>.<span class="ident">parameter_environment</span>.<span class="ident">with_caller_bounds</span>(<span class="ident">predicates</span>)
     })
 }
 
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>fully_normalize</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span>, <span class='ident'>T</span><span class='op'>&gt;</span>(<span class='ident'>infcx</span>: <span class='kw-2'>&amp;</span><span class='ident'>InferCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;gcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                          <span class='ident'>cause</span>: <span class='ident'>ObligationCause</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                          <span class='ident'>value</span>: <span class='kw-2'>&amp;</span><span class='ident'>T</span>)
-                                          <span class='op'>-&gt;</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>T</span>, <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>FulfillmentError</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span>
-    <span class='kw'>where</span> <span class='ident'>T</span> : <span class='ident'>TypeFoldable</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">fully_normalize</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span>, <span class="ident">T</span><span class="op">&gt;</span>(<span class="ident">infcx</span>: <span class="kw-2">&amp;</span><span class="ident">InferCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                          <span class="ident">cause</span>: <span class="ident">ObligationCause</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                          <span class="ident">value</span>: <span class="kw-2">&amp;</span><span class="ident">T</span>)
+                                          <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">T</span>, <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">FulfillmentError</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span><span class="op">&gt;</span>
+    <span class="kw">where</span> <span class="ident">T</span> : <span class="ident">TypeFoldable</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>
 {
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;fully_normalize(value={:?})&quot;</span>, <span class='ident'>value</span>);
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;fully_normalize(value={:?})&quot;</span>, <span class="ident">value</span>);
 
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>selcx</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>SelectionContext</span>::<span class='ident'>new</span>(<span class='ident'>infcx</span>);
-    <span class='comment'>// FIXME (@jroesch) ISSUE 26721</span>
-    <span class='comment'>// I&#39;m not sure if this is a bug or not, needs further investigation.</span>
-    <span class='comment'>// It appears that by reusing the fulfillment_cx here we incur more</span>
-    <span class='comment'>// obligations and later trip an asssertion on regionck.rs line 337.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// The two possibilities I see is:</span>
-    <span class='comment'>//      - normalization is not actually fully happening and we</span>
-    <span class='comment'>//        have a bug else where</span>
-    <span class='comment'>//      - we are adding a duplicate bound into the list causing</span>
-    <span class='comment'>//        its size to change.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// I think we should probably land this refactor and then come</span>
-    <span class='comment'>// back to this is a follow-up patch.</span>
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>fulfill_cx</span> <span class='op'>=</span> <span class='ident'>FulfillmentContext</span>::<span class='ident'>new</span>();
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">selcx</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">SelectionContext</span>::<span class="ident">new</span>(<span class="ident">infcx</span>);
+    <span class="comment">// FIXME (@jroesch) ISSUE 26721</span>
+    <span class="comment">// I&#39;m not sure if this is a bug or not, needs further investigation.</span>
+    <span class="comment">// It appears that by reusing the fulfillment_cx here we incur more</span>
+    <span class="comment">// obligations and later trip an asssertion on regionck.rs line 337.</span>
+    <span class="comment">//</span>
+    <span class="comment">// The two possibilities I see is:</span>
+    <span class="comment">//      - normalization is not actually fully happening and we</span>
+    <span class="comment">//        have a bug else where</span>
+    <span class="comment">//      - we are adding a duplicate bound into the list causing</span>
+    <span class="comment">//        its size to change.</span>
+    <span class="comment">//</span>
+    <span class="comment">// I think we should probably land this refactor and then come</span>
+    <span class="comment">// back to this is a follow-up patch.</span>
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">fulfill_cx</span> <span class="op">=</span> <span class="ident">FulfillmentContext</span>::<span class="ident">new</span>();
 
-    <span class='kw'>let</span> <span class='ident'>Normalized</span> { <span class='ident'>value</span>: <span class='ident'>normalized_value</span>, <span class='ident'>obligations</span> } <span class='op'>=</span>
-        <span class='ident'>project</span>::<span class='ident'>normalize</span>(<span class='ident'>selcx</span>, <span class='ident'>cause</span>, <span class='ident'>value</span>);
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;fully_normalize: normalized_value={:?} obligations={:?}&quot;</span>,
-           <span class='ident'>normalized_value</span>,
-           <span class='ident'>obligations</span>);
-    <span class='kw'>for</span> <span class='ident'>obligation</span> <span class='kw'>in</span> <span class='ident'>obligations</span> {
-        <span class='ident'>fulfill_cx</span>.<span class='ident'>register_predicate_obligation</span>(<span class='ident'>selcx</span>.<span class='ident'>infcx</span>(), <span class='ident'>obligation</span>);
+    <span class="kw">let</span> <span class="ident">Normalized</span> { <span class="ident">value</span>: <span class="ident">normalized_value</span>, <span class="ident">obligations</span> } <span class="op">=</span>
+        <span class="ident">project</span>::<span class="ident">normalize</span>(<span class="ident">selcx</span>, <span class="ident">cause</span>, <span class="ident">value</span>);
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;fully_normalize: normalized_value={:?} obligations={:?}&quot;</span>,
+           <span class="ident">normalized_value</span>,
+           <span class="ident">obligations</span>);
+    <span class="kw">for</span> <span class="ident">obligation</span> <span class="kw">in</span> <span class="ident">obligations</span> {
+        <span class="ident">fulfill_cx</span>.<span class="ident">register_predicate_obligation</span>(<span class="ident">selcx</span>.<span class="ident">infcx</span>(), <span class="ident">obligation</span>);
     }
 
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;fully_normalize: select_all_or_error start&quot;</span>);
-    <span class='kw'>match</span> <span class='ident'>fulfill_cx</span>.<span class='ident'>select_all_or_error</span>(<span class='ident'>infcx</span>) {
-        <span class='prelude-val'>Ok</span>(()) <span class='op'>=&gt;</span> { }
-        <span class='prelude-val'>Err</span>(<span class='ident'>e</span>) <span class='op'>=&gt;</span> {
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;fully_normalize: error={:?}&quot;</span>, <span class='ident'>e</span>);
-            <span class='kw'>return</span> <span class='prelude-val'>Err</span>(<span class='ident'>e</span>);
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;fully_normalize: select_all_or_error start&quot;</span>);
+    <span class="kw">match</span> <span class="ident">fulfill_cx</span>.<span class="ident">select_all_or_error</span>(<span class="ident">infcx</span>) {
+        <span class="prelude-val">Ok</span>(()) <span class="op">=&gt;</span> { }
+        <span class="prelude-val">Err</span>(<span class="ident">e</span>) <span class="op">=&gt;</span> {
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;fully_normalize: error={:?}&quot;</span>, <span class="ident">e</span>);
+            <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">e</span>);
         }
     }
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;fully_normalize: select_all_or_error complete&quot;</span>);
-    <span class='kw'>let</span> <span class='ident'>resolved_value</span> <span class='op'>=</span> <span class='ident'>infcx</span>.<span class='ident'>resolve_type_vars_if_possible</span>(<span class='kw-2'>&amp;</span><span class='ident'>normalized_value</span>);
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;fully_normalize: resolved_value={:?}&quot;</span>, <span class='ident'>resolved_value</span>);
-    <span class='prelude-val'>Ok</span>(<span class='ident'>resolved_value</span>)
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;fully_normalize: select_all_or_error complete&quot;</span>);
+    <span class="kw">let</span> <span class="ident">resolved_value</span> <span class="op">=</span> <span class="ident">infcx</span>.<span class="ident">resolve_type_vars_if_possible</span>(<span class="kw-2">&amp;</span><span class="ident">normalized_value</span>);
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;fully_normalize: resolved_value={:?}&quot;</span>, <span class="ident">resolved_value</span>);
+    <span class="prelude-val">Ok</span>(<span class="ident">resolved_value</span>)
 }
 
-<span class='doccomment'>/// Normalizes the predicates and checks whether they hold.  If this</span>
-<span class='doccomment'>/// returns false, then either normalize encountered an error or one</span>
-<span class='doccomment'>/// of the predicates did not hold. Used when creating vtables to</span>
-<span class='doccomment'>/// check for unsatisfiable methods.</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>normalize_and_test_predicates</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(<span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                                               <span class='ident'>predicates</span>: <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>ty</span>::<span class='ident'>Predicate</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span>)
-                                               <span class='op'>-&gt;</span> <span class='ident'>bool</span>
+<span class="doccomment">/// Normalizes the predicates and checks whether they hold.  If this</span>
+<span class="doccomment">/// returns false, then either normalize encountered an error or one</span>
+<span class="doccomment">/// of the predicates did not hold. Used when creating vtables to</span>
+<span class="doccomment">/// check for unsatisfiable methods.</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">normalize_and_test_predicates</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                               <span class="ident">predicates</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">Predicate</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>)
+                                               <span class="op">-&gt;</span> <span class="ident">bool</span>
 {
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;normalize_and_test_predicates(predicates={:?})&quot;</span>,
-           <span class='ident'>predicates</span>);
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;normalize_and_test_predicates(predicates={:?})&quot;</span>,
+           <span class="ident">predicates</span>);
 
-    <span class='ident'>tcx</span>.<span class='ident'>infer_ctxt</span>((), <span class='ident'>Reveal</span>::<span class='ident'>All</span>).<span class='ident'>enter</span>(<span class='op'>|</span><span class='ident'>infcx</span><span class='op'>|</span> {
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>selcx</span> <span class='op'>=</span> <span class='ident'>SelectionContext</span>::<span class='ident'>new</span>(<span class='kw-2'>&amp;</span><span class='ident'>infcx</span>);
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>fulfill_cx</span> <span class='op'>=</span> <span class='ident'>FulfillmentContext</span>::<span class='ident'>new</span>();
-        <span class='kw'>let</span> <span class='ident'>cause</span> <span class='op'>=</span> <span class='ident'>ObligationCause</span>::<span class='ident'>dummy</span>();
-        <span class='kw'>let</span> <span class='ident'>Normalized</span> { <span class='ident'>value</span>: <span class='ident'>predicates</span>, <span class='ident'>obligations</span> } <span class='op'>=</span>
-            <span class='ident'>normalize</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>selcx</span>, <span class='ident'>cause</span>.<span class='ident'>clone</span>(), <span class='kw-2'>&amp;</span><span class='ident'>predicates</span>);
-        <span class='kw'>for</span> <span class='ident'>obligation</span> <span class='kw'>in</span> <span class='ident'>obligations</span> {
-            <span class='ident'>fulfill_cx</span>.<span class='ident'>register_predicate_obligation</span>(<span class='kw-2'>&amp;</span><span class='ident'>infcx</span>, <span class='ident'>obligation</span>);
+    <span class="ident">tcx</span>.<span class="ident">infer_ctxt</span>((), <span class="ident">Reveal</span>::<span class="ident">All</span>).<span class="ident">enter</span>(<span class="op">|</span><span class="ident">infcx</span><span class="op">|</span> {
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">selcx</span> <span class="op">=</span> <span class="ident">SelectionContext</span>::<span class="ident">new</span>(<span class="kw-2">&amp;</span><span class="ident">infcx</span>);
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">fulfill_cx</span> <span class="op">=</span> <span class="ident">FulfillmentContext</span>::<span class="ident">new</span>();
+        <span class="kw">let</span> <span class="ident">cause</span> <span class="op">=</span> <span class="ident">ObligationCause</span>::<span class="ident">dummy</span>();
+        <span class="kw">let</span> <span class="ident">Normalized</span> { <span class="ident">value</span>: <span class="ident">predicates</span>, <span class="ident">obligations</span> } <span class="op">=</span>
+            <span class="ident">normalize</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">selcx</span>, <span class="ident">cause</span>.<span class="ident">clone</span>(), <span class="kw-2">&amp;</span><span class="ident">predicates</span>);
+        <span class="kw">for</span> <span class="ident">obligation</span> <span class="kw">in</span> <span class="ident">obligations</span> {
+            <span class="ident">fulfill_cx</span>.<span class="ident">register_predicate_obligation</span>(<span class="kw-2">&amp;</span><span class="ident">infcx</span>, <span class="ident">obligation</span>);
         }
-        <span class='kw'>for</span> <span class='ident'>predicate</span> <span class='kw'>in</span> <span class='ident'>predicates</span> {
-            <span class='kw'>let</span> <span class='ident'>obligation</span> <span class='op'>=</span> <span class='ident'>Obligation</span>::<span class='ident'>new</span>(<span class='ident'>cause</span>.<span class='ident'>clone</span>(), <span class='ident'>predicate</span>);
-            <span class='ident'>fulfill_cx</span>.<span class='ident'>register_predicate_obligation</span>(<span class='kw-2'>&amp;</span><span class='ident'>infcx</span>, <span class='ident'>obligation</span>);
+        <span class="kw">for</span> <span class="ident">predicate</span> <span class="kw">in</span> <span class="ident">predicates</span> {
+            <span class="kw">let</span> <span class="ident">obligation</span> <span class="op">=</span> <span class="ident">Obligation</span>::<span class="ident">new</span>(<span class="ident">cause</span>.<span class="ident">clone</span>(), <span class="ident">predicate</span>);
+            <span class="ident">fulfill_cx</span>.<span class="ident">register_predicate_obligation</span>(<span class="kw-2">&amp;</span><span class="ident">infcx</span>, <span class="ident">obligation</span>);
         }
 
-        <span class='ident'>fulfill_cx</span>.<span class='ident'>select_all_or_error</span>(<span class='kw-2'>&amp;</span><span class='ident'>infcx</span>).<span class='ident'>is_ok</span>()
+        <span class="ident">fulfill_cx</span>.<span class="ident">select_all_or_error</span>(<span class="kw-2">&amp;</span><span class="ident">infcx</span>).<span class="ident">is_ok</span>()
     })
 }
 
-<span class='doccomment'>/// Given a trait `trait_ref`, iterates the vtable entries</span>
-<span class='doccomment'>/// that come from `trait_ref`, including its supertraits.</span>
-<span class='attribute'>#[<span class='ident'>inline</span>]</span> <span class='comment'>// FIXME(#35870) Avoid closures being unexported due to impl Trait.</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>get_vtable_methods</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>(
-    <span class='ident'>tcx</span>: <span class='ident'>TyCtxt</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span>, <span class='lifetime'>&#39;tcx</span>, <span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-    <span class='ident'>trait_ref</span>: <span class='ident'>ty</span>::<span class='ident'>PolyTraitRef</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-    <span class='op'>-&gt;</span> <span class='kw'>impl</span> <span class='ident'>Iterator</span><span class='op'>&lt;</span><span class='ident'>Item</span><span class='op'>=</span><span class='prelude-ty'>Option</span><span class='op'>&lt;</span>(<span class='ident'>DefId</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;tcx</span> <span class='ident'>Substs</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)<span class='op'>&gt;&gt;</span> <span class='op'>+</span> <span class='lifetime'>&#39;a</span>
+<span class="doccomment">/// Given a trait `trait_ref`, iterates the vtable entries</span>
+<span class="doccomment">/// that come from `trait_ref`, including its supertraits.</span>
+<span class="attribute">#[<span class="ident">inline</span>]</span> <span class="comment">// FIXME(#35870) Avoid closures being unexported due to impl Trait.</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">get_vtable_methods</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(
+    <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="ident">trait_ref</span>: <span class="ident">ty</span>::<span class="ident">PolyTraitRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+    <span class="op">-&gt;</span> <span class="kw">impl</span> <span class="ident">Iterator</span><span class="op">&lt;</span><span class="ident">Item</span><span class="op">=</span><span class="prelude-ty">Option</span><span class="op">&lt;</span>(<span class="ident">DefId</span>, <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)<span class="op">&gt;&gt;</span> <span class="op">+</span> <span class="lifetime">&#39;a</span>
 {
-    <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;get_vtable_methods({:?})&quot;</span>, <span class='ident'>trait_ref</span>);
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;get_vtable_methods({:?})&quot;</span>, <span class="ident">trait_ref</span>);
 
-    <span class='ident'>supertraits</span>(<span class='ident'>tcx</span>, <span class='ident'>trait_ref</span>).<span class='ident'>flat_map</span>(<span class='kw'>move</span> <span class='op'>|</span><span class='ident'>trait_ref</span><span class='op'>|</span> {
-        <span class='ident'>tcx</span>.<span class='ident'>populate_implementations_for_trait_if_necessary</span>(<span class='ident'>trait_ref</span>.<span class='ident'>def_id</span>());
+    <span class="ident">supertraits</span>(<span class="ident">tcx</span>, <span class="ident">trait_ref</span>).<span class="ident">flat_map</span>(<span class="kw">move</span> <span class="op">|</span><span class="ident">trait_ref</span><span class="op">|</span> {
+        <span class="ident">tcx</span>.<span class="ident">populate_implementations_for_trait_if_necessary</span>(<span class="ident">trait_ref</span>.<span class="ident">def_id</span>());
 
-        <span class='kw'>let</span> <span class='ident'>trait_methods</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>associated_items</span>(<span class='ident'>trait_ref</span>.<span class='ident'>def_id</span>())
-            .<span class='ident'>filter</span>(<span class='op'>|</span><span class='ident'>item</span><span class='op'>|</span> <span class='ident'>item</span>.<span class='ident'>kind</span> <span class='op'>==</span> <span class='ident'>ty</span>::<span class='ident'>AssociatedKind</span>::<span class='ident'>Method</span>);
+        <span class="kw">let</span> <span class="ident">trait_methods</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">associated_items</span>(<span class="ident">trait_ref</span>.<span class="ident">def_id</span>())
+            .<span class="ident">filter</span>(<span class="op">|</span><span class="ident">item</span><span class="op">|</span> <span class="ident">item</span>.<span class="ident">kind</span> <span class="op">==</span> <span class="ident">ty</span>::<span class="ident">AssociatedKind</span>::<span class="ident">Method</span>);
 
-        <span class='comment'>// Now list each method&#39;s DefId and Substs (for within its trait).</span>
-        <span class='comment'>// If the method can never be called from this object, produce None.</span>
-        <span class='ident'>trait_methods</span>.<span class='ident'>map</span>(<span class='kw'>move</span> <span class='op'>|</span><span class='ident'>trait_method</span><span class='op'>|</span> {
-            <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;get_vtable_methods: trait_method={:?}&quot;</span>, <span class='ident'>trait_method</span>);
-            <span class='kw'>let</span> <span class='ident'>def_id</span> <span class='op'>=</span> <span class='ident'>trait_method</span>.<span class='ident'>def_id</span>;
+        <span class="comment">// Now list each method&#39;s DefId and Substs (for within its trait).</span>
+        <span class="comment">// If the method can never be called from this object, produce None.</span>
+        <span class="ident">trait_methods</span>.<span class="ident">map</span>(<span class="kw">move</span> <span class="op">|</span><span class="ident">trait_method</span><span class="op">|</span> {
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;get_vtable_methods: trait_method={:?}&quot;</span>, <span class="ident">trait_method</span>);
+            <span class="kw">let</span> <span class="ident">def_id</span> <span class="op">=</span> <span class="ident">trait_method</span>.<span class="ident">def_id</span>;
 
-            <span class='comment'>// Some methods cannot be called on an object; skip those.</span>
-            <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>tcx</span>.<span class='ident'>is_vtable_safe_method</span>(<span class='ident'>trait_ref</span>.<span class='ident'>def_id</span>(), <span class='kw-2'>&amp;</span><span class='ident'>trait_method</span>) {
-                <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;get_vtable_methods: not vtable safe&quot;</span>);
-                <span class='kw'>return</span> <span class='prelude-val'>None</span>;
+            <span class="comment">// Some methods cannot be called on an object; skip those.</span>
+            <span class="kw">if</span> <span class="op">!</span><span class="ident">tcx</span>.<span class="ident">is_vtable_safe_method</span>(<span class="ident">trait_ref</span>.<span class="ident">def_id</span>(), <span class="kw-2">&amp;</span><span class="ident">trait_method</span>) {
+                <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;get_vtable_methods: not vtable safe&quot;</span>);
+                <span class="kw">return</span> <span class="prelude-val">None</span>;
             }
 
-            <span class='comment'>// the method may have some early-bound lifetimes, add</span>
-            <span class='comment'>// regions for those</span>
-            <span class='kw'>let</span> <span class='ident'>substs</span> <span class='op'>=</span> <span class='ident'>Substs</span>::<span class='ident'>for_item</span>(<span class='ident'>tcx</span>, <span class='ident'>def_id</span>,
-                                          <span class='op'>|</span>_, _<span class='op'>|</span> <span class='ident'>tcx</span>.<span class='ident'>mk_region</span>(<span class='ident'>ty</span>::<span class='ident'>ReErased</span>),
-                                          <span class='op'>|</span><span class='ident'>def</span>, _<span class='op'>|</span> <span class='ident'>trait_ref</span>.<span class='ident'>substs</span>().<span class='ident'>type_for_def</span>(<span class='ident'>def</span>));
+            <span class="comment">// the method may have some early-bound lifetimes, add</span>
+            <span class="comment">// regions for those</span>
+            <span class="kw">let</span> <span class="ident">substs</span> <span class="op">=</span> <span class="ident">Substs</span>::<span class="ident">for_item</span>(<span class="ident">tcx</span>, <span class="ident">def_id</span>,
+                                          <span class="op">|</span>_, _<span class="op">|</span> <span class="ident">tcx</span>.<span class="ident">mk_region</span>(<span class="ident">ty</span>::<span class="ident">ReErased</span>),
+                                          <span class="op">|</span><span class="ident">def</span>, _<span class="op">|</span> <span class="ident">trait_ref</span>.<span class="ident">substs</span>().<span class="ident">type_for_def</span>(<span class="ident">def</span>));
 
-            <span class='comment'>// the trait type may have higher-ranked lifetimes in it;</span>
-            <span class='comment'>// so erase them if they appear, so that we get the type</span>
-            <span class='comment'>// at some particular call site</span>
-            <span class='kw'>let</span> <span class='ident'>substs</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>erase_late_bound_regions_and_normalize</span>(<span class='kw-2'>&amp;</span><span class='ident'>ty</span>::<span class='ident'>Binder</span>(<span class='ident'>substs</span>));
+            <span class="comment">// the trait type may have higher-ranked lifetimes in it;</span>
+            <span class="comment">// so erase them if they appear, so that we get the type</span>
+            <span class="comment">// at some particular call site</span>
+            <span class="kw">let</span> <span class="ident">substs</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">erase_late_bound_regions_and_normalize</span>(<span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">Binder</span>(<span class="ident">substs</span>));
 
-            <span class='comment'>// It&#39;s possible that the method relies on where clauses that</span>
-            <span class='comment'>// do not hold for this particular set of type parameters.</span>
-            <span class='comment'>// Note that this method could then never be called, so we</span>
-            <span class='comment'>// do not want to try and trans it, in that case (see #23435).</span>
-            <span class='kw'>let</span> <span class='ident'>predicates</span> <span class='op'>=</span> <span class='ident'>tcx</span>.<span class='ident'>item_predicates</span>(<span class='ident'>def_id</span>).<span class='ident'>instantiate_own</span>(<span class='ident'>tcx</span>, <span class='ident'>substs</span>);
-            <span class='kw'>if</span> <span class='op'>!</span><span class='ident'>normalize_and_test_predicates</span>(<span class='ident'>tcx</span>, <span class='ident'>predicates</span>.<span class='ident'>predicates</span>) {
-                <span class='macro'>debug</span><span class='macro'>!</span>(<span class='string'>&quot;get_vtable_methods: predicates do not hold&quot;</span>);
-                <span class='kw'>return</span> <span class='prelude-val'>None</span>;
+            <span class="comment">// It&#39;s possible that the method relies on where clauses that</span>
+            <span class="comment">// do not hold for this particular set of type parameters.</span>
+            <span class="comment">// Note that this method could then never be called, so we</span>
+            <span class="comment">// do not want to try and trans it, in that case (see #23435).</span>
+            <span class="kw">let</span> <span class="ident">predicates</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">item_predicates</span>(<span class="ident">def_id</span>).<span class="ident">instantiate_own</span>(<span class="ident">tcx</span>, <span class="ident">substs</span>);
+            <span class="kw">if</span> <span class="op">!</span><span class="ident">normalize_and_test_predicates</span>(<span class="ident">tcx</span>, <span class="ident">predicates</span>.<span class="ident">predicates</span>) {
+                <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;get_vtable_methods: predicates do not hold&quot;</span>);
+                <span class="kw">return</span> <span class="prelude-val">None</span>;
             }
 
-            <span class='prelude-val'>Some</span>((<span class='ident'>def_id</span>, <span class='ident'>substs</span>))
+            <span class="prelude-val">Some</span>((<span class="ident">def_id</span>, <span class="ident">substs</span>))
         })
     })
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>,<span class='ident'>O</span><span class='op'>&gt;</span> <span class='ident'>Obligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>,<span class='ident'>O</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>cause</span>: <span class='ident'>ObligationCause</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-               <span class='ident'>trait_ref</span>: <span class='ident'>O</span>)
-               <span class='op'>-&gt;</span> <span class='ident'>Obligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>O</span><span class='op'>&gt;</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>,<span class="ident">O</span><span class="op">&gt;</span> <span class="ident">Obligation</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>,<span class="ident">O</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">new</span>(<span class="ident">cause</span>: <span class="ident">ObligationCause</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+               <span class="ident">trait_ref</span>: <span class="ident">O</span>)
+               <span class="op">-&gt;</span> <span class="ident">Obligation</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">O</span><span class="op">&gt;</span>
     {
-        <span class='ident'>Obligation</span> { <span class='ident'>cause</span>: <span class='ident'>cause</span>,
-                     <span class='ident'>recursion_depth</span>: <span class='number'>0</span>,
-                     <span class='ident'>predicate</span>: <span class='ident'>trait_ref</span> }
+        <span class="ident">Obligation</span> { <span class="ident">cause</span>: <span class="ident">cause</span>,
+                     <span class="ident">recursion_depth</span>: <span class="number">0</span>,
+                     <span class="ident">predicate</span>: <span class="ident">trait_ref</span> }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>with_depth</span>(<span class='ident'>cause</span>: <span class='ident'>ObligationCause</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-                  <span class='ident'>recursion_depth</span>: <span class='ident'>usize</span>,
-                  <span class='ident'>trait_ref</span>: <span class='ident'>O</span>)
-                  <span class='op'>-&gt;</span> <span class='ident'>Obligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>O</span><span class='op'>&gt;</span>
+    <span class="kw">fn</span> <span class="ident">with_depth</span>(<span class="ident">cause</span>: <span class="ident">ObligationCause</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                  <span class="ident">recursion_depth</span>: <span class="ident">usize</span>,
+                  <span class="ident">trait_ref</span>: <span class="ident">O</span>)
+                  <span class="op">-&gt;</span> <span class="ident">Obligation</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">O</span><span class="op">&gt;</span>
     {
-        <span class='ident'>Obligation</span> { <span class='ident'>cause</span>: <span class='ident'>cause</span>,
-                     <span class='ident'>recursion_depth</span>: <span class='ident'>recursion_depth</span>,
-                     <span class='ident'>predicate</span>: <span class='ident'>trait_ref</span> }
+        <span class="ident">Obligation</span> { <span class="ident">cause</span>: <span class="ident">cause</span>,
+                     <span class="ident">recursion_depth</span>: <span class="ident">recursion_depth</span>,
+                     <span class="ident">predicate</span>: <span class="ident">trait_ref</span> }
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>misc</span>(<span class='ident'>span</span>: <span class='ident'>Span</span>, <span class='ident'>body_id</span>: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>, <span class='ident'>trait_ref</span>: <span class='ident'>O</span>) <span class='op'>-&gt;</span> <span class='ident'>Obligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>O</span><span class='op'>&gt;</span> {
-        <span class='ident'>Obligation</span>::<span class='ident'>new</span>(<span class='ident'>ObligationCause</span>::<span class='ident'>misc</span>(<span class='ident'>span</span>, <span class='ident'>body_id</span>), <span class='ident'>trait_ref</span>)
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">misc</span>(<span class="ident">span</span>: <span class="ident">Span</span>, <span class="ident">body_id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>, <span class="ident">trait_ref</span>: <span class="ident">O</span>) <span class="op">-&gt;</span> <span class="ident">Obligation</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">O</span><span class="op">&gt;</span> {
+        <span class="ident">Obligation</span>::<span class="ident">new</span>(<span class="ident">ObligationCause</span>::<span class="ident">misc</span>(<span class="ident">span</span>, <span class="ident">body_id</span>), <span class="ident">trait_ref</span>)
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>with</span><span class='op'>&lt;</span><span class='ident'>P</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>value</span>: <span class='ident'>P</span>) <span class='op'>-&gt;</span> <span class='ident'>Obligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>,<span class='ident'>P</span><span class='op'>&gt;</span> {
-        <span class='ident'>Obligation</span> { <span class='ident'>cause</span>: <span class='self'>self</span>.<span class='ident'>cause</span>.<span class='ident'>clone</span>(),
-                     <span class='ident'>recursion_depth</span>: <span class='self'>self</span>.<span class='ident'>recursion_depth</span>,
-                     <span class='ident'>predicate</span>: <span class='ident'>value</span> }
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">with</span><span class="op">&lt;</span><span class="ident">P</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">value</span>: <span class="ident">P</span>) <span class="op">-&gt;</span> <span class="ident">Obligation</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>,<span class="ident">P</span><span class="op">&gt;</span> {
+        <span class="ident">Obligation</span> { <span class="ident">cause</span>: <span class="self">self</span>.<span class="ident">cause</span>.<span class="ident">clone</span>(),
+                     <span class="ident">recursion_depth</span>: <span class="self">self</span>.<span class="ident">recursion_depth</span>,
+                     <span class="ident">predicate</span>: <span class="ident">value</span> }
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>ObligationCause</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>span</span>: <span class='ident'>Span</span>,
-               <span class='ident'>body_id</span>: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>,
-               <span class='ident'>code</span>: <span class='ident'>ObligationCauseCode</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-               <span class='op'>-&gt;</span> <span class='ident'>ObligationCause</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='ident'>ObligationCause</span> { <span class='ident'>span</span>: <span class='ident'>span</span>, <span class='ident'>body_id</span>: <span class='ident'>body_id</span>, <span class='ident'>code</span>: <span class='ident'>code</span> }
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">ObligationCause</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">new</span>(<span class="ident">span</span>: <span class="ident">Span</span>,
+               <span class="ident">body_id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>,
+               <span class="ident">code</span>: <span class="ident">ObligationCauseCode</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+               <span class="op">-&gt;</span> <span class="ident">ObligationCause</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="ident">ObligationCause</span> { <span class="ident">span</span>: <span class="ident">span</span>, <span class="ident">body_id</span>: <span class="ident">body_id</span>, <span class="ident">code</span>: <span class="ident">code</span> }
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>misc</span>(<span class='ident'>span</span>: <span class='ident'>Span</span>, <span class='ident'>body_id</span>: <span class='ident'>ast</span>::<span class='ident'>NodeId</span>) <span class='op'>-&gt;</span> <span class='ident'>ObligationCause</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='ident'>ObligationCause</span> { <span class='ident'>span</span>: <span class='ident'>span</span>, <span class='ident'>body_id</span>: <span class='ident'>body_id</span>, <span class='ident'>code</span>: <span class='ident'>MiscObligation</span> }
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">misc</span>(<span class="ident">span</span>: <span class="ident">Span</span>, <span class="ident">body_id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>) <span class="op">-&gt;</span> <span class="ident">ObligationCause</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="ident">ObligationCause</span> { <span class="ident">span</span>: <span class="ident">span</span>, <span class="ident">body_id</span>: <span class="ident">body_id</span>, <span class="ident">code</span>: <span class="ident">MiscObligation</span> }
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>dummy</span>() <span class='op'>-&gt;</span> <span class='ident'>ObligationCause</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-        <span class='ident'>ObligationCause</span> { <span class='ident'>span</span>: <span class='ident'>DUMMY_SP</span>, <span class='ident'>body_id</span>: <span class='ident'>ast</span>::<span class='ident'>CRATE_NODE_ID</span>, <span class='ident'>code</span>: <span class='ident'>MiscObligation</span> }
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">dummy</span>() <span class="op">-&gt;</span> <span class="ident">ObligationCause</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="ident">ObligationCause</span> { <span class="ident">span</span>: <span class="ident">DUMMY_SP</span>, <span class="ident">body_id</span>: <span class="ident">ast</span>::<span class="ident">CRATE_NODE_ID</span>, <span class="ident">code</span>: <span class="ident">MiscObligation</span> }
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>N</span><span class='op'>&gt;</span> <span class='ident'>Vtable</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>N</span><span class='op'>&gt;</span> {
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>nested_obligations</span>(<span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>N</span><span class='op'>&gt;</span> {
-        <span class='kw'>match</span> <span class='self'>self</span> {
-            <span class='ident'>VtableImpl</span>(<span class='ident'>i</span>) <span class='op'>=&gt;</span> <span class='ident'>i</span>.<span class='ident'>nested</span>,
-            <span class='ident'>VtableParam</span>(<span class='ident'>n</span>) <span class='op'>=&gt;</span> <span class='ident'>n</span>,
-            <span class='ident'>VtableBuiltin</span>(<span class='ident'>i</span>) <span class='op'>=&gt;</span> <span class='ident'>i</span>.<span class='ident'>nested</span>,
-            <span class='ident'>VtableDefaultImpl</span>(<span class='ident'>d</span>) <span class='op'>=&gt;</span> <span class='ident'>d</span>.<span class='ident'>nested</span>,
-            <span class='ident'>VtableClosure</span>(<span class='ident'>c</span>) <span class='op'>=&gt;</span> <span class='ident'>c</span>.<span class='ident'>nested</span>,
-            <span class='ident'>VtableObject</span>(<span class='ident'>d</span>) <span class='op'>=&gt;</span> <span class='ident'>d</span>.<span class='ident'>nested</span>,
-            <span class='ident'>VtableFnPointer</span>(<span class='ident'>d</span>) <span class='op'>=&gt;</span> <span class='ident'>d</span>.<span class='ident'>nested</span>,
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">N</span><span class="op">&gt;</span> <span class="ident">Vtable</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">N</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">nested_obligations</span>(<span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">N</span><span class="op">&gt;</span> {
+        <span class="kw">match</span> <span class="self">self</span> {
+            <span class="ident">VtableImpl</span>(<span class="ident">i</span>) <span class="op">=&gt;</span> <span class="ident">i</span>.<span class="ident">nested</span>,
+            <span class="ident">VtableParam</span>(<span class="ident">n</span>) <span class="op">=&gt;</span> <span class="ident">n</span>,
+            <span class="ident">VtableBuiltin</span>(<span class="ident">i</span>) <span class="op">=&gt;</span> <span class="ident">i</span>.<span class="ident">nested</span>,
+            <span class="ident">VtableDefaultImpl</span>(<span class="ident">d</span>) <span class="op">=&gt;</span> <span class="ident">d</span>.<span class="ident">nested</span>,
+            <span class="ident">VtableClosure</span>(<span class="ident">c</span>) <span class="op">=&gt;</span> <span class="ident">c</span>.<span class="ident">nested</span>,
+            <span class="ident">VtableObject</span>(<span class="ident">d</span>) <span class="op">=&gt;</span> <span class="ident">d</span>.<span class="ident">nested</span>,
+            <span class="ident">VtableFnPointer</span>(<span class="ident">d</span>) <span class="op">=&gt;</span> <span class="ident">d</span>.<span class="ident">nested</span>,
         }
     }
 
-    <span class='kw'>fn</span> <span class='ident'>nested_obligations_mut</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>N</span><span class='op'>&gt;</span> {
-        <span class='kw'>match</span> <span class='self'>self</span> {
-            <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>VtableImpl</span>(<span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>i</span>) <span class='op'>=&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>i</span>.<span class='ident'>nested</span>,
-            <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>VtableParam</span>(<span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>n</span>) <span class='op'>=&gt;</span> <span class='ident'>n</span>,
-            <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>VtableBuiltin</span>(<span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>i</span>) <span class='op'>=&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>i</span>.<span class='ident'>nested</span>,
-            <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>VtableDefaultImpl</span>(<span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>d</span>) <span class='op'>=&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>d</span>.<span class='ident'>nested</span>,
-            <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>VtableClosure</span>(<span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>c</span>) <span class='op'>=&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>c</span>.<span class='ident'>nested</span>,
-            <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>VtableObject</span>(<span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>d</span>) <span class='op'>=&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>d</span>.<span class='ident'>nested</span>,
-            <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>VtableFnPointer</span>(<span class='kw-2'>ref</span> <span class='kw-2'>mut</span> <span class='ident'>d</span>) <span class='op'>=&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>d</span>.<span class='ident'>nested</span>,
+    <span class="kw">fn</span> <span class="ident">nested_obligations_mut</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">N</span><span class="op">&gt;</span> {
+        <span class="kw">match</span> <span class="self">self</span> {
+            <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">VtableImpl</span>(<span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">i</span>) <span class="op">=&gt;</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">i</span>.<span class="ident">nested</span>,
+            <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">VtableParam</span>(<span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">n</span>) <span class="op">=&gt;</span> <span class="ident">n</span>,
+            <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">VtableBuiltin</span>(<span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">i</span>) <span class="op">=&gt;</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">i</span>.<span class="ident">nested</span>,
+            <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">VtableDefaultImpl</span>(<span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">d</span>) <span class="op">=&gt;</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">d</span>.<span class="ident">nested</span>,
+            <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">VtableClosure</span>(<span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">c</span>) <span class="op">=&gt;</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">c</span>.<span class="ident">nested</span>,
+            <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">VtableObject</span>(<span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">d</span>) <span class="op">=&gt;</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">d</span>.<span class="ident">nested</span>,
+            <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">VtableFnPointer</span>(<span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">d</span>) <span class="op">=&gt;</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">d</span>.<span class="ident">nested</span>,
         }
     }
 
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>map</span><span class='op'>&lt;</span><span class='ident'>M</span>, <span class='ident'>F</span><span class='op'>&gt;</span>(<span class='self'>self</span>, <span class='ident'>f</span>: <span class='ident'>F</span>) <span class='op'>-&gt;</span> <span class='ident'>Vtable</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span>, <span class='ident'>M</span><span class='op'>&gt;</span> <span class='kw'>where</span> <span class='ident'>F</span>: <span class='ident'>FnMut</span>(<span class='ident'>N</span>) <span class='op'>-&gt;</span> <span class='ident'>M</span> {
-        <span class='kw'>match</span> <span class='self'>self</span> {
-            <span class='ident'>VtableImpl</span>(<span class='ident'>i</span>) <span class='op'>=&gt;</span> <span class='ident'>VtableImpl</span>(<span class='ident'>VtableImplData</span> {
-                <span class='ident'>impl_def_id</span>: <span class='ident'>i</span>.<span class='ident'>impl_def_id</span>,
-                <span class='ident'>substs</span>: <span class='ident'>i</span>.<span class='ident'>substs</span>,
-                <span class='ident'>nested</span>: <span class='ident'>i</span>.<span class='ident'>nested</span>.<span class='ident'>into_iter</span>().<span class='ident'>map</span>(<span class='ident'>f</span>).<span class='ident'>collect</span>(),
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">map</span><span class="op">&lt;</span><span class="ident">M</span>, <span class="ident">F</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">f</span>: <span class="ident">F</span>) <span class="op">-&gt;</span> <span class="ident">Vtable</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">M</span><span class="op">&gt;</span> <span class="kw">where</span> <span class="ident">F</span>: <span class="ident">FnMut</span>(<span class="ident">N</span>) <span class="op">-&gt;</span> <span class="ident">M</span> {
+        <span class="kw">match</span> <span class="self">self</span> {
+            <span class="ident">VtableImpl</span>(<span class="ident">i</span>) <span class="op">=&gt;</span> <span class="ident">VtableImpl</span>(<span class="ident">VtableImplData</span> {
+                <span class="ident">impl_def_id</span>: <span class="ident">i</span>.<span class="ident">impl_def_id</span>,
+                <span class="ident">substs</span>: <span class="ident">i</span>.<span class="ident">substs</span>,
+                <span class="ident">nested</span>: <span class="ident">i</span>.<span class="ident">nested</span>.<span class="ident">into_iter</span>().<span class="ident">map</span>(<span class="ident">f</span>).<span class="ident">collect</span>(),
             }),
-            <span class='ident'>VtableParam</span>(<span class='ident'>n</span>) <span class='op'>=&gt;</span> <span class='ident'>VtableParam</span>(<span class='ident'>n</span>.<span class='ident'>into_iter</span>().<span class='ident'>map</span>(<span class='ident'>f</span>).<span class='ident'>collect</span>()),
-            <span class='ident'>VtableBuiltin</span>(<span class='ident'>i</span>) <span class='op'>=&gt;</span> <span class='ident'>VtableBuiltin</span>(<span class='ident'>VtableBuiltinData</span> {
-                <span class='ident'>nested</span>: <span class='ident'>i</span>.<span class='ident'>nested</span>.<span class='ident'>into_iter</span>().<span class='ident'>map</span>(<span class='ident'>f</span>).<span class='ident'>collect</span>(),
+            <span class="ident">VtableParam</span>(<span class="ident">n</span>) <span class="op">=&gt;</span> <span class="ident">VtableParam</span>(<span class="ident">n</span>.<span class="ident">into_iter</span>().<span class="ident">map</span>(<span class="ident">f</span>).<span class="ident">collect</span>()),
+            <span class="ident">VtableBuiltin</span>(<span class="ident">i</span>) <span class="op">=&gt;</span> <span class="ident">VtableBuiltin</span>(<span class="ident">VtableBuiltinData</span> {
+                <span class="ident">nested</span>: <span class="ident">i</span>.<span class="ident">nested</span>.<span class="ident">into_iter</span>().<span class="ident">map</span>(<span class="ident">f</span>).<span class="ident">collect</span>(),
             }),
-            <span class='ident'>VtableObject</span>(<span class='ident'>o</span>) <span class='op'>=&gt;</span> <span class='ident'>VtableObject</span>(<span class='ident'>VtableObjectData</span> {
-                <span class='ident'>upcast_trait_ref</span>: <span class='ident'>o</span>.<span class='ident'>upcast_trait_ref</span>,
-                <span class='ident'>vtable_base</span>: <span class='ident'>o</span>.<span class='ident'>vtable_base</span>,
-                <span class='ident'>nested</span>: <span class='ident'>o</span>.<span class='ident'>nested</span>.<span class='ident'>into_iter</span>().<span class='ident'>map</span>(<span class='ident'>f</span>).<span class='ident'>collect</span>(),
+            <span class="ident">VtableObject</span>(<span class="ident">o</span>) <span class="op">=&gt;</span> <span class="ident">VtableObject</span>(<span class="ident">VtableObjectData</span> {
+                <span class="ident">upcast_trait_ref</span>: <span class="ident">o</span>.<span class="ident">upcast_trait_ref</span>,
+                <span class="ident">vtable_base</span>: <span class="ident">o</span>.<span class="ident">vtable_base</span>,
+                <span class="ident">nested</span>: <span class="ident">o</span>.<span class="ident">nested</span>.<span class="ident">into_iter</span>().<span class="ident">map</span>(<span class="ident">f</span>).<span class="ident">collect</span>(),
             }),
-            <span class='ident'>VtableDefaultImpl</span>(<span class='ident'>d</span>) <span class='op'>=&gt;</span> <span class='ident'>VtableDefaultImpl</span>(<span class='ident'>VtableDefaultImplData</span> {
-                <span class='ident'>trait_def_id</span>: <span class='ident'>d</span>.<span class='ident'>trait_def_id</span>,
-                <span class='ident'>nested</span>: <span class='ident'>d</span>.<span class='ident'>nested</span>.<span class='ident'>into_iter</span>().<span class='ident'>map</span>(<span class='ident'>f</span>).<span class='ident'>collect</span>(),
+            <span class="ident">VtableDefaultImpl</span>(<span class="ident">d</span>) <span class="op">=&gt;</span> <span class="ident">VtableDefaultImpl</span>(<span class="ident">VtableDefaultImplData</span> {
+                <span class="ident">trait_def_id</span>: <span class="ident">d</span>.<span class="ident">trait_def_id</span>,
+                <span class="ident">nested</span>: <span class="ident">d</span>.<span class="ident">nested</span>.<span class="ident">into_iter</span>().<span class="ident">map</span>(<span class="ident">f</span>).<span class="ident">collect</span>(),
             }),
-            <span class='ident'>VtableFnPointer</span>(<span class='ident'>p</span>) <span class='op'>=&gt;</span> <span class='ident'>VtableFnPointer</span>(<span class='ident'>VtableFnPointerData</span> {
-                <span class='ident'>fn_ty</span>: <span class='ident'>p</span>.<span class='ident'>fn_ty</span>,
-                <span class='ident'>nested</span>: <span class='ident'>p</span>.<span class='ident'>nested</span>.<span class='ident'>into_iter</span>().<span class='ident'>map</span>(<span class='ident'>f</span>).<span class='ident'>collect</span>(),
+            <span class="ident">VtableFnPointer</span>(<span class="ident">p</span>) <span class="op">=&gt;</span> <span class="ident">VtableFnPointer</span>(<span class="ident">VtableFnPointerData</span> {
+                <span class="ident">fn_ty</span>: <span class="ident">p</span>.<span class="ident">fn_ty</span>,
+                <span class="ident">nested</span>: <span class="ident">p</span>.<span class="ident">nested</span>.<span class="ident">into_iter</span>().<span class="ident">map</span>(<span class="ident">f</span>).<span class="ident">collect</span>(),
             }),
-            <span class='ident'>VtableClosure</span>(<span class='ident'>c</span>) <span class='op'>=&gt;</span> <span class='ident'>VtableClosure</span>(<span class='ident'>VtableClosureData</span> {
-                <span class='ident'>closure_def_id</span>: <span class='ident'>c</span>.<span class='ident'>closure_def_id</span>,
-                <span class='ident'>substs</span>: <span class='ident'>c</span>.<span class='ident'>substs</span>,
-                <span class='ident'>nested</span>: <span class='ident'>c</span>.<span class='ident'>nested</span>.<span class='ident'>into_iter</span>().<span class='ident'>map</span>(<span class='ident'>f</span>).<span class='ident'>collect</span>(),
+            <span class="ident">VtableClosure</span>(<span class="ident">c</span>) <span class="op">=&gt;</span> <span class="ident">VtableClosure</span>(<span class="ident">VtableClosureData</span> {
+                <span class="ident">closure_def_id</span>: <span class="ident">c</span>.<span class="ident">closure_def_id</span>,
+                <span class="ident">substs</span>: <span class="ident">c</span>.<span class="ident">substs</span>,
+                <span class="ident">nested</span>: <span class="ident">c</span>.<span class="ident">nested</span>.<span class="ident">into_iter</span>().<span class="ident">map</span>(<span class="ident">f</span>).<span class="ident">collect</span>(),
             })
         }
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>FulfillmentError</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>obligation</span>: <span class='ident'>PredicateObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>,
-           <span class='ident'>code</span>: <span class='ident'>FulfillmentErrorCode</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>)
-           <span class='op'>-&gt;</span> <span class='ident'>FulfillmentError</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">FulfillmentError</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">new</span>(<span class="ident">obligation</span>: <span class="ident">PredicateObligation</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+           <span class="ident">code</span>: <span class="ident">FulfillmentErrorCode</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+           <span class="op">-&gt;</span> <span class="ident">FulfillmentError</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>
     {
-        <span class='ident'>FulfillmentError</span> { <span class='ident'>obligation</span>: <span class='ident'>obligation</span>, <span class='ident'>code</span>: <span class='ident'>code</span> }
+        <span class="ident">FulfillmentError</span> { <span class="ident">obligation</span>: <span class="ident">obligation</span>, <span class="ident">code</span>: <span class="ident">code</span> }
     }
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> <span class='ident'>TraitObligation</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;</span> {
-    <span class='kw'>fn</span> <span class='ident'>self_ty</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>ty</span>::<span class='ident'>Binder</span><span class='op'>&lt;</span><span class='ident'>Ty</span><span class='op'>&lt;</span><span class='lifetime'>&#39;tcx</span><span class='op'>&gt;&gt;</span> {
-        <span class='ident'>ty</span>::<span class='ident'>Binder</span>(<span class='self'>self</span>.<span class='ident'>predicate</span>.<span class='ident'>skip_binder</span>().<span class='ident'>self_ty</span>())
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">TraitObligation</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">self_ty</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">Binder</span><span class="op">&lt;</span><span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span> {
+        <span class="ident">ty</span>::<span class="ident">Binder</span>(<span class="self">self</span>.<span class="ident">predicate</span>.<span class="ident">skip_binder</span>().<span class="ident">self_ty</span>())
     }
 }
 </pre>

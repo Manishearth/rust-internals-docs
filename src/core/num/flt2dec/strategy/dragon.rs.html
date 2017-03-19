@@ -370,333 +370,333 @@
 <span id="325">325</span>
 <span id="326">326</span>
 <span id="327">327</span>
-</pre><pre class='rust '>
-<span class='comment'>// Copyright 2015 The Rust Project Developers. See the COPYRIGHT</span>
-<span class='comment'>// file at the top-level directory of this distribution and at</span>
-<span class='comment'>// http://rust-lang.org/COPYRIGHT.</span>
-<span class='comment'>//</span>
-<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
-<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
-<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
-<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
-<span class='comment'>// except according to those terms.</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2015 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
 
-<span class='doccomment'>/*!
+<span class="doccomment">/*!
 Almost direct (but slightly optimized) Rust translation of Figure 3 of [1].
 
 [1] Burger, R. G. and Dybvig, R. K. 1996. Printing floating-point numbers
     quickly and accurately. SIGPLAN Not. 31, 5 (May. 1996), 108-116.
 */</span>
 
-<span class='kw'>use</span> <span class='ident'>cmp</span>::<span class='ident'>Ordering</span>;
+<span class="kw">use</span> <span class="ident">cmp</span>::<span class="ident">Ordering</span>;
 
-<span class='kw'>use</span> <span class='ident'>num</span>::<span class='ident'>flt2dec</span>::{<span class='ident'>Decoded</span>, <span class='ident'>MAX_SIG_DIGITS</span>, <span class='ident'>round_up</span>};
-<span class='kw'>use</span> <span class='ident'>num</span>::<span class='ident'>flt2dec</span>::<span class='ident'>estimator</span>::<span class='ident'>estimate_scaling_factor</span>;
-<span class='kw'>use</span> <span class='ident'>num</span>::<span class='ident'>bignum</span>::<span class='ident'>Digit32</span> <span class='kw'>as</span> <span class='ident'>Digit</span>;
-<span class='kw'>use</span> <span class='ident'>num</span>::<span class='ident'>bignum</span>::<span class='ident'>Big32x40</span> <span class='kw'>as</span> <span class='ident'>Big</span>;
+<span class="kw">use</span> <span class="ident">num</span>::<span class="ident">flt2dec</span>::{<span class="ident">Decoded</span>, <span class="ident">MAX_SIG_DIGITS</span>, <span class="ident">round_up</span>};
+<span class="kw">use</span> <span class="ident">num</span>::<span class="ident">flt2dec</span>::<span class="ident">estimator</span>::<span class="ident">estimate_scaling_factor</span>;
+<span class="kw">use</span> <span class="ident">num</span>::<span class="ident">bignum</span>::<span class="ident">Digit32</span> <span class="kw">as</span> <span class="ident">Digit</span>;
+<span class="kw">use</span> <span class="ident">num</span>::<span class="ident">bignum</span>::<span class="ident">Big32x40</span> <span class="kw">as</span> <span class="ident">Big</span>;
 
-<span class='kw'>static</span> <span class='ident'>POW10</span>: [<span class='ident'>Digit</span>; <span class='number'>10</span>] <span class='op'>=</span> [<span class='number'>1</span>, <span class='number'>10</span>, <span class='number'>100</span>, <span class='number'>1000</span>, <span class='number'>10000</span>, <span class='number'>100000</span>,
-                             <span class='number'>1000000</span>, <span class='number'>10000000</span>, <span class='number'>100000000</span>, <span class='number'>1000000000</span>];
-<span class='kw'>static</span> <span class='ident'>TWOPOW10</span>: [<span class='ident'>Digit</span>; <span class='number'>10</span>] <span class='op'>=</span> [<span class='number'>2</span>, <span class='number'>20</span>, <span class='number'>200</span>, <span class='number'>2000</span>, <span class='number'>20000</span>, <span class='number'>200000</span>,
-                                <span class='number'>2000000</span>, <span class='number'>20000000</span>, <span class='number'>200000000</span>, <span class='number'>2000000000</span>];
+<span class="kw">static</span> <span class="ident">POW10</span>: [<span class="ident">Digit</span>; <span class="number">10</span>] <span class="op">=</span> [<span class="number">1</span>, <span class="number">10</span>, <span class="number">100</span>, <span class="number">1000</span>, <span class="number">10000</span>, <span class="number">100000</span>,
+                             <span class="number">1000000</span>, <span class="number">10000000</span>, <span class="number">100000000</span>, <span class="number">1000000000</span>];
+<span class="kw">static</span> <span class="ident">TWOPOW10</span>: [<span class="ident">Digit</span>; <span class="number">10</span>] <span class="op">=</span> [<span class="number">2</span>, <span class="number">20</span>, <span class="number">200</span>, <span class="number">2000</span>, <span class="number">20000</span>, <span class="number">200000</span>,
+                                <span class="number">2000000</span>, <span class="number">20000000</span>, <span class="number">200000000</span>, <span class="number">2000000000</span>];
 
-<span class='comment'>// precalculated arrays of `Digit`s for 10^(2^n)</span>
-<span class='kw'>static</span> <span class='ident'>POW10TO16</span>: [<span class='ident'>Digit</span>; <span class='number'>2</span>] <span class='op'>=</span> [<span class='number'>0x6fc10000</span>, <span class='number'>0x2386f2</span>];
-<span class='kw'>static</span> <span class='ident'>POW10TO32</span>: [<span class='ident'>Digit</span>; <span class='number'>4</span>] <span class='op'>=</span> [<span class='number'>0</span>, <span class='number'>0x85acef81</span>, <span class='number'>0x2d6d415b</span>, <span class='number'>0x4ee</span>];
-<span class='kw'>static</span> <span class='ident'>POW10TO64</span>: [<span class='ident'>Digit</span>; <span class='number'>7</span>] <span class='op'>=</span> [<span class='number'>0</span>, <span class='number'>0</span>, <span class='number'>0xbf6a1f01</span>, <span class='number'>0x6e38ed64</span>, <span class='number'>0xdaa797ed</span>, <span class='number'>0xe93ff9f4</span>, <span class='number'>0x184f03</span>];
-<span class='kw'>static</span> <span class='ident'>POW10TO128</span>: [<span class='ident'>Digit</span>; <span class='number'>14</span>] <span class='op'>=</span>
-    [<span class='number'>0</span>, <span class='number'>0</span>, <span class='number'>0</span>, <span class='number'>0</span>, <span class='number'>0x2e953e01</span>, <span class='number'>0x3df9909</span>, <span class='number'>0xf1538fd</span>, <span class='number'>0x2374e42f</span>, <span class='number'>0xd3cff5ec</span>, <span class='number'>0xc404dc08</span>,
-     <span class='number'>0xbccdb0da</span>, <span class='number'>0xa6337f19</span>, <span class='number'>0xe91f2603</span>, <span class='number'>0x24e</span>];
-<span class='kw'>static</span> <span class='ident'>POW10TO256</span>: [<span class='ident'>Digit</span>; <span class='number'>27</span>] <span class='op'>=</span>
-    [<span class='number'>0</span>, <span class='number'>0</span>, <span class='number'>0</span>, <span class='number'>0</span>, <span class='number'>0</span>, <span class='number'>0</span>, <span class='number'>0</span>, <span class='number'>0</span>, <span class='number'>0x982e7c01</span>, <span class='number'>0xbed3875b</span>, <span class='number'>0xd8d99f72</span>, <span class='number'>0x12152f87</span>, <span class='number'>0x6bde50c6</span>,
-     <span class='number'>0xcf4a6e70</span>, <span class='number'>0xd595d80f</span>, <span class='number'>0x26b2716e</span>, <span class='number'>0xadc666b0</span>, <span class='number'>0x1d153624</span>, <span class='number'>0x3c42d35a</span>, <span class='number'>0x63ff540e</span>,
-     <span class='number'>0xcc5573c0</span>, <span class='number'>0x65f9ef17</span>, <span class='number'>0x55bc28f2</span>, <span class='number'>0x80dcc7f7</span>, <span class='number'>0xf46eeddc</span>, <span class='number'>0x5fdcefce</span>, <span class='number'>0x553f7</span>];
+<span class="comment">// precalculated arrays of `Digit`s for 10^(2^n)</span>
+<span class="kw">static</span> <span class="ident">POW10TO16</span>: [<span class="ident">Digit</span>; <span class="number">2</span>] <span class="op">=</span> [<span class="number">0x6fc10000</span>, <span class="number">0x2386f2</span>];
+<span class="kw">static</span> <span class="ident">POW10TO32</span>: [<span class="ident">Digit</span>; <span class="number">4</span>] <span class="op">=</span> [<span class="number">0</span>, <span class="number">0x85acef81</span>, <span class="number">0x2d6d415b</span>, <span class="number">0x4ee</span>];
+<span class="kw">static</span> <span class="ident">POW10TO64</span>: [<span class="ident">Digit</span>; <span class="number">7</span>] <span class="op">=</span> [<span class="number">0</span>, <span class="number">0</span>, <span class="number">0xbf6a1f01</span>, <span class="number">0x6e38ed64</span>, <span class="number">0xdaa797ed</span>, <span class="number">0xe93ff9f4</span>, <span class="number">0x184f03</span>];
+<span class="kw">static</span> <span class="ident">POW10TO128</span>: [<span class="ident">Digit</span>; <span class="number">14</span>] <span class="op">=</span>
+    [<span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0x2e953e01</span>, <span class="number">0x3df9909</span>, <span class="number">0xf1538fd</span>, <span class="number">0x2374e42f</span>, <span class="number">0xd3cff5ec</span>, <span class="number">0xc404dc08</span>,
+     <span class="number">0xbccdb0da</span>, <span class="number">0xa6337f19</span>, <span class="number">0xe91f2603</span>, <span class="number">0x24e</span>];
+<span class="kw">static</span> <span class="ident">POW10TO256</span>: [<span class="ident">Digit</span>; <span class="number">27</span>] <span class="op">=</span>
+    [<span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0x982e7c01</span>, <span class="number">0xbed3875b</span>, <span class="number">0xd8d99f72</span>, <span class="number">0x12152f87</span>, <span class="number">0x6bde50c6</span>,
+     <span class="number">0xcf4a6e70</span>, <span class="number">0xd595d80f</span>, <span class="number">0x26b2716e</span>, <span class="number">0xadc666b0</span>, <span class="number">0x1d153624</span>, <span class="number">0x3c42d35a</span>, <span class="number">0x63ff540e</span>,
+     <span class="number">0xcc5573c0</span>, <span class="number">0x65f9ef17</span>, <span class="number">0x55bc28f2</span>, <span class="number">0x80dcc7f7</span>, <span class="number">0xf46eeddc</span>, <span class="number">0x5fdcefce</span>, <span class="number">0x553f7</span>];
 
-<span class='attribute'>#[<span class='ident'>doc</span>(<span class='ident'>hidden</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>mul_pow10</span>(<span class='ident'>x</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Big</span>, <span class='ident'>n</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Big</span> {
-    <span class='macro'>debug_assert</span><span class='macro'>!</span>(<span class='ident'>n</span> <span class='op'>&lt;</span> <span class='number'>512</span>);
-    <span class='kw'>if</span> <span class='ident'>n</span> <span class='op'>&amp;</span>   <span class='number'>7</span> <span class='op'>!=</span> <span class='number'>0</span> { <span class='ident'>x</span>.<span class='ident'>mul_small</span>(<span class='ident'>POW10</span>[<span class='ident'>n</span> <span class='op'>&amp;</span> <span class='number'>7</span>]); }
-    <span class='kw'>if</span> <span class='ident'>n</span> <span class='op'>&amp;</span>   <span class='number'>8</span> <span class='op'>!=</span> <span class='number'>0</span> { <span class='ident'>x</span>.<span class='ident'>mul_small</span>(<span class='ident'>POW10</span>[<span class='number'>8</span>]); }
-    <span class='kw'>if</span> <span class='ident'>n</span> <span class='op'>&amp;</span>  <span class='number'>16</span> <span class='op'>!=</span> <span class='number'>0</span> { <span class='ident'>x</span>.<span class='ident'>mul_digits</span>(<span class='kw-2'>&amp;</span><span class='ident'>POW10TO16</span>); }
-    <span class='kw'>if</span> <span class='ident'>n</span> <span class='op'>&amp;</span>  <span class='number'>32</span> <span class='op'>!=</span> <span class='number'>0</span> { <span class='ident'>x</span>.<span class='ident'>mul_digits</span>(<span class='kw-2'>&amp;</span><span class='ident'>POW10TO32</span>); }
-    <span class='kw'>if</span> <span class='ident'>n</span> <span class='op'>&amp;</span>  <span class='number'>64</span> <span class='op'>!=</span> <span class='number'>0</span> { <span class='ident'>x</span>.<span class='ident'>mul_digits</span>(<span class='kw-2'>&amp;</span><span class='ident'>POW10TO64</span>); }
-    <span class='kw'>if</span> <span class='ident'>n</span> <span class='op'>&amp;</span> <span class='number'>128</span> <span class='op'>!=</span> <span class='number'>0</span> { <span class='ident'>x</span>.<span class='ident'>mul_digits</span>(<span class='kw-2'>&amp;</span><span class='ident'>POW10TO128</span>); }
-    <span class='kw'>if</span> <span class='ident'>n</span> <span class='op'>&amp;</span> <span class='number'>256</span> <span class='op'>!=</span> <span class='number'>0</span> { <span class='ident'>x</span>.<span class='ident'>mul_digits</span>(<span class='kw-2'>&amp;</span><span class='ident'>POW10TO256</span>); }
-    <span class='ident'>x</span>
+<span class="attribute">#[<span class="ident">doc</span>(<span class="ident">hidden</span>)]</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">mul_pow10</span>(<span class="ident">x</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Big</span>, <span class="ident">n</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Big</span> {
+    <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="ident">n</span> <span class="op">&lt;</span> <span class="number">512</span>);
+    <span class="kw">if</span> <span class="ident">n</span> <span class="op">&amp;</span>   <span class="number">7</span> <span class="op">!=</span> <span class="number">0</span> { <span class="ident">x</span>.<span class="ident">mul_small</span>(<span class="ident">POW10</span>[<span class="ident">n</span> <span class="op">&amp;</span> <span class="number">7</span>]); }
+    <span class="kw">if</span> <span class="ident">n</span> <span class="op">&amp;</span>   <span class="number">8</span> <span class="op">!=</span> <span class="number">0</span> { <span class="ident">x</span>.<span class="ident">mul_small</span>(<span class="ident">POW10</span>[<span class="number">8</span>]); }
+    <span class="kw">if</span> <span class="ident">n</span> <span class="op">&amp;</span>  <span class="number">16</span> <span class="op">!=</span> <span class="number">0</span> { <span class="ident">x</span>.<span class="ident">mul_digits</span>(<span class="kw-2">&amp;</span><span class="ident">POW10TO16</span>); }
+    <span class="kw">if</span> <span class="ident">n</span> <span class="op">&amp;</span>  <span class="number">32</span> <span class="op">!=</span> <span class="number">0</span> { <span class="ident">x</span>.<span class="ident">mul_digits</span>(<span class="kw-2">&amp;</span><span class="ident">POW10TO32</span>); }
+    <span class="kw">if</span> <span class="ident">n</span> <span class="op">&amp;</span>  <span class="number">64</span> <span class="op">!=</span> <span class="number">0</span> { <span class="ident">x</span>.<span class="ident">mul_digits</span>(<span class="kw-2">&amp;</span><span class="ident">POW10TO64</span>); }
+    <span class="kw">if</span> <span class="ident">n</span> <span class="op">&amp;</span> <span class="number">128</span> <span class="op">!=</span> <span class="number">0</span> { <span class="ident">x</span>.<span class="ident">mul_digits</span>(<span class="kw-2">&amp;</span><span class="ident">POW10TO128</span>); }
+    <span class="kw">if</span> <span class="ident">n</span> <span class="op">&amp;</span> <span class="number">256</span> <span class="op">!=</span> <span class="number">0</span> { <span class="ident">x</span>.<span class="ident">mul_digits</span>(<span class="kw-2">&amp;</span><span class="ident">POW10TO256</span>); }
+    <span class="ident">x</span>
 }
 
-<span class='kw'>fn</span> <span class='ident'>div_2pow10</span>(<span class='ident'>x</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Big</span>, <span class='kw-2'>mut</span> <span class='ident'>n</span>: <span class='ident'>usize</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Big</span> {
-    <span class='kw'>let</span> <span class='ident'>largest</span> <span class='op'>=</span> <span class='ident'>POW10</span>.<span class='ident'>len</span>() <span class='op'>-</span> <span class='number'>1</span>;
-    <span class='kw'>while</span> <span class='ident'>n</span> <span class='op'>&gt;</span> <span class='ident'>largest</span> {
-        <span class='ident'>x</span>.<span class='ident'>div_rem_small</span>(<span class='ident'>POW10</span>[<span class='ident'>largest</span>]);
-        <span class='ident'>n</span> <span class='op'>-=</span> <span class='ident'>largest</span>;
+<span class="kw">fn</span> <span class="ident">div_2pow10</span>(<span class="ident">x</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Big</span>, <span class="kw-2">mut</span> <span class="ident">n</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Big</span> {
+    <span class="kw">let</span> <span class="ident">largest</span> <span class="op">=</span> <span class="ident">POW10</span>.<span class="ident">len</span>() <span class="op">-</span> <span class="number">1</span>;
+    <span class="kw">while</span> <span class="ident">n</span> <span class="op">&gt;</span> <span class="ident">largest</span> {
+        <span class="ident">x</span>.<span class="ident">div_rem_small</span>(<span class="ident">POW10</span>[<span class="ident">largest</span>]);
+        <span class="ident">n</span> <span class="op">-=</span> <span class="ident">largest</span>;
     }
-    <span class='ident'>x</span>.<span class='ident'>div_rem_small</span>(<span class='ident'>TWOPOW10</span>[<span class='ident'>n</span>]);
-    <span class='ident'>x</span>
+    <span class="ident">x</span>.<span class="ident">div_rem_small</span>(<span class="ident">TWOPOW10</span>[<span class="ident">n</span>]);
+    <span class="ident">x</span>
 }
 
-<span class='comment'>// only usable when `x &lt; 16 * scale`; `scaleN` should be `scale.mul_small(N)`</span>
-<span class='kw'>fn</span> <span class='ident'>div_rem_upto_16</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='ident'>x</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='ident'>Big</span>, <span class='ident'>scale</span>: <span class='kw-2'>&amp;</span><span class='ident'>Big</span>,
-                       <span class='ident'>scale2</span>: <span class='kw-2'>&amp;</span><span class='ident'>Big</span>, <span class='ident'>scale4</span>: <span class='kw-2'>&amp;</span><span class='ident'>Big</span>, <span class='ident'>scale8</span>: <span class='kw-2'>&amp;</span><span class='ident'>Big</span>) <span class='op'>-&gt;</span> (<span class='ident'>u8</span>, <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='kw-2'>mut</span> <span class='ident'>Big</span>) {
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>d</span> <span class='op'>=</span> <span class='number'>0</span>;
-    <span class='kw'>if</span> <span class='kw-2'>*</span><span class='ident'>x</span> <span class='op'>&gt;=</span> <span class='kw-2'>*</span><span class='ident'>scale8</span> { <span class='ident'>x</span>.<span class='ident'>sub</span>(<span class='ident'>scale8</span>); <span class='ident'>d</span> <span class='op'>+=</span> <span class='number'>8</span>; }
-    <span class='kw'>if</span> <span class='kw-2'>*</span><span class='ident'>x</span> <span class='op'>&gt;=</span> <span class='kw-2'>*</span><span class='ident'>scale4</span> { <span class='ident'>x</span>.<span class='ident'>sub</span>(<span class='ident'>scale4</span>); <span class='ident'>d</span> <span class='op'>+=</span> <span class='number'>4</span>; }
-    <span class='kw'>if</span> <span class='kw-2'>*</span><span class='ident'>x</span> <span class='op'>&gt;=</span> <span class='kw-2'>*</span><span class='ident'>scale2</span> { <span class='ident'>x</span>.<span class='ident'>sub</span>(<span class='ident'>scale2</span>); <span class='ident'>d</span> <span class='op'>+=</span> <span class='number'>2</span>; }
-    <span class='kw'>if</span> <span class='kw-2'>*</span><span class='ident'>x</span> <span class='op'>&gt;=</span> <span class='kw-2'>*</span><span class='ident'>scale</span>  { <span class='ident'>x</span>.<span class='ident'>sub</span>(<span class='ident'>scale</span>);  <span class='ident'>d</span> <span class='op'>+=</span> <span class='number'>1</span>; }
-    <span class='macro'>debug_assert</span><span class='macro'>!</span>(<span class='kw-2'>*</span><span class='ident'>x</span> <span class='op'>&lt;</span> <span class='kw-2'>*</span><span class='ident'>scale</span>);
-    (<span class='ident'>d</span>, <span class='ident'>x</span>)
+<span class="comment">// only usable when `x &lt; 16 * scale`; `scaleN` should be `scale.mul_small(N)`</span>
+<span class="kw">fn</span> <span class="ident">div_rem_upto_16</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>(<span class="ident">x</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="kw-2">mut</span> <span class="ident">Big</span>, <span class="ident">scale</span>: <span class="kw-2">&amp;</span><span class="ident">Big</span>,
+                       <span class="ident">scale2</span>: <span class="kw-2">&amp;</span><span class="ident">Big</span>, <span class="ident">scale4</span>: <span class="kw-2">&amp;</span><span class="ident">Big</span>, <span class="ident">scale8</span>: <span class="kw-2">&amp;</span><span class="ident">Big</span>) <span class="op">-&gt;</span> (<span class="ident">u8</span>, <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="kw-2">mut</span> <span class="ident">Big</span>) {
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">d</span> <span class="op">=</span> <span class="number">0</span>;
+    <span class="kw">if</span> <span class="kw-2">*</span><span class="ident">x</span> <span class="op">&gt;=</span> <span class="kw-2">*</span><span class="ident">scale8</span> { <span class="ident">x</span>.<span class="ident">sub</span>(<span class="ident">scale8</span>); <span class="ident">d</span> <span class="op">+=</span> <span class="number">8</span>; }
+    <span class="kw">if</span> <span class="kw-2">*</span><span class="ident">x</span> <span class="op">&gt;=</span> <span class="kw-2">*</span><span class="ident">scale4</span> { <span class="ident">x</span>.<span class="ident">sub</span>(<span class="ident">scale4</span>); <span class="ident">d</span> <span class="op">+=</span> <span class="number">4</span>; }
+    <span class="kw">if</span> <span class="kw-2">*</span><span class="ident">x</span> <span class="op">&gt;=</span> <span class="kw-2">*</span><span class="ident">scale2</span> { <span class="ident">x</span>.<span class="ident">sub</span>(<span class="ident">scale2</span>); <span class="ident">d</span> <span class="op">+=</span> <span class="number">2</span>; }
+    <span class="kw">if</span> <span class="kw-2">*</span><span class="ident">x</span> <span class="op">&gt;=</span> <span class="kw-2">*</span><span class="ident">scale</span>  { <span class="ident">x</span>.<span class="ident">sub</span>(<span class="ident">scale</span>);  <span class="ident">d</span> <span class="op">+=</span> <span class="number">1</span>; }
+    <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="kw-2">*</span><span class="ident">x</span> <span class="op">&lt;</span> <span class="kw-2">*</span><span class="ident">scale</span>);
+    (<span class="ident">d</span>, <span class="ident">x</span>)
 }
 
-<span class='doccomment'>/// The shortest mode implementation for Dragon.</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>format_shortest</span>(<span class='ident'>d</span>: <span class='kw-2'>&amp;</span><span class='ident'>Decoded</span>, <span class='ident'>buf</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> [<span class='ident'>u8</span>]) <span class='op'>-&gt;</span> (<span class='comment'>/*#digits*/</span> <span class='ident'>usize</span>, <span class='comment'>/*exp*/</span> <span class='ident'>i16</span>) {
-    <span class='comment'>// the number `v` to format is known to be:</span>
-    <span class='comment'>// - equal to `mant * 2^exp`;</span>
-    <span class='comment'>// - preceded by `(mant - 2 * minus) * 2^exp` in the original type; and</span>
-    <span class='comment'>// - followed by `(mant + 2 * plus) * 2^exp` in the original type.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// obviously, `minus` and `plus` cannot be zero. (for infinities, we use out-of-range values.)</span>
-    <span class='comment'>// also we assume that at least one digit is generated, i.e. `mant` cannot be zero too.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// this also means that any number between `low = (mant - minus) * 2^exp` and</span>
-    <span class='comment'>// `high = (mant + plus) * 2^exp` will map to this exact floating point number,</span>
-    <span class='comment'>// with bounds included when the original mantissa was even (i.e. `!mant_was_odd`).</span>
+<span class="doccomment">/// The shortest mode implementation for Dragon.</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">format_shortest</span>(<span class="ident">d</span>: <span class="kw-2">&amp;</span><span class="ident">Decoded</span>, <span class="ident">buf</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> [<span class="ident">u8</span>]) <span class="op">-&gt;</span> (<span class="comment">/*#digits*/</span> <span class="ident">usize</span>, <span class="comment">/*exp*/</span> <span class="ident">i16</span>) {
+    <span class="comment">// the number `v` to format is known to be:</span>
+    <span class="comment">// - equal to `mant * 2^exp`;</span>
+    <span class="comment">// - preceded by `(mant - 2 * minus) * 2^exp` in the original type; and</span>
+    <span class="comment">// - followed by `(mant + 2 * plus) * 2^exp` in the original type.</span>
+    <span class="comment">//</span>
+    <span class="comment">// obviously, `minus` and `plus` cannot be zero. (for infinities, we use out-of-range values.)</span>
+    <span class="comment">// also we assume that at least one digit is generated, i.e. `mant` cannot be zero too.</span>
+    <span class="comment">//</span>
+    <span class="comment">// this also means that any number between `low = (mant - minus) * 2^exp` and</span>
+    <span class="comment">// `high = (mant + plus) * 2^exp` will map to this exact floating point number,</span>
+    <span class="comment">// with bounds included when the original mantissa was even (i.e. `!mant_was_odd`).</span>
 
-    <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>d</span>.<span class='ident'>mant</span> <span class='op'>&gt;</span> <span class='number'>0</span>);
-    <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>d</span>.<span class='ident'>minus</span> <span class='op'>&gt;</span> <span class='number'>0</span>);
-    <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>d</span>.<span class='ident'>plus</span> <span class='op'>&gt;</span> <span class='number'>0</span>);
-    <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>d</span>.<span class='ident'>mant</span>.<span class='ident'>checked_add</span>(<span class='ident'>d</span>.<span class='ident'>plus</span>).<span class='ident'>is_some</span>());
-    <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>d</span>.<span class='ident'>mant</span>.<span class='ident'>checked_sub</span>(<span class='ident'>d</span>.<span class='ident'>minus</span>).<span class='ident'>is_some</span>());
-    <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>buf</span>.<span class='ident'>len</span>() <span class='op'>&gt;=</span> <span class='ident'>MAX_SIG_DIGITS</span>);
+    <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">d</span>.<span class="ident">mant</span> <span class="op">&gt;</span> <span class="number">0</span>);
+    <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">d</span>.<span class="ident">minus</span> <span class="op">&gt;</span> <span class="number">0</span>);
+    <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">d</span>.<span class="ident">plus</span> <span class="op">&gt;</span> <span class="number">0</span>);
+    <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">d</span>.<span class="ident">mant</span>.<span class="ident">checked_add</span>(<span class="ident">d</span>.<span class="ident">plus</span>).<span class="ident">is_some</span>());
+    <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">d</span>.<span class="ident">mant</span>.<span class="ident">checked_sub</span>(<span class="ident">d</span>.<span class="ident">minus</span>).<span class="ident">is_some</span>());
+    <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">buf</span>.<span class="ident">len</span>() <span class="op">&gt;=</span> <span class="ident">MAX_SIG_DIGITS</span>);
 
-    <span class='comment'>// `a.cmp(&amp;b) &lt; rounding` is `if d.inclusive {a &lt;= b} else {a &lt; b}`</span>
-    <span class='kw'>let</span> <span class='ident'>rounding</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='ident'>d</span>.<span class='ident'>inclusive</span> {<span class='ident'>Ordering</span>::<span class='ident'>Greater</span>} <span class='kw'>else</span> {<span class='ident'>Ordering</span>::<span class='ident'>Equal</span>};
+    <span class="comment">// `a.cmp(&amp;b) &lt; rounding` is `if d.inclusive {a &lt;= b} else {a &lt; b}`</span>
+    <span class="kw">let</span> <span class="ident">rounding</span> <span class="op">=</span> <span class="kw">if</span> <span class="ident">d</span>.<span class="ident">inclusive</span> {<span class="ident">Ordering</span>::<span class="ident">Greater</span>} <span class="kw">else</span> {<span class="ident">Ordering</span>::<span class="ident">Equal</span>};
 
-    <span class='comment'>// estimate `k_0` from original inputs satisfying `10^(k_0-1) &lt; high &lt;= 10^(k_0+1)`.</span>
-    <span class='comment'>// the tight bound `k` satisfying `10^(k-1) &lt; high &lt;= 10^k` is calculated later.</span>
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>k</span> <span class='op'>=</span> <span class='ident'>estimate_scaling_factor</span>(<span class='ident'>d</span>.<span class='ident'>mant</span> <span class='op'>+</span> <span class='ident'>d</span>.<span class='ident'>plus</span>, <span class='ident'>d</span>.<span class='ident'>exp</span>);
+    <span class="comment">// estimate `k_0` from original inputs satisfying `10^(k_0-1) &lt; high &lt;= 10^(k_0+1)`.</span>
+    <span class="comment">// the tight bound `k` satisfying `10^(k-1) &lt; high &lt;= 10^k` is calculated later.</span>
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">k</span> <span class="op">=</span> <span class="ident">estimate_scaling_factor</span>(<span class="ident">d</span>.<span class="ident">mant</span> <span class="op">+</span> <span class="ident">d</span>.<span class="ident">plus</span>, <span class="ident">d</span>.<span class="ident">exp</span>);
 
-    <span class='comment'>// convert `{mant, plus, minus} * 2^exp` into the fractional form so that:</span>
-    <span class='comment'>// - `v = mant / scale`</span>
-    <span class='comment'>// - `low = (mant - minus) / scale`</span>
-    <span class='comment'>// - `high = (mant + plus) / scale`</span>
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>mant</span> <span class='op'>=</span> <span class='ident'>Big</span>::<span class='ident'>from_u64</span>(<span class='ident'>d</span>.<span class='ident'>mant</span>);
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>minus</span> <span class='op'>=</span> <span class='ident'>Big</span>::<span class='ident'>from_u64</span>(<span class='ident'>d</span>.<span class='ident'>minus</span>);
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>plus</span> <span class='op'>=</span> <span class='ident'>Big</span>::<span class='ident'>from_u64</span>(<span class='ident'>d</span>.<span class='ident'>plus</span>);
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>scale</span> <span class='op'>=</span> <span class='ident'>Big</span>::<span class='ident'>from_small</span>(<span class='number'>1</span>);
-    <span class='kw'>if</span> <span class='ident'>d</span>.<span class='ident'>exp</span> <span class='op'>&lt;</span> <span class='number'>0</span> {
-        <span class='ident'>scale</span>.<span class='ident'>mul_pow2</span>(<span class='op'>-</span><span class='ident'>d</span>.<span class='ident'>exp</span> <span class='kw'>as</span> <span class='ident'>usize</span>);
-    } <span class='kw'>else</span> {
-        <span class='ident'>mant</span>.<span class='ident'>mul_pow2</span>(<span class='ident'>d</span>.<span class='ident'>exp</span> <span class='kw'>as</span> <span class='ident'>usize</span>);
-        <span class='ident'>minus</span>.<span class='ident'>mul_pow2</span>(<span class='ident'>d</span>.<span class='ident'>exp</span> <span class='kw'>as</span> <span class='ident'>usize</span>);
-        <span class='ident'>plus</span>.<span class='ident'>mul_pow2</span>(<span class='ident'>d</span>.<span class='ident'>exp</span> <span class='kw'>as</span> <span class='ident'>usize</span>);
+    <span class="comment">// convert `{mant, plus, minus} * 2^exp` into the fractional form so that:</span>
+    <span class="comment">// - `v = mant / scale`</span>
+    <span class="comment">// - `low = (mant - minus) / scale`</span>
+    <span class="comment">// - `high = (mant + plus) / scale`</span>
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">mant</span> <span class="op">=</span> <span class="ident">Big</span>::<span class="ident">from_u64</span>(<span class="ident">d</span>.<span class="ident">mant</span>);
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">minus</span> <span class="op">=</span> <span class="ident">Big</span>::<span class="ident">from_u64</span>(<span class="ident">d</span>.<span class="ident">minus</span>);
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">plus</span> <span class="op">=</span> <span class="ident">Big</span>::<span class="ident">from_u64</span>(<span class="ident">d</span>.<span class="ident">plus</span>);
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">scale</span> <span class="op">=</span> <span class="ident">Big</span>::<span class="ident">from_small</span>(<span class="number">1</span>);
+    <span class="kw">if</span> <span class="ident">d</span>.<span class="ident">exp</span> <span class="op">&lt;</span> <span class="number">0</span> {
+        <span class="ident">scale</span>.<span class="ident">mul_pow2</span>(<span class="op">-</span><span class="ident">d</span>.<span class="ident">exp</span> <span class="kw">as</span> <span class="ident">usize</span>);
+    } <span class="kw">else</span> {
+        <span class="ident">mant</span>.<span class="ident">mul_pow2</span>(<span class="ident">d</span>.<span class="ident">exp</span> <span class="kw">as</span> <span class="ident">usize</span>);
+        <span class="ident">minus</span>.<span class="ident">mul_pow2</span>(<span class="ident">d</span>.<span class="ident">exp</span> <span class="kw">as</span> <span class="ident">usize</span>);
+        <span class="ident">plus</span>.<span class="ident">mul_pow2</span>(<span class="ident">d</span>.<span class="ident">exp</span> <span class="kw">as</span> <span class="ident">usize</span>);
     }
 
-    <span class='comment'>// divide `mant` by `10^k`. now `scale / 10 &lt; mant + plus &lt;= scale * 10`.</span>
-    <span class='kw'>if</span> <span class='ident'>k</span> <span class='op'>&gt;=</span> <span class='number'>0</span> {
-        <span class='ident'>mul_pow10</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>scale</span>, <span class='ident'>k</span> <span class='kw'>as</span> <span class='ident'>usize</span>);
-    } <span class='kw'>else</span> {
-        <span class='ident'>mul_pow10</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>mant</span>, <span class='op'>-</span><span class='ident'>k</span> <span class='kw'>as</span> <span class='ident'>usize</span>);
-        <span class='ident'>mul_pow10</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>minus</span>, <span class='op'>-</span><span class='ident'>k</span> <span class='kw'>as</span> <span class='ident'>usize</span>);
-        <span class='ident'>mul_pow10</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>plus</span>, <span class='op'>-</span><span class='ident'>k</span> <span class='kw'>as</span> <span class='ident'>usize</span>);
+    <span class="comment">// divide `mant` by `10^k`. now `scale / 10 &lt; mant + plus &lt;= scale * 10`.</span>
+    <span class="kw">if</span> <span class="ident">k</span> <span class="op">&gt;=</span> <span class="number">0</span> {
+        <span class="ident">mul_pow10</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">scale</span>, <span class="ident">k</span> <span class="kw">as</span> <span class="ident">usize</span>);
+    } <span class="kw">else</span> {
+        <span class="ident">mul_pow10</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">mant</span>, <span class="op">-</span><span class="ident">k</span> <span class="kw">as</span> <span class="ident">usize</span>);
+        <span class="ident">mul_pow10</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">minus</span>, <span class="op">-</span><span class="ident">k</span> <span class="kw">as</span> <span class="ident">usize</span>);
+        <span class="ident">mul_pow10</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">plus</span>, <span class="op">-</span><span class="ident">k</span> <span class="kw">as</span> <span class="ident">usize</span>);
     }
 
-    <span class='comment'>// fixup when `mant + plus &gt; scale` (or `&gt;=`).</span>
-    <span class='comment'>// we are not actually modifying `scale`, since we can skip the initial multiplication instead.</span>
-    <span class='comment'>// now `scale &lt; mant + plus &lt;= scale * 10` and we are ready to generate digits.</span>
-    <span class='comment'>//</span>
-    <span class='comment'>// note that `d[0]` *can* be zero, when `scale - plus &lt; mant &lt; scale`.</span>
-    <span class='comment'>// in this case rounding-up condition (`up` below) will be triggered immediately.</span>
-    <span class='kw'>if</span> <span class='ident'>scale</span>.<span class='ident'>cmp</span>(<span class='ident'>mant</span>.<span class='ident'>clone</span>().<span class='ident'>add</span>(<span class='kw-2'>&amp;</span><span class='ident'>plus</span>)) <span class='op'>&lt;</span> <span class='ident'>rounding</span> {
-        <span class='comment'>// equivalent to scaling `scale` by 10</span>
-        <span class='ident'>k</span> <span class='op'>+=</span> <span class='number'>1</span>;
-    } <span class='kw'>else</span> {
-        <span class='ident'>mant</span>.<span class='ident'>mul_small</span>(<span class='number'>10</span>);
-        <span class='ident'>minus</span>.<span class='ident'>mul_small</span>(<span class='number'>10</span>);
-        <span class='ident'>plus</span>.<span class='ident'>mul_small</span>(<span class='number'>10</span>);
+    <span class="comment">// fixup when `mant + plus &gt; scale` (or `&gt;=`).</span>
+    <span class="comment">// we are not actually modifying `scale`, since we can skip the initial multiplication instead.</span>
+    <span class="comment">// now `scale &lt; mant + plus &lt;= scale * 10` and we are ready to generate digits.</span>
+    <span class="comment">//</span>
+    <span class="comment">// note that `d[0]` *can* be zero, when `scale - plus &lt; mant &lt; scale`.</span>
+    <span class="comment">// in this case rounding-up condition (`up` below) will be triggered immediately.</span>
+    <span class="kw">if</span> <span class="ident">scale</span>.<span class="ident">cmp</span>(<span class="ident">mant</span>.<span class="ident">clone</span>().<span class="ident">add</span>(<span class="kw-2">&amp;</span><span class="ident">plus</span>)) <span class="op">&lt;</span> <span class="ident">rounding</span> {
+        <span class="comment">// equivalent to scaling `scale` by 10</span>
+        <span class="ident">k</span> <span class="op">+=</span> <span class="number">1</span>;
+    } <span class="kw">else</span> {
+        <span class="ident">mant</span>.<span class="ident">mul_small</span>(<span class="number">10</span>);
+        <span class="ident">minus</span>.<span class="ident">mul_small</span>(<span class="number">10</span>);
+        <span class="ident">plus</span>.<span class="ident">mul_small</span>(<span class="number">10</span>);
     }
 
-    <span class='comment'>// cache `(2, 4, 8) * scale` for digit generation.</span>
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>scale2</span> <span class='op'>=</span> <span class='ident'>scale</span>.<span class='ident'>clone</span>(); <span class='ident'>scale2</span>.<span class='ident'>mul_pow2</span>(<span class='number'>1</span>);
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>scale4</span> <span class='op'>=</span> <span class='ident'>scale</span>.<span class='ident'>clone</span>(); <span class='ident'>scale4</span>.<span class='ident'>mul_pow2</span>(<span class='number'>2</span>);
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>scale8</span> <span class='op'>=</span> <span class='ident'>scale</span>.<span class='ident'>clone</span>(); <span class='ident'>scale8</span>.<span class='ident'>mul_pow2</span>(<span class='number'>3</span>);
+    <span class="comment">// cache `(2, 4, 8) * scale` for digit generation.</span>
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">scale2</span> <span class="op">=</span> <span class="ident">scale</span>.<span class="ident">clone</span>(); <span class="ident">scale2</span>.<span class="ident">mul_pow2</span>(<span class="number">1</span>);
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">scale4</span> <span class="op">=</span> <span class="ident">scale</span>.<span class="ident">clone</span>(); <span class="ident">scale4</span>.<span class="ident">mul_pow2</span>(<span class="number">2</span>);
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">scale8</span> <span class="op">=</span> <span class="ident">scale</span>.<span class="ident">clone</span>(); <span class="ident">scale8</span>.<span class="ident">mul_pow2</span>(<span class="number">3</span>);
 
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>down</span>;
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>up</span>;
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>i</span> <span class='op'>=</span> <span class='number'>0</span>;
-    <span class='kw'>loop</span> {
-        <span class='comment'>// invariants, where `d[0..n-1]` are digits generated so far:</span>
-        <span class='comment'>// - `v = mant / scale * 10^(k-n-1) + d[0..n-1] * 10^(k-n)`</span>
-        <span class='comment'>// - `v - low = minus / scale * 10^(k-n-1)`</span>
-        <span class='comment'>// - `high - v = plus / scale * 10^(k-n-1)`</span>
-        <span class='comment'>// - `(mant + plus) / scale &lt;= 10` (thus `mant / scale &lt; 10`)</span>
-        <span class='comment'>// where `d[i..j]` is a shorthand for `d[i] * 10^(j-i) + ... + d[j-1] * 10 + d[j]`.</span>
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">down</span>;
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">up</span>;
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">i</span> <span class="op">=</span> <span class="number">0</span>;
+    <span class="kw">loop</span> {
+        <span class="comment">// invariants, where `d[0..n-1]` are digits generated so far:</span>
+        <span class="comment">// - `v = mant / scale * 10^(k-n-1) + d[0..n-1] * 10^(k-n)`</span>
+        <span class="comment">// - `v - low = minus / scale * 10^(k-n-1)`</span>
+        <span class="comment">// - `high - v = plus / scale * 10^(k-n-1)`</span>
+        <span class="comment">// - `(mant + plus) / scale &lt;= 10` (thus `mant / scale &lt; 10`)</span>
+        <span class="comment">// where `d[i..j]` is a shorthand for `d[i] * 10^(j-i) + ... + d[j-1] * 10 + d[j]`.</span>
 
-        <span class='comment'>// generate one digit: `d[n] = floor(mant / scale) &lt; 10`.</span>
-        <span class='kw'>let</span> (<span class='ident'>d</span>, _) <span class='op'>=</span> <span class='ident'>div_rem_upto_16</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>mant</span>, <span class='kw-2'>&amp;</span><span class='ident'>scale</span>, <span class='kw-2'>&amp;</span><span class='ident'>scale2</span>, <span class='kw-2'>&amp;</span><span class='ident'>scale4</span>, <span class='kw-2'>&amp;</span><span class='ident'>scale8</span>);
-        <span class='macro'>debug_assert</span><span class='macro'>!</span>(<span class='ident'>d</span> <span class='op'>&lt;</span> <span class='number'>10</span>);
-        <span class='ident'>buf</span>[<span class='ident'>i</span>] <span class='op'>=</span> <span class='string'>b&#39;0&#39;</span> <span class='op'>+</span> <span class='ident'>d</span>;
-        <span class='ident'>i</span> <span class='op'>+=</span> <span class='number'>1</span>;
+        <span class="comment">// generate one digit: `d[n] = floor(mant / scale) &lt; 10`.</span>
+        <span class="kw">let</span> (<span class="ident">d</span>, _) <span class="op">=</span> <span class="ident">div_rem_upto_16</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">mant</span>, <span class="kw-2">&amp;</span><span class="ident">scale</span>, <span class="kw-2">&amp;</span><span class="ident">scale2</span>, <span class="kw-2">&amp;</span><span class="ident">scale4</span>, <span class="kw-2">&amp;</span><span class="ident">scale8</span>);
+        <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="ident">d</span> <span class="op">&lt;</span> <span class="number">10</span>);
+        <span class="ident">buf</span>[<span class="ident">i</span>] <span class="op">=</span> <span class="string">b&#39;0&#39;</span> <span class="op">+</span> <span class="ident">d</span>;
+        <span class="ident">i</span> <span class="op">+=</span> <span class="number">1</span>;
 
-        <span class='comment'>// this is a simplified description of the modified Dragon algorithm.</span>
-        <span class='comment'>// many intermediate derivations and completeness arguments are omitted for convenience.</span>
-        <span class='comment'>//</span>
-        <span class='comment'>// start with modified invariants, as we&#39;ve updated `n`:</span>
-        <span class='comment'>// - `v = mant / scale * 10^(k-n) + d[0..n-1] * 10^(k-n)`</span>
-        <span class='comment'>// - `v - low = minus / scale * 10^(k-n)`</span>
-        <span class='comment'>// - `high - v = plus / scale * 10^(k-n)`</span>
-        <span class='comment'>//</span>
-        <span class='comment'>// assume that `d[0..n-1]` is the shortest representation between `low` and `high`,</span>
-        <span class='comment'>// i.e. `d[0..n-1]` satisfies both of the following but `d[0..n-2]` doesn&#39;t:</span>
-        <span class='comment'>// - `low &lt; d[0..n-1] * 10^(k-n) &lt; high` (bijectivity: digits round to `v`); and</span>
-        <span class='comment'>// - `abs(v / 10^(k-n) - d[0..n-1]) &lt;= 1/2` (the last digit is correct).</span>
-        <span class='comment'>//</span>
-        <span class='comment'>// the second condition simplifies to `2 * mant &lt;= scale`.</span>
-        <span class='comment'>// solving invariants in terms of `mant`, `low` and `high` yields</span>
-        <span class='comment'>// a simpler version of the first condition: `-plus &lt; mant &lt; minus`.</span>
-        <span class='comment'>// since `-plus &lt; 0 &lt;= mant`, we have the correct shortest representation</span>
-        <span class='comment'>// when `mant &lt; minus` and `2 * mant &lt;= scale`.</span>
-        <span class='comment'>// (the former becomes `mant &lt;= minus` when the original mantissa is even.)</span>
-        <span class='comment'>//</span>
-        <span class='comment'>// when the second doesn&#39;t hold (`2 * mant &gt; scale`), we need to increase the last digit.</span>
-        <span class='comment'>// this is enough for restoring that condition: we already know that</span>
-        <span class='comment'>// the digit generation guarantees `0 &lt;= v / 10^(k-n) - d[0..n-1] &lt; 1`.</span>
-        <span class='comment'>// in this case, the first condition becomes `-plus &lt; mant - scale &lt; minus`.</span>
-        <span class='comment'>// since `mant &lt; scale` after the generation, we have `scale &lt; mant + plus`.</span>
-        <span class='comment'>// (again, this becomes `scale &lt;= mant + plus` when the original mantissa is even.)</span>
-        <span class='comment'>//</span>
-        <span class='comment'>// in short:</span>
-        <span class='comment'>// - stop and round `down` (keep digits as is) when `mant &lt; minus` (or `&lt;=`).</span>
-        <span class='comment'>// - stop and round `up` (increase the last digit) when `scale &lt; mant + plus` (or `&lt;=`).</span>
-        <span class='comment'>// - keep generating otherwise.</span>
-        <span class='ident'>down</span> <span class='op'>=</span> <span class='ident'>mant</span>.<span class='ident'>cmp</span>(<span class='kw-2'>&amp;</span><span class='ident'>minus</span>) <span class='op'>&lt;</span> <span class='ident'>rounding</span>;
-        <span class='ident'>up</span> <span class='op'>=</span> <span class='ident'>scale</span>.<span class='ident'>cmp</span>(<span class='ident'>mant</span>.<span class='ident'>clone</span>().<span class='ident'>add</span>(<span class='kw-2'>&amp;</span><span class='ident'>plus</span>)) <span class='op'>&lt;</span> <span class='ident'>rounding</span>;
-        <span class='kw'>if</span> <span class='ident'>down</span> <span class='op'>||</span> <span class='ident'>up</span> { <span class='kw'>break</span>; } <span class='comment'>// we have the shortest representation, proceed to the rounding</span>
+        <span class="comment">// this is a simplified description of the modified Dragon algorithm.</span>
+        <span class="comment">// many intermediate derivations and completeness arguments are omitted for convenience.</span>
+        <span class="comment">//</span>
+        <span class="comment">// start with modified invariants, as we&#39;ve updated `n`:</span>
+        <span class="comment">// - `v = mant / scale * 10^(k-n) + d[0..n-1] * 10^(k-n)`</span>
+        <span class="comment">// - `v - low = minus / scale * 10^(k-n)`</span>
+        <span class="comment">// - `high - v = plus / scale * 10^(k-n)`</span>
+        <span class="comment">//</span>
+        <span class="comment">// assume that `d[0..n-1]` is the shortest representation between `low` and `high`,</span>
+        <span class="comment">// i.e. `d[0..n-1]` satisfies both of the following but `d[0..n-2]` doesn&#39;t:</span>
+        <span class="comment">// - `low &lt; d[0..n-1] * 10^(k-n) &lt; high` (bijectivity: digits round to `v`); and</span>
+        <span class="comment">// - `abs(v / 10^(k-n) - d[0..n-1]) &lt;= 1/2` (the last digit is correct).</span>
+        <span class="comment">//</span>
+        <span class="comment">// the second condition simplifies to `2 * mant &lt;= scale`.</span>
+        <span class="comment">// solving invariants in terms of `mant`, `low` and `high` yields</span>
+        <span class="comment">// a simpler version of the first condition: `-plus &lt; mant &lt; minus`.</span>
+        <span class="comment">// since `-plus &lt; 0 &lt;= mant`, we have the correct shortest representation</span>
+        <span class="comment">// when `mant &lt; minus` and `2 * mant &lt;= scale`.</span>
+        <span class="comment">// (the former becomes `mant &lt;= minus` when the original mantissa is even.)</span>
+        <span class="comment">//</span>
+        <span class="comment">// when the second doesn&#39;t hold (`2 * mant &gt; scale`), we need to increase the last digit.</span>
+        <span class="comment">// this is enough for restoring that condition: we already know that</span>
+        <span class="comment">// the digit generation guarantees `0 &lt;= v / 10^(k-n) - d[0..n-1] &lt; 1`.</span>
+        <span class="comment">// in this case, the first condition becomes `-plus &lt; mant - scale &lt; minus`.</span>
+        <span class="comment">// since `mant &lt; scale` after the generation, we have `scale &lt; mant + plus`.</span>
+        <span class="comment">// (again, this becomes `scale &lt;= mant + plus` when the original mantissa is even.)</span>
+        <span class="comment">//</span>
+        <span class="comment">// in short:</span>
+        <span class="comment">// - stop and round `down` (keep digits as is) when `mant &lt; minus` (or `&lt;=`).</span>
+        <span class="comment">// - stop and round `up` (increase the last digit) when `scale &lt; mant + plus` (or `&lt;=`).</span>
+        <span class="comment">// - keep generating otherwise.</span>
+        <span class="ident">down</span> <span class="op">=</span> <span class="ident">mant</span>.<span class="ident">cmp</span>(<span class="kw-2">&amp;</span><span class="ident">minus</span>) <span class="op">&lt;</span> <span class="ident">rounding</span>;
+        <span class="ident">up</span> <span class="op">=</span> <span class="ident">scale</span>.<span class="ident">cmp</span>(<span class="ident">mant</span>.<span class="ident">clone</span>().<span class="ident">add</span>(<span class="kw-2">&amp;</span><span class="ident">plus</span>)) <span class="op">&lt;</span> <span class="ident">rounding</span>;
+        <span class="kw">if</span> <span class="ident">down</span> <span class="op">||</span> <span class="ident">up</span> { <span class="kw">break</span>; } <span class="comment">// we have the shortest representation, proceed to the rounding</span>
 
-        <span class='comment'>// restore the invariants.</span>
-        <span class='comment'>// this makes the algorithm always terminating: `minus` and `plus` always increases,</span>
-        <span class='comment'>// but `mant` is clipped modulo `scale` and `scale` is fixed.</span>
-        <span class='ident'>mant</span>.<span class='ident'>mul_small</span>(<span class='number'>10</span>);
-        <span class='ident'>minus</span>.<span class='ident'>mul_small</span>(<span class='number'>10</span>);
-        <span class='ident'>plus</span>.<span class='ident'>mul_small</span>(<span class='number'>10</span>);
+        <span class="comment">// restore the invariants.</span>
+        <span class="comment">// this makes the algorithm always terminating: `minus` and `plus` always increases,</span>
+        <span class="comment">// but `mant` is clipped modulo `scale` and `scale` is fixed.</span>
+        <span class="ident">mant</span>.<span class="ident">mul_small</span>(<span class="number">10</span>);
+        <span class="ident">minus</span>.<span class="ident">mul_small</span>(<span class="number">10</span>);
+        <span class="ident">plus</span>.<span class="ident">mul_small</span>(<span class="number">10</span>);
     }
 
-    <span class='comment'>// rounding up happens when</span>
-    <span class='comment'>// i) only the rounding-up condition was triggered, or</span>
-    <span class='comment'>// ii) both conditions were triggered and tie breaking prefers rounding up.</span>
-    <span class='kw'>if</span> <span class='ident'>up</span> <span class='op'>&amp;&amp;</span> (<span class='op'>!</span><span class='ident'>down</span> <span class='op'>||</span> <span class='kw-2'>*</span><span class='ident'>mant</span>.<span class='ident'>mul_pow2</span>(<span class='number'>1</span>) <span class='op'>&gt;=</span> <span class='ident'>scale</span>) {
-        <span class='comment'>// if rounding up changes the length, the exponent should also change.</span>
-        <span class='comment'>// it seems that this condition is very hard to satisfy (possibly impossible),</span>
-        <span class='comment'>// but we are just being safe and consistent here.</span>
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>c</span>) <span class='op'>=</span> <span class='ident'>round_up</span>(<span class='ident'>buf</span>, <span class='ident'>i</span>) {
-            <span class='ident'>buf</span>[<span class='ident'>i</span>] <span class='op'>=</span> <span class='ident'>c</span>;
-            <span class='ident'>i</span> <span class='op'>+=</span> <span class='number'>1</span>;
-            <span class='ident'>k</span> <span class='op'>+=</span> <span class='number'>1</span>;
+    <span class="comment">// rounding up happens when</span>
+    <span class="comment">// i) only the rounding-up condition was triggered, or</span>
+    <span class="comment">// ii) both conditions were triggered and tie breaking prefers rounding up.</span>
+    <span class="kw">if</span> <span class="ident">up</span> <span class="op">&amp;&amp;</span> (<span class="op">!</span><span class="ident">down</span> <span class="op">||</span> <span class="kw-2">*</span><span class="ident">mant</span>.<span class="ident">mul_pow2</span>(<span class="number">1</span>) <span class="op">&gt;=</span> <span class="ident">scale</span>) {
+        <span class="comment">// if rounding up changes the length, the exponent should also change.</span>
+        <span class="comment">// it seems that this condition is very hard to satisfy (possibly impossible),</span>
+        <span class="comment">// but we are just being safe and consistent here.</span>
+        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">c</span>) <span class="op">=</span> <span class="ident">round_up</span>(<span class="ident">buf</span>, <span class="ident">i</span>) {
+            <span class="ident">buf</span>[<span class="ident">i</span>] <span class="op">=</span> <span class="ident">c</span>;
+            <span class="ident">i</span> <span class="op">+=</span> <span class="number">1</span>;
+            <span class="ident">k</span> <span class="op">+=</span> <span class="number">1</span>;
         }
     }
 
-    (<span class='ident'>i</span>, <span class='ident'>k</span>)
+    (<span class="ident">i</span>, <span class="ident">k</span>)
 }
 
-<span class='doccomment'>/// The exact and fixed mode implementation for Dragon.</span>
-<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>format_exact</span>(<span class='ident'>d</span>: <span class='kw-2'>&amp;</span><span class='ident'>Decoded</span>, <span class='ident'>buf</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> [<span class='ident'>u8</span>], <span class='ident'>limit</span>: <span class='ident'>i16</span>) <span class='op'>-&gt;</span> (<span class='comment'>/*#digits*/</span> <span class='ident'>usize</span>, <span class='comment'>/*exp*/</span> <span class='ident'>i16</span>) {
-    <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>d</span>.<span class='ident'>mant</span> <span class='op'>&gt;</span> <span class='number'>0</span>);
-    <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>d</span>.<span class='ident'>minus</span> <span class='op'>&gt;</span> <span class='number'>0</span>);
-    <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>d</span>.<span class='ident'>plus</span> <span class='op'>&gt;</span> <span class='number'>0</span>);
-    <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>d</span>.<span class='ident'>mant</span>.<span class='ident'>checked_add</span>(<span class='ident'>d</span>.<span class='ident'>plus</span>).<span class='ident'>is_some</span>());
-    <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>d</span>.<span class='ident'>mant</span>.<span class='ident'>checked_sub</span>(<span class='ident'>d</span>.<span class='ident'>minus</span>).<span class='ident'>is_some</span>());
+<span class="doccomment">/// The exact and fixed mode implementation for Dragon.</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">format_exact</span>(<span class="ident">d</span>: <span class="kw-2">&amp;</span><span class="ident">Decoded</span>, <span class="ident">buf</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> [<span class="ident">u8</span>], <span class="ident">limit</span>: <span class="ident">i16</span>) <span class="op">-&gt;</span> (<span class="comment">/*#digits*/</span> <span class="ident">usize</span>, <span class="comment">/*exp*/</span> <span class="ident">i16</span>) {
+    <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">d</span>.<span class="ident">mant</span> <span class="op">&gt;</span> <span class="number">0</span>);
+    <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">d</span>.<span class="ident">minus</span> <span class="op">&gt;</span> <span class="number">0</span>);
+    <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">d</span>.<span class="ident">plus</span> <span class="op">&gt;</span> <span class="number">0</span>);
+    <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">d</span>.<span class="ident">mant</span>.<span class="ident">checked_add</span>(<span class="ident">d</span>.<span class="ident">plus</span>).<span class="ident">is_some</span>());
+    <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">d</span>.<span class="ident">mant</span>.<span class="ident">checked_sub</span>(<span class="ident">d</span>.<span class="ident">minus</span>).<span class="ident">is_some</span>());
 
-    <span class='comment'>// estimate `k_0` from original inputs satisfying `10^(k_0-1) &lt; v &lt;= 10^(k_0+1)`.</span>
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>k</span> <span class='op'>=</span> <span class='ident'>estimate_scaling_factor</span>(<span class='ident'>d</span>.<span class='ident'>mant</span>, <span class='ident'>d</span>.<span class='ident'>exp</span>);
+    <span class="comment">// estimate `k_0` from original inputs satisfying `10^(k_0-1) &lt; v &lt;= 10^(k_0+1)`.</span>
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">k</span> <span class="op">=</span> <span class="ident">estimate_scaling_factor</span>(<span class="ident">d</span>.<span class="ident">mant</span>, <span class="ident">d</span>.<span class="ident">exp</span>);
 
-    <span class='comment'>// `v = mant / scale`.</span>
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>mant</span> <span class='op'>=</span> <span class='ident'>Big</span>::<span class='ident'>from_u64</span>(<span class='ident'>d</span>.<span class='ident'>mant</span>);
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>scale</span> <span class='op'>=</span> <span class='ident'>Big</span>::<span class='ident'>from_small</span>(<span class='number'>1</span>);
-    <span class='kw'>if</span> <span class='ident'>d</span>.<span class='ident'>exp</span> <span class='op'>&lt;</span> <span class='number'>0</span> {
-        <span class='ident'>scale</span>.<span class='ident'>mul_pow2</span>(<span class='op'>-</span><span class='ident'>d</span>.<span class='ident'>exp</span> <span class='kw'>as</span> <span class='ident'>usize</span>);
-    } <span class='kw'>else</span> {
-        <span class='ident'>mant</span>.<span class='ident'>mul_pow2</span>(<span class='ident'>d</span>.<span class='ident'>exp</span> <span class='kw'>as</span> <span class='ident'>usize</span>);
+    <span class="comment">// `v = mant / scale`.</span>
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">mant</span> <span class="op">=</span> <span class="ident">Big</span>::<span class="ident">from_u64</span>(<span class="ident">d</span>.<span class="ident">mant</span>);
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">scale</span> <span class="op">=</span> <span class="ident">Big</span>::<span class="ident">from_small</span>(<span class="number">1</span>);
+    <span class="kw">if</span> <span class="ident">d</span>.<span class="ident">exp</span> <span class="op">&lt;</span> <span class="number">0</span> {
+        <span class="ident">scale</span>.<span class="ident">mul_pow2</span>(<span class="op">-</span><span class="ident">d</span>.<span class="ident">exp</span> <span class="kw">as</span> <span class="ident">usize</span>);
+    } <span class="kw">else</span> {
+        <span class="ident">mant</span>.<span class="ident">mul_pow2</span>(<span class="ident">d</span>.<span class="ident">exp</span> <span class="kw">as</span> <span class="ident">usize</span>);
     }
 
-    <span class='comment'>// divide `mant` by `10^k`. now `scale / 10 &lt; mant &lt;= scale * 10`.</span>
-    <span class='kw'>if</span> <span class='ident'>k</span> <span class='op'>&gt;=</span> <span class='number'>0</span> {
-        <span class='ident'>mul_pow10</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>scale</span>, <span class='ident'>k</span> <span class='kw'>as</span> <span class='ident'>usize</span>);
-    } <span class='kw'>else</span> {
-        <span class='ident'>mul_pow10</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>mant</span>, <span class='op'>-</span><span class='ident'>k</span> <span class='kw'>as</span> <span class='ident'>usize</span>);
+    <span class="comment">// divide `mant` by `10^k`. now `scale / 10 &lt; mant &lt;= scale * 10`.</span>
+    <span class="kw">if</span> <span class="ident">k</span> <span class="op">&gt;=</span> <span class="number">0</span> {
+        <span class="ident">mul_pow10</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">scale</span>, <span class="ident">k</span> <span class="kw">as</span> <span class="ident">usize</span>);
+    } <span class="kw">else</span> {
+        <span class="ident">mul_pow10</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">mant</span>, <span class="op">-</span><span class="ident">k</span> <span class="kw">as</span> <span class="ident">usize</span>);
     }
 
-    <span class='comment'>// fixup when `mant + plus &gt;= scale`, where `plus / scale = 10^-buf.len() / 2`.</span>
-    <span class='comment'>// in order to keep the fixed-size bignum, we actually use `mant + floor(plus) &gt;= scale`.</span>
-    <span class='comment'>// we are not actually modifying `scale`, since we can skip the initial multiplication instead.</span>
-    <span class='comment'>// again with the shortest algorithm, `d[0]` can be zero but will be eventually rounded up.</span>
-    <span class='kw'>if</span> <span class='kw-2'>*</span><span class='ident'>div_2pow10</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>scale</span>.<span class='ident'>clone</span>(), <span class='ident'>buf</span>.<span class='ident'>len</span>()).<span class='ident'>add</span>(<span class='kw-2'>&amp;</span><span class='ident'>mant</span>) <span class='op'>&gt;=</span> <span class='ident'>scale</span> {
-        <span class='comment'>// equivalent to scaling `scale` by 10</span>
-        <span class='ident'>k</span> <span class='op'>+=</span> <span class='number'>1</span>;
-    } <span class='kw'>else</span> {
-        <span class='ident'>mant</span>.<span class='ident'>mul_small</span>(<span class='number'>10</span>);
+    <span class="comment">// fixup when `mant + plus &gt;= scale`, where `plus / scale = 10^-buf.len() / 2`.</span>
+    <span class="comment">// in order to keep the fixed-size bignum, we actually use `mant + floor(plus) &gt;= scale`.</span>
+    <span class="comment">// we are not actually modifying `scale`, since we can skip the initial multiplication instead.</span>
+    <span class="comment">// again with the shortest algorithm, `d[0]` can be zero but will be eventually rounded up.</span>
+    <span class="kw">if</span> <span class="kw-2">*</span><span class="ident">div_2pow10</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">scale</span>.<span class="ident">clone</span>(), <span class="ident">buf</span>.<span class="ident">len</span>()).<span class="ident">add</span>(<span class="kw-2">&amp;</span><span class="ident">mant</span>) <span class="op">&gt;=</span> <span class="ident">scale</span> {
+        <span class="comment">// equivalent to scaling `scale` by 10</span>
+        <span class="ident">k</span> <span class="op">+=</span> <span class="number">1</span>;
+    } <span class="kw">else</span> {
+        <span class="ident">mant</span>.<span class="ident">mul_small</span>(<span class="number">10</span>);
     }
 
-    <span class='comment'>// if we are working with the last-digit limitation, we need to shorten the buffer</span>
-    <span class='comment'>// before the actual rendering in order to avoid double rounding.</span>
-    <span class='comment'>// note that we have to enlarge the buffer again when rounding up happens!</span>
-    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>len</span> <span class='op'>=</span> <span class='kw'>if</span> <span class='ident'>k</span> <span class='op'>&lt;</span> <span class='ident'>limit</span> {
-        <span class='comment'>// oops, we cannot even produce *one* digit.</span>
-        <span class='comment'>// this is possible when, say, we&#39;ve got something like 9.5 and it&#39;s being rounded to 10.</span>
-        <span class='comment'>// we return an empty buffer, with an exception of the later rounding-up case</span>
-        <span class='comment'>// which occurs when `k == limit` and has to produce exactly one digit.</span>
-        <span class='number'>0</span>
-    } <span class='kw'>else</span> <span class='kw'>if</span> ((<span class='ident'>k</span> <span class='kw'>as</span> <span class='ident'>i32</span> <span class='op'>-</span> <span class='ident'>limit</span> <span class='kw'>as</span> <span class='ident'>i32</span>) <span class='kw'>as</span> <span class='ident'>usize</span>) <span class='op'>&lt;</span> <span class='ident'>buf</span>.<span class='ident'>len</span>() {
-        (<span class='ident'>k</span> <span class='op'>-</span> <span class='ident'>limit</span>) <span class='kw'>as</span> <span class='ident'>usize</span>
-    } <span class='kw'>else</span> {
-        <span class='ident'>buf</span>.<span class='ident'>len</span>()
+    <span class="comment">// if we are working with the last-digit limitation, we need to shorten the buffer</span>
+    <span class="comment">// before the actual rendering in order to avoid double rounding.</span>
+    <span class="comment">// note that we have to enlarge the buffer again when rounding up happens!</span>
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">len</span> <span class="op">=</span> <span class="kw">if</span> <span class="ident">k</span> <span class="op">&lt;</span> <span class="ident">limit</span> {
+        <span class="comment">// oops, we cannot even produce *one* digit.</span>
+        <span class="comment">// this is possible when, say, we&#39;ve got something like 9.5 and it&#39;s being rounded to 10.</span>
+        <span class="comment">// we return an empty buffer, with an exception of the later rounding-up case</span>
+        <span class="comment">// which occurs when `k == limit` and has to produce exactly one digit.</span>
+        <span class="number">0</span>
+    } <span class="kw">else</span> <span class="kw">if</span> ((<span class="ident">k</span> <span class="kw">as</span> <span class="ident">i32</span> <span class="op">-</span> <span class="ident">limit</span> <span class="kw">as</span> <span class="ident">i32</span>) <span class="kw">as</span> <span class="ident">usize</span>) <span class="op">&lt;</span> <span class="ident">buf</span>.<span class="ident">len</span>() {
+        (<span class="ident">k</span> <span class="op">-</span> <span class="ident">limit</span>) <span class="kw">as</span> <span class="ident">usize</span>
+    } <span class="kw">else</span> {
+        <span class="ident">buf</span>.<span class="ident">len</span>()
     };
 
-    <span class='kw'>if</span> <span class='ident'>len</span> <span class='op'>&gt;</span> <span class='number'>0</span> {
-        <span class='comment'>// cache `(2, 4, 8) * scale` for digit generation.</span>
-        <span class='comment'>// (this can be expensive, so do not calculate them when the buffer is empty.)</span>
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>scale2</span> <span class='op'>=</span> <span class='ident'>scale</span>.<span class='ident'>clone</span>(); <span class='ident'>scale2</span>.<span class='ident'>mul_pow2</span>(<span class='number'>1</span>);
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>scale4</span> <span class='op'>=</span> <span class='ident'>scale</span>.<span class='ident'>clone</span>(); <span class='ident'>scale4</span>.<span class='ident'>mul_pow2</span>(<span class='number'>2</span>);
-        <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>scale8</span> <span class='op'>=</span> <span class='ident'>scale</span>.<span class='ident'>clone</span>(); <span class='ident'>scale8</span>.<span class='ident'>mul_pow2</span>(<span class='number'>3</span>);
+    <span class="kw">if</span> <span class="ident">len</span> <span class="op">&gt;</span> <span class="number">0</span> {
+        <span class="comment">// cache `(2, 4, 8) * scale` for digit generation.</span>
+        <span class="comment">// (this can be expensive, so do not calculate them when the buffer is empty.)</span>
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">scale2</span> <span class="op">=</span> <span class="ident">scale</span>.<span class="ident">clone</span>(); <span class="ident">scale2</span>.<span class="ident">mul_pow2</span>(<span class="number">1</span>);
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">scale4</span> <span class="op">=</span> <span class="ident">scale</span>.<span class="ident">clone</span>(); <span class="ident">scale4</span>.<span class="ident">mul_pow2</span>(<span class="number">2</span>);
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">scale8</span> <span class="op">=</span> <span class="ident">scale</span>.<span class="ident">clone</span>(); <span class="ident">scale8</span>.<span class="ident">mul_pow2</span>(<span class="number">3</span>);
 
-        <span class='kw'>for</span> <span class='ident'>i</span> <span class='kw'>in</span> <span class='number'>0</span>..<span class='ident'>len</span> {
-            <span class='kw'>if</span> <span class='ident'>mant</span>.<span class='ident'>is_zero</span>() { <span class='comment'>// following digits are all zeroes, we stop here</span>
-                <span class='comment'>// do *not* try to perform rounding! rather, fill remaining digits.</span>
-                <span class='kw'>for</span> <span class='ident'>c</span> <span class='kw'>in</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>buf</span>[<span class='ident'>i</span>..<span class='ident'>len</span>] { <span class='kw-2'>*</span><span class='ident'>c</span> <span class='op'>=</span> <span class='string'>b&#39;0&#39;</span>; }
-                <span class='kw'>return</span> (<span class='ident'>len</span>, <span class='ident'>k</span>);
+        <span class="kw">for</span> <span class="ident">i</span> <span class="kw">in</span> <span class="number">0</span>..<span class="ident">len</span> {
+            <span class="kw">if</span> <span class="ident">mant</span>.<span class="ident">is_zero</span>() { <span class="comment">// following digits are all zeroes, we stop here</span>
+                <span class="comment">// do *not* try to perform rounding! rather, fill remaining digits.</span>
+                <span class="kw">for</span> <span class="ident">c</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">buf</span>[<span class="ident">i</span>..<span class="ident">len</span>] { <span class="kw-2">*</span><span class="ident">c</span> <span class="op">=</span> <span class="string">b&#39;0&#39;</span>; }
+                <span class="kw">return</span> (<span class="ident">len</span>, <span class="ident">k</span>);
             }
 
-            <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>d</span> <span class='op'>=</span> <span class='number'>0</span>;
-            <span class='kw'>if</span> <span class='ident'>mant</span> <span class='op'>&gt;=</span> <span class='ident'>scale8</span> { <span class='ident'>mant</span>.<span class='ident'>sub</span>(<span class='kw-2'>&amp;</span><span class='ident'>scale8</span>); <span class='ident'>d</span> <span class='op'>+=</span> <span class='number'>8</span>; }
-            <span class='kw'>if</span> <span class='ident'>mant</span> <span class='op'>&gt;=</span> <span class='ident'>scale4</span> { <span class='ident'>mant</span>.<span class='ident'>sub</span>(<span class='kw-2'>&amp;</span><span class='ident'>scale4</span>); <span class='ident'>d</span> <span class='op'>+=</span> <span class='number'>4</span>; }
-            <span class='kw'>if</span> <span class='ident'>mant</span> <span class='op'>&gt;=</span> <span class='ident'>scale2</span> { <span class='ident'>mant</span>.<span class='ident'>sub</span>(<span class='kw-2'>&amp;</span><span class='ident'>scale2</span>); <span class='ident'>d</span> <span class='op'>+=</span> <span class='number'>2</span>; }
-            <span class='kw'>if</span> <span class='ident'>mant</span> <span class='op'>&gt;=</span> <span class='ident'>scale</span>  { <span class='ident'>mant</span>.<span class='ident'>sub</span>(<span class='kw-2'>&amp;</span><span class='ident'>scale</span>);  <span class='ident'>d</span> <span class='op'>+=</span> <span class='number'>1</span>; }
-            <span class='macro'>debug_assert</span><span class='macro'>!</span>(<span class='ident'>mant</span> <span class='op'>&lt;</span> <span class='ident'>scale</span>);
-            <span class='macro'>debug_assert</span><span class='macro'>!</span>(<span class='ident'>d</span> <span class='op'>&lt;</span> <span class='number'>10</span>);
-            <span class='ident'>buf</span>[<span class='ident'>i</span>] <span class='op'>=</span> <span class='string'>b&#39;0&#39;</span> <span class='op'>+</span> <span class='ident'>d</span>;
-            <span class='ident'>mant</span>.<span class='ident'>mul_small</span>(<span class='number'>10</span>);
+            <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">d</span> <span class="op">=</span> <span class="number">0</span>;
+            <span class="kw">if</span> <span class="ident">mant</span> <span class="op">&gt;=</span> <span class="ident">scale8</span> { <span class="ident">mant</span>.<span class="ident">sub</span>(<span class="kw-2">&amp;</span><span class="ident">scale8</span>); <span class="ident">d</span> <span class="op">+=</span> <span class="number">8</span>; }
+            <span class="kw">if</span> <span class="ident">mant</span> <span class="op">&gt;=</span> <span class="ident">scale4</span> { <span class="ident">mant</span>.<span class="ident">sub</span>(<span class="kw-2">&amp;</span><span class="ident">scale4</span>); <span class="ident">d</span> <span class="op">+=</span> <span class="number">4</span>; }
+            <span class="kw">if</span> <span class="ident">mant</span> <span class="op">&gt;=</span> <span class="ident">scale2</span> { <span class="ident">mant</span>.<span class="ident">sub</span>(<span class="kw-2">&amp;</span><span class="ident">scale2</span>); <span class="ident">d</span> <span class="op">+=</span> <span class="number">2</span>; }
+            <span class="kw">if</span> <span class="ident">mant</span> <span class="op">&gt;=</span> <span class="ident">scale</span>  { <span class="ident">mant</span>.<span class="ident">sub</span>(<span class="kw-2">&amp;</span><span class="ident">scale</span>);  <span class="ident">d</span> <span class="op">+=</span> <span class="number">1</span>; }
+            <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="ident">mant</span> <span class="op">&lt;</span> <span class="ident">scale</span>);
+            <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="ident">d</span> <span class="op">&lt;</span> <span class="number">10</span>);
+            <span class="ident">buf</span>[<span class="ident">i</span>] <span class="op">=</span> <span class="string">b&#39;0&#39;</span> <span class="op">+</span> <span class="ident">d</span>;
+            <span class="ident">mant</span>.<span class="ident">mul_small</span>(<span class="number">10</span>);
         }
     }
 
-    <span class='comment'>// rounding up if we stop in the middle of digits</span>
-    <span class='comment'>// if the following digits are exactly 5000..., check the prior digit and try to</span>
-    <span class='comment'>// round to even (i.e. avoid rounding up when the prior digit is even).</span>
-    <span class='kw'>let</span> <span class='ident'>order</span> <span class='op'>=</span> <span class='ident'>mant</span>.<span class='ident'>cmp</span>(<span class='ident'>scale</span>.<span class='ident'>mul_small</span>(<span class='number'>5</span>));
-    <span class='kw'>if</span> <span class='ident'>order</span> <span class='op'>==</span> <span class='ident'>Ordering</span>::<span class='ident'>Greater</span> <span class='op'>||</span> (<span class='ident'>order</span> <span class='op'>==</span> <span class='ident'>Ordering</span>::<span class='ident'>Equal</span> <span class='op'>&amp;&amp;</span>
-                                      (<span class='ident'>len</span> <span class='op'>==</span> <span class='number'>0</span> <span class='op'>||</span> <span class='ident'>buf</span>[<span class='ident'>len</span><span class='op'>-</span><span class='number'>1</span>] <span class='op'>&amp;</span> <span class='number'>1</span> <span class='op'>==</span> <span class='number'>1</span>)) {
-        <span class='comment'>// if rounding up changes the length, the exponent should also change.</span>
-        <span class='comment'>// but we&#39;ve been requested a fixed number of digits, so do not alter the buffer...</span>
-        <span class='kw'>if</span> <span class='kw'>let</span> <span class='prelude-val'>Some</span>(<span class='ident'>c</span>) <span class='op'>=</span> <span class='ident'>round_up</span>(<span class='ident'>buf</span>, <span class='ident'>len</span>) {
-            <span class='comment'>// ...unless we&#39;ve been requested the fixed precision instead.</span>
-            <span class='comment'>// we also need to check that, if the original buffer was empty,</span>
-            <span class='comment'>// the additional digit can only be added when `k == limit` (edge case).</span>
-            <span class='ident'>k</span> <span class='op'>+=</span> <span class='number'>1</span>;
-            <span class='kw'>if</span> <span class='ident'>k</span> <span class='op'>&gt;</span> <span class='ident'>limit</span> <span class='op'>&amp;&amp;</span> <span class='ident'>len</span> <span class='op'>&lt;</span> <span class='ident'>buf</span>.<span class='ident'>len</span>() {
-                <span class='ident'>buf</span>[<span class='ident'>len</span>] <span class='op'>=</span> <span class='ident'>c</span>;
-                <span class='ident'>len</span> <span class='op'>+=</span> <span class='number'>1</span>;
+    <span class="comment">// rounding up if we stop in the middle of digits</span>
+    <span class="comment">// if the following digits are exactly 5000..., check the prior digit and try to</span>
+    <span class="comment">// round to even (i.e. avoid rounding up when the prior digit is even).</span>
+    <span class="kw">let</span> <span class="ident">order</span> <span class="op">=</span> <span class="ident">mant</span>.<span class="ident">cmp</span>(<span class="ident">scale</span>.<span class="ident">mul_small</span>(<span class="number">5</span>));
+    <span class="kw">if</span> <span class="ident">order</span> <span class="op">==</span> <span class="ident">Ordering</span>::<span class="ident">Greater</span> <span class="op">||</span> (<span class="ident">order</span> <span class="op">==</span> <span class="ident">Ordering</span>::<span class="ident">Equal</span> <span class="op">&amp;&amp;</span>
+                                      (<span class="ident">len</span> <span class="op">==</span> <span class="number">0</span> <span class="op">||</span> <span class="ident">buf</span>[<span class="ident">len</span><span class="op">-</span><span class="number">1</span>] <span class="op">&amp;</span> <span class="number">1</span> <span class="op">==</span> <span class="number">1</span>)) {
+        <span class="comment">// if rounding up changes the length, the exponent should also change.</span>
+        <span class="comment">// but we&#39;ve been requested a fixed number of digits, so do not alter the buffer...</span>
+        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">c</span>) <span class="op">=</span> <span class="ident">round_up</span>(<span class="ident">buf</span>, <span class="ident">len</span>) {
+            <span class="comment">// ...unless we&#39;ve been requested the fixed precision instead.</span>
+            <span class="comment">// we also need to check that, if the original buffer was empty,</span>
+            <span class="comment">// the additional digit can only be added when `k == limit` (edge case).</span>
+            <span class="ident">k</span> <span class="op">+=</span> <span class="number">1</span>;
+            <span class="kw">if</span> <span class="ident">k</span> <span class="op">&gt;</span> <span class="ident">limit</span> <span class="op">&amp;&amp;</span> <span class="ident">len</span> <span class="op">&lt;</span> <span class="ident">buf</span>.<span class="ident">len</span>() {
+                <span class="ident">buf</span>[<span class="ident">len</span>] <span class="op">=</span> <span class="ident">c</span>;
+                <span class="ident">len</span> <span class="op">+=</span> <span class="number">1</span>;
             }
         }
     }
 
-    (<span class='ident'>len</span>, <span class='ident'>k</span>)
+    (<span class="ident">len</span>, <span class="ident">k</span>)
 }
 </pre>
 </section>
