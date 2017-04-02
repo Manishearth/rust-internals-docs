@@ -17,7 +17,7 @@
     
     
 </head>
-<body class="rustdoc">
+<body class="rustdoc source">
     <!--[if lte IE 8]>
     <div class="warning">
         This old browser is unsupported and will most likely display funky
@@ -43,7 +43,7 @@
         </form>
     </nav>
 
-    <section id='main' class="content source"><pre class="line-numbers"><span id="1">  1</span>
+    <section id='main' class="content"><pre class="line-numbers"><span id="1">  1</span>
 <span id="2">  2</span>
 <span id="3">  3</span>
 <span id="4">  4</span>
@@ -144,6 +144,32 @@
 <span id="99"> 99</span>
 <span id="100">100</span>
 <span id="101">101</span>
+<span id="102">102</span>
+<span id="103">103</span>
+<span id="104">104</span>
+<span id="105">105</span>
+<span id="106">106</span>
+<span id="107">107</span>
+<span id="108">108</span>
+<span id="109">109</span>
+<span id="110">110</span>
+<span id="111">111</span>
+<span id="112">112</span>
+<span id="113">113</span>
+<span id="114">114</span>
+<span id="115">115</span>
+<span id="116">116</span>
+<span id="117">117</span>
+<span id="118">118</span>
+<span id="119">119</span>
+<span id="120">120</span>
+<span id="121">121</span>
+<span id="122">122</span>
+<span id="123">123</span>
+<span id="124">124</span>
+<span id="125">125</span>
+<span id="126">126</span>
+<span id="127">127</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class="comment">// file at the top-level directory of this distribution and at</span>
@@ -159,91 +185,117 @@
 <span class="kw">use</span> <span class="ident">hair</span>::<span class="kw-2">*</span>;
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">mir</span>::<span class="kw-2">*</span>;
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">hir</span>;
+<span class="kw">use</span> <span class="ident">syntax_pos</span>::<span class="ident">Span</span>;
 
 <span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">Builder</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">ast_block</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
                      <span class="ident">destination</span>: <span class="kw-2">&amp;</span><span class="ident">Lvalue</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
-                     <span class="kw-2">mut</span> <span class="ident">block</span>: <span class="ident">BasicBlock</span>,
-                     <span class="ident">ast_block</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">hir</span>::<span class="ident">Block</span>)
+                     <span class="ident">block</span>: <span class="ident">BasicBlock</span>,
+                     <span class="ident">ast_block</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">hir</span>::<span class="ident">Block</span>,
+                     <span class="ident">source_info</span>: <span class="ident">SourceInfo</span>)
                      <span class="op">-&gt;</span> <span class="ident">BlockAnd</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
-        <span class="kw">let</span> <span class="ident">Block</span> { <span class="ident">extent</span>, <span class="ident">span</span>, <span class="ident">stmts</span>, <span class="ident">expr</span> } <span class="op">=</span> <span class="self">self</span>.<span class="ident">hir</span>.<span class="ident">mirror</span>(<span class="ident">ast_block</span>);
+        <span class="kw">let</span> <span class="ident">Block</span> { <span class="ident">extent</span>, <span class="ident">span</span>, <span class="ident">stmts</span>, <span class="ident">expr</span>, <span class="ident">targeted_by_break</span> } <span class="op">=</span> <span class="self">self</span>.<span class="ident">hir</span>.<span class="ident">mirror</span>(<span class="ident">ast_block</span>);
         <span class="self">self</span>.<span class="ident">in_scope</span>(<span class="ident">extent</span>, <span class="ident">block</span>, <span class="kw">move</span> <span class="op">|</span><span class="ident">this</span><span class="op">|</span> {
-            <span class="comment">// This convoluted structure is to avoid using recursion as we walk down a list</span>
-            <span class="comment">// of statements. Basically, the structure we get back is something like:</span>
-            <span class="comment">//</span>
-            <span class="comment">//    let x = &lt;init&gt; in {</span>
-            <span class="comment">//       expr1;</span>
-            <span class="comment">//       let y = &lt;init&gt; in {</span>
-            <span class="comment">//           expr2;</span>
-            <span class="comment">//           expr3;</span>
-            <span class="comment">//           ...</span>
-            <span class="comment">//       }</span>
-            <span class="comment">//    }</span>
-            <span class="comment">//</span>
-            <span class="comment">// The let bindings are valid till the end of block so all we have to do is to pop all</span>
-            <span class="comment">// the let-scopes at the end.</span>
-            <span class="comment">//</span>
-            <span class="comment">// First we build all the statements in the block.</span>
-            <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">let_extent_stack</span> <span class="op">=</span> <span class="ident">Vec</span>::<span class="ident">with_capacity</span>(<span class="number">8</span>);
-            <span class="kw">let</span> <span class="ident">outer_visibility_scope</span> <span class="op">=</span> <span class="ident">this</span>.<span class="ident">visibility_scope</span>;
-            <span class="kw">for</span> <span class="ident">stmt</span> <span class="kw">in</span> <span class="ident">stmts</span> {
-                <span class="kw">let</span> <span class="ident">Stmt</span> { <span class="ident">span</span>: _, <span class="ident">kind</span> } <span class="op">=</span> <span class="ident">this</span>.<span class="ident">hir</span>.<span class="ident">mirror</span>(<span class="ident">stmt</span>);
-                <span class="kw">match</span> <span class="ident">kind</span> {
-                    <span class="ident">StmtKind</span>::<span class="ident">Expr</span> { <span class="ident">scope</span>, <span class="ident">expr</span> } <span class="op">=&gt;</span> {
-                        <span class="macro">unpack</span><span class="macro">!</span>(<span class="ident">block</span> <span class="op">=</span> <span class="ident">this</span>.<span class="ident">in_scope</span>(<span class="ident">scope</span>, <span class="ident">block</span>, <span class="op">|</span><span class="ident">this</span><span class="op">|</span> {
-                            <span class="kw">let</span> <span class="ident">expr</span> <span class="op">=</span> <span class="ident">this</span>.<span class="ident">hir</span>.<span class="ident">mirror</span>(<span class="ident">expr</span>);
-                            <span class="ident">this</span>.<span class="ident">stmt_expr</span>(<span class="ident">block</span>, <span class="ident">expr</span>)
+            <span class="kw">if</span> <span class="ident">targeted_by_break</span> {
+                <span class="comment">// This is a `break`-able block (currently only `catch { ... }`)</span>
+                <span class="kw">let</span> <span class="ident">exit_block</span> <span class="op">=</span> <span class="ident">this</span>.<span class="ident">cfg</span>.<span class="ident">start_new_block</span>();
+                <span class="kw">let</span> <span class="ident">block_exit</span> <span class="op">=</span> <span class="ident">this</span>.<span class="ident">in_breakable_scope</span>(<span class="prelude-val">None</span>, <span class="ident">exit_block</span>,
+                                                         <span class="ident">destination</span>.<span class="ident">clone</span>(), <span class="op">|</span><span class="ident">this</span><span class="op">|</span> {
+                    <span class="ident">this</span>.<span class="ident">ast_block_stmts</span>(<span class="ident">destination</span>, <span class="ident">block</span>, <span class="ident">span</span>, <span class="ident">stmts</span>, <span class="ident">expr</span>)
+                });
+                <span class="ident">this</span>.<span class="ident">cfg</span>.<span class="ident">terminate</span>(<span class="macro">unpack</span><span class="macro">!</span>(<span class="ident">block_exit</span>), <span class="ident">source_info</span>,
+                                   <span class="ident">TerminatorKind</span>::<span class="ident">Goto</span> { <span class="ident">target</span>: <span class="ident">exit_block</span> });
+                <span class="ident">exit_block</span>.<span class="ident">unit</span>()
+            } <span class="kw">else</span> {
+                <span class="ident">this</span>.<span class="ident">ast_block_stmts</span>(<span class="ident">destination</span>, <span class="ident">block</span>, <span class="ident">span</span>, <span class="ident">stmts</span>, <span class="ident">expr</span>)
+            }
+        })
+    }
+
+    <span class="kw">fn</span> <span class="ident">ast_block_stmts</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                       <span class="ident">destination</span>: <span class="kw-2">&amp;</span><span class="ident">Lvalue</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                       <span class="kw-2">mut</span> <span class="ident">block</span>: <span class="ident">BasicBlock</span>,
+                       <span class="ident">span</span>: <span class="ident">Span</span>,
+                       <span class="ident">stmts</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">StmtRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,
+                       <span class="ident">expr</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">ExprRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>)
+                       <span class="op">-&gt;</span> <span class="ident">BlockAnd</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+        <span class="kw">let</span> <span class="ident">this</span> <span class="op">=</span> <span class="self">self</span>;
+
+        <span class="comment">// This convoluted structure is to avoid using recursion as we walk down a list</span>
+        <span class="comment">// of statements. Basically, the structure we get back is something like:</span>
+        <span class="comment">//</span>
+        <span class="comment">//    let x = &lt;init&gt; in {</span>
+        <span class="comment">//       expr1;</span>
+        <span class="comment">//       let y = &lt;init&gt; in {</span>
+        <span class="comment">//           expr2;</span>
+        <span class="comment">//           expr3;</span>
+        <span class="comment">//           ...</span>
+        <span class="comment">//       }</span>
+        <span class="comment">//    }</span>
+        <span class="comment">//</span>
+        <span class="comment">// The let bindings are valid till the end of block so all we have to do is to pop all</span>
+        <span class="comment">// the let-scopes at the end.</span>
+        <span class="comment">//</span>
+        <span class="comment">// First we build all the statements in the block.</span>
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">let_extent_stack</span> <span class="op">=</span> <span class="ident">Vec</span>::<span class="ident">with_capacity</span>(<span class="number">8</span>);
+        <span class="kw">let</span> <span class="ident">outer_visibility_scope</span> <span class="op">=</span> <span class="ident">this</span>.<span class="ident">visibility_scope</span>;
+        <span class="kw">for</span> <span class="ident">stmt</span> <span class="kw">in</span> <span class="ident">stmts</span> {
+            <span class="kw">let</span> <span class="ident">Stmt</span> { <span class="ident">span</span>: _, <span class="ident">kind</span> } <span class="op">=</span> <span class="ident">this</span>.<span class="ident">hir</span>.<span class="ident">mirror</span>(<span class="ident">stmt</span>);
+            <span class="kw">match</span> <span class="ident">kind</span> {
+                <span class="ident">StmtKind</span>::<span class="ident">Expr</span> { <span class="ident">scope</span>, <span class="ident">expr</span> } <span class="op">=&gt;</span> {
+                    <span class="macro">unpack</span><span class="macro">!</span>(<span class="ident">block</span> <span class="op">=</span> <span class="ident">this</span>.<span class="ident">in_scope</span>(<span class="ident">scope</span>, <span class="ident">block</span>, <span class="op">|</span><span class="ident">this</span><span class="op">|</span> {
+                        <span class="kw">let</span> <span class="ident">expr</span> <span class="op">=</span> <span class="ident">this</span>.<span class="ident">hir</span>.<span class="ident">mirror</span>(<span class="ident">expr</span>);
+                        <span class="ident">this</span>.<span class="ident">stmt_expr</span>(<span class="ident">block</span>, <span class="ident">expr</span>)
+                    }));
+                }
+                <span class="ident">StmtKind</span>::<span class="ident">Let</span> { <span class="ident">remainder_scope</span>, <span class="ident">init_scope</span>, <span class="ident">pattern</span>, <span class="ident">initializer</span> } <span class="op">=&gt;</span> {
+                    <span class="kw">let</span> <span class="ident">tcx</span> <span class="op">=</span> <span class="ident">this</span>.<span class="ident">hir</span>.<span class="ident">tcx</span>();
+
+                    <span class="comment">// Enter the remainder scope, i.e. the bindings&#39; destruction scope.</span>
+                    <span class="ident">this</span>.<span class="ident">push_scope</span>(<span class="ident">remainder_scope</span>);
+                    <span class="ident">let_extent_stack</span>.<span class="ident">push</span>(<span class="ident">remainder_scope</span>);
+
+                    <span class="comment">// Declare the bindings, which may create a visibility scope.</span>
+                    <span class="kw">let</span> <span class="ident">remainder_span</span> <span class="op">=</span> <span class="ident">remainder_scope</span>.<span class="ident">span</span>(<span class="kw-2">&amp;</span><span class="ident">tcx</span>.<span class="ident">region_maps</span>, <span class="kw-2">&amp;</span><span class="ident">tcx</span>.<span class="ident">hir</span>);
+                    <span class="kw">let</span> <span class="ident">remainder_span</span> <span class="op">=</span> <span class="ident">remainder_span</span>.<span class="ident">unwrap_or</span>(<span class="ident">span</span>);
+                    <span class="kw">let</span> <span class="ident">scope</span> <span class="op">=</span> <span class="ident">this</span>.<span class="ident">declare_bindings</span>(<span class="prelude-val">None</span>, <span class="ident">remainder_span</span>, <span class="kw-2">&amp;</span><span class="ident">pattern</span>);
+
+                    <span class="comment">// Evaluate the initializer, if present.</span>
+                    <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">init</span>) <span class="op">=</span> <span class="ident">initializer</span> {
+                        <span class="macro">unpack</span><span class="macro">!</span>(<span class="ident">block</span> <span class="op">=</span> <span class="ident">this</span>.<span class="ident">in_scope</span>(<span class="ident">init_scope</span>, <span class="ident">block</span>, <span class="kw">move</span> <span class="op">|</span><span class="ident">this</span><span class="op">|</span> {
+                            <span class="comment">// FIXME #30046                              ^~~~</span>
+                            <span class="ident">this</span>.<span class="ident">expr_into_pattern</span>(<span class="ident">block</span>, <span class="ident">pattern</span>, <span class="ident">init</span>)
                         }));
+                    } <span class="kw">else</span> {
+                        <span class="ident">this</span>.<span class="ident">visit_bindings</span>(<span class="kw-2">&amp;</span><span class="ident">pattern</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="op">|</span><span class="ident">this</span>, _, _, <span class="ident">node</span>, <span class="ident">span</span>, _<span class="op">|</span> {
+                            <span class="ident">this</span>.<span class="ident">storage_live_binding</span>(<span class="ident">block</span>, <span class="ident">node</span>, <span class="ident">span</span>);
+                            <span class="ident">this</span>.<span class="ident">schedule_drop_for_binding</span>(<span class="ident">node</span>, <span class="ident">span</span>);
+                        })
                     }
-                    <span class="ident">StmtKind</span>::<span class="ident">Let</span> { <span class="ident">remainder_scope</span>, <span class="ident">init_scope</span>, <span class="ident">pattern</span>, <span class="ident">initializer</span> } <span class="op">=&gt;</span> {
-                        <span class="kw">let</span> <span class="ident">tcx</span> <span class="op">=</span> <span class="ident">this</span>.<span class="ident">hir</span>.<span class="ident">tcx</span>();
 
-                        <span class="comment">// Enter the remainder scope, i.e. the bindings&#39; destruction scope.</span>
-                        <span class="ident">this</span>.<span class="ident">push_scope</span>(<span class="ident">remainder_scope</span>);
-                        <span class="ident">let_extent_stack</span>.<span class="ident">push</span>(<span class="ident">remainder_scope</span>);
-
-                        <span class="comment">// Declare the bindings, which may create a visibility scope.</span>
-                        <span class="kw">let</span> <span class="ident">remainder_span</span> <span class="op">=</span> <span class="ident">remainder_scope</span>.<span class="ident">span</span>(<span class="kw-2">&amp;</span><span class="ident">tcx</span>.<span class="ident">region_maps</span>, <span class="kw-2">&amp;</span><span class="ident">tcx</span>.<span class="ident">hir</span>);
-                        <span class="kw">let</span> <span class="ident">remainder_span</span> <span class="op">=</span> <span class="ident">remainder_span</span>.<span class="ident">unwrap_or</span>(<span class="ident">span</span>);
-                        <span class="kw">let</span> <span class="ident">scope</span> <span class="op">=</span> <span class="ident">this</span>.<span class="ident">declare_bindings</span>(<span class="prelude-val">None</span>, <span class="ident">remainder_span</span>, <span class="kw-2">&amp;</span><span class="ident">pattern</span>);
-
-                        <span class="comment">// Evaluate the initializer, if present.</span>
-                        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">init</span>) <span class="op">=</span> <span class="ident">initializer</span> {
-                            <span class="macro">unpack</span><span class="macro">!</span>(<span class="ident">block</span> <span class="op">=</span> <span class="ident">this</span>.<span class="ident">in_scope</span>(<span class="ident">init_scope</span>, <span class="ident">block</span>, <span class="kw">move</span> <span class="op">|</span><span class="ident">this</span><span class="op">|</span> {
-                                <span class="comment">// FIXME #30046                              ^~~~</span>
-                                <span class="ident">this</span>.<span class="ident">expr_into_pattern</span>(<span class="ident">block</span>, <span class="ident">pattern</span>, <span class="ident">init</span>)
-                            }));
-                        } <span class="kw">else</span> {
-                            <span class="ident">this</span>.<span class="ident">visit_bindings</span>(<span class="kw-2">&amp;</span><span class="ident">pattern</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="op">|</span><span class="ident">this</span>, _, _, <span class="ident">node</span>, <span class="ident">span</span>, _<span class="op">|</span> {
-                                <span class="ident">this</span>.<span class="ident">storage_live_binding</span>(<span class="ident">block</span>, <span class="ident">node</span>, <span class="ident">span</span>);
-                                <span class="ident">this</span>.<span class="ident">schedule_drop_for_binding</span>(<span class="ident">node</span>, <span class="ident">span</span>);
-                            })
-                        }
-
-                        <span class="comment">// Enter the visibility scope, after evaluating the initializer.</span>
-                        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">visibility_scope</span>) <span class="op">=</span> <span class="ident">scope</span> {
-                            <span class="ident">this</span>.<span class="ident">visibility_scope</span> <span class="op">=</span> <span class="ident">visibility_scope</span>;
-                        }
+                    <span class="comment">// Enter the visibility scope, after evaluating the initializer.</span>
+                    <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">visibility_scope</span>) <span class="op">=</span> <span class="ident">scope</span> {
+                        <span class="ident">this</span>.<span class="ident">visibility_scope</span> <span class="op">=</span> <span class="ident">visibility_scope</span>;
                     }
                 }
             }
-            <span class="comment">// Then, the block may have an optional trailing expression which is a “return” value</span>
-            <span class="comment">// of the block.</span>
-            <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">expr</span>) <span class="op">=</span> <span class="ident">expr</span> {
-                <span class="macro">unpack</span><span class="macro">!</span>(<span class="ident">block</span> <span class="op">=</span> <span class="ident">this</span>.<span class="ident">into</span>(<span class="ident">destination</span>, <span class="ident">block</span>, <span class="ident">expr</span>));
-            } <span class="kw">else</span> {
-                <span class="kw">let</span> <span class="ident">source_info</span> <span class="op">=</span> <span class="ident">this</span>.<span class="ident">source_info</span>(<span class="ident">span</span>);
-                <span class="ident">this</span>.<span class="ident">cfg</span>.<span class="ident">push_assign_unit</span>(<span class="ident">block</span>, <span class="ident">source_info</span>, <span class="ident">destination</span>);
-            }
-            <span class="comment">// Finally, we pop all the let scopes before exiting out from the scope of block</span>
-            <span class="comment">// itself.</span>
-            <span class="kw">for</span> <span class="ident">extent</span> <span class="kw">in</span> <span class="ident">let_extent_stack</span>.<span class="ident">into_iter</span>().<span class="ident">rev</span>() {
-                <span class="macro">unpack</span><span class="macro">!</span>(<span class="ident">block</span> <span class="op">=</span> <span class="ident">this</span>.<span class="ident">pop_scope</span>(<span class="ident">extent</span>, <span class="ident">block</span>));
-            }
-            <span class="comment">// Restore the original visibility scope.</span>
-            <span class="ident">this</span>.<span class="ident">visibility_scope</span> <span class="op">=</span> <span class="ident">outer_visibility_scope</span>;
-            <span class="ident">block</span>.<span class="ident">unit</span>()
-        })
+        }
+        <span class="comment">// Then, the block may have an optional trailing expression which is a “return” value</span>
+        <span class="comment">// of the block.</span>
+        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">expr</span>) <span class="op">=</span> <span class="ident">expr</span> {
+            <span class="macro">unpack</span><span class="macro">!</span>(<span class="ident">block</span> <span class="op">=</span> <span class="ident">this</span>.<span class="ident">into</span>(<span class="ident">destination</span>, <span class="ident">block</span>, <span class="ident">expr</span>));
+        } <span class="kw">else</span> {
+            <span class="kw">let</span> <span class="ident">source_info</span> <span class="op">=</span> <span class="ident">this</span>.<span class="ident">source_info</span>(<span class="ident">span</span>);
+            <span class="ident">this</span>.<span class="ident">cfg</span>.<span class="ident">push_assign_unit</span>(<span class="ident">block</span>, <span class="ident">source_info</span>, <span class="ident">destination</span>);
+        }
+        <span class="comment">// Finally, we pop all the let scopes before exiting out from the scope of block</span>
+        <span class="comment">// itself.</span>
+        <span class="kw">for</span> <span class="ident">extent</span> <span class="kw">in</span> <span class="ident">let_extent_stack</span>.<span class="ident">into_iter</span>().<span class="ident">rev</span>() {
+            <span class="macro">unpack</span><span class="macro">!</span>(<span class="ident">block</span> <span class="op">=</span> <span class="ident">this</span>.<span class="ident">pop_scope</span>(<span class="ident">extent</span>, <span class="ident">block</span>));
+        }
+        <span class="comment">// Restore the original visibility scope.</span>
+        <span class="ident">this</span>.<span class="ident">visibility_scope</span> <span class="op">=</span> <span class="ident">outer_visibility_scope</span>;
+        <span class="ident">block</span>.<span class="ident">unit</span>()
     }
 }
 </pre>

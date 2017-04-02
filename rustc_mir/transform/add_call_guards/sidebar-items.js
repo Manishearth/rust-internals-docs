@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["AddCallGuards",""]]});
+initSidebarItems({"fn":[["add_call_guards",""]],"struct":[["AddCallGuards",""]]});

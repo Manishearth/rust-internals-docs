@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["Disambiguator",""],["DumpMir",""],["Marker",""]]});
+initSidebarItems({"fn":[["emit_mir",""]],"struct":[["Disambiguator",""],["DumpMir",""],["Marker",""]]});

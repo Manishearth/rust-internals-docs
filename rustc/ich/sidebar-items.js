@@ -1,0 +1,1 @@
+initSidebarItems({"constant":[["ATTR_CLEAN",""],["ATTR_CLEAN_METADATA",""],["ATTR_DIRTY",""],["ATTR_DIRTY_METADATA",""],["ATTR_IF_THIS_CHANGED",""],["ATTR_THEN_THIS_WOULD_NEED",""],["IGNORED_ATTRIBUTES",""]],"struct":[["CachingCodemapView",""],["DefPathHashes",""],["Fingerprint",""]]});

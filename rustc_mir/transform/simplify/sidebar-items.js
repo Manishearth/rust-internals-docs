@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["remove_dead_blocks",""]],"struct":[["CfgSimplifier",""],["SimplifyCfg",""],["SimplifyLocals",""]]});
+initSidebarItems({"fn":[["remove_dead_blocks",""],["simplify_cfg",""]],"struct":[["CfgSimplifier",""],["SimplifyCfg",""],["SimplifyLocals",""]]});

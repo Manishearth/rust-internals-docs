@@ -1,1 +1,1 @@
-initSidebarItems({"constant":[["DIAGNOSTICS",""]],"fn":[["check_crate",""]],"mod":[["diagnostics",""]]});
+initSidebarItems({"constant":[["DIAGNOSTICS",""]],"fn":[["check_crate",""],["provide",""]],"mod":[["diagnostics",""]]});

@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["Adjust",""],["AutoBorrow",""],["CustomCoerceUnsized",""]],"struct":[["Adjustment",""]]});
+initSidebarItems({"enum":[["Adjust",""],["AutoBorrow",""],["CustomCoerceUnsized",""]],"struct":[["Adjustment",""],["CoerceUnsizedInfo","Information for `CoerceUnsized` impls, storing information we have computed about the coercion."]]});

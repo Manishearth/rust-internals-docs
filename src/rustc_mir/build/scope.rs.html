@@ -17,7 +17,7 @@
     
     
 </head>
-<body class="rustdoc">
+<body class="rustdoc source">
     <!--[if lte IE 8]>
     <div class="warning">
         This old browser is unsupported and will most likely display funky
@@ -43,7 +43,7 @@
         </form>
     </nav>
 
-    <section id='main' class="content source"><pre class="line-numbers"><span id="1">  1</span>
+    <section id='main' class="content"><pre class="line-numbers"><span id="1">  1</span>
 <span id="2">  2</span>
 <span id="3">  3</span>
 <span id="4">  4</span>
@@ -838,6 +838,7 @@
 <span id="793">793</span>
 <span id="794">794</span>
 <span id="795">795</span>
+<span id="796">796</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class="comment">// file at the top-level directory of this distribution and at</span>
@@ -930,6 +931,7 @@ should go to.
 <span class="kw">use</span> <span class="ident">build</span>::{<span class="ident">BlockAnd</span>, <span class="ident">BlockAndExtension</span>, <span class="ident">Builder</span>, <span class="ident">CFG</span>};
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">middle</span>::<span class="ident">region</span>::{<span class="ident">CodeExtent</span>, <span class="ident">CodeExtentData</span>};
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">middle</span>::<span class="ident">lang_items</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">middle</span>::<span class="ident">const_val</span>::<span class="ident">ConstVal</span>;
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::<span class="ident">subst</span>::{<span class="ident">Kind</span>, <span class="ident">Subst</span>};
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::{<span class="ident">Ty</span>, <span class="ident">TyCtxt</span>};
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">mir</span>::<span class="kw-2">*</span>;
@@ -1018,16 +1020,16 @@ should go to.
 }
 
 <span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">Debug</span>)]</span>
-<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">LoopScope</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">BreakableScope</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
     <span class="doccomment">/// Extent of the loop</span>
     <span class="kw">pub</span> <span class="ident">extent</span>: <span class="ident">CodeExtent</span>,
-    <span class="doccomment">/// Where the body of the loop begins</span>
-    <span class="kw">pub</span> <span class="ident">continue_block</span>: <span class="ident">BasicBlock</span>,
-    <span class="doccomment">/// Block to branch into when the loop terminates (either by being `break`-en out from, or by</span>
-    <span class="doccomment">/// having its condition to become false)</span>
+    <span class="doccomment">/// Where the body of the loop begins. `None` if block</span>
+    <span class="kw">pub</span> <span class="ident">continue_block</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">BasicBlock</span><span class="op">&gt;</span>,
+    <span class="doccomment">/// Block to branch into when the loop or block terminates (either by being `break`-en out</span>
+    <span class="doccomment">/// from, or by having its condition to become false)</span>
     <span class="kw">pub</span> <span class="ident">break_block</span>: <span class="ident">BasicBlock</span>,
-    <span class="doccomment">/// The destination of the loop expression itself (i.e. where to put the result of a `break`</span>
-    <span class="doccomment">/// expression)</span>
+    <span class="doccomment">/// The destination of the loop/block expression itself (i.e. where to put the result of a</span>
+    <span class="doccomment">/// `break` expression)</span>
     <span class="kw">pub</span> <span class="ident">break_destination</span>: <span class="ident">Lvalue</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
 }
 
@@ -1083,28 +1085,29 @@ should go to.
 <span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">Builder</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
     <span class="comment">// Adding and removing scopes</span>
     <span class="comment">// ==========================</span>
-    <span class="doccomment">/// Start a loop scope, which tracks where `continue` and `break`</span>
+    <span class="doccomment">/// Start a breakable scope, which tracks where `continue` and `break`</span>
     <span class="doccomment">/// should branch to. See module comment for more details.</span>
     <span class="doccomment">///</span>
-    <span class="doccomment">/// Returns the might_break attribute of the LoopScope used.</span>
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">in_loop_scope</span><span class="op">&lt;</span><span class="ident">F</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
-                            <span class="ident">loop_block</span>: <span class="ident">BasicBlock</span>,
+    <span class="doccomment">/// Returns the might_break attribute of the BreakableScope used.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">in_breakable_scope</span><span class="op">&lt;</span><span class="ident">F</span>, <span class="ident">R</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                            <span class="ident">loop_block</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">BasicBlock</span><span class="op">&gt;</span>,
                             <span class="ident">break_block</span>: <span class="ident">BasicBlock</span>,
                             <span class="ident">break_destination</span>: <span class="ident">Lvalue</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
-                            <span class="ident">f</span>: <span class="ident">F</span>)
-        <span class="kw">where</span> <span class="ident">F</span>: <span class="ident">FnOnce</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Builder</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+                            <span class="ident">f</span>: <span class="ident">F</span>) <span class="op">-&gt;</span> <span class="ident">R</span>
+        <span class="kw">where</span> <span class="ident">F</span>: <span class="ident">FnOnce</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Builder</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">R</span>
     {
         <span class="kw">let</span> <span class="ident">extent</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">topmost_scope</span>();
-        <span class="kw">let</span> <span class="ident">loop_scope</span> <span class="op">=</span> <span class="ident">LoopScope</span> {
+        <span class="kw">let</span> <span class="ident">scope</span> <span class="op">=</span> <span class="ident">BreakableScope</span> {
             <span class="ident">extent</span>: <span class="ident">extent</span>,
             <span class="ident">continue_block</span>: <span class="ident">loop_block</span>,
             <span class="ident">break_block</span>: <span class="ident">break_block</span>,
             <span class="ident">break_destination</span>: <span class="ident">break_destination</span>,
         };
-        <span class="self">self</span>.<span class="ident">loop_scopes</span>.<span class="ident">push</span>(<span class="ident">loop_scope</span>);
-        <span class="ident">f</span>(<span class="self">self</span>);
-        <span class="kw">let</span> <span class="ident">loop_scope</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">loop_scopes</span>.<span class="ident">pop</span>().<span class="ident">unwrap</span>();
-        <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">loop_scope</span>.<span class="ident">extent</span> <span class="op">==</span> <span class="ident">extent</span>);
+        <span class="self">self</span>.<span class="ident">breakable_scopes</span>.<span class="ident">push</span>(<span class="ident">scope</span>);
+        <span class="kw">let</span> <span class="ident">res</span> <span class="op">=</span> <span class="ident">f</span>(<span class="self">self</span>);
+        <span class="kw">let</span> <span class="ident">breakable_scope</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">breakable_scopes</span>.<span class="ident">pop</span>().<span class="ident">unwrap</span>();
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">breakable_scope</span>.<span class="ident">extent</span> <span class="op">==</span> <span class="ident">extent</span>);
+        <span class="ident">res</span>
     }
 
     <span class="doccomment">/// Convenience wrapper that pushes a scope and then executes `f`</span>
@@ -1222,18 +1225,18 @@ should go to.
 
     <span class="comment">// Finding scopes</span>
     <span class="comment">// ==============</span>
-    <span class="doccomment">/// Finds the loop scope for a given label. This is used for</span>
+    <span class="doccomment">/// Finds the breakable scope for a given label. This is used for</span>
     <span class="doccomment">/// resolving `break` and `continue`.</span>
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">find_loop_scope</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">find_breakable_scope</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
                            <span class="ident">span</span>: <span class="ident">Span</span>,
                            <span class="ident">label</span>: <span class="ident">CodeExtent</span>)
-                           <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">LoopScope</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+                           <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">BreakableScope</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
         <span class="comment">// find the loop-scope with the correct id</span>
-        <span class="self">self</span>.<span class="ident">loop_scopes</span>.<span class="ident">iter_mut</span>()
+        <span class="self">self</span>.<span class="ident">breakable_scopes</span>.<span class="ident">iter_mut</span>()
             .<span class="ident">rev</span>()
-            .<span class="ident">filter</span>(<span class="op">|</span><span class="ident">loop_scope</span><span class="op">|</span> <span class="ident">loop_scope</span>.<span class="ident">extent</span> <span class="op">==</span> <span class="ident">label</span>)
+            .<span class="ident">filter</span>(<span class="op">|</span><span class="ident">breakable_scope</span><span class="op">|</span> <span class="ident">breakable_scope</span>.<span class="ident">extent</span> <span class="op">==</span> <span class="ident">label</span>)
             .<span class="ident">next</span>()
-            .<span class="ident">unwrap_or_else</span>(<span class="op">||</span> <span class="macro">span_bug</span><span class="macro">!</span>(<span class="ident">span</span>, <span class="string">&quot;no enclosing loop scope found?&quot;</span>))
+            .<span class="ident">unwrap_or_else</span>(<span class="op">||</span> <span class="macro">span_bug</span><span class="macro">!</span>(<span class="ident">span</span>, <span class="string">&quot;no enclosing breakable scope found&quot;</span>))
     }
 
     <span class="doccomment">/// Given a span and the current visibility scope, make a SourceInfo.</span>
@@ -1624,9 +1627,8 @@ should go to.
         <span class="ident">func</span>: <span class="ident">Operand</span>::<span class="ident">Constant</span>(<span class="ident">Constant</span> {
             <span class="ident">span</span>: <span class="ident">data</span>.<span class="ident">span</span>,
             <span class="ident">ty</span>: <span class="ident">tcx</span>.<span class="ident">item_type</span>(<span class="ident">free_func</span>).<span class="ident">subst</span>(<span class="ident">tcx</span>, <span class="ident">substs</span>),
-            <span class="ident">literal</span>: <span class="ident">Literal</span>::<span class="ident">Item</span> {
-                <span class="ident">def_id</span>: <span class="ident">free_func</span>,
-                <span class="ident">substs</span>: <span class="ident">substs</span>
+            <span class="ident">literal</span>: <span class="ident">Literal</span>::<span class="ident">Value</span> {
+                <span class="ident">value</span>: <span class="ident">ConstVal</span>::<span class="ident">Function</span>(<span class="ident">free_func</span>, <span class="ident">substs</span>),
             }
         }),
         <span class="ident">args</span>: <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">Operand</span>::<span class="ident">Consume</span>(<span class="ident">data</span>.<span class="ident">value</span>.<span class="ident">clone</span>())],
