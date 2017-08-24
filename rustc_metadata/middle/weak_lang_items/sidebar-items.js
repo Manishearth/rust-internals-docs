@@ -1,1 +1,0 @@
-initSidebarItems({"fn":[["check_crate","Checks the crate for usage of weak lang items, returning a vector of all the language items required by this crate, but not defined yet."],["link_name",""]]});

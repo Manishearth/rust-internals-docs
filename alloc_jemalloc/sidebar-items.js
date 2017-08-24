@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["__rust_allocate",""],["__rust_deallocate",""],["__rust_reallocate",""],["__rust_reallocate_inplace",""],["__rust_usable_size",""]]});
+initSidebarItems({"fn":[["__rde_alloc",""],["__rde_alloc_excess",""],["__rde_alloc_zeroed",""],["__rde_dealloc",""],["__rde_grow_in_place",""],["__rde_oom",""],["__rde_realloc",""],["__rde_realloc_excess",""],["__rde_shrink_in_place",""],["__rde_usable_size",""]]});

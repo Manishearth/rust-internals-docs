@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["DropFlagMode",""],["DropFlagState",""],["DropStyle",""]],"fn":[["elaborate_drop",""]],"trait":[["DropElaborator",""]]});
+initSidebarItems({"enum":[["DropFlagMode",""],["DropFlagState",""],["DropStyle",""],["Unwind",""]],"fn":[["elaborate_drop",""]],"trait":[["DropElaborator",""]]});

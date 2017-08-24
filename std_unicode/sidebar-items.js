@@ -1,1 +1,1 @@
-initSidebarItems({"mod":[["char","A character type."],["derived_property",""],["property",""],["str",""]]});
+initSidebarItems({"mod":[["char","A character type."],["derived_property",""],["lossy",""],["property",""],["str",""]]});

@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["InstCombine",""]]});
+initSidebarItems({"struct":[["InstCombine",""],["InstCombineVisitor",""]]});

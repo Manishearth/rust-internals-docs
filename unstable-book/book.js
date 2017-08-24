@@ -33,6 +33,7 @@ $( document ).ready(function() {
     };
 
     $(document).on('keydown', function (e) {
+        if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) { return; }
         switch (e.keyCode) {
             case KEY_CODES.NEXT_KEY:
                 e.preventDefault();
@@ -145,10 +146,10 @@ $( document ).ready(function() {
         for(var n = 0; n < lines.length; n++){
             if($.trim(lines[n])[0] == hiding_character){
                 if(first_non_hidden_line){
-                    lines[n] = "<span class=\"hidden\">" + "\n" + lines[n].replace(/(\s*)#/, "$1") + "</span>";
+                    lines[n] = "<span class=\"hidden\">" + "\n" + lines[n].replace(/(\s*)# ?/, "$1") + "</span>";
                 }
                 else {
-                    lines[n] = "<span class=\"hidden\">" + lines[n].replace(/(\s*)#/, "$1") + "\n"  +  "</span>";
+                    lines[n] = "<span class=\"hidden\">" + lines[n].replace(/(\s*)# ?/, "$1") + "\n"  +  "</span>";
                 }
                 lines_hidden = true;
             }
@@ -207,6 +208,18 @@ function run_rust_code(code_block) {
         result_block = code_block.find(".result");
     }
 
+    let text = code_block.find(".language-rust").text();
+
+    let params = {
+        version: "stable",
+        optimize: "0",
+        code: text,
+    };
+
+    if(text.includes("#![feature")) {
+        params.version = "nightly";
+    }
+
     result_block.text("Running...");
 
     $.ajax({
@@ -215,7 +228,7 @@ function run_rust_code(code_block) {
         crossDomain: true,
         dataType: "json",
         contentType: "application/json",
-        data: JSON.stringify({version: "stable", optimize: "0", code: code_block.find(".language-rust").text() }),
+        data: JSON.stringify(params),
         success: function(response){
             result_block.text(response.result);
         }

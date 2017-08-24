@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["Arc","A thread-safe reference-counting pointer."],["Weak","A weak version of [`Arc`][arc]."]]});
+initSidebarItems({"struct":[["Arc","A thread-safe reference-counting pointer. 'Arc' stands for 'Atomically Reference Counted'."],["Weak","`Weak` is a version of [`Arc`] that holds a non-owning reference to the managed value. The value is accessed by calling [`upgrade`] on the `Weak` pointer, which returns an [`Option`]`<`[`Arc`]`<T>>`."]]});

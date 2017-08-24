@@ -1,1 +1,1 @@
-initSidebarItems({"mod":[["ast_validation",""],["consts",""],["diagnostics",""],["hir_stats",""],["loops",""],["mir_stats",""],["no_asm",""],["rvalues",""],["static_recursion",""]]});
+initSidebarItems({"constant":[["DIAGNOSTICS",""]],"mod":[["ast_validation",""],["consts",""],["hir_stats",""],["loops",""],["no_asm",""],["static_recursion",""]]});

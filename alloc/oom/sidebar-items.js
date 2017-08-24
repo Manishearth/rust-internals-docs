@@ -1,1 +1,0 @@
-initSidebarItems({"fn":[["oom","Common out-of-memory routine"],["set_oom_handler","Set a custom handler for out-of-memory conditions"]]});

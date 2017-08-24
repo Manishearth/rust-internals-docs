@@ -453,6 +453,19 @@
 <span id="408">408</span>
 <span id="409">409</span>
 <span id="410">410</span>
+<span id="411">411</span>
+<span id="412">412</span>
+<span id="413">413</span>
+<span id="414">414</span>
+<span id="415">415</span>
+<span id="416">416</span>
+<span id="417">417</span>
+<span id="418">418</span>
+<span id="419">419</span>
+<span id="420">420</span>
+<span id="421">421</span>
+<span id="422">422</span>
+<span id="423">423</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT</span>
 <span class="comment">// file at the top-level directory of this distribution and at</span>
@@ -471,11 +484,12 @@
 <span class="comment">// makes all other generics or inline functions that it references</span>
 <span class="comment">// reachable as well.</span>
 
-<span class="kw">use</span> <span class="ident">dep_graph</span>::<span class="ident">DepNode</span>;
 <span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">map</span> <span class="kw">as</span> <span class="ident">hir_map</span>;
 <span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">def</span>::<span class="ident">Def</span>;
-<span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">def_id</span>::<span class="ident">DefId</span>;
+<span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">def_id</span>::{<span class="ident">DefId</span>, <span class="ident">CrateNum</span>};
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">rc</span>::<span class="ident">Rc</span>;
 <span class="kw">use</span> <span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">TyCtxt</span>};
+<span class="kw">use</span> <span class="ident">ty</span>::<span class="ident">maps</span>::<span class="ident">Providers</span>;
 <span class="kw">use</span> <span class="ident">middle</span>::<span class="ident">privacy</span>;
 <span class="kw">use</span> <span class="ident">session</span>::<span class="ident">config</span>;
 <span class="kw">use</span> <span class="ident">util</span>::<span class="ident">nodemap</span>::{<span class="ident">NodeSet</span>, <span class="ident">FxHashSet</span>};
@@ -483,7 +497,6 @@
 <span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">abi</span>::<span class="ident">Abi</span>;
 <span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">ast</span>;
 <span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">attr</span>;
-<span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">codemap</span>::<span class="ident">DUMMY_SP</span>;
 <span class="kw">use</span> <span class="ident">hir</span>;
 <span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">def_id</span>::<span class="ident">LOCAL_CRATE</span>;
 <span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">intravisit</span>::{<span class="ident">Visitor</span>, <span class="ident">NestedVisitorMap</span>};
@@ -505,7 +518,7 @@
     }
 
     <span class="kw">match</span> <span class="ident">item</span>.<span class="ident">node</span> {
-        <span class="ident">hir</span>::<span class="ident">ItemImpl</span>(_, _, <span class="kw-2">ref</span> <span class="ident">generics</span>, ..) <span class="op">|</span>
+        <span class="ident">hir</span>::<span class="ident">ItemImpl</span>(_, _, _, <span class="kw-2">ref</span> <span class="ident">generics</span>, ..) <span class="op">|</span>
         <span class="ident">hir</span>::<span class="ident">ItemFn</span>(.., <span class="kw-2">ref</span> <span class="ident">generics</span>, _) <span class="op">=&gt;</span> {
             <span class="ident">generics_require_inlining</span>(<span class="ident">generics</span>)
         }
@@ -563,12 +576,10 @@
     <span class="kw">fn</span> <span class="ident">visit_expr</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">expr</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">hir</span>::<span class="ident">Expr</span>) {
         <span class="kw">let</span> <span class="ident">def</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">expr</span>.<span class="ident">node</span> {
             <span class="ident">hir</span>::<span class="ident">ExprPath</span>(<span class="kw-2">ref</span> <span class="ident">qpath</span>) <span class="op">=&gt;</span> {
-                <span class="prelude-val">Some</span>(<span class="self">self</span>.<span class="ident">tables</span>.<span class="ident">qpath_def</span>(<span class="ident">qpath</span>, <span class="ident">expr</span>.<span class="ident">id</span>))
+                <span class="prelude-val">Some</span>(<span class="self">self</span>.<span class="ident">tables</span>.<span class="ident">qpath_def</span>(<span class="ident">qpath</span>, <span class="ident">expr</span>.<span class="ident">hir_id</span>))
             }
             <span class="ident">hir</span>::<span class="ident">ExprMethodCall</span>(..) <span class="op">=&gt;</span> {
-                <span class="kw">let</span> <span class="ident">method_call</span> <span class="op">=</span> <span class="ident">ty</span>::<span class="ident">MethodCall</span>::<span class="ident">expr</span>(<span class="ident">expr</span>.<span class="ident">id</span>);
-                <span class="kw">let</span> <span class="ident">def_id</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tables</span>.<span class="ident">method_map</span>[<span class="kw-2">&amp;</span><span class="ident">method_call</span>].<span class="ident">def_id</span>;
-                <span class="prelude-val">Some</span>(<span class="ident">Def</span>::<span class="ident">Method</span>(<span class="ident">def_id</span>))
+                <span class="prelude-val">Some</span>(<span class="self">self</span>.<span class="ident">tables</span>.<span class="ident">type_dependent_defs</span>()[<span class="ident">expr</span>.<span class="ident">hir_id</span>])
             }
             _ <span class="op">=&gt;</span> <span class="prelude-val">None</span>
         };
@@ -641,7 +652,7 @@
                             <span class="comment">// does too.</span>
                             <span class="kw">let</span> <span class="ident">impl_node_id</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">as_local_node_id</span>(<span class="ident">impl_did</span>).<span class="ident">unwrap</span>();
                             <span class="kw">match</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">expect_item</span>(<span class="ident">impl_node_id</span>).<span class="ident">node</span> {
-                                <span class="ident">hir</span>::<span class="ident">ItemImpl</span>(_, _, <span class="kw-2">ref</span> <span class="ident">generics</span>, ..) <span class="op">=&gt;</span> {
+                                <span class="ident">hir</span>::<span class="ident">ItemImpl</span>(_, _, _, <span class="kw-2">ref</span> <span class="ident">generics</span>, ..) <span class="op">=&gt;</span> {
                                     <span class="ident">generics_require_inlining</span>(<span class="ident">generics</span>)
                                 }
                                 _ <span class="op">=&gt;</span> <span class="bool-val">false</span>
@@ -723,7 +734,8 @@
                     <span class="ident">hir</span>::<span class="ident">ItemMod</span>(..) <span class="op">|</span> <span class="ident">hir</span>::<span class="ident">ItemForeignMod</span>(..) <span class="op">|</span>
                     <span class="ident">hir</span>::<span class="ident">ItemImpl</span>(..) <span class="op">|</span> <span class="ident">hir</span>::<span class="ident">ItemTrait</span>(..) <span class="op">|</span>
                     <span class="ident">hir</span>::<span class="ident">ItemStruct</span>(..) <span class="op">|</span> <span class="ident">hir</span>::<span class="ident">ItemEnum</span>(..) <span class="op">|</span>
-                    <span class="ident">hir</span>::<span class="ident">ItemUnion</span>(..) <span class="op">|</span> <span class="ident">hir</span>::<span class="ident">ItemDefaultImpl</span>(..) <span class="op">=&gt;</span> {}
+                    <span class="ident">hir</span>::<span class="ident">ItemUnion</span>(..) <span class="op">|</span> <span class="ident">hir</span>::<span class="ident">ItemDefaultImpl</span>(..) <span class="op">|</span>
+                    <span class="ident">hir</span>::<span class="ident">ItemGlobalAsm</span>(..) <span class="op">=&gt;</span> {}
                 }
             }
             <span class="ident">hir_map</span>::<span class="ident">NodeTraitItem</span>(<span class="ident">trait_method</span>) <span class="op">=&gt;</span> {
@@ -752,6 +764,9 @@
                     }
                     <span class="ident">hir</span>::<span class="ident">ImplItemKind</span>::<span class="ident">Type</span>(_) <span class="op">=&gt;</span> {}
                 }
+            }
+            <span class="ident">hir_map</span>::<span class="ident">NodeExpr</span>(<span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">Expr</span> { <span class="ident">node</span>: <span class="ident">hir</span>::<span class="ident">ExprClosure</span>(.., <span class="ident">body</span>, _), .. }) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">visit_nested_body</span>(<span class="ident">body</span>);
             }
             <span class="comment">// Nothing to recurse on for these</span>
             <span class="ident">hir_map</span>::<span class="ident">NodeForeignItem</span>(_) <span class="op">|</span>
@@ -817,21 +832,25 @@
     }
 }
 
-<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">find_reachable</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">NodeSet</span> {
-    <span class="kw">let</span> <span class="ident">_task</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">dep_graph</span>.<span class="ident">in_task</span>(<span class="ident">DepNode</span>::<span class="ident">Reachability</span>);
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">find_reachable</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">Rc</span><span class="op">&lt;</span><span class="ident">NodeSet</span><span class="op">&gt;</span> {
+    <span class="ident">tcx</span>.<span class="ident">reachable_set</span>(<span class="ident">LOCAL_CRATE</span>)
+}
 
-    <span class="kw">let</span> <span class="ident">access_levels</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">queries</span>::<span class="ident">privacy_access_levels</span>::<span class="ident">get</span>(<span class="ident">tcx</span>, <span class="ident">DUMMY_SP</span>, <span class="ident">LOCAL_CRATE</span>);
+<span class="kw">fn</span> <span class="ident">reachable_set</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">crate_num</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Rc</span><span class="op">&lt;</span><span class="ident">NodeSet</span><span class="op">&gt;</span> {
+    <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="ident">crate_num</span> <span class="op">==</span> <span class="ident">LOCAL_CRATE</span>);
+
+    <span class="kw">let</span> <span class="ident">access_levels</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="ident">tcx</span>.<span class="ident">privacy_access_levels</span>(<span class="ident">LOCAL_CRATE</span>);
 
     <span class="kw">let</span> <span class="ident">any_library</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">sess</span>.<span class="ident">crate_types</span>.<span class="ident">borrow</span>().<span class="ident">iter</span>().<span class="ident">any</span>(<span class="op">|</span><span class="ident">ty</span><span class="op">|</span> {
         <span class="kw-2">*</span><span class="ident">ty</span> <span class="op">==</span> <span class="ident">config</span>::<span class="ident">CrateTypeRlib</span> <span class="op">||</span> <span class="kw-2">*</span><span class="ident">ty</span> <span class="op">==</span> <span class="ident">config</span>::<span class="ident">CrateTypeDylib</span> <span class="op">||</span>
         <span class="kw-2">*</span><span class="ident">ty</span> <span class="op">==</span> <span class="ident">config</span>::<span class="ident">CrateTypeProcMacro</span>
     });
     <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">reachable_context</span> <span class="op">=</span> <span class="ident">ReachableContext</span> {
-        <span class="ident">tcx</span>: <span class="ident">tcx</span>,
-        <span class="ident">tables</span>: <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TypeckTables</span>::<span class="ident">empty</span>(),
+        <span class="ident">tcx</span>,
+        <span class="ident">tables</span>: <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TypeckTables</span>::<span class="ident">empty</span>(<span class="prelude-val">None</span>),
         <span class="ident">reachable_symbols</span>: <span class="ident">NodeSet</span>(),
         <span class="ident">worklist</span>: <span class="ident">Vec</span>::<span class="ident">new</span>(),
-        <span class="ident">any_library</span>: <span class="ident">any_library</span>,
+        <span class="ident">any_library</span>,
     };
 
     <span class="comment">// Step 1: Seed the worklist with all nodes which were found to be public as</span>
@@ -851,8 +870,8 @@
     }
     {
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">collect_private_impl_items</span> <span class="op">=</span> <span class="ident">CollectPrivateImplItemsVisitor</span> {
-            <span class="ident">tcx</span>: <span class="ident">tcx</span>,
-            <span class="ident">access_levels</span>: <span class="ident">access_levels</span>,
+            <span class="ident">tcx</span>,
+            <span class="ident">access_levels</span>,
             <span class="ident">worklist</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">reachable_context</span>.<span class="ident">worklist</span>,
         };
         <span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">krate</span>().<span class="ident">visit_all_item_likes</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">collect_private_impl_items</span>);
@@ -862,7 +881,14 @@
     <span class="ident">reachable_context</span>.<span class="ident">propagate</span>();
 
     <span class="comment">// Return the set of reachable symbols.</span>
-    <span class="ident">reachable_context</span>.<span class="ident">reachable_symbols</span>
+    <span class="ident">Rc</span>::<span class="ident">new</span>(<span class="ident">reachable_context</span>.<span class="ident">reachable_symbols</span>)
+}
+
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">provide</span>(<span class="ident">providers</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Providers</span>) {
+    <span class="kw-2">*</span><span class="ident">providers</span> <span class="op">=</span> <span class="ident">Providers</span> {
+        <span class="ident">reachable_set</span>,
+        ..<span class="kw-2">*</span><span class="ident">providers</span>
+    };
 }
 </pre>
 </section>
@@ -922,7 +948,6 @@
         window.rootPath = "../../../";
         window.currentCrate = "rustc";
     </script>
-    <script src="../../../jquery.js"></script>
     <script src="../../../main.js"></script>
     <script defer src="../../../search-index.js"></script>
 </body>

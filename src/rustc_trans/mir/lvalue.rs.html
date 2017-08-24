@@ -455,6 +455,8 @@
 <span id="410">410</span>
 <span id="411">411</span>
 <span id="412">412</span>
+<span id="413">413</span>
+<span id="414">414</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class="comment">// file at the top-level directory of this distribution and at</span>
@@ -467,7 +469,8 @@
 <span class="comment">// except according to those terms.</span>
 
 <span class="kw">use</span> <span class="ident">llvm</span>::<span class="ident">ValueRef</span>;
-<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">layout</span>, <span class="ident">Ty</span>, <span class="ident">TypeFoldable</span>};
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">Ty</span>, <span class="ident">TypeFoldable</span>};
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::<span class="ident">layout</span>::{<span class="self">self</span>, <span class="ident">LayoutTyper</span>};
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">mir</span>;
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">mir</span>::<span class="ident">tcx</span>::<span class="ident">LvalueTy</span>;
 <span class="kw">use</span> <span class="ident">rustc_data_structures</span>::<span class="ident">indexed_vec</span>::<span class="ident">Idx</span>;
@@ -554,7 +557,8 @@
 
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">alloca</span>(<span class="ident">bcx</span>: <span class="kw-2">&amp;</span><span class="ident">Builder</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">name</span>: <span class="kw-2">&amp;</span><span class="ident">str</span>) <span class="op">-&gt;</span> <span class="ident">LvalueRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
         <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;alloca({:?}: {:?})&quot;</span>, <span class="ident">name</span>, <span class="ident">ty</span>);
-        <span class="kw">let</span> <span class="ident">tmp</span> <span class="op">=</span> <span class="ident">bcx</span>.<span class="ident">alloca</span>(<span class="ident">type_of</span>::<span class="ident">type_of</span>(<span class="ident">bcx</span>.<span class="ident">ccx</span>, <span class="ident">ty</span>), <span class="ident">name</span>);
+        <span class="kw">let</span> <span class="ident">tmp</span> <span class="op">=</span> <span class="ident">bcx</span>.<span class="ident">alloca</span>(
+            <span class="ident">type_of</span>::<span class="ident">type_of</span>(<span class="ident">bcx</span>.<span class="ident">ccx</span>, <span class="ident">ty</span>), <span class="ident">name</span>, <span class="ident">bcx</span>.<span class="ident">ccx</span>.<span class="ident">over_align_of</span>(<span class="ident">ty</span>));
         <span class="macro">assert</span><span class="macro">!</span>(<span class="op">!</span><span class="ident">ty</span>.<span class="ident">has_param_types</span>());
         <span class="self">Self</span>::<span class="ident">new_sized_ty</span>(<span class="ident">tmp</span>, <span class="ident">ty</span>, <span class="ident">Alignment</span>::<span class="ident">AbiAligned</span>)
     }
@@ -588,11 +592,9 @@
 
         <span class="kw">let</span> <span class="ident">alignment</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">alignment</span> <span class="op">|</span> <span class="ident">Alignment</span>::<span class="ident">from_packed</span>(<span class="ident">st</span>.<span class="ident">packed</span>);
 
+        <span class="kw">let</span> <span class="ident">llfields</span> <span class="op">=</span> <span class="ident">adt</span>::<span class="ident">struct_llfields</span>(<span class="ident">ccx</span>, <span class="ident">fields</span>, <span class="ident">st</span>);
         <span class="kw">let</span> <span class="ident">ptr_val</span> <span class="op">=</span> <span class="kw">if</span> <span class="ident">needs_cast</span> {
-            <span class="kw">let</span> <span class="ident">fields</span> <span class="op">=</span> <span class="ident">st</span>.<span class="ident">field_index_by_increasing_offset</span>().<span class="ident">map</span>(<span class="op">|</span><span class="ident">i</span><span class="op">|</span> {
-                <span class="ident">type_of</span>::<span class="ident">in_memory_type_of</span>(<span class="ident">ccx</span>, <span class="ident">fields</span>[<span class="ident">i</span>])
-            }).<span class="ident">collect</span>::<span class="op">&lt;</span><span class="ident">Vec</span><span class="op">&lt;</span>_<span class="op">&gt;&gt;</span>();
-            <span class="kw">let</span> <span class="ident">real_ty</span> <span class="op">=</span> <span class="ident">Type</span>::<span class="ident">struct_</span>(<span class="ident">ccx</span>, <span class="kw-2">&amp;</span><span class="ident">fields</span>[..], <span class="ident">st</span>.<span class="ident">packed</span>);
+            <span class="kw">let</span> <span class="ident">real_ty</span> <span class="op">=</span> <span class="ident">Type</span>::<span class="ident">struct_</span>(<span class="ident">ccx</span>, <span class="kw-2">&amp;</span><span class="ident">llfields</span>[..], <span class="ident">st</span>.<span class="ident">packed</span>);
             <span class="ident">bcx</span>.<span class="ident">pointercast</span>(<span class="self">self</span>.<span class="ident">llval</span>, <span class="ident">real_ty</span>.<span class="ident">ptr_to</span>())
         } <span class="kw">else</span> {
             <span class="self">self</span>.<span class="ident">llval</span>
@@ -604,14 +606,16 @@
         <span class="comment">//   * Field is sized - pointer is properly aligned already</span>
         <span class="kw">if</span> <span class="ident">st</span>.<span class="ident">offsets</span>[<span class="ident">ix</span>] <span class="op">==</span> <span class="ident">layout</span>::<span class="ident">Size</span>::<span class="ident">from_bytes</span>(<span class="number">0</span>) <span class="op">||</span> <span class="ident">st</span>.<span class="ident">packed</span> <span class="op">||</span>
             <span class="ident">bcx</span>.<span class="ident">ccx</span>.<span class="ident">shared</span>().<span class="ident">type_is_sized</span>(<span class="ident">fty</span>) {
-                <span class="kw">return</span> (<span class="ident">bcx</span>.<span class="ident">struct_gep</span>(<span class="ident">ptr_val</span>, <span class="ident">st</span>.<span class="ident">memory_index</span>[<span class="ident">ix</span>] <span class="kw">as</span> <span class="ident">usize</span>), <span class="ident">alignment</span>);
+                <span class="kw">return</span> (<span class="ident">bcx</span>.<span class="ident">struct_gep</span>(
+                        <span class="ident">ptr_val</span>, <span class="ident">adt</span>::<span class="ident">struct_llfields_index</span>(<span class="ident">st</span>, <span class="ident">ix</span>)), <span class="ident">alignment</span>);
             }
 
         <span class="comment">// If the type of the last field is [T] or str, then we don&#39;t need to do</span>
         <span class="comment">// any adjusments</span>
         <span class="kw">match</span> <span class="ident">fty</span>.<span class="ident">sty</span> {
             <span class="ident">ty</span>::<span class="ident">TySlice</span>(..) <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">TyStr</span> <span class="op">=&gt;</span> {
-                <span class="kw">return</span> (<span class="ident">bcx</span>.<span class="ident">struct_gep</span>(<span class="ident">ptr_val</span>, <span class="ident">st</span>.<span class="ident">memory_index</span>[<span class="ident">ix</span>] <span class="kw">as</span> <span class="ident">usize</span>), <span class="ident">alignment</span>);
+                <span class="kw">return</span> (<span class="ident">bcx</span>.<span class="ident">struct_gep</span>(
+                        <span class="ident">ptr_val</span>, <span class="ident">adt</span>::<span class="ident">struct_llfields_index</span>(<span class="ident">st</span>, <span class="ident">ix</span>)), <span class="ident">alignment</span>);
             }
             _ <span class="op">=&gt;</span> ()
         }
@@ -620,7 +624,7 @@
         <span class="kw">if</span> <span class="op">!</span><span class="self">self</span>.<span class="ident">has_extra</span>() {
             <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;Unsized field `{}`, of `{:?}` has no metadata for adjustment&quot;</span>,
                 <span class="ident">ix</span>, <span class="ident">Value</span>(<span class="ident">ptr_val</span>));
-            <span class="kw">return</span> (<span class="ident">bcx</span>.<span class="ident">struct_gep</span>(<span class="ident">ptr_val</span>, <span class="ident">ix</span>), <span class="ident">alignment</span>);
+            <span class="kw">return</span> (<span class="ident">bcx</span>.<span class="ident">struct_gep</span>(<span class="ident">ptr_val</span>, <span class="ident">adt</span>::<span class="ident">struct_llfields_index</span>(<span class="ident">st</span>, <span class="ident">ix</span>)), <span class="ident">alignment</span>);
         }
 
         <span class="comment">// We need to get the pointer manually now.</span>
@@ -836,7 +840,7 @@
                 };
                 <span class="ident">LvalueRef</span> {
                     <span class="ident">llval</span>: <span class="ident">llprojected</span>,
-                    <span class="ident">llextra</span>: <span class="ident">llextra</span>,
+                    <span class="ident">llextra</span>,
                     <span class="ident">ty</span>: <span class="ident">projected_ty</span>,
                     <span class="ident">alignment</span>: <span class="ident">align</span>,
                 }
@@ -864,7 +868,7 @@
 
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">monomorphized_lvalue_ty</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">lvalue</span>: <span class="kw-2">&amp;</span><span class="ident">mir</span>::<span class="ident">Lvalue</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
         <span class="kw">let</span> <span class="ident">tcx</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">ccx</span>.<span class="ident">tcx</span>();
-        <span class="kw">let</span> <span class="ident">lvalue_ty</span> <span class="op">=</span> <span class="ident">lvalue</span>.<span class="ident">ty</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">mir</span>, <span class="ident">tcx</span>);
+        <span class="kw">let</span> <span class="ident">lvalue_ty</span> <span class="op">=</span> <span class="ident">lvalue</span>.<span class="ident">ty</span>(<span class="self">self</span>.<span class="ident">mir</span>, <span class="ident">tcx</span>);
         <span class="self">self</span>.<span class="ident">monomorphize</span>(<span class="kw-2">&amp;</span><span class="ident">lvalue_ty</span>.<span class="ident">to_ty</span>(<span class="ident">tcx</span>))
     }
 }
@@ -926,7 +930,6 @@
         window.rootPath = "../../../";
         window.currentCrate = "rustc_trans";
     </script>
-    <script src="../../../jquery.js"></script>
     <script src="../../../main.js"></script>
     <script defer src="../../../search-index.js"></script>
 </body>

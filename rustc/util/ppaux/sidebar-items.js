@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["parameterized",""],["verbose",""]]});
+initSidebarItems({"fn":[["identify_regions",""],["parameterized",""],["verbose",""]]});

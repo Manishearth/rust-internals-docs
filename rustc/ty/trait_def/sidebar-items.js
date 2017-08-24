@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["TraitDef","A trait's definition with type information."],["TraitFlags",""]]});
+initSidebarItems({"struct":[["TraitDef","A trait's definition with type information."],["TraitImpls",""]]});

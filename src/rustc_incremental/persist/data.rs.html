@@ -168,6 +168,18 @@
 <span id="123">123</span>
 <span id="124">124</span>
 <span id="125">125</span>
+<span id="126">126</span>
+<span id="127">127</span>
+<span id="128">128</span>
+<span id="129">129</span>
+<span id="130">130</span>
+<span id="131">131</span>
+<span id="132">132</span>
+<span id="133">133</span>
+<span id="134">134</span>
+<span id="135">135</span>
+<span id="136">136</span>
+<span id="137">137</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class="comment">// file at the top-level directory of this distribution and at</span>
@@ -183,21 +195,29 @@
 
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">dep_graph</span>::{<span class="ident">DepNode</span>, <span class="ident">WorkProduct</span>, <span class="ident">WorkProductId</span>};
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">hir</span>::<span class="ident">def_id</span>::<span class="ident">DefIndex</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">hir</span>::<span class="ident">map</span>::<span class="ident">DefPathHash</span>;
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ich</span>::<span class="ident">Fingerprint</span>;
-<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">sync</span>::<span class="ident">Arc</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">middle</span>::<span class="ident">cstore</span>::<span class="ident">EncodedMetadataHash</span>;
 <span class="kw">use</span> <span class="ident">rustc_data_structures</span>::<span class="ident">fx</span>::<span class="ident">FxHashMap</span>;
-
-<span class="kw">use</span> <span class="kw">super</span>::<span class="ident">directory</span>::<span class="ident">DefPathIndex</span>;
+<span class="kw">use</span> <span class="ident">rustc_data_structures</span>::<span class="ident">indexed_vec</span>::{<span class="ident">IndexVec</span>, <span class="ident">Idx</span>};
 
 <span class="doccomment">/// Data for use when recompiling the **current crate**.</span>
 <span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>, <span class="ident">RustcEncodable</span>, <span class="ident">RustcDecodable</span>)]</span>
 <span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">SerializedDepGraph</span> {
-    <span class="kw">pub</span> <span class="ident">edges</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">SerializedEdgeSet</span><span class="op">&gt;</span>,
+    <span class="doccomment">/// The set of all DepNodes in the graph</span>
+    <span class="kw">pub</span> <span class="ident">nodes</span>: <span class="ident">IndexVec</span><span class="op">&lt;</span><span class="ident">DepNodeIndex</span>, <span class="ident">DepNode</span><span class="op">&gt;</span>,
+    <span class="doccomment">/// For each DepNode, stores the list of edges originating from that</span>
+    <span class="doccomment">/// DepNode. Encoded as a [start, end) pair indexing into edge_list_data,</span>
+    <span class="doccomment">/// which holds the actual DepNodeIndices of the target nodes.</span>
+    <span class="kw">pub</span> <span class="ident">edge_list_indices</span>: <span class="ident">IndexVec</span><span class="op">&lt;</span><span class="ident">DepNodeIndex</span>, (<span class="ident">u32</span>, <span class="ident">u32</span>)<span class="op">&gt;</span>,
+    <span class="doccomment">/// A flattened list of all edge targets in the graph. Edge sources are</span>
+    <span class="doccomment">/// implicit in edge_list_indices.</span>
+    <span class="kw">pub</span> <span class="ident">edge_list_data</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">DepNodeIndex</span><span class="op">&gt;</span>,
 
     <span class="doccomment">/// These are output nodes that have no incoming edges. We track</span>
     <span class="doccomment">/// these separately so that when we reload all edges, we don&#39;t</span>
     <span class="doccomment">/// lose track of these nodes.</span>
-    <span class="kw">pub</span> <span class="ident">bootstrap_outputs</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">DepNode</span><span class="op">&lt;</span><span class="ident">DefPathIndex</span><span class="op">&gt;&gt;</span>,
+    <span class="kw">pub</span> <span class="ident">bootstrap_outputs</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">DepNode</span><span class="op">&gt;</span>,
 
     <span class="doccomment">/// These are hashes of two things:</span>
     <span class="doccomment">/// - the HIR nodes in this crate</span>
@@ -218,31 +238,46 @@
     <span class="doccomment">/// will be different when we next compile) related to each node,</span>
     <span class="doccomment">/// but rather the `DefPathIndex`. This can then be retraced</span>
     <span class="doccomment">/// to find the current def-id.</span>
-    <span class="kw">pub</span> <span class="ident">hashes</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">SerializedHash</span><span class="op">&gt;</span>,
+    <span class="kw">pub</span> <span class="ident">hashes</span>: <span class="ident">Vec</span><span class="op">&lt;</span>(<span class="ident">DepNodeIndex</span>, <span class="ident">Fingerprint</span>)<span class="op">&gt;</span>,
 }
 
-<span class="doccomment">/// Represents a set of &quot;reduced&quot; dependency edge. We group the</span>
-<span class="doccomment">/// outgoing edges from a single source together.</span>
-<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>, <span class="ident">RustcEncodable</span>, <span class="ident">RustcDecodable</span>)]</span>
-<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">SerializedEdgeSet</span> {
-    <span class="kw">pub</span> <span class="ident">source</span>: <span class="ident">DepNode</span><span class="op">&lt;</span><span class="ident">DefPathIndex</span><span class="op">&gt;</span>,
-    <span class="kw">pub</span> <span class="ident">targets</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">DepNode</span><span class="op">&lt;</span><span class="ident">DefPathIndex</span><span class="op">&gt;&gt;</span>
+<span class="kw">impl</span> <span class="ident">SerializedDepGraph</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">edge_targets_from</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">source</span>: <span class="ident">DepNodeIndex</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span>[<span class="ident">DepNodeIndex</span>] {
+        <span class="kw">let</span> <span class="ident">targets</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">edge_list_indices</span>[<span class="ident">source</span>];
+        <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">edge_list_data</span>[<span class="ident">targets</span>.<span class="number">0</span> <span class="kw">as</span> <span class="ident">usize</span> .. <span class="ident">targets</span>.<span class="number">1</span> <span class="kw">as</span> <span class="ident">usize</span>]
+    }
 }
 
-<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>, <span class="ident">RustcEncodable</span>, <span class="ident">RustcDecodable</span>)]</span>
-<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">SerializedHash</span> {
-    <span class="doccomment">/// def-id of thing being hashed</span>
-    <span class="kw">pub</span> <span class="ident">dep_node</span>: <span class="ident">DepNode</span><span class="op">&lt;</span><span class="ident">DefPathIndex</span><span class="op">&gt;</span>,
+<span class="doccomment">/// The index of a DepNode in the SerializedDepGraph::nodes array.</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Copy</span>, <span class="ident">Clone</span>, <span class="ident">Hash</span>, <span class="ident">Eq</span>, <span class="ident">PartialEq</span>, <span class="ident">Ord</span>, <span class="ident">PartialOrd</span>, <span class="ident">Debug</span>,
+         <span class="ident">RustcEncodable</span>, <span class="ident">RustcDecodable</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">DepNodeIndex</span>(<span class="kw">pub</span> <span class="ident">u32</span>);
 
-    <span class="doccomment">/// the hash as of previous compilation, computed by code in</span>
-    <span class="doccomment">/// `hash` module</span>
-    <span class="kw">pub</span> <span class="ident">hash</span>: <span class="ident">Fingerprint</span>,
+<span class="kw">impl</span> <span class="ident">DepNodeIndex</span> {
+    <span class="attribute">#[<span class="ident">inline</span>]</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">new</span>(<span class="ident">idx</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">DepNodeIndex</span> {
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">idx</span> <span class="op">&lt;=</span> ::<span class="ident">std</span>::<span class="ident">u32</span>::<span class="ident">MAX</span> <span class="kw">as</span> <span class="ident">usize</span>);
+        <span class="ident">DepNodeIndex</span>(<span class="ident">idx</span> <span class="kw">as</span> <span class="ident">u32</span>)
+    }
+}
+
+<span class="kw">impl</span> <span class="ident">Idx</span> <span class="kw">for</span> <span class="ident">DepNodeIndex</span> {
+    <span class="attribute">#[<span class="ident">inline</span>]</span>
+    <span class="kw">fn</span> <span class="ident">new</span>(<span class="ident">idx</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="self">Self</span> {
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">idx</span> <span class="op">&lt;=</span> ::<span class="ident">std</span>::<span class="ident">u32</span>::<span class="ident">MAX</span> <span class="kw">as</span> <span class="ident">usize</span>);
+        <span class="ident">DepNodeIndex</span>(<span class="ident">idx</span> <span class="kw">as</span> <span class="ident">u32</span>)
+    }
+
+    <span class="attribute">#[<span class="ident">inline</span>]</span>
+    <span class="kw">fn</span> <span class="ident">index</span>(<span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">usize</span> {
+        <span class="self">self</span>.<span class="number">0</span> <span class="kw">as</span> <span class="ident">usize</span>
+    }
 }
 
 <span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>, <span class="ident">RustcEncodable</span>, <span class="ident">RustcDecodable</span>)]</span>
 <span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">SerializedWorkProduct</span> {
     <span class="doccomment">/// node that produced the work-product</span>
-    <span class="kw">pub</span> <span class="ident">id</span>: <span class="ident">Arc</span><span class="op">&lt;</span><span class="ident">WorkProductId</span><span class="op">&gt;</span>,
+    <span class="kw">pub</span> <span class="ident">id</span>: <span class="ident">WorkProductId</span>,
 
     <span class="doccomment">/// work-product data itself</span>
     <span class="kw">pub</span> <span class="ident">work_product</span>: <span class="ident">WorkProduct</span>,
@@ -269,7 +304,7 @@
     <span class="doccomment">/// where `X` refers to some item in this crate. That `X` will be</span>
     <span class="doccomment">/// a `DefPathIndex` that gets retracted to the current `DefId`</span>
     <span class="doccomment">/// (matching the one found in this structure).</span>
-    <span class="kw">pub</span> <span class="ident">hashes</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">SerializedMetadataHash</span><span class="op">&gt;</span>,
+    <span class="kw">pub</span> <span class="ident">entry_hashes</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">EncodedMetadataHash</span><span class="op">&gt;</span>,
 
     <span class="doccomment">/// For each DefIndex (as it occurs in SerializedMetadataHash), this</span>
     <span class="doccomment">/// map stores the DefPathIndex (as it occurs in DefIdDirectory), so</span>
@@ -281,18 +316,7 @@
     <span class="doccomment">/// is only populated if -Z query-dep-graph is specified. It will be</span>
     <span class="doccomment">/// empty otherwise. Importing crates are perfectly happy with just having</span>
     <span class="doccomment">/// the DefIndex.</span>
-    <span class="kw">pub</span> <span class="ident">index_map</span>: <span class="ident">FxHashMap</span><span class="op">&lt;</span><span class="ident">DefIndex</span>, <span class="ident">DefPathIndex</span><span class="op">&gt;</span>
-}
-
-<span class="doccomment">/// The hash for some metadata that (when saving) will be exported</span>
-<span class="doccomment">/// from this crate, or which (when importing) was exported by an</span>
-<span class="doccomment">/// upstream crate.</span>
-<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>, <span class="ident">RustcEncodable</span>, <span class="ident">RustcDecodable</span>)]</span>
-<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">SerializedMetadataHash</span> {
-    <span class="kw">pub</span> <span class="ident">def_index</span>: <span class="ident">DefIndex</span>,
-
-    <span class="doccomment">/// the hash itself, computed by `calculate_item_hash`</span>
-    <span class="kw">pub</span> <span class="ident">hash</span>: <span class="ident">Fingerprint</span>,
+    <span class="kw">pub</span> <span class="ident">index_map</span>: <span class="ident">FxHashMap</span><span class="op">&lt;</span><span class="ident">DefIndex</span>, <span class="ident">DefPathHash</span><span class="op">&gt;</span>
 }
 </pre>
 </section>
@@ -352,7 +376,6 @@
         window.rootPath = "../../../";
         window.currentCrate = "rustc_incremental";
     </script>
-    <script src="../../../jquery.js"></script>
     <script src="../../../main.js"></script>
     <script defer src="../../../search-index.js"></script>
 </body>

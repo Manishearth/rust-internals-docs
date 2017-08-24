@@ -838,7 +838,6 @@
 <span id="793">793</span>
 <span id="794">794</span>
 <span id="795">795</span>
-<span id="796">796</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class="comment">// file at the top-level directory of this distribution and at</span>
@@ -889,11 +888,12 @@ set of scheduled drops up front, and so whenever we exit from the
 scope we only drop the values scheduled thus far. For example, consider
 the scope S corresponding to this loop:
 
-```rust,ignore
+```
+# let cond = true;
 loop {
-    let x = ...;
+    let x = ..;
     if cond { break; }
-    let y = ...;
+    let y = ..;
 }
 ```
 
@@ -929,16 +929,15 @@ should go to.
 */</span>
 
 <span class="kw">use</span> <span class="ident">build</span>::{<span class="ident">BlockAnd</span>, <span class="ident">BlockAndExtension</span>, <span class="ident">Builder</span>, <span class="ident">CFG</span>};
-<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">middle</span>::<span class="ident">region</span>::{<span class="ident">CodeExtent</span>, <span class="ident">CodeExtentData</span>};
-<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">middle</span>::<span class="ident">lang_items</span>;
-<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">middle</span>::<span class="ident">const_val</span>::<span class="ident">ConstVal</span>;
-<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::<span class="ident">subst</span>::{<span class="ident">Kind</span>, <span class="ident">Subst</span>};
-<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::{<span class="ident">Ty</span>, <span class="ident">TyCtxt</span>};
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">middle</span>::<span class="ident">region</span>::<span class="ident">CodeExtent</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::<span class="ident">Ty</span>;
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">mir</span>::<span class="kw-2">*</span>;
-<span class="kw">use</span> <span class="ident">syntax_pos</span>::<span class="ident">Span</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">mir</span>::<span class="ident">transform</span>::<span class="ident">MirSource</span>;
+<span class="kw">use</span> <span class="ident">syntax_pos</span>::{<span class="ident">Span</span>};
 <span class="kw">use</span> <span class="ident">rustc_data_structures</span>::<span class="ident">indexed_vec</span>::<span class="ident">Idx</span>;
 <span class="kw">use</span> <span class="ident">rustc_data_structures</span>::<span class="ident">fx</span>::<span class="ident">FxHashMap</span>;
 
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>)]</span>
 <span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">Scope</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
     <span class="doccomment">/// The visibility scope this scope was created in.</span>
     <span class="ident">visibility_scope</span>: <span class="ident">VisibilityScope</span>,
@@ -946,13 +945,16 @@ should go to.
     <span class="doccomment">/// the extent of this scope within source code.</span>
     <span class="ident">extent</span>: <span class="ident">CodeExtent</span>,
 
+    <span class="doccomment">/// the span of that extent</span>
+    <span class="ident">extent_span</span>: <span class="ident">Span</span>,
+
     <span class="doccomment">/// Whether there&#39;s anything to do for the cleanup path, that is,</span>
     <span class="doccomment">/// when unwinding through this scope. This includes destructors,</span>
     <span class="doccomment">/// but not StorageDead statements, which don&#39;t get emitted at all</span>
     <span class="doccomment">/// for unwinding, for several reasons:</span>
     <span class="doccomment">///  * clang doesn&#39;t emit llvm.lifetime.end for C++ unwinding</span>
     <span class="doccomment">///  * LLVM&#39;s memory dependency analysis can&#39;t handle it atm</span>
-    <span class="doccomment">///  * pollutting the cleanup MIR with StorageDead creates</span>
+    <span class="doccomment">///  * polluting the cleanup MIR with StorageDead creates</span>
     <span class="doccomment">///    landing pads even though there&#39;s no actual destructors</span>
     <span class="doccomment">///  * freeing up stack space has no effect during unwinding</span>
     <span class="ident">needs_cleanup</span>: <span class="ident">bool</span>,
@@ -963,25 +965,11 @@ should go to.
     <span class="doccomment">/// end of the vector (top of the stack) first.</span>
     <span class="ident">drops</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">DropData</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,
 
-    <span class="doccomment">/// A scope may only have one associated free, because:</span>
-    <span class="doccomment">///</span>
-    <span class="doccomment">/// 1. We require a `free` to only be scheduled in the scope of</span>
-    <span class="doccomment">///    `EXPR` in `box EXPR`;</span>
-    <span class="doccomment">/// 2. It only makes sense to have it translated into the diverge-path.</span>
-    <span class="doccomment">///</span>
-    <span class="doccomment">/// This kind of drop will be run *after* all the regular drops</span>
-    <span class="doccomment">/// scheduled onto this scope, because drops may have dependencies</span>
-    <span class="doccomment">/// on the allocated memory.</span>
-    <span class="doccomment">///</span>
-    <span class="doccomment">/// This is expected to go away once `box EXPR` becomes a sugar</span>
-    <span class="doccomment">/// for placement protocol and gets desugared in some earlier</span>
-    <span class="doccomment">/// stage.</span>
-    <span class="ident">free</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">FreeData</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,
-
     <span class="doccomment">/// The cache for drop chain on “normal” exit into a particular BasicBlock.</span>
     <span class="ident">cached_exits</span>: <span class="ident">FxHashMap</span><span class="op">&lt;</span>(<span class="ident">BasicBlock</span>, <span class="ident">CodeExtent</span>), <span class="ident">BasicBlock</span><span class="op">&gt;</span>,
 }
 
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>)]</span>
 <span class="kw">struct</span> <span class="ident">DropData</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
     <span class="doccomment">/// span where drop obligation was incurred (typically where lvalue was declared)</span>
     <span class="ident">span</span>: <span class="ident">Span</span>,
@@ -993,6 +981,7 @@ should go to.
     <span class="ident">kind</span>: <span class="ident">DropKind</span>
 }
 
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>)]</span>
 <span class="kw">enum</span> <span class="ident">DropKind</span> {
     <span class="ident">Value</span> {
         <span class="doccomment">/// The cached block for the cleanups-on-diverge path. This block</span>
@@ -1002,21 +991,6 @@ should go to.
         <span class="ident">cached_block</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">BasicBlock</span><span class="op">&gt;</span>
     },
     <span class="ident">Storage</span>
-}
-
-<span class="kw">struct</span> <span class="ident">FreeData</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
-    <span class="doccomment">/// span where free obligation was incurred</span>
-    <span class="ident">span</span>: <span class="ident">Span</span>,
-
-    <span class="doccomment">/// Lvalue containing the allocated box.</span>
-    <span class="ident">value</span>: <span class="ident">Lvalue</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
-
-    <span class="doccomment">/// type of item for which the box was allocated for (i.e. the T in Box&lt;T&gt;).</span>
-    <span class="ident">item_ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
-
-    <span class="doccomment">/// The cached block containing code to run the free. The block will also execute all the drops</span>
-    <span class="doccomment">/// in the scope.</span>
-    <span class="ident">cached_block</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">BasicBlock</span><span class="op">&gt;</span>
 }
 
 <span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">Debug</span>)]</span>
@@ -1031,6 +1005,15 @@ should go to.
     <span class="doccomment">/// The destination of the loop/block expression itself (i.e. where to put the result of a</span>
     <span class="doccomment">/// `break` expression)</span>
     <span class="kw">pub</span> <span class="ident">break_destination</span>: <span class="ident">Lvalue</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+}
+
+<span class="kw">impl</span> <span class="ident">DropKind</span> {
+    <span class="kw">fn</span> <span class="ident">may_panic</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+        <span class="kw">match</span> <span class="kw-2">*</span><span class="self">self</span> {
+            <span class="ident">DropKind</span>::<span class="ident">Value</span> { .. } <span class="op">=&gt;</span> <span class="bool-val">true</span>,
+            <span class="ident">DropKind</span>::<span class="ident">Storage</span> <span class="op">=&gt;</span> <span class="bool-val">false</span>
+        }
+    }
 }
 
 <span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">Scope</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
@@ -1048,9 +1031,6 @@ should go to.
                 <span class="kw-2">*</span><span class="ident">cached_block</span> <span class="op">=</span> <span class="prelude-val">None</span>;
             }
         }
-        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">freedata</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">free</span> {
-            <span class="ident">freedata</span>.<span class="ident">cached_block</span> <span class="op">=</span> <span class="prelude-val">None</span>;
-        }
     }
 
     <span class="doccomment">/// Returns the cached entrypoint for diverging exit from this scope.</span>
@@ -1066,8 +1046,6 @@ should go to.
         });
         <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">cached_block</span>) <span class="op">=</span> <span class="ident">drops</span>.<span class="ident">next</span>() {
             <span class="prelude-val">Some</span>(<span class="ident">cached_block</span>.<span class="ident">expect</span>(<span class="string">&quot;drop cache is not filled&quot;</span>))
-        } <span class="kw">else</span> <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="kw-2">ref</span> <span class="ident">data</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">free</span> {
-            <span class="prelude-val">Some</span>(<span class="ident">data</span>.<span class="ident">cached_block</span>.<span class="ident">expect</span>(<span class="string">&quot;free cache is not filled&quot;</span>))
         } <span class="kw">else</span> {
             <span class="prelude-val">None</span>
         }
@@ -1076,7 +1054,7 @@ should go to.
     <span class="doccomment">/// Given a span and this scope&#39;s visibility scope, make a SourceInfo.</span>
     <span class="kw">fn</span> <span class="ident">source_info</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">span</span>: <span class="ident">Span</span>) <span class="op">-&gt;</span> <span class="ident">SourceInfo</span> {
         <span class="ident">SourceInfo</span> {
-            <span class="ident">span</span>: <span class="ident">span</span>,
+            <span class="ident">span</span>,
             <span class="ident">scope</span>: <span class="self">self</span>.<span class="ident">visibility_scope</span>
         }
     }
@@ -1090,18 +1068,18 @@ should go to.
     <span class="doccomment">///</span>
     <span class="doccomment">/// Returns the might_break attribute of the BreakableScope used.</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">in_breakable_scope</span><span class="op">&lt;</span><span class="ident">F</span>, <span class="ident">R</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
-                            <span class="ident">loop_block</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">BasicBlock</span><span class="op">&gt;</span>,
-                            <span class="ident">break_block</span>: <span class="ident">BasicBlock</span>,
-                            <span class="ident">break_destination</span>: <span class="ident">Lvalue</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
-                            <span class="ident">f</span>: <span class="ident">F</span>) <span class="op">-&gt;</span> <span class="ident">R</span>
+                                    <span class="ident">loop_block</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">BasicBlock</span><span class="op">&gt;</span>,
+                                    <span class="ident">break_block</span>: <span class="ident">BasicBlock</span>,
+                                    <span class="ident">break_destination</span>: <span class="ident">Lvalue</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                    <span class="ident">f</span>: <span class="ident">F</span>) <span class="op">-&gt;</span> <span class="ident">R</span>
         <span class="kw">where</span> <span class="ident">F</span>: <span class="ident">FnOnce</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Builder</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">R</span>
     {
         <span class="kw">let</span> <span class="ident">extent</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">topmost_scope</span>();
         <span class="kw">let</span> <span class="ident">scope</span> <span class="op">=</span> <span class="ident">BreakableScope</span> {
-            <span class="ident">extent</span>: <span class="ident">extent</span>,
+            <span class="ident">extent</span>,
             <span class="ident">continue_block</span>: <span class="ident">loop_block</span>,
-            <span class="ident">break_block</span>: <span class="ident">break_block</span>,
-            <span class="ident">break_destination</span>: <span class="ident">break_destination</span>,
+            <span class="ident">break_block</span>,
+            <span class="ident">break_destination</span>,
         };
         <span class="self">self</span>.<span class="ident">breakable_scopes</span>.<span class="ident">push</span>(<span class="ident">scope</span>);
         <span class="kw">let</span> <span class="ident">res</span> <span class="op">=</span> <span class="ident">f</span>(<span class="self">self</span>);
@@ -1110,9 +1088,30 @@ should go to.
         <span class="ident">res</span>
     }
 
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">in_opt_scope</span><span class="op">&lt;</span><span class="ident">F</span>, <span class="ident">R</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                              <span class="ident">opt_extent</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span>(<span class="ident">CodeExtent</span>, <span class="ident">SourceInfo</span>)<span class="op">&gt;</span>,
+                              <span class="kw-2">mut</span> <span class="ident">block</span>: <span class="ident">BasicBlock</span>,
+                              <span class="ident">f</span>: <span class="ident">F</span>)
+                              <span class="op">-&gt;</span> <span class="ident">BlockAnd</span><span class="op">&lt;</span><span class="ident">R</span><span class="op">&gt;</span>
+        <span class="kw">where</span> <span class="ident">F</span>: <span class="ident">FnOnce</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Builder</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">BlockAnd</span><span class="op">&lt;</span><span class="ident">R</span><span class="op">&gt;</span>
+    {
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;in_opt_scope(opt_extent={:?}, block={:?})&quot;</span>, <span class="ident">opt_extent</span>, <span class="ident">block</span>);
+        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">extent</span>) <span class="op">=</span> <span class="ident">opt_extent</span> { <span class="self">self</span>.<span class="ident">push_scope</span>(<span class="ident">extent</span>); }
+        <span class="kw">let</span> <span class="ident">rv</span> <span class="op">=</span> <span class="macro">unpack</span><span class="macro">!</span>(<span class="ident">block</span> <span class="op">=</span> <span class="ident">f</span>(<span class="self">self</span>));
+        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">extent</span>) <span class="op">=</span> <span class="ident">opt_extent</span> {
+            <span class="macro">unpack</span><span class="macro">!</span>(<span class="ident">block</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">pop_scope</span>(<span class="ident">extent</span>, <span class="ident">block</span>));
+        }
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;in_scope: exiting opt_extent={:?} block={:?}&quot;</span>, <span class="ident">opt_extent</span>, <span class="ident">block</span>);
+        <span class="ident">block</span>.<span class="ident">and</span>(<span class="ident">rv</span>)
+    }
+
     <span class="doccomment">/// Convenience wrapper that pushes a scope and then executes `f`</span>
     <span class="doccomment">/// to build its contents, popping the scope afterwards.</span>
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">in_scope</span><span class="op">&lt;</span><span class="ident">F</span>, <span class="ident">R</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">extent</span>: <span class="ident">CodeExtent</span>, <span class="kw-2">mut</span> <span class="ident">block</span>: <span class="ident">BasicBlock</span>, <span class="ident">f</span>: <span class="ident">F</span>) <span class="op">-&gt;</span> <span class="ident">BlockAnd</span><span class="op">&lt;</span><span class="ident">R</span><span class="op">&gt;</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">in_scope</span><span class="op">&lt;</span><span class="ident">F</span>, <span class="ident">R</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                          <span class="ident">extent</span>: (<span class="ident">CodeExtent</span>, <span class="ident">SourceInfo</span>),
+                          <span class="kw-2">mut</span> <span class="ident">block</span>: <span class="ident">BasicBlock</span>,
+                          <span class="ident">f</span>: <span class="ident">F</span>)
+                          <span class="op">-&gt;</span> <span class="ident">BlockAnd</span><span class="op">&lt;</span><span class="ident">R</span><span class="op">&gt;</span>
         <span class="kw">where</span> <span class="ident">F</span>: <span class="ident">FnOnce</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Builder</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">BlockAnd</span><span class="op">&lt;</span><span class="ident">R</span><span class="op">&gt;</span>
     {
         <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;in_scope(extent={:?}, block={:?})&quot;</span>, <span class="ident">extent</span>, <span class="ident">block</span>);
@@ -1127,15 +1126,15 @@ should go to.
     <span class="doccomment">/// scope and call `pop_scope` afterwards. Note that these two</span>
     <span class="doccomment">/// calls must be paired; using `in_scope` as a convenience</span>
     <span class="doccomment">/// wrapper maybe preferable.</span>
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">push_scope</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">extent</span>: <span class="ident">CodeExtent</span>) {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">push_scope</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">extent</span>: (<span class="ident">CodeExtent</span>, <span class="ident">SourceInfo</span>)) {
         <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;push_scope({:?})&quot;</span>, <span class="ident">extent</span>);
         <span class="kw">let</span> <span class="ident">vis_scope</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">visibility_scope</span>;
         <span class="self">self</span>.<span class="ident">scopes</span>.<span class="ident">push</span>(<span class="ident">Scope</span> {
             <span class="ident">visibility_scope</span>: <span class="ident">vis_scope</span>,
-            <span class="ident">extent</span>: <span class="ident">extent</span>,
+            <span class="ident">extent</span>: <span class="ident">extent</span>.<span class="number">0</span>,
+            <span class="ident">extent_span</span>: <span class="ident">extent</span>.<span class="number">1</span>.<span class="ident">span</span>,
             <span class="ident">needs_cleanup</span>: <span class="bool-val">false</span>,
             <span class="ident">drops</span>: <span class="macro">vec</span><span class="macro">!</span>[],
-            <span class="ident">free</span>: <span class="prelude-val">None</span>,
             <span class="ident">cached_exits</span>: <span class="ident">FxHashMap</span>()
         });
     }
@@ -1144,20 +1143,26 @@ should go to.
     <span class="doccomment">/// drops onto the end of `block` that are needed.  This must</span>
     <span class="doccomment">/// match 1-to-1 with `push_scope`.</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">pop_scope</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
-                     <span class="ident">extent</span>: <span class="ident">CodeExtent</span>,
+                     <span class="ident">extent</span>: (<span class="ident">CodeExtent</span>, <span class="ident">SourceInfo</span>),
                      <span class="kw-2">mut</span> <span class="ident">block</span>: <span class="ident">BasicBlock</span>)
                      <span class="op">-&gt;</span> <span class="ident">BlockAnd</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
         <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;pop_scope({:?}, {:?})&quot;</span>, <span class="ident">extent</span>, <span class="ident">block</span>);
-        <span class="comment">// We need to have `cached_block`s available for all the drops, so we call diverge_cleanup</span>
-        <span class="comment">// to make sure all the `cached_block`s are filled in.</span>
-        <span class="self">self</span>.<span class="ident">diverge_cleanup</span>();
+        <span class="comment">// If we are emitting a `drop` statement, we need to have the cached</span>
+        <span class="comment">// diverge cleanup pads ready in case that drop panics.</span>
+        <span class="kw">let</span> <span class="ident">may_panic</span> <span class="op">=</span>
+            <span class="self">self</span>.<span class="ident">scopes</span>.<span class="ident">last</span>().<span class="ident">unwrap</span>().<span class="ident">drops</span>.<span class="ident">iter</span>().<span class="ident">any</span>(<span class="op">|</span><span class="ident">s</span><span class="op">|</span> <span class="ident">s</span>.<span class="ident">kind</span>.<span class="ident">may_panic</span>());
+        <span class="kw">if</span> <span class="ident">may_panic</span> {
+            <span class="self">self</span>.<span class="ident">diverge_cleanup</span>();
+        }
         <span class="kw">let</span> <span class="ident">scope</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">scopes</span>.<span class="ident">pop</span>().<span class="ident">unwrap</span>();
-        <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">scope</span>.<span class="ident">extent</span>, <span class="ident">extent</span>);
+        <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">scope</span>.<span class="ident">extent</span>, <span class="ident">extent</span>.<span class="number">0</span>);
         <span class="macro">unpack</span><span class="macro">!</span>(<span class="ident">block</span> <span class="op">=</span> <span class="ident">build_scope_drops</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>.<span class="ident">cfg</span>,
                                           <span class="kw-2">&amp;</span><span class="ident">scope</span>,
                                           <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">scopes</span>,
                                           <span class="ident">block</span>,
                                           <span class="self">self</span>.<span class="ident">arg_count</span>));
+
+        <span class="self">self</span>.<span class="ident">cfg</span>.<span class="ident">push_end_region</span>(<span class="ident">block</span>, <span class="ident">extent</span>.<span class="number">1</span>, <span class="ident">scope</span>.<span class="ident">extent</span>);
         <span class="ident">block</span>.<span class="ident">unit</span>()
     }
 
@@ -1168,22 +1173,30 @@ should go to.
     <span class="doccomment">/// module comment for details.</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">exit_scope</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
                       <span class="ident">span</span>: <span class="ident">Span</span>,
-                      <span class="ident">extent</span>: <span class="ident">CodeExtent</span>,
+                      <span class="ident">extent</span>: (<span class="ident">CodeExtent</span>, <span class="ident">SourceInfo</span>),
                       <span class="kw-2">mut</span> <span class="ident">block</span>: <span class="ident">BasicBlock</span>,
                       <span class="ident">target</span>: <span class="ident">BasicBlock</span>) {
         <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;exit_scope(extent={:?}, block={:?}, target={:?})&quot;</span>, <span class="ident">extent</span>, <span class="ident">block</span>, <span class="ident">target</span>);
-        <span class="kw">let</span> <span class="ident">scope_count</span> <span class="op">=</span> <span class="number">1</span> <span class="op">+</span> <span class="self">self</span>.<span class="ident">scopes</span>.<span class="ident">iter</span>().<span class="ident">rev</span>().<span class="ident">position</span>(<span class="op">|</span><span class="ident">scope</span><span class="op">|</span> <span class="ident">scope</span>.<span class="ident">extent</span> <span class="op">==</span> <span class="ident">extent</span>)
+        <span class="kw">let</span> <span class="ident">scope_count</span> <span class="op">=</span> <span class="number">1</span> <span class="op">+</span> <span class="self">self</span>.<span class="ident">scopes</span>.<span class="ident">iter</span>().<span class="ident">rev</span>().<span class="ident">position</span>(<span class="op">|</span><span class="ident">scope</span><span class="op">|</span> <span class="ident">scope</span>.<span class="ident">extent</span> <span class="op">==</span> <span class="ident">extent</span>.<span class="number">0</span>)
                                                       .<span class="ident">unwrap_or_else</span>(<span class="op">||</span>{
             <span class="macro">span_bug</span><span class="macro">!</span>(<span class="ident">span</span>, <span class="string">&quot;extent {:?} does not enclose&quot;</span>, <span class="ident">extent</span>)
         });
         <span class="kw">let</span> <span class="ident">len</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">scopes</span>.<span class="ident">len</span>();
         <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">scope_count</span> <span class="op">&lt;</span> <span class="ident">len</span>, <span class="string">&quot;should not use `exit_scope` to pop ALL scopes&quot;</span>);
-        <span class="kw">let</span> <span class="ident">tmp</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">get_unit_temp</span>();
+
+        <span class="comment">// If we are emitting a `drop` statement, we need to have the cached</span>
+        <span class="comment">// diverge cleanup pads ready in case that drop panics.</span>
+        <span class="kw">let</span> <span class="ident">may_panic</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">scopes</span>[(<span class="ident">len</span> <span class="op">-</span> <span class="ident">scope_count</span>)..].<span class="ident">iter</span>()
+            .<span class="ident">any</span>(<span class="op">|</span><span class="ident">s</span><span class="op">|</span> <span class="ident">s</span>.<span class="ident">drops</span>.<span class="ident">iter</span>().<span class="ident">any</span>(<span class="op">|</span><span class="ident">s</span><span class="op">|</span> <span class="ident">s</span>.<span class="ident">kind</span>.<span class="ident">may_panic</span>()));
+        <span class="kw">if</span> <span class="ident">may_panic</span> {
+            <span class="self">self</span>.<span class="ident">diverge_cleanup</span>();
+        }
+
         {
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">rest</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>.<span class="ident">scopes</span>[(<span class="ident">len</span> <span class="op">-</span> <span class="ident">scope_count</span>)..];
         <span class="kw">while</span> <span class="kw">let</span> <span class="prelude-val">Some</span>((<span class="ident">scope</span>, <span class="ident">rest_</span>)) <span class="op">=</span> {<span class="ident">rest</span>}.<span class="ident">split_last_mut</span>() {
             <span class="ident">rest</span> <span class="op">=</span> <span class="ident">rest_</span>;
-            <span class="ident">block</span> <span class="op">=</span> <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="ident">e</span>) <span class="op">=</span> <span class="ident">scope</span>.<span class="ident">cached_exits</span>.<span class="ident">get</span>(<span class="kw-2">&amp;</span>(<span class="ident">target</span>, <span class="ident">extent</span>)) {
+            <span class="ident">block</span> <span class="op">=</span> <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="ident">e</span>) <span class="op">=</span> <span class="ident">scope</span>.<span class="ident">cached_exits</span>.<span class="ident">get</span>(<span class="kw-2">&amp;</span>(<span class="ident">target</span>, <span class="ident">extent</span>.<span class="number">0</span>)) {
                 <span class="self">self</span>.<span class="ident">cfg</span>.<span class="ident">terminate</span>(<span class="ident">block</span>, <span class="ident">scope</span>.<span class="ident">source_info</span>(<span class="ident">span</span>),
                                    <span class="ident">TerminatorKind</span>::<span class="ident">Goto</span> { <span class="ident">target</span>: <span class="ident">e</span> });
                 <span class="kw">return</span>;
@@ -1191,7 +1204,7 @@ should go to.
                 <span class="kw">let</span> <span class="ident">b</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">cfg</span>.<span class="ident">start_new_block</span>();
                 <span class="self">self</span>.<span class="ident">cfg</span>.<span class="ident">terminate</span>(<span class="ident">block</span>, <span class="ident">scope</span>.<span class="ident">source_info</span>(<span class="ident">span</span>),
                                    <span class="ident">TerminatorKind</span>::<span class="ident">Goto</span> { <span class="ident">target</span>: <span class="ident">b</span> });
-                <span class="ident">scope</span>.<span class="ident">cached_exits</span>.<span class="ident">insert</span>((<span class="ident">target</span>, <span class="ident">extent</span>), <span class="ident">b</span>);
+                <span class="ident">scope</span>.<span class="ident">cached_exits</span>.<span class="ident">insert</span>((<span class="ident">target</span>, <span class="ident">extent</span>.<span class="number">0</span>), <span class="ident">b</span>);
                 <span class="ident">b</span>
             };
             <span class="macro">unpack</span><span class="macro">!</span>(<span class="ident">block</span> <span class="op">=</span> <span class="ident">build_scope_drops</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>.<span class="ident">cfg</span>,
@@ -1199,12 +1212,9 @@ should go to.
                                               <span class="ident">rest</span>,
                                               <span class="ident">block</span>,
                                               <span class="self">self</span>.<span class="ident">arg_count</span>));
-            <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="kw-2">ref</span> <span class="ident">free_data</span>) <span class="op">=</span> <span class="ident">scope</span>.<span class="ident">free</span> {
-                <span class="kw">let</span> <span class="ident">next</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">cfg</span>.<span class="ident">start_new_block</span>();
-                <span class="kw">let</span> <span class="ident">free</span> <span class="op">=</span> <span class="ident">build_free</span>(<span class="self">self</span>.<span class="ident">hir</span>.<span class="ident">tcx</span>(), <span class="kw-2">&amp;</span><span class="ident">tmp</span>, <span class="ident">free_data</span>, <span class="ident">next</span>);
-                <span class="self">self</span>.<span class="ident">cfg</span>.<span class="ident">terminate</span>(<span class="ident">block</span>, <span class="ident">scope</span>.<span class="ident">source_info</span>(<span class="ident">span</span>), <span class="ident">free</span>);
-                <span class="ident">block</span> <span class="op">=</span> <span class="ident">next</span>;
-            }
+
+            <span class="comment">// End all regions for scopes out of which we are breaking.</span>
+            <span class="self">self</span>.<span class="ident">cfg</span>.<span class="ident">push_end_region</span>(<span class="ident">block</span>, <span class="ident">extent</span>.<span class="number">1</span>, <span class="ident">scope</span>.<span class="ident">extent</span>);
         }
         }
         <span class="kw">let</span> <span class="ident">scope</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">scopes</span>[<span class="ident">len</span> <span class="op">-</span> <span class="ident">scope_count</span>];
@@ -1217,7 +1227,7 @@ should go to.
         <span class="kw">let</span> <span class="ident">parent</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">visibility_scope</span>;
         <span class="kw">let</span> <span class="ident">scope</span> <span class="op">=</span> <span class="ident">VisibilityScope</span>::<span class="ident">new</span>(<span class="self">self</span>.<span class="ident">visibility_scopes</span>.<span class="ident">len</span>());
         <span class="self">self</span>.<span class="ident">visibility_scopes</span>.<span class="ident">push</span>(<span class="ident">VisibilityScopeData</span> {
-            <span class="ident">span</span>: <span class="ident">span</span>,
+            <span class="ident">span</span>,
             <span class="ident">parent_scope</span>: <span class="prelude-val">Some</span>(<span class="ident">parent</span>),
         });
         <span class="ident">scope</span>
@@ -1242,7 +1252,7 @@ should go to.
     <span class="doccomment">/// Given a span and the current visibility scope, make a SourceInfo.</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">source_info</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">span</span>: <span class="ident">Span</span>) <span class="op">-&gt;</span> <span class="ident">SourceInfo</span> {
         <span class="ident">SourceInfo</span> {
-            <span class="ident">span</span>: <span class="ident">span</span>,
+            <span class="ident">span</span>,
             <span class="ident">scope</span>: <span class="self">self</span>.<span class="ident">visibility_scope</span>
         }
     }
@@ -1253,8 +1263,8 @@ should go to.
         <span class="comment">// The outermost scope (`scopes[0]`) will be the `CallSiteScope`.</span>
         <span class="comment">// We want `scopes[1]`, which is the `ParameterScope`.</span>
         <span class="macro">assert</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">scopes</span>.<span class="ident">len</span>() <span class="op">&gt;=</span> <span class="number">2</span>);
-        <span class="macro">assert</span><span class="macro">!</span>(<span class="kw">match</span> <span class="self">self</span>.<span class="ident">hir</span>.<span class="ident">tcx</span>().<span class="ident">region_maps</span>.<span class="ident">code_extent_data</span>(<span class="self">self</span>.<span class="ident">scopes</span>[<span class="number">1</span>].<span class="ident">extent</span>) {
-            <span class="ident">CodeExtentData</span>::<span class="ident">ParameterScope</span> { .. } <span class="op">=&gt;</span> <span class="bool-val">true</span>,
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="kw">match</span> <span class="self">self</span>.<span class="ident">scopes</span>[<span class="number">1</span>].<span class="ident">extent</span> {
+            <span class="ident">CodeExtent</span>::<span class="ident">ParameterScope</span>(_) <span class="op">=&gt;</span> <span class="bool-val">true</span>,
             _ <span class="op">=&gt;</span> <span class="bool-val">false</span>,
         });
         <span class="self">self</span>.<span class="ident">scopes</span>[<span class="number">1</span>].<span class="ident">extent</span>
@@ -1264,6 +1274,41 @@ should go to.
     <span class="doccomment">/// the next scope expression.</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">topmost_scope</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">CodeExtent</span> {
         <span class="self">self</span>.<span class="ident">scopes</span>.<span class="ident">last</span>().<span class="ident">expect</span>(<span class="string">&quot;topmost_scope: no scopes present&quot;</span>).<span class="ident">extent</span>
+    }
+
+    <span class="doccomment">/// Returns the scope that we should use as the lifetime of an</span>
+    <span class="doccomment">/// operand. Basically, an operand must live until it is consumed.</span>
+    <span class="doccomment">/// This is similar to, but not quite the same as, the temporary</span>
+    <span class="doccomment">/// scope (which can be larger or smaller).</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Consider:</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">///     let x = foo(bar(X, Y));</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// We wish to pop the storage for X and Y after `bar()` is</span>
+    <span class="doccomment">/// called, not after the whole `let` is completed.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// As another example, if the second argument diverges:</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">///     foo(Box::new(2), panic!())</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// We would allocate the box but then free it on the unwinding</span>
+    <span class="doccomment">/// path; we would also emit a free on the &#39;success&#39; path from</span>
+    <span class="doccomment">/// panic, but that will turn out to be removed as dead-code.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// When building statics/constants, returns `None` since</span>
+    <span class="doccomment">/// intermediate values do not have to be dropped in that case.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">local_scope</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">CodeExtent</span><span class="op">&gt;</span> {
+        <span class="kw">match</span> <span class="self">self</span>.<span class="ident">hir</span>.<span class="ident">src</span> {
+            <span class="ident">MirSource</span>::<span class="ident">Const</span>(_) <span class="op">|</span>
+            <span class="ident">MirSource</span>::<span class="ident">Static</span>(..) <span class="op">=&gt;</span>
+                <span class="comment">// No need to free storage in this context.</span>
+                <span class="prelude-val">None</span>,
+            <span class="ident">MirSource</span>::<span class="ident">Fn</span>(_) <span class="op">=&gt;</span>
+                <span class="prelude-val">Some</span>(<span class="self">self</span>.<span class="ident">topmost_scope</span>()),
+            <span class="ident">MirSource</span>::<span class="ident">Promoted</span>(..) <span class="op">=&gt;</span>
+                <span class="macro">bug</span><span class="macro">!</span>(),
+        }
     }
 
     <span class="comment">// Scheduling drops</span>
@@ -1341,7 +1386,7 @@ should go to.
                     <span class="ident">scope</span>.<span class="ident">needs_cleanup</span> <span class="op">=</span> <span class="bool-val">true</span>;
                 }
                 <span class="kw">let</span> <span class="ident">tcx</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">hir</span>.<span class="ident">tcx</span>();
-                <span class="kw">let</span> <span class="ident">extent_span</span> <span class="op">=</span> <span class="ident">extent</span>.<span class="ident">span</span>(<span class="kw-2">&amp;</span><span class="ident">tcx</span>.<span class="ident">region_maps</span>, <span class="kw-2">&amp;</span><span class="ident">tcx</span>.<span class="ident">hir</span>).<span class="ident">unwrap</span>();
+                <span class="kw">let</span> <span class="ident">extent_span</span> <span class="op">=</span> <span class="ident">extent</span>.<span class="ident">span</span>(<span class="kw-2">&amp;</span><span class="ident">tcx</span>.<span class="ident">hir</span>).<span class="ident">unwrap</span>();
                 <span class="comment">// Attribute scope exit drops to scope&#39;s closing brace</span>
                 <span class="kw">let</span> <span class="ident">scope_end</span> <span class="op">=</span> <span class="ident">Span</span> { <span class="ident">lo</span>: <span class="ident">extent_span</span>.<span class="ident">hi</span>, .. <span class="ident">extent_span</span>};
                 <span class="ident">scope</span>.<span class="ident">drops</span>.<span class="ident">push</span>(<span class="ident">DropData</span> {
@@ -1353,36 +1398,6 @@ should go to.
             }
         }
         <span class="macro">span_bug</span><span class="macro">!</span>(<span class="ident">span</span>, <span class="string">&quot;extent {:?} not in scope to drop {:?}&quot;</span>, <span class="ident">extent</span>, <span class="ident">lvalue</span>);
-    }
-
-    <span class="doccomment">/// Schedule dropping of a not-yet-fully-initialised box.</span>
-    <span class="doccomment">///</span>
-    <span class="doccomment">/// This cleanup will only be translated into unwind branch.</span>
-    <span class="doccomment">/// The extent should be for the `EXPR` inside `box EXPR`.</span>
-    <span class="doccomment">/// There may only be one “free” scheduled in any given scope.</span>
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">schedule_box_free</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
-                             <span class="ident">span</span>: <span class="ident">Span</span>,
-                             <span class="ident">extent</span>: <span class="ident">CodeExtent</span>,
-                             <span class="ident">value</span>: <span class="kw-2">&amp;</span><span class="ident">Lvalue</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
-                             <span class="ident">item_ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) {
-        <span class="kw">for</span> <span class="ident">scope</span> <span class="kw">in</span> <span class="self">self</span>.<span class="ident">scopes</span>.<span class="ident">iter_mut</span>().<span class="ident">rev</span>() {
-            <span class="comment">// See the comment in schedule_drop above. The primary difference is that we invalidate</span>
-            <span class="comment">// the unwind blocks unconditionally. That’s because the box free may be considered</span>
-            <span class="comment">// outer-most cleanup within the scope.</span>
-            <span class="ident">scope</span>.<span class="ident">invalidate_cache</span>(<span class="bool-val">true</span>);
-            <span class="kw">if</span> <span class="ident">scope</span>.<span class="ident">extent</span> <span class="op">==</span> <span class="ident">extent</span> {
-                <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">scope</span>.<span class="ident">free</span>.<span class="ident">is_none</span>(), <span class="string">&quot;scope already has a scheduled free!&quot;</span>);
-                <span class="ident">scope</span>.<span class="ident">needs_cleanup</span> <span class="op">=</span> <span class="bool-val">true</span>;
-                <span class="ident">scope</span>.<span class="ident">free</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="ident">FreeData</span> {
-                    <span class="ident">span</span>: <span class="ident">span</span>,
-                    <span class="ident">value</span>: <span class="ident">value</span>.<span class="ident">clone</span>(),
-                    <span class="ident">item_ty</span>: <span class="ident">item_ty</span>,
-                    <span class="ident">cached_block</span>: <span class="prelude-val">None</span>
-                });
-                <span class="kw">return</span>;
-            }
-        }
-        <span class="macro">span_bug</span><span class="macro">!</span>(<span class="ident">span</span>, <span class="string">&quot;extent {:?} not in scope to free {:?}&quot;</span>, <span class="ident">extent</span>, <span class="ident">value</span>);
     }
 
     <span class="comment">// Other</span>
@@ -1398,8 +1413,7 @@ should go to.
         }
         <span class="macro">assert</span><span class="macro">!</span>(<span class="op">!</span><span class="self">self</span>.<span class="ident">scopes</span>.<span class="ident">is_empty</span>()); <span class="comment">// or `any` above would be false</span>
 
-        <span class="kw">let</span> <span class="ident">unit_temp</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">get_unit_temp</span>();
-        <span class="kw">let</span> <span class="ident">Builder</span> { <span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">hir</span>, <span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">cfg</span>, <span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">scopes</span>,
+        <span class="kw">let</span> <span class="ident">Builder</span> { <span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">cfg</span>, <span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">scopes</span>,
                       <span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">cached_resume_block</span>, .. } <span class="op">=</span> <span class="kw-2">*</span><span class="self">self</span>;
 
         <span class="comment">// Build up the drops in **reverse** order. The end result will</span>
@@ -1425,8 +1439,8 @@ should go to.
             <span class="ident">resumeblk</span>
         };
 
-        <span class="kw">for</span> <span class="ident">scope</span> <span class="kw">in</span> <span class="ident">scopes</span>.<span class="ident">iter_mut</span>().<span class="ident">filter</span>(<span class="op">|</span><span class="ident">s</span><span class="op">|</span> <span class="ident">s</span>.<span class="ident">needs_cleanup</span>) {
-            <span class="ident">target</span> <span class="op">=</span> <span class="ident">build_diverge_scope</span>(<span class="ident">hir</span>.<span class="ident">tcx</span>(), <span class="ident">cfg</span>, <span class="kw-2">&amp;</span><span class="ident">unit_temp</span>, <span class="ident">scope</span>, <span class="ident">target</span>);
+        <span class="kw">for</span> <span class="ident">scope</span> <span class="kw">in</span> <span class="ident">scopes</span>.<span class="ident">iter_mut</span>() {
+            <span class="ident">target</span> <span class="op">=</span> <span class="ident">build_diverge_scope</span>(<span class="ident">cfg</span>, <span class="ident">scope</span>.<span class="ident">extent_span</span>, <span class="ident">scope</span>, <span class="ident">target</span>);
         }
         <span class="prelude-val">Some</span>(<span class="ident">target</span>)
     }
@@ -1445,7 +1459,7 @@ should go to.
         <span class="kw">let</span> <span class="ident">diverge_target</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">diverge_cleanup</span>();
         <span class="self">self</span>.<span class="ident">cfg</span>.<span class="ident">terminate</span>(<span class="ident">block</span>, <span class="ident">source_info</span>,
                            <span class="ident">TerminatorKind</span>::<span class="ident">Drop</span> {
-                               <span class="ident">location</span>: <span class="ident">location</span>,
+                               <span class="ident">location</span>,
                                <span class="ident">target</span>: <span class="ident">next_target</span>,
                                <span class="ident">unwind</span>: <span class="ident">diverge_target</span>,
                            });
@@ -1463,8 +1477,8 @@ should go to.
         <span class="kw">let</span> <span class="ident">diverge_target</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">diverge_cleanup</span>();
         <span class="self">self</span>.<span class="ident">cfg</span>.<span class="ident">terminate</span>(<span class="ident">block</span>, <span class="ident">source_info</span>,
                            <span class="ident">TerminatorKind</span>::<span class="ident">DropAndReplace</span> {
-                               <span class="ident">location</span>: <span class="ident">location</span>,
-                               <span class="ident">value</span>: <span class="ident">value</span>,
+                               <span class="ident">location</span>,
+                               <span class="ident">value</span>,
                                <span class="ident">target</span>: <span class="ident">next_target</span>,
                                <span class="ident">unwind</span>: <span class="ident">diverge_target</span>,
                            });
@@ -1487,11 +1501,11 @@ should go to.
 
         <span class="self">self</span>.<span class="ident">cfg</span>.<span class="ident">terminate</span>(<span class="ident">block</span>, <span class="ident">source_info</span>,
                            <span class="ident">TerminatorKind</span>::<span class="ident">Assert</span> {
-                               <span class="ident">cond</span>: <span class="ident">cond</span>,
-                               <span class="ident">expected</span>: <span class="ident">expected</span>,
-                               <span class="ident">msg</span>: <span class="ident">msg</span>,
+                               <span class="ident">cond</span>,
+                               <span class="ident">expected</span>,
+                               <span class="ident">msg</span>,
                                <span class="ident">target</span>: <span class="ident">success_block</span>,
-                               <span class="ident">cleanup</span>: <span class="ident">cleanup</span>
+                               <span class="ident">cleanup</span>,
                            });
 
         <span class="ident">success_block</span>
@@ -1505,53 +1519,55 @@ should go to.
                            <span class="kw-2">mut</span> <span class="ident">block</span>: <span class="ident">BasicBlock</span>,
                            <span class="ident">arg_count</span>: <span class="ident">usize</span>)
                            <span class="op">-&gt;</span> <span class="ident">BlockAnd</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;build_scope_drops({:?} -&gt; {:?})&quot;</span>, <span class="ident">block</span>, <span class="ident">scope</span>);
     <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">iter</span> <span class="op">=</span> <span class="ident">scope</span>.<span class="ident">drops</span>.<span class="ident">iter</span>().<span class="ident">rev</span>().<span class="ident">peekable</span>();
     <span class="kw">while</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">drop_data</span>) <span class="op">=</span> <span class="ident">iter</span>.<span class="ident">next</span>() {
         <span class="kw">let</span> <span class="ident">source_info</span> <span class="op">=</span> <span class="ident">scope</span>.<span class="ident">source_info</span>(<span class="ident">drop_data</span>.<span class="ident">span</span>);
-        <span class="kw">if</span> <span class="kw">let</span> <span class="ident">DropKind</span>::<span class="ident">Value</span> { .. } <span class="op">=</span> <span class="ident">drop_data</span>.<span class="ident">kind</span> {
-            <span class="comment">// Try to find the next block with its cached block</span>
-            <span class="comment">// for us to diverge into in case the drop panics.</span>
-            <span class="kw">let</span> <span class="ident">on_diverge</span> <span class="op">=</span> <span class="ident">iter</span>.<span class="ident">peek</span>().<span class="ident">iter</span>().<span class="ident">filter_map</span>(<span class="op">|</span><span class="ident">dd</span><span class="op">|</span> {
-                <span class="kw">match</span> <span class="ident">dd</span>.<span class="ident">kind</span> {
-                    <span class="ident">DropKind</span>::<span class="ident">Value</span> { <span class="ident">cached_block</span> } <span class="op">=&gt;</span> <span class="ident">cached_block</span>,
-                    <span class="ident">DropKind</span>::<span class="ident">Storage</span> <span class="op">=&gt;</span> <span class="prelude-val">None</span>
-                }
-            }).<span class="ident">next</span>();
-            <span class="comment">// If there’s no `cached_block`s within current scope,</span>
-            <span class="comment">// we must look for one in the enclosing scope.</span>
-            <span class="kw">let</span> <span class="ident">on_diverge</span> <span class="op">=</span> <span class="ident">on_diverge</span>.<span class="ident">or_else</span>(<span class="op">||</span>{
-                <span class="ident">earlier_scopes</span>.<span class="ident">iter</span>().<span class="ident">rev</span>().<span class="ident">flat_map</span>(<span class="op">|</span><span class="ident">s</span><span class="op">|</span> <span class="ident">s</span>.<span class="ident">cached_block</span>()).<span class="ident">next</span>()
-            });
-            <span class="kw">let</span> <span class="ident">next</span> <span class="op">=</span> <span class="ident">cfg</span>.<span class="ident">start_new_block</span>();
-            <span class="ident">cfg</span>.<span class="ident">terminate</span>(<span class="ident">block</span>, <span class="ident">source_info</span>, <span class="ident">TerminatorKind</span>::<span class="ident">Drop</span> {
-                <span class="ident">location</span>: <span class="ident">drop_data</span>.<span class="ident">location</span>.<span class="ident">clone</span>(),
-                <span class="ident">target</span>: <span class="ident">next</span>,
-                <span class="ident">unwind</span>: <span class="ident">on_diverge</span>
-            });
-            <span class="ident">block</span> <span class="op">=</span> <span class="ident">next</span>;
-        }
         <span class="kw">match</span> <span class="ident">drop_data</span>.<span class="ident">kind</span> {
-            <span class="ident">DropKind</span>::<span class="ident">Value</span> { .. } <span class="op">|</span>
-            <span class="ident">DropKind</span>::<span class="ident">Storage</span> <span class="op">=&gt;</span> {
-                <span class="comment">// Only temps and vars need their storage dead.</span>
-                <span class="kw">match</span> <span class="ident">drop_data</span>.<span class="ident">location</span> {
-                    <span class="ident">Lvalue</span>::<span class="ident">Local</span>(<span class="ident">index</span>) <span class="kw">if</span> <span class="ident">index</span>.<span class="ident">index</span>() <span class="op">&gt;</span> <span class="ident">arg_count</span> <span class="op">=&gt;</span> {}
-                    _ <span class="op">=&gt;</span> <span class="kw">continue</span>
-                }
+            <span class="ident">DropKind</span>::<span class="ident">Value</span> { .. } <span class="op">=&gt;</span> {
+                <span class="comment">// Try to find the next block with its cached block</span>
+                <span class="comment">// for us to diverge into in case the drop panics.</span>
+                <span class="kw">let</span> <span class="ident">on_diverge</span> <span class="op">=</span> <span class="ident">iter</span>.<span class="ident">peek</span>().<span class="ident">iter</span>().<span class="ident">filter_map</span>(<span class="op">|</span><span class="ident">dd</span><span class="op">|</span> {
+                    <span class="kw">match</span> <span class="ident">dd</span>.<span class="ident">kind</span> {
+                        <span class="ident">DropKind</span>::<span class="ident">Value</span> { <span class="ident">cached_block</span>: <span class="prelude-val">None</span> } <span class="op">=&gt;</span>
+                            <span class="macro">span_bug</span><span class="macro">!</span>(<span class="ident">drop_data</span>.<span class="ident">span</span>, <span class="string">&quot;cached block not present?&quot;</span>),
+                        <span class="ident">DropKind</span>::<span class="ident">Value</span> { <span class="ident">cached_block</span> } <span class="op">=&gt;</span> <span class="ident">cached_block</span>,
+                        <span class="ident">DropKind</span>::<span class="ident">Storage</span> <span class="op">=&gt;</span> <span class="prelude-val">None</span>
+                    }
+                }).<span class="ident">next</span>();
+                <span class="comment">// If there’s no `cached_block`s within current scope,</span>
+                <span class="comment">// we must look for one in the enclosing scope.</span>
+                <span class="kw">let</span> <span class="ident">on_diverge</span> <span class="op">=</span> <span class="ident">on_diverge</span>.<span class="ident">or_else</span>(<span class="op">||</span> {
+                    <span class="ident">earlier_scopes</span>.<span class="ident">iter</span>().<span class="ident">rev</span>().<span class="ident">flat_map</span>(<span class="op">|</span><span class="ident">s</span><span class="op">|</span> <span class="ident">s</span>.<span class="ident">cached_block</span>()).<span class="ident">next</span>()
+                });
+                <span class="kw">let</span> <span class="ident">next</span> <span class="op">=</span> <span class="ident">cfg</span>.<span class="ident">start_new_block</span>();
+                <span class="ident">cfg</span>.<span class="ident">terminate</span>(<span class="ident">block</span>, <span class="ident">source_info</span>, <span class="ident">TerminatorKind</span>::<span class="ident">Drop</span> {
+                    <span class="ident">location</span>: <span class="ident">drop_data</span>.<span class="ident">location</span>.<span class="ident">clone</span>(),
+                    <span class="ident">target</span>: <span class="ident">next</span>,
+                    <span class="ident">unwind</span>: <span class="ident">on_diverge</span>
+                });
+                <span class="ident">block</span> <span class="op">=</span> <span class="ident">next</span>;
+            }
+            <span class="ident">DropKind</span>::<span class="ident">Storage</span> <span class="op">=&gt;</span> {}
+        }
 
+        <span class="comment">// Drop the storage for both value and storage drops.</span>
+        <span class="comment">// Only temps and vars need their storage dead.</span>
+        <span class="kw">match</span> <span class="ident">drop_data</span>.<span class="ident">location</span> {
+            <span class="ident">Lvalue</span>::<span class="ident">Local</span>(<span class="ident">index</span>) <span class="kw">if</span> <span class="ident">index</span>.<span class="ident">index</span>() <span class="op">&gt;</span> <span class="ident">arg_count</span> <span class="op">=&gt;</span> {
                 <span class="ident">cfg</span>.<span class="ident">push</span>(<span class="ident">block</span>, <span class="ident">Statement</span> {
-                    <span class="ident">source_info</span>: <span class="ident">source_info</span>,
+                    <span class="ident">source_info</span>,
                     <span class="ident">kind</span>: <span class="ident">StatementKind</span>::<span class="ident">StorageDead</span>(<span class="ident">drop_data</span>.<span class="ident">location</span>.<span class="ident">clone</span>())
                 });
             }
+            _ <span class="op">=&gt;</span> <span class="kw">continue</span>
         }
     }
     <span class="ident">block</span>.<span class="ident">unit</span>()
 }
 
-<span class="kw">fn</span> <span class="ident">build_diverge_scope</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
-                                       <span class="ident">cfg</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">CFG</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
-                                       <span class="ident">unit_temp</span>: <span class="kw-2">&amp;</span><span class="ident">Lvalue</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+<span class="kw">fn</span> <span class="ident">build_diverge_scope</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">cfg</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">CFG</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                       <span class="ident">span</span>: <span class="ident">Span</span>,
                                        <span class="ident">scope</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Scope</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
                                        <span class="kw-2">mut</span> <span class="ident">target</span>: <span class="ident">BasicBlock</span>)
                                        <span class="op">-&gt;</span> <span class="ident">BasicBlock</span>
@@ -1559,9 +1575,9 @@ should go to.
     <span class="comment">// Build up the drops in **reverse** order. The end result will</span>
     <span class="comment">// look like:</span>
     <span class="comment">//</span>
-    <span class="comment">//    [drops[n]] -...-&gt; [drops[0]] -&gt; [Free] -&gt; [target]</span>
-    <span class="comment">//    |                                    |</span>
-    <span class="comment">//    +------------------------------------+</span>
+    <span class="comment">//    [EndRegion Block] -&gt; [drops[n]] -...-&gt; [drops[0]] -&gt; [Free] -&gt; [target]</span>
+    <span class="comment">//    |                                                         |</span>
+    <span class="comment">//    +---------------------------------------------------------+</span>
     <span class="comment">//     code for scope</span>
     <span class="comment">//</span>
     <span class="comment">// The code in this function reads from right to left. At each</span>
@@ -1571,29 +1587,23 @@ should go to.
 
     <span class="kw">let</span> <span class="ident">visibility_scope</span> <span class="op">=</span> <span class="ident">scope</span>.<span class="ident">visibility_scope</span>;
     <span class="kw">let</span> <span class="ident">source_info</span> <span class="op">=</span> <span class="op">|</span><span class="ident">span</span><span class="op">|</span> <span class="ident">SourceInfo</span> {
-        <span class="ident">span</span>: <span class="ident">span</span>,
+        <span class="ident">span</span>,
         <span class="ident">scope</span>: <span class="ident">visibility_scope</span>
     };
-
-    <span class="comment">// Next, build up any free.</span>
-    <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">free_data</span>) <span class="op">=</span> <span class="ident">scope</span>.<span class="ident">free</span> {
-        <span class="ident">target</span> <span class="op">=</span> <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">cached_block</span>) <span class="op">=</span> <span class="ident">free_data</span>.<span class="ident">cached_block</span> {
-            <span class="ident">cached_block</span>
-        } <span class="kw">else</span> {
-            <span class="kw">let</span> <span class="ident">into</span> <span class="op">=</span> <span class="ident">cfg</span>.<span class="ident">start_new_cleanup_block</span>();
-            <span class="ident">cfg</span>.<span class="ident">terminate</span>(<span class="ident">into</span>, <span class="ident">source_info</span>(<span class="ident">free_data</span>.<span class="ident">span</span>),
-                          <span class="ident">build_free</span>(<span class="ident">tcx</span>, <span class="ident">unit_temp</span>, <span class="ident">free_data</span>, <span class="ident">target</span>));
-            <span class="ident">free_data</span>.<span class="ident">cached_block</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="ident">into</span>);
-            <span class="ident">into</span>
-        };
-    }
 
     <span class="comment">// Next, build up the drops. Here we iterate the vector in</span>
     <span class="comment">// *forward* order, so that we generate drops[0] first (right to</span>
     <span class="comment">// left in diagram above).</span>
-    <span class="kw">for</span> <span class="ident">drop_data</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">scope</span>.<span class="ident">drops</span> {
+    <span class="kw">for</span> (<span class="ident">j</span>, <span class="ident">drop_data</span>) <span class="kw">in</span> <span class="ident">scope</span>.<span class="ident">drops</span>.<span class="ident">iter_mut</span>().<span class="ident">enumerate</span>() {
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;build_diverge_scope drop_data[{}]: {:?}&quot;</span>, <span class="ident">j</span>, <span class="ident">drop_data</span>);
         <span class="comment">// Only full value drops are emitted in the diverging path,</span>
         <span class="comment">// not StorageDead.</span>
+        <span class="comment">//</span>
+        <span class="comment">// Note: This may not actually be what we desire (are we</span>
+        <span class="comment">// &quot;freeing&quot; stack storage as we unwind, or merely observing a</span>
+        <span class="comment">// frozen stack)? In particular, the intent may have been to</span>
+        <span class="comment">// match the behavior of clang, but on inspection eddyb says</span>
+        <span class="comment">// this is not what clang does.</span>
         <span class="kw">let</span> <span class="ident">cached_block</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">drop_data</span>.<span class="ident">kind</span> {
             <span class="ident">DropKind</span>::<span class="ident">Value</span> { <span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">cached_block</span> } <span class="op">=&gt;</span> <span class="ident">cached_block</span>,
             <span class="ident">DropKind</span>::<span class="ident">Storage</span> <span class="op">=&gt;</span> <span class="kw">continue</span>
@@ -1605,7 +1615,7 @@ should go to.
             <span class="ident">cfg</span>.<span class="ident">terminate</span>(<span class="ident">block</span>, <span class="ident">source_info</span>(<span class="ident">drop_data</span>.<span class="ident">span</span>),
                           <span class="ident">TerminatorKind</span>::<span class="ident">Drop</span> {
                               <span class="ident">location</span>: <span class="ident">drop_data</span>.<span class="ident">location</span>.<span class="ident">clone</span>(),
-                              <span class="ident">target</span>: <span class="ident">target</span>,
+                              <span class="ident">target</span>,
                               <span class="ident">unwind</span>: <span class="prelude-val">None</span>
                           });
             <span class="kw-2">*</span><span class="ident">cached_block</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="ident">block</span>);
@@ -1613,28 +1623,16 @@ should go to.
         };
     }
 
-    <span class="ident">target</span>
-}
-
-<span class="kw">fn</span> <span class="ident">build_free</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
-                              <span class="ident">unit_temp</span>: <span class="kw-2">&amp;</span><span class="ident">Lvalue</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
-                              <span class="ident">data</span>: <span class="kw-2">&amp;</span><span class="ident">FreeData</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
-                              <span class="ident">target</span>: <span class="ident">BasicBlock</span>)
-                              <span class="op">-&gt;</span> <span class="ident">TerminatorKind</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
-    <span class="kw">let</span> <span class="ident">free_func</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">require_lang_item</span>(<span class="ident">lang_items</span>::<span class="ident">BoxFreeFnLangItem</span>);
-    <span class="kw">let</span> <span class="ident">substs</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">intern_substs</span>(<span class="kw-2">&amp;</span>[<span class="ident">Kind</span>::<span class="ident">from</span>(<span class="ident">data</span>.<span class="ident">item_ty</span>)]);
-    <span class="ident">TerminatorKind</span>::<span class="ident">Call</span> {
-        <span class="ident">func</span>: <span class="ident">Operand</span>::<span class="ident">Constant</span>(<span class="ident">Constant</span> {
-            <span class="ident">span</span>: <span class="ident">data</span>.<span class="ident">span</span>,
-            <span class="ident">ty</span>: <span class="ident">tcx</span>.<span class="ident">item_type</span>(<span class="ident">free_func</span>).<span class="ident">subst</span>(<span class="ident">tcx</span>, <span class="ident">substs</span>),
-            <span class="ident">literal</span>: <span class="ident">Literal</span>::<span class="ident">Value</span> {
-                <span class="ident">value</span>: <span class="ident">ConstVal</span>::<span class="ident">Function</span>(<span class="ident">free_func</span>, <span class="ident">substs</span>),
-            }
-        }),
-        <span class="ident">args</span>: <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">Operand</span>::<span class="ident">Consume</span>(<span class="ident">data</span>.<span class="ident">value</span>.<span class="ident">clone</span>())],
-        <span class="ident">destination</span>: <span class="prelude-val">Some</span>((<span class="ident">unit_temp</span>.<span class="ident">clone</span>(), <span class="ident">target</span>)),
-        <span class="ident">cleanup</span>: <span class="prelude-val">None</span>
+    <span class="comment">// Finally, push the EndRegion block, used by mir-borrowck. (Block</span>
+    <span class="comment">// becomes trivial goto after pass that removes all EndRegions.)</span>
+    {
+        <span class="kw">let</span> <span class="ident">block</span> <span class="op">=</span> <span class="ident">cfg</span>.<span class="ident">start_new_cleanup_block</span>();
+        <span class="ident">cfg</span>.<span class="ident">push_end_region</span>(<span class="ident">block</span>, <span class="ident">source_info</span>(<span class="ident">span</span>), <span class="ident">scope</span>.<span class="ident">extent</span>);
+        <span class="ident">cfg</span>.<span class="ident">terminate</span>(<span class="ident">block</span>, <span class="ident">source_info</span>(<span class="ident">span</span>), <span class="ident">TerminatorKind</span>::<span class="ident">Goto</span> { <span class="ident">target</span>: <span class="ident">target</span> });
+        <span class="ident">target</span> <span class="op">=</span> <span class="ident">block</span>
     }
+
+    <span class="ident">target</span>
 }
 </pre>
 </section>
@@ -1694,7 +1692,6 @@ should go to.
         window.rootPath = "../../../";
         window.currentCrate = "rustc_mir";
     </script>
-    <script src="../../../jquery.js"></script>
     <script src="../../../main.js"></script>
     <script defer src="../../../search-index.js"></script>
 </body>

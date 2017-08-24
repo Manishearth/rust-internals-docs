@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["LvalueTy",""]]});
+initSidebarItems({"enum":[["LvalueTy",""],["RvalueInitializationState",""]]});

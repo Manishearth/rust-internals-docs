@@ -1,5 +1,5 @@
 (function() {var implementors = {};
-implementors["std"] = ["impl&lt;T&gt; <a class=\"trait\" href=\"std/iter/trait.TrustedLen.html\" title=\"trait std::iter::TrustedLen\">TrustedLen</a> for <a class=\"struct\" href=\"std/vec/struct.IntoIter.html\" title=\"struct std::vec::IntoIter\">IntoIter</a>&lt;T&gt;",];
+implementors["std"] = [];
 
             if (window.register_implementors) {
                 window.register_implementors(implementors);

@@ -1,5 +1,4 @@
 (function() {var implementors = {};
-implementors["rustdoc"] = [];
 implementors["test"] = [];
 
             if (window.register_implementors) {

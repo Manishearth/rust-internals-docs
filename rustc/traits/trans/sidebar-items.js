@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["ProjectionCache",""],["TraitSelectionCache",""],["TransTraitCaches","Specializes caches used in trans -- in particular, they assume all types are fully monomorphized and that free regions can be erased."]]});

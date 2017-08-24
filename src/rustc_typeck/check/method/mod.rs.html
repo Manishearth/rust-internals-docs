@@ -401,6 +401,22 @@
 <span id="356">356</span>
 <span id="357">357</span>
 <span id="358">358</span>
+<span id="359">359</span>
+<span id="360">360</span>
+<span id="361">361</span>
+<span id="362">362</span>
+<span id="363">363</span>
+<span id="364">364</span>
+<span id="365">365</span>
+<span id="366">366</span>
+<span id="367">367</span>
+<span id="368">368</span>
+<span id="369">369</span>
+<span id="370">370</span>
+<span id="371">371</span>
+<span id="372">372</span>
+<span id="373">373</span>
+<span id="374">374</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class="comment">// file at the top-level directory of this distribution and at</span>
@@ -420,8 +436,8 @@
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::<span class="ident">subst</span>::<span class="ident">Substs</span>;
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">traits</span>;
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">ToPredicate</span>, <span class="ident">ToPolyTraitRef</span>, <span class="ident">TraitRef</span>, <span class="ident">TypeFoldable</span>};
-<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::<span class="ident">adjustment</span>::{<span class="ident">Adjustment</span>, <span class="ident">Adjust</span>, <span class="ident">AutoBorrow</span>};
-<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">infer</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::<span class="ident">subst</span>::<span class="ident">Subst</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">infer</span>::{<span class="self">self</span>, <span class="ident">InferOk</span>};
 
 <span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">ast</span>;
 <span class="kw">use</span> <span class="ident">syntax_pos</span>::<span class="ident">Span</span>;
@@ -431,13 +447,23 @@
 <span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">MethodError</span>::<span class="kw-2">*</span>;
 <span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">CandidateSource</span>::<span class="kw-2">*</span>;
 
-<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">suggest</span>::<span class="ident">AllTraitsVec</span>;
-
 <span class="kw">mod</span> <span class="ident">confirm</span>;
 <span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">probe</span>;
 <span class="kw">mod</span> <span class="ident">suggest</span>;
 
-<span class="kw">use</span> <span class="self">self</span>::<span class="ident">probe</span>::<span class="ident">IsSuggestion</span>;
+<span class="kw">use</span> <span class="self">self</span>::<span class="ident">probe</span>::{<span class="ident">IsSuggestion</span>, <span class="ident">ProbeScope</span>};
+
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">Copy</span>, <span class="ident">Debug</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">MethodCallee</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// Impl method ID, for inherent methods, or trait method ID, otherwise.</span>
+    <span class="kw">pub</span> <span class="ident">def_id</span>: <span class="ident">DefId</span>,
+    <span class="kw">pub</span> <span class="ident">substs</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+
+    <span class="doccomment">/// Instantiated method signature, i.e. it has been</span>
+    <span class="doccomment">/// substituted, normalized, and has had late-bound</span>
+    <span class="doccomment">/// lifetimes replaced with inference variables.</span>
+    <span class="kw">pub</span> <span class="ident">sig</span>: <span class="ident">ty</span>::<span class="ident">FnSig</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+}
 
 <span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">MethodError</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
     <span class="comment">// Did not find an applicable method, but we did find various near-misses that may work.</span>
@@ -450,8 +476,13 @@
     <span class="ident">ClosureAmbiguity</span>(<span class="comment">// DefId of fn trait</span>
                      <span class="ident">DefId</span>),
 
-    <span class="comment">// Found an applicable method, but it is not visible.</span>
-    <span class="ident">PrivateMatch</span>(<span class="ident">Def</span>),
+    <span class="comment">// Found an applicable method, but it is not visible. The second argument contains a list of</span>
+    <span class="comment">// not-in-scope traits which may work.</span>
+    <span class="ident">PrivateMatch</span>(<span class="ident">Def</span>, <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">DefId</span><span class="op">&gt;</span>),
+
+    <span class="comment">// Found a `Self: Sized` bound where `Self` is a trait object, also the caller may have</span>
+    <span class="comment">// forgotten to import a trait.</span>
+    <span class="ident">IllegalSizedBound</span>(<span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">DefId</span><span class="op">&gt;</span>),
 }
 
 <span class="comment">// Contains a list of static methods that may apply, a list of unsatisfied trait predicates which</span>
@@ -470,10 +501,10 @@
                <span class="ident">mode</span>: <span class="ident">probe</span>::<span class="ident">Mode</span>)
                <span class="op">-&gt;</span> <span class="self">Self</span> {
         <span class="ident">NoMatchData</span> {
-            <span class="ident">static_candidates</span>: <span class="ident">static_candidates</span>,
-            <span class="ident">unsatisfied_predicates</span>: <span class="ident">unsatisfied_predicates</span>,
-            <span class="ident">out_of_scope_traits</span>: <span class="ident">out_of_scope_traits</span>,
-            <span class="ident">mode</span>: <span class="ident">mode</span>,
+            <span class="ident">static_candidates</span>,
+            <span class="ident">unsatisfied_predicates</span>,
+            <span class="ident">out_of_scope_traits</span>,
+            <span class="ident">mode</span>,
         }
     }
 }
@@ -498,12 +529,13 @@
                          <span class="op">-&gt;</span> <span class="ident">bool</span> {
         <span class="kw">let</span> <span class="ident">mode</span> <span class="op">=</span> <span class="ident">probe</span>::<span class="ident">Mode</span>::<span class="ident">MethodCall</span>;
         <span class="kw">match</span> <span class="self">self</span>.<span class="ident">probe_for_name</span>(<span class="ident">span</span>, <span class="ident">mode</span>, <span class="ident">method_name</span>, <span class="ident">IsSuggestion</span>(<span class="bool-val">false</span>),
-                                  <span class="ident">self_ty</span>, <span class="ident">call_expr_id</span>) {
+                                  <span class="ident">self_ty</span>, <span class="ident">call_expr_id</span>, <span class="ident">ProbeScope</span>::<span class="ident">TraitsInScope</span>) {
             <span class="prelude-val">Ok</span>(..) <span class="op">=&gt;</span> <span class="bool-val">true</span>,
             <span class="prelude-val">Err</span>(<span class="ident">NoMatch</span>(..)) <span class="op">=&gt;</span> <span class="bool-val">false</span>,
             <span class="prelude-val">Err</span>(<span class="ident">Ambiguity</span>(..)) <span class="op">=&gt;</span> <span class="bool-val">true</span>,
             <span class="prelude-val">Err</span>(<span class="ident">ClosureAmbiguity</span>(..)) <span class="op">=&gt;</span> <span class="bool-val">true</span>,
             <span class="prelude-val">Err</span>(<span class="ident">PrivateMatch</span>(..)) <span class="op">=&gt;</span> <span class="ident">allow_private</span>,
+            <span class="prelude-val">Err</span>(<span class="ident">IllegalSizedBound</span>(..)) <span class="op">=&gt;</span> <span class="bool-val">true</span>,
         }
     }
 
@@ -522,23 +554,25 @@
     <span class="doccomment">/// * `supplied_method_types`: the explicit method type parameters, if any (`T1..Tn`)</span>
     <span class="doccomment">/// * `self_expr`:             the self expression (`foo`)</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">lookup_method</span>(<span class="kw-2">&amp;</span><span class="self">self</span>,
-                         <span class="ident">span</span>: <span class="ident">Span</span>,
-                         <span class="ident">method_name</span>: <span class="ident">ast</span>::<span class="ident">Name</span>,
                          <span class="ident">self_ty</span>: <span class="ident">ty</span>::<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
-                         <span class="ident">supplied_method_types</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,
+                         <span class="ident">segment</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">PathSegment</span>,
+                         <span class="ident">span</span>: <span class="ident">Span</span>,
                          <span class="ident">call_expr</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;gcx</span> <span class="ident">hir</span>::<span class="ident">Expr</span>,
                          <span class="ident">self_expr</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;gcx</span> <span class="ident">hir</span>::<span class="ident">Expr</span>)
-                         <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">MethodCallee</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">MethodError</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span> {
+                         <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">MethodCallee</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">MethodError</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span> {
         <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;lookup(method_name={}, self_ty={:?}, call_expr={:?}, self_expr={:?})&quot;</span>,
-               <span class="ident">method_name</span>,
+               <span class="ident">segment</span>.<span class="ident">name</span>,
                <span class="ident">self_ty</span>,
                <span class="ident">call_expr</span>,
                <span class="ident">self_expr</span>);
 
-        <span class="kw">let</span> <span class="ident">mode</span> <span class="op">=</span> <span class="ident">probe</span>::<span class="ident">Mode</span>::<span class="ident">MethodCall</span>;
-        <span class="kw">let</span> <span class="ident">self_ty</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">resolve_type_vars_if_possible</span>(<span class="kw-2">&amp;</span><span class="ident">self_ty</span>);
-        <span class="kw">let</span> <span class="ident">pick</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">probe_for_name</span>(<span class="ident">span</span>, <span class="ident">mode</span>, <span class="ident">method_name</span>, <span class="ident">IsSuggestion</span>(<span class="bool-val">false</span>),
-                                       <span class="ident">self_ty</span>, <span class="ident">call_expr</span>.<span class="ident">id</span>)<span class="question-mark">?</span>;
+        <span class="kw">let</span> <span class="ident">pick</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">lookup_probe</span>(
+            <span class="ident">span</span>,
+            <span class="ident">segment</span>.<span class="ident">name</span>,
+            <span class="ident">self_ty</span>,
+            <span class="ident">call_expr</span>,
+            <span class="ident">ProbeScope</span>::<span class="ident">TraitsInScope</span>
+        )<span class="question-mark">?</span>;
 
         <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">import_id</span>) <span class="op">=</span> <span class="ident">pick</span>.<span class="ident">import_id</span> {
             <span class="kw">let</span> <span class="ident">import_def_id</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">local_def_id</span>(<span class="ident">import_id</span>);
@@ -548,57 +582,77 @@
 
         <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">check_stability</span>(<span class="ident">pick</span>.<span class="ident">item</span>.<span class="ident">def_id</span>, <span class="ident">call_expr</span>.<span class="ident">id</span>, <span class="ident">span</span>);
 
-        <span class="prelude-val">Ok</span>(<span class="self">self</span>.<span class="ident">confirm_method</span>(<span class="ident">span</span>,
-                               <span class="ident">self_expr</span>,
-                               <span class="ident">call_expr</span>,
-                               <span class="ident">self_ty</span>,
-                               <span class="ident">pick</span>,
-                               <span class="ident">supplied_method_types</span>))
+        <span class="kw">let</span> <span class="ident">result</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">confirm_method</span>(<span class="ident">span</span>,
+                                         <span class="ident">self_expr</span>,
+                                         <span class="ident">call_expr</span>,
+                                         <span class="ident">self_ty</span>,
+                                         <span class="ident">pick</span>.<span class="ident">clone</span>(),
+                                         <span class="ident">segment</span>);
+
+        <span class="kw">if</span> <span class="ident">result</span>.<span class="ident">illegal_sized_bound</span> {
+            <span class="comment">// We probe again, taking all traits into account (not only those in scope).</span>
+            <span class="kw">let</span> <span class="ident">candidates</span> <span class="op">=</span>
+                <span class="kw">match</span> <span class="self">self</span>.<span class="ident">lookup_probe</span>(<span class="ident">span</span>,
+                                        <span class="ident">segment</span>.<span class="ident">name</span>,
+                                        <span class="ident">self_ty</span>,
+                                        <span class="ident">call_expr</span>,
+                                        <span class="ident">ProbeScope</span>::<span class="ident">AllTraits</span>) {
+
+                    <span class="comment">// If we find a different result the caller probably forgot to import a trait.</span>
+                    <span class="prelude-val">Ok</span>(<span class="kw-2">ref</span> <span class="ident">new_pick</span>) <span class="kw">if</span> <span class="kw-2">*</span><span class="ident">new_pick</span> <span class="op">!=</span> <span class="ident">pick</span> <span class="op">=&gt;</span> <span class="macro">vec</span><span class="macro">!</span>[<span class="ident">new_pick</span>.<span class="ident">item</span>.<span class="ident">container</span>.<span class="ident">id</span>()],
+                    <span class="prelude-val">Err</span>(<span class="ident">Ambiguity</span>(<span class="kw-2">ref</span> <span class="ident">sources</span>)) <span class="op">=&gt;</span> {
+                        <span class="ident">sources</span>.<span class="ident">iter</span>()
+                               .<span class="ident">filter_map</span>(<span class="op">|</span><span class="ident">source</span><span class="op">|</span> {
+                                   <span class="kw">match</span> <span class="kw-2">*</span><span class="ident">source</span> {
+                                       <span class="comment">// Note: this cannot come from an inherent impl,</span>
+                                       <span class="comment">// because the first probing succeeded.</span>
+                                       <span class="ident">ImplSource</span>(<span class="ident">def</span>) <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">trait_id_of_impl</span>(<span class="ident">def</span>),
+                                       <span class="ident">TraitSource</span>(_) <span class="op">=&gt;</span> <span class="prelude-val">None</span>,
+                                   }
+                               })
+                               .<span class="ident">collect</span>()
+                    }
+                    _ <span class="op">=&gt;</span> <span class="ident">Vec</span>::<span class="ident">new</span>(),
+                };
+
+            <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">IllegalSizedBound</span>(<span class="ident">candidates</span>));
+        }
+
+        <span class="prelude-val">Ok</span>(<span class="ident">result</span>.<span class="ident">callee</span>)
     }
 
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">lookup_method_in_trait</span>(<span class="kw-2">&amp;</span><span class="self">self</span>,
-                                  <span class="ident">span</span>: <span class="ident">Span</span>,
-                                  <span class="ident">self_expr</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">Expr</span><span class="op">&gt;</span>,
-                                  <span class="ident">m_name</span>: <span class="ident">ast</span>::<span class="ident">Name</span>,
-                                  <span class="ident">trait_def_id</span>: <span class="ident">DefId</span>,
-                                  <span class="ident">self_ty</span>: <span class="ident">ty</span>::<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
-                                  <span class="ident">opt_input_types</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span><span class="op">&gt;</span>)
-                                  <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">MethodCallee</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span> {
-        <span class="self">self</span>.<span class="ident">lookup_method_in_trait_adjusted</span>(<span class="ident">span</span>,
-                                             <span class="ident">self_expr</span>,
-                                             <span class="ident">m_name</span>,
-                                             <span class="ident">trait_def_id</span>,
-                                             <span class="number">0</span>,
-                                             <span class="bool-val">false</span>,
-                                             <span class="ident">self_ty</span>,
-                                             <span class="ident">opt_input_types</span>)
+    <span class="kw">fn</span> <span class="ident">lookup_probe</span>(<span class="kw-2">&amp;</span><span class="self">self</span>,
+                    <span class="ident">span</span>: <span class="ident">Span</span>,
+                    <span class="ident">method_name</span>: <span class="ident">ast</span>::<span class="ident">Name</span>,
+                    <span class="ident">self_ty</span>: <span class="ident">ty</span>::<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                    <span class="ident">call_expr</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;gcx</span> <span class="ident">hir</span>::<span class="ident">Expr</span>,
+                    <span class="ident">scope</span>: <span class="ident">ProbeScope</span>)
+                    <span class="op">-&gt;</span> <span class="ident">probe</span>::<span class="ident">PickResult</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="kw">let</span> <span class="ident">mode</span> <span class="op">=</span> <span class="ident">probe</span>::<span class="ident">Mode</span>::<span class="ident">MethodCall</span>;
+        <span class="kw">let</span> <span class="ident">self_ty</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">resolve_type_vars_if_possible</span>(<span class="kw-2">&amp;</span><span class="ident">self_ty</span>);
+        <span class="self">self</span>.<span class="ident">probe_for_name</span>(<span class="ident">span</span>, <span class="ident">mode</span>, <span class="ident">method_name</span>, <span class="ident">IsSuggestion</span>(<span class="bool-val">false</span>),
+                            <span class="ident">self_ty</span>, <span class="ident">call_expr</span>.<span class="ident">id</span>, <span class="ident">scope</span>)
     }
 
-    <span class="doccomment">/// `lookup_in_trait_adjusted` is used for overloaded operators.</span>
+    <span class="doccomment">/// `lookup_method_in_trait` is used for overloaded operators.</span>
     <span class="doccomment">/// It does a very narrow slice of what the normal probe/confirm path does.</span>
     <span class="doccomment">/// In particular, it doesn&#39;t really do any probing: it simply constructs</span>
-    <span class="doccomment">/// an obligation for aparticular trait with the given self-type and checks</span>
+    <span class="doccomment">/// an obligation for a particular trait with the given self-type and checks</span>
     <span class="doccomment">/// whether that trait is implemented.</span>
     <span class="doccomment">///</span>
     <span class="doccomment">/// FIXME(#18741) -- It seems likely that we can consolidate some of this</span>
-    <span class="doccomment">/// code with the other method-lookup code. In particular, autoderef on</span>
-    <span class="doccomment">/// index is basically identical to autoderef with normal probes, except</span>
-    <span class="doccomment">/// that the test also looks for built-in indexing. Also, the second half of</span>
-    <span class="doccomment">/// this method is basically the same as confirmation.</span>
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">lookup_method_in_trait_adjusted</span>(<span class="kw-2">&amp;</span><span class="self">self</span>,
-                                           <span class="ident">span</span>: <span class="ident">Span</span>,
-                                           <span class="ident">self_expr</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">Expr</span><span class="op">&gt;</span>,
-                                           <span class="ident">m_name</span>: <span class="ident">ast</span>::<span class="ident">Name</span>,
-                                           <span class="ident">trait_def_id</span>: <span class="ident">DefId</span>,
-                                           <span class="ident">autoderefs</span>: <span class="ident">usize</span>,
-                                           <span class="ident">unsize</span>: <span class="ident">bool</span>,
-                                           <span class="ident">self_ty</span>: <span class="ident">ty</span>::<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
-                                           <span class="ident">opt_input_types</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span><span class="op">&gt;</span>)
-                                           <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">MethodCallee</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span> {
-        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;lookup_in_trait_adjusted(self_ty={:?}, self_expr={:?}, \
+    <span class="doccomment">/// code with the other method-lookup code. In particular, the second half</span>
+    <span class="doccomment">/// of this method is basically the same as confirmation.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">lookup_method_in_trait</span>(<span class="kw-2">&amp;</span><span class="self">self</span>,
+                                  <span class="ident">span</span>: <span class="ident">Span</span>,
+                                  <span class="ident">m_name</span>: <span class="ident">ast</span>::<span class="ident">Name</span>,
+                                  <span class="ident">trait_def_id</span>: <span class="ident">DefId</span>,
+                                  <span class="ident">self_ty</span>: <span class="ident">ty</span>::<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                  <span class="ident">opt_input_types</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="kw-2">&amp;</span>[<span class="ident">ty</span>::<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>]<span class="op">&gt;</span>)
+                                  <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">InferOk</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, <span class="ident">MethodCallee</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span><span class="op">&gt;</span> {
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;lookup_in_trait_adjusted(self_ty={:?}, \
                 m_name={}, trait_def_id={:?})&quot;</span>,
                <span class="ident">self_ty</span>,
-               <span class="ident">self_expr</span>,
                <span class="ident">m_name</span>,
                <span class="ident">trait_def_id</span>);
 
@@ -621,7 +675,10 @@
         <span class="comment">// Construct an obligation</span>
         <span class="kw">let</span> <span class="ident">poly_trait_ref</span> <span class="op">=</span> <span class="ident">trait_ref</span>.<span class="ident">to_poly_trait_ref</span>();
         <span class="kw">let</span> <span class="ident">obligation</span> <span class="op">=</span>
-            <span class="ident">traits</span>::<span class="ident">Obligation</span>::<span class="ident">misc</span>(<span class="ident">span</span>, <span class="self">self</span>.<span class="ident">body_id</span>, <span class="ident">poly_trait_ref</span>.<span class="ident">to_predicate</span>());
+            <span class="ident">traits</span>::<span class="ident">Obligation</span>::<span class="ident">misc</span>(<span class="ident">span</span>,
+                                     <span class="self">self</span>.<span class="ident">body_id</span>,
+                                     <span class="self">self</span>.<span class="ident">param_env</span>,
+                                     <span class="ident">poly_trait_ref</span>.<span class="ident">to_predicate</span>());
 
         <span class="comment">// Now we want to know if this can be matched</span>
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">selcx</span> <span class="op">=</span> <span class="ident">traits</span>::<span class="ident">SelectionContext</span>::<span class="ident">new</span>(<span class="self">self</span>);
@@ -635,11 +692,12 @@
         <span class="kw">let</span> <span class="ident">tcx</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>;
         <span class="kw">let</span> <span class="ident">method_item</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">associated_item</span>(<span class="ident">trait_def_id</span>, <span class="ident">m_name</span>).<span class="ident">unwrap</span>();
         <span class="kw">let</span> <span class="ident">def_id</span> <span class="op">=</span> <span class="ident">method_item</span>.<span class="ident">def_id</span>;
-        <span class="kw">let</span> <span class="ident">generics</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">item_generics</span>(<span class="ident">def_id</span>);
+        <span class="kw">let</span> <span class="ident">generics</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">generics_of</span>(<span class="ident">def_id</span>);
         <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">generics</span>.<span class="ident">types</span>.<span class="ident">len</span>(), <span class="number">0</span>);
         <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">generics</span>.<span class="ident">regions</span>.<span class="ident">len</span>(), <span class="number">0</span>);
 
         <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;lookup_in_trait_adjusted: method_item={:?}&quot;</span>, <span class="ident">method_item</span>);
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">obligations</span> <span class="op">=</span> <span class="macro">vec</span><span class="macro">!</span>[];
 
         <span class="comment">// Instantiate late-bound regions and substitute the trait</span>
         <span class="comment">// parameters into the method type to get the actual method type.</span>
@@ -647,19 +705,17 @@
         <span class="comment">// NB: Instantiate late-bound regions first so that</span>
         <span class="comment">// `instantiate_type_scheme` can normalize associated types that</span>
         <span class="comment">// may reference those regions.</span>
-        <span class="kw">let</span> <span class="ident">original_method_ty</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">item_type</span>(<span class="ident">def_id</span>);
-        <span class="kw">let</span> <span class="ident">fn_sig</span> <span class="op">=</span> <span class="ident">original_method_ty</span>.<span class="ident">fn_sig</span>();
+        <span class="kw">let</span> <span class="ident">fn_sig</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">fn_sig</span>(<span class="ident">def_id</span>);
         <span class="kw">let</span> <span class="ident">fn_sig</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">replace_late_bound_regions_with_fresh_var</span>(<span class="ident">span</span>,
                                                                     <span class="ident">infer</span>::<span class="ident">FnCall</span>,
                                                                     <span class="kw-2">&amp;</span><span class="ident">fn_sig</span>).<span class="number">0</span>;
-        <span class="kw">let</span> <span class="ident">fn_sig</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">instantiate_type_scheme</span>(<span class="ident">span</span>, <span class="ident">trait_ref</span>.<span class="ident">substs</span>, <span class="kw-2">&amp;</span><span class="ident">fn_sig</span>);
-        <span class="kw">let</span> <span class="ident">transformed_self_ty</span> <span class="op">=</span> <span class="ident">fn_sig</span>.<span class="ident">inputs</span>()[<span class="number">0</span>];
-        <span class="kw">let</span> <span class="ident">method_ty</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">mk_fn_def</span>(<span class="ident">def_id</span>, <span class="ident">trait_ref</span>.<span class="ident">substs</span>,
-                                     <span class="ident">ty</span>::<span class="ident">Binder</span>(<span class="ident">fn_sig</span>));
-
-        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;lookup_in_trait_adjusted: matched method method_ty={:?} obligation={:?}&quot;</span>,
-               <span class="ident">method_ty</span>,
-               <span class="ident">obligation</span>);
+        <span class="kw">let</span> <span class="ident">fn_sig</span> <span class="op">=</span> <span class="ident">fn_sig</span>.<span class="ident">subst</span>(<span class="self">self</span>.<span class="ident">tcx</span>, <span class="ident">substs</span>);
+        <span class="kw">let</span> <span class="ident">fn_sig</span> <span class="op">=</span> <span class="kw">match</span> <span class="self">self</span>.<span class="ident">normalize_associated_types_in_as_infer_ok</span>(<span class="ident">span</span>, <span class="kw-2">&amp;</span><span class="ident">fn_sig</span>) {
+            <span class="ident">InferOk</span> { <span class="ident">value</span>, <span class="ident">obligations</span>: <span class="ident">o</span> } <span class="op">=&gt;</span> {
+                <span class="ident">obligations</span>.<span class="ident">extend</span>(<span class="ident">o</span>);
+                <span class="ident">value</span>
+            }
+        };
 
         <span class="comment">// Register obligations for the parameters.  This will include the</span>
         <span class="comment">// `Self` parameter, which in turn has a bound of the main trait,</span>
@@ -669,59 +725,41 @@
         <span class="comment">//</span>
         <span class="comment">// Note that as the method comes from a trait, it should not have</span>
         <span class="comment">// any late-bound regions appearing in its bounds.</span>
-        <span class="kw">let</span> <span class="ident">method_bounds</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">instantiate_bounds</span>(<span class="ident">span</span>, <span class="ident">def_id</span>, <span class="ident">trait_ref</span>.<span class="ident">substs</span>);
-        <span class="macro">assert</span><span class="macro">!</span>(<span class="op">!</span><span class="ident">method_bounds</span>.<span class="ident">has_escaping_regions</span>());
-        <span class="self">self</span>.<span class="ident">add_obligations_for_parameters</span>(<span class="ident">traits</span>::<span class="ident">ObligationCause</span>::<span class="ident">misc</span>(<span class="ident">span</span>, <span class="self">self</span>.<span class="ident">body_id</span>),
-                                            <span class="kw-2">&amp;</span><span class="ident">method_bounds</span>);
+        <span class="kw">let</span> <span class="ident">bounds</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">predicates_of</span>(<span class="ident">def_id</span>).<span class="ident">instantiate</span>(<span class="self">self</span>.<span class="ident">tcx</span>, <span class="ident">substs</span>);
+        <span class="kw">let</span> <span class="ident">bounds</span> <span class="op">=</span> <span class="kw">match</span> <span class="self">self</span>.<span class="ident">normalize_associated_types_in_as_infer_ok</span>(<span class="ident">span</span>, <span class="kw-2">&amp;</span><span class="ident">bounds</span>) {
+            <span class="ident">InferOk</span> { <span class="ident">value</span>, <span class="ident">obligations</span>: <span class="ident">o</span> } <span class="op">=&gt;</span> {
+                <span class="ident">obligations</span>.<span class="ident">extend</span>(<span class="ident">o</span>);
+                <span class="ident">value</span>
+            }
+        };
+        <span class="macro">assert</span><span class="macro">!</span>(<span class="op">!</span><span class="ident">bounds</span>.<span class="ident">has_escaping_regions</span>());
 
-        <span class="comment">// Also register an obligation for the method type being well-formed.</span>
-        <span class="self">self</span>.<span class="ident">register_wf_obligation</span>(<span class="ident">method_ty</span>, <span class="ident">span</span>, <span class="ident">traits</span>::<span class="ident">MiscObligation</span>);
+        <span class="kw">let</span> <span class="ident">cause</span> <span class="op">=</span> <span class="ident">traits</span>::<span class="ident">ObligationCause</span>::<span class="ident">misc</span>(<span class="ident">span</span>, <span class="self">self</span>.<span class="ident">body_id</span>);
+        <span class="ident">obligations</span>.<span class="ident">extend</span>(<span class="ident">traits</span>::<span class="ident">predicates_for_generics</span>(<span class="ident">cause</span>.<span class="ident">clone</span>(),
+                                                           <span class="self">self</span>.<span class="ident">param_env</span>,
+                                                           <span class="kw-2">&amp;</span><span class="ident">bounds</span>));
 
-        <span class="comment">// FIXME(#18653) -- Try to resolve obligations, giving us more</span>
-        <span class="comment">// typing information, which can sometimes be needed to avoid</span>
-        <span class="comment">// pathological region inference failures.</span>
-        <span class="self">self</span>.<span class="ident">select_obligations_where_possible</span>();
+        <span class="comment">// Also add an obligation for the method type being well-formed.</span>
+        <span class="kw">let</span> <span class="ident">method_ty</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">mk_fn_ptr</span>(<span class="ident">ty</span>::<span class="ident">Binder</span>(<span class="ident">fn_sig</span>));
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;lookup_in_trait_adjusted: matched method method_ty={:?} obligation={:?}&quot;</span>,
+               <span class="ident">method_ty</span>,
+               <span class="ident">obligation</span>);
+        <span class="ident">obligations</span>.<span class="ident">push</span>(<span class="ident">traits</span>::<span class="ident">Obligation</span>::<span class="ident">new</span>(<span class="ident">cause</span>,
+                                                 <span class="self">self</span>.<span class="ident">param_env</span>,
+                                                 <span class="ident">ty</span>::<span class="ident">Predicate</span>::<span class="ident">WellFormed</span>(<span class="ident">method_ty</span>)));
 
-        <span class="comment">// Insert any adjustments needed (always an autoref of some mutability).</span>
-        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">self_expr</span>) <span class="op">=</span> <span class="ident">self_expr</span> {
-            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;lookup_in_trait_adjusted: inserting adjustment if needed \
-                    (self-id={}, autoderefs={}, unsize={}, fty={:?})&quot;</span>,
-                    <span class="ident">self_expr</span>.<span class="ident">id</span>, <span class="ident">autoderefs</span>, <span class="ident">unsize</span>, <span class="ident">original_method_ty</span>);
-
-            <span class="kw">let</span> <span class="ident">original_sig</span> <span class="op">=</span> <span class="ident">original_method_ty</span>.<span class="ident">fn_sig</span>();
-            <span class="kw">let</span> <span class="ident">autoref</span> <span class="op">=</span> <span class="kw">match</span> (<span class="kw-2">&amp;</span><span class="ident">original_sig</span>.<span class="ident">input</span>(<span class="number">0</span>).<span class="ident">skip_binder</span>().<span class="ident">sty</span>,
-                                 <span class="kw-2">&amp;</span><span class="ident">transformed_self_ty</span>.<span class="ident">sty</span>) {
-                (<span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TyRef</span>(..), <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TyRef</span>(<span class="ident">region</span>, <span class="ident">ty</span>::<span class="ident">TypeAndMut</span> { <span class="ident">mutbl</span>, <span class="ident">ty</span>: _ })) <span class="op">=&gt;</span> {
-                    <span class="comment">// Trait method is fn(&amp;self) or fn(&amp;mut self), need an</span>
-                    <span class="comment">// autoref. Pull the region etc out of the type of first argument.</span>
-                    <span class="prelude-val">Some</span>(<span class="ident">AutoBorrow</span>::<span class="ident">Ref</span>(<span class="ident">region</span>, <span class="ident">mutbl</span>))
-                }
-                _ <span class="op">=&gt;</span> {
-                    <span class="comment">// Trait method is fn(self), no transformation needed.</span>
-                    <span class="macro">assert</span><span class="macro">!</span>(<span class="op">!</span><span class="ident">unsize</span>);
-                    <span class="prelude-val">None</span>
-                }
-            };
-
-            <span class="self">self</span>.<span class="ident">write_adjustment</span>(<span class="ident">self_expr</span>.<span class="ident">id</span>, <span class="ident">Adjustment</span> {
-                <span class="ident">kind</span>: <span class="ident">Adjust</span>::<span class="ident">DerefRef</span> {
-                    <span class="ident">autoderefs</span>: <span class="ident">autoderefs</span>,
-                    <span class="ident">autoref</span>: <span class="ident">autoref</span>,
-                    <span class="ident">unsize</span>: <span class="ident">unsize</span>
-                },
-                <span class="ident">target</span>: <span class="ident">transformed_self_ty</span>
-            });
-        }
-
-        <span class="kw">let</span> <span class="ident">callee</span> <span class="op">=</span> <span class="ident">ty</span>::<span class="ident">MethodCallee</span> {
-            <span class="ident">def_id</span>: <span class="ident">def_id</span>,
-            <span class="ident">ty</span>: <span class="ident">method_ty</span>,
+        <span class="kw">let</span> <span class="ident">callee</span> <span class="op">=</span> <span class="ident">MethodCallee</span> {
+            <span class="ident">def_id</span>,
             <span class="ident">substs</span>: <span class="ident">trait_ref</span>.<span class="ident">substs</span>,
+            <span class="ident">sig</span>: <span class="ident">fn_sig</span>,
         };
 
         <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;callee = {:?}&quot;</span>, <span class="ident">callee</span>);
 
-        <span class="prelude-val">Some</span>(<span class="ident">callee</span>)
+        <span class="prelude-val">Some</span>(<span class="ident">InferOk</span> {
+            <span class="ident">obligations</span>,
+            <span class="ident">value</span>: <span class="ident">callee</span>
+        })
     }
 
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">resolve_ufcs</span>(<span class="kw-2">&amp;</span><span class="self">self</span>,
@@ -732,7 +770,7 @@
                         <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Def</span>, <span class="ident">MethodError</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span> {
         <span class="kw">let</span> <span class="ident">mode</span> <span class="op">=</span> <span class="ident">probe</span>::<span class="ident">Mode</span>::<span class="ident">Path</span>;
         <span class="kw">let</span> <span class="ident">pick</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">probe_for_name</span>(<span class="ident">span</span>, <span class="ident">mode</span>, <span class="ident">method_name</span>, <span class="ident">IsSuggestion</span>(<span class="bool-val">false</span>),
-                                       <span class="ident">self_ty</span>, <span class="ident">expr_id</span>)<span class="question-mark">?</span>;
+                                       <span class="ident">self_ty</span>, <span class="ident">expr_id</span>, <span class="ident">ProbeScope</span>::<span class="ident">TraitsInScope</span>)<span class="question-mark">?</span>;
 
         <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">import_id</span>) <span class="op">=</span> <span class="ident">pick</span>.<span class="ident">import_id</span> {
             <span class="kw">let</span> <span class="ident">import_def_id</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">local_def_id</span>(<span class="ident">import_id</span>);
@@ -741,15 +779,8 @@
         }
 
         <span class="kw">let</span> <span class="ident">def</span> <span class="op">=</span> <span class="ident">pick</span>.<span class="ident">item</span>.<span class="ident">def</span>();
-
         <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">check_stability</span>(<span class="ident">def</span>.<span class="ident">def_id</span>(), <span class="ident">expr_id</span>, <span class="ident">span</span>);
 
-        <span class="kw">if</span> <span class="kw">let</span> <span class="ident">probe</span>::<span class="ident">InherentImplPick</span> <span class="op">=</span> <span class="ident">pick</span>.<span class="ident">kind</span> {
-            <span class="kw">if</span> <span class="op">!</span><span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">vis_is_accessible_from</span>(<span class="ident">pick</span>.<span class="ident">item</span>.<span class="ident">vis</span>, <span class="self">self</span>.<span class="ident">body_id</span>) {
-                <span class="kw">let</span> <span class="ident">msg</span> <span class="op">=</span> <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;{} `{}` is private&quot;</span>, <span class="ident">def</span>.<span class="ident">kind_name</span>(), <span class="ident">method_name</span>);
-                <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">sess</span>.<span class="ident">span_err</span>(<span class="ident">span</span>, <span class="kw-2">&amp;</span><span class="ident">msg</span>);
-            }
-        }
         <span class="prelude-val">Ok</span>(<span class="ident">def</span>)
     }
 
@@ -757,7 +788,8 @@
     <span class="doccomment">/// and return it, or `None`, if no such item was defined there.</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">associated_item</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def_id</span>: <span class="ident">DefId</span>, <span class="ident">item_name</span>: <span class="ident">ast</span>::<span class="ident">Name</span>)
                            <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">AssociatedItem</span><span class="op">&gt;</span> {
-        <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">associated_items</span>(<span class="ident">def_id</span>).<span class="ident">find</span>(<span class="op">|</span><span class="ident">item</span><span class="op">|</span> <span class="ident">item</span>.<span class="ident">name</span> <span class="op">==</span> <span class="ident">item_name</span>)
+        <span class="kw">let</span> <span class="ident">ident</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">adjust</span>(<span class="ident">item_name</span>, <span class="ident">def_id</span>, <span class="self">self</span>.<span class="ident">body_id</span>).<span class="number">0</span>;
+        <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">associated_items</span>(<span class="ident">def_id</span>).<span class="ident">find</span>(<span class="op">|</span><span class="ident">item</span><span class="op">|</span> <span class="ident">item</span>.<span class="ident">name</span>.<span class="ident">to_ident</span>() <span class="op">==</span> <span class="ident">ident</span>)
     }
 }
 </pre>
@@ -818,7 +850,6 @@
         window.rootPath = "../../../../";
         window.currentCrate = "rustc_typeck";
     </script>
-    <script src="../../../../jquery.js"></script>
     <script src="../../../../main.js"></script>
     <script defer src="../../../../search-index.js"></script>
 </body>

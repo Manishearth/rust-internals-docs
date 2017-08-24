@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["DoubleS",""],["HalfS",""],["IeeeFloat",""],["QuadS",""],["SingleS",""],["X87DoubleExtendedS",""]],"trait":[["Semantics","Represents floating point arithmetic semantics."]],"type":[["Double",""],["Half",""],["Quad",""],["Single",""],["X87DoubleExtended",""]]});

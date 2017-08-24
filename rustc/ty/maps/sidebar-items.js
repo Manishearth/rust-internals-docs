@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["Query",""]],"mod":[["queries",""]],"struct":[["CycleError",""],["Maps",""],["Providers",""]]});
+initSidebarItems({"enum":[["Query",""],["QueryMsg",""]],"mod":[["queries",""]],"struct":[["CycleError",""],["Maps",""],["Providers",""],["TyCtxtAt",""]],"trait":[["Key",""],["QueryConfig",""]]});

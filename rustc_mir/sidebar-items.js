@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["provide",""]],"mod":[["build",""],["callgraph","MIR-based callgraph."],["diagnostics",""],["mir_map","An experimental pass that scources for `#[rustc_mir]` attributes, builds the resulting MIR, and dumps it out into a file for inspection."],["transform",""],["util",""]]});
+initSidebarItems({"constant":[["DIAGNOSTICS",""]],"fn":[["provide",""]],"mod":[["transform",""],["util",""]]});

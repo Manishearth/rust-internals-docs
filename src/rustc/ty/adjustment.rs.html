@@ -193,62 +193,6 @@
 <span id="148">148</span>
 <span id="149">149</span>
 <span id="150">150</span>
-<span id="151">151</span>
-<span id="152">152</span>
-<span id="153">153</span>
-<span id="154">154</span>
-<span id="155">155</span>
-<span id="156">156</span>
-<span id="157">157</span>
-<span id="158">158</span>
-<span id="159">159</span>
-<span id="160">160</span>
-<span id="161">161</span>
-<span id="162">162</span>
-<span id="163">163</span>
-<span id="164">164</span>
-<span id="165">165</span>
-<span id="166">166</span>
-<span id="167">167</span>
-<span id="168">168</span>
-<span id="169">169</span>
-<span id="170">170</span>
-<span id="171">171</span>
-<span id="172">172</span>
-<span id="173">173</span>
-<span id="174">174</span>
-<span id="175">175</span>
-<span id="176">176</span>
-<span id="177">177</span>
-<span id="178">178</span>
-<span id="179">179</span>
-<span id="180">180</span>
-<span id="181">181</span>
-<span id="182">182</span>
-<span id="183">183</span>
-<span id="184">184</span>
-<span id="185">185</span>
-<span id="186">186</span>
-<span id="187">187</span>
-<span id="188">188</span>
-<span id="189">189</span>
-<span id="190">190</span>
-<span id="191">191</span>
-<span id="192">192</span>
-<span id="193">193</span>
-<span id="194">194</span>
-<span id="195">195</span>
-<span id="196">196</span>
-<span id="197">197</span>
-<span id="198">198</span>
-<span id="199">199</span>
-<span id="200">200</span>
-<span id="201">201</span>
-<span id="202">202</span>
-<span id="203">203</span>
-<span id="204">204</span>
-<span id="205">205</span>
-<span id="206">206</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class="comment">// file at the top-level directory of this distribution and at</span>
@@ -260,21 +204,59 @@
 <span class="comment">// option. This file may not be copied, modified, or distributed</span>
 <span class="comment">// except according to those terms.</span>
 
-<span class="kw">use</span> <span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">Ty</span>, <span class="ident">TyCtxt</span>, <span class="ident">TypeAndMut</span>};
-<span class="kw">use</span> <span class="ident">ty</span>::<span class="ident">LvaluePreference</span>::{<span class="ident">NoPreference</span>};
-
-<span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">ast</span>;
-<span class="kw">use</span> <span class="ident">syntax_pos</span>::<span class="ident">Span</span>;
-
 <span class="kw">use</span> <span class="ident">hir</span>;
+<span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">def_id</span>::<span class="ident">DefId</span>;
+<span class="kw">use</span> <span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">Ty</span>, <span class="ident">TyCtxt</span>};
+<span class="kw">use</span> <span class="ident">ty</span>::<span class="ident">subst</span>::<span class="ident">Substs</span>;
 
-<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Copy</span>, <span class="ident">Clone</span>, <span class="ident">RustcEncodable</span>, <span class="ident">RustcDecodable</span>)]</span>
+
+<span class="doccomment">/// Represents coercing a value to a different type of value.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// We transform values by following a number of `Adjust` steps in order.</span>
+<span class="doccomment">/// See the documentation on variants of `Adjust` for more details.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Here are some common scenarios:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// 1. The simplest cases are where a pointer is not adjusted fat vs thin.</span>
+<span class="doccomment">/// Here the pointer will be dereferenced N times (where a dereference can</span>
+<span class="doccomment">/// happen to raw or borrowed pointers or any smart pointer which implements</span>
+<span class="doccomment">/// Deref, including Box&lt;_&gt;). The types of dereferences is given by</span>
+<span class="doccomment">/// `autoderefs`.  It can then be auto-referenced zero or one times, indicated</span>
+<span class="doccomment">/// by `autoref`, to either a raw or borrowed pointer. In these cases unsize is</span>
+<span class="doccomment">/// `false`.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// 2. A thin-to-fat coercion involves unsizing the underlying data. We start</span>
+<span class="doccomment">/// with a thin pointer, deref a number of times, unsize the underlying data,</span>
+<span class="doccomment">/// then autoref. The &#39;unsize&#39; phase may change a fixed length array to a</span>
+<span class="doccomment">/// dynamically sized one, a concrete object to a trait object, or statically</span>
+<span class="doccomment">/// sized struct to a dynamically sized one. E.g., &amp;[i32; 4] -&gt; &amp;[i32] is</span>
+<span class="doccomment">/// represented by:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// Deref(None) -&gt; [i32; 4],</span>
+<span class="doccomment">/// Borrow(AutoBorrow::Ref) -&gt; &amp;[i32; 4],</span>
+<span class="doccomment">/// Unsize -&gt; &amp;[i32],</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Note that for a struct, the &#39;deep&#39; unsizing of the struct is not recorded.</span>
+<span class="doccomment">/// E.g., `struct Foo&lt;T&gt; { x: T }` we can coerce &amp;Foo&lt;[i32; 4]&gt; to &amp;Foo&lt;[i32]&gt;</span>
+<span class="doccomment">/// The autoderef and -ref are the same as in the above example, but the type</span>
+<span class="doccomment">/// stored in `unsize` is `Foo&lt;[i32]&gt;`, we don&#39;t store any further detail about</span>
+<span class="doccomment">/// the underlying conversions from `[i32; 4]` to `[i32]`.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// 3. Coercing a `Box&lt;T&gt;` to `Box&lt;Trait&gt;` is an interesting special case.  In</span>
+<span class="doccomment">/// that case, we have the pointer we need coming in, so there are no</span>
+<span class="doccomment">/// autoderefs, and no autoref. Instead we just do the `Unsize` transformation.</span>
+<span class="doccomment">/// At some point, of course, `Box` should move out of the compiler, in which</span>
+<span class="doccomment">/// case this is analogous to transforming a struct. E.g., Box&lt;[i32; 4]&gt; -&gt;</span>
+<span class="doccomment">/// Box&lt;[i32]&gt; is an `Adjust::Unsize` with the target `Box&lt;[i32]&gt;`.</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">RustcEncodable</span>, <span class="ident">RustcDecodable</span>)]</span>
 <span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">Adjustment</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
     <span class="kw">pub</span> <span class="ident">kind</span>: <span class="ident">Adjust</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
-    <span class="kw">pub</span> <span class="ident">target</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>
+    <span class="kw">pub</span> <span class="ident">target</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
 }
 
-<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Copy</span>, <span class="ident">Clone</span>, <span class="ident">Debug</span>, <span class="ident">RustcEncodable</span>, <span class="ident">RustcDecodable</span>)]</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">Debug</span>, <span class="ident">RustcEncodable</span>, <span class="ident">RustcDecodable</span>)]</span>
 <span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">Adjust</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
     <span class="doccomment">/// Go from ! to any type.</span>
     <span class="ident">NeverToAny</span>,
@@ -285,107 +267,58 @@
     <span class="doccomment">/// Go from a safe fn pointer to an unsafe fn pointer.</span>
     <span class="ident">UnsafeFnPointer</span>,
 
-    <span class="comment">// Go from a non-capturing closure to an fn pointer.</span>
+    <span class="doccomment">/// Go from a non-capturing closure to an fn pointer.</span>
     <span class="ident">ClosureFnPointer</span>,
 
     <span class="doccomment">/// Go from a mut raw pointer to a const raw pointer.</span>
     <span class="ident">MutToConstPointer</span>,
 
-    <span class="doccomment">/// Represents coercing a pointer to a different kind of pointer - where &#39;kind&#39;</span>
-    <span class="doccomment">/// here means either or both of raw vs borrowed vs unique and fat vs thin.</span>
-    <span class="doccomment">///</span>
-    <span class="doccomment">/// We transform pointers by following the following steps in order:</span>
-    <span class="doccomment">/// 1. Deref the pointer `self.autoderefs` times (may be 0).</span>
-    <span class="doccomment">/// 2. If `autoref` is `Some(_)`, then take the address and produce either a</span>
-    <span class="doccomment">///    `&amp;` or `*` pointer.</span>
-    <span class="doccomment">/// 3. If `unsize` is `Some(_)`, then apply the unsize transformation,</span>
-    <span class="doccomment">///    which will do things like convert thin pointers to fat</span>
-    <span class="doccomment">///    pointers, or convert structs containing thin pointers to</span>
-    <span class="doccomment">///    structs containing fat pointers, or convert between fat</span>
-    <span class="doccomment">///    pointers.  We don&#39;t store the details of how the transform is</span>
-    <span class="doccomment">///    done (in fact, we don&#39;t know that, because it might depend on</span>
-    <span class="doccomment">///    the precise type parameters). We just store the target</span>
-    <span class="doccomment">///    type. Trans figures out what has to be done at monomorphization</span>
-    <span class="doccomment">///    time based on the precise source/target type at hand.</span>
-    <span class="doccomment">///</span>
-    <span class="doccomment">/// To make that more concrete, here are some common scenarios:</span>
-    <span class="doccomment">///</span>
-    <span class="doccomment">/// 1. The simplest cases are where the pointer is not adjusted fat vs thin.</span>
-    <span class="doccomment">/// Here the pointer will be dereferenced N times (where a dereference can</span>
-    <span class="doccomment">/// happen to raw or borrowed pointers or any smart pointer which implements</span>
-    <span class="doccomment">/// Deref, including Box&lt;_&gt;). The number of dereferences is given by</span>
-    <span class="doccomment">/// `autoderefs`.  It can then be auto-referenced zero or one times, indicated</span>
-    <span class="doccomment">/// by `autoref`, to either a raw or borrowed pointer. In these cases unsize is</span>
-    <span class="doccomment">/// None.</span>
-    <span class="doccomment">///</span>
-    <span class="doccomment">/// 2. A thin-to-fat coercon involves unsizing the underlying data. We start</span>
-    <span class="doccomment">/// with a thin pointer, deref a number of times, unsize the underlying data,</span>
-    <span class="doccomment">/// then autoref. The &#39;unsize&#39; phase may change a fixed length array to a</span>
-    <span class="doccomment">/// dynamically sized one, a concrete object to a trait object, or statically</span>
-    <span class="doccomment">/// sized struct to a dyncamically sized one. E.g., &amp;[i32; 4] -&gt; &amp;[i32] is</span>
-    <span class="doccomment">/// represented by:</span>
-    <span class="doccomment">///</span>
-    <span class="doccomment">/// ```</span>
-    <span class="doccomment">/// Adjust::DerefRef {</span>
-    <span class="doccomment">///     autoderefs: 1,          // &amp;[i32; 4] -&gt; [i32; 4]</span>
-    <span class="doccomment">///     autoref: Some(AutoBorrow::Ref), // [i32] -&gt; &amp;[i32]</span>
-    <span class="doccomment">///     unsize: Some([i32]),    // [i32; 4] -&gt; [i32]</span>
-    <span class="doccomment">/// }</span>
-    <span class="doccomment">/// ```</span>
-    <span class="doccomment">///</span>
-    <span class="doccomment">/// Note that for a struct, the &#39;deep&#39; unsizing of the struct is not recorded.</span>
-    <span class="doccomment">/// E.g., `struct Foo&lt;T&gt; { x: T }` we can coerce &amp;Foo&lt;[i32; 4]&gt; to &amp;Foo&lt;[i32]&gt;</span>
-    <span class="doccomment">/// The autoderef and -ref are the same as in the above example, but the type</span>
-    <span class="doccomment">/// stored in `unsize` is `Foo&lt;[i32]&gt;`, we don&#39;t store any further detail about</span>
-    <span class="doccomment">/// the underlying conversions from `[i32; 4]` to `[i32]`.</span>
-    <span class="doccomment">///</span>
-    <span class="doccomment">/// 3. Coercing a `Box&lt;T&gt;` to `Box&lt;Trait&gt;` is an interesting special case.  In</span>
-    <span class="doccomment">/// that case, we have the pointer we need coming in, so there are no</span>
-    <span class="doccomment">/// autoderefs, and no autoref. Instead we just do the `Unsize` transformation.</span>
-    <span class="doccomment">/// At some point, of course, `Box` should move out of the compiler, in which</span>
-    <span class="doccomment">/// case this is analogous to transformating a struct. E.g., Box&lt;[i32; 4]&gt; -&gt;</span>
-    <span class="doccomment">/// Box&lt;[i32]&gt; is represented by:</span>
-    <span class="doccomment">///</span>
-    <span class="doccomment">/// ```</span>
-    <span class="doccomment">/// Adjust::DerefRef {</span>
-    <span class="doccomment">///     autoderefs: 0,</span>
-    <span class="doccomment">///     autoref: None,</span>
-    <span class="doccomment">///     unsize: Some(Box&lt;[i32]&gt;),</span>
-    <span class="doccomment">/// }</span>
-    <span class="doccomment">/// ```</span>
-    <span class="ident">DerefRef</span> {
-        <span class="doccomment">/// Step 1. Apply a number of dereferences, producing an lvalue.</span>
-        <span class="ident">autoderefs</span>: <span class="ident">usize</span>,
+    <span class="doccomment">/// Dereference once, producing an lvalue.</span>
+    <span class="ident">Deref</span>(<span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">OverloadedDeref</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>),
 
-        <span class="doccomment">/// Step 2. Optionally produce a pointer/reference from the value.</span>
-        <span class="ident">autoref</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">AutoBorrow</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,
+    <span class="doccomment">/// Take the address and produce either a `&amp;` or `*` pointer.</span>
+    <span class="ident">Borrow</span>(<span class="ident">AutoBorrow</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>),
 
-        <span class="doccomment">/// Step 3. Unsize a pointer/reference value, e.g. `&amp;[T; n]` to</span>
-        <span class="doccomment">/// `&amp;[T]`. Note that the source could be a thin or fat pointer.</span>
-        <span class="ident">unsize</span>: <span class="ident">bool</span>,
-    }
+    <span class="doccomment">/// Unsize a pointer/reference value, e.g. `&amp;[T; n]` to</span>
+    <span class="doccomment">/// `&amp;[T]`. Note that the source could be a thin or fat pointer.</span>
+    <span class="doccomment">/// This will do things like convert thin pointers to fat</span>
+    <span class="doccomment">/// pointers, or convert structs containing thin pointers to</span>
+    <span class="doccomment">/// structs containing fat pointers, or convert between fat</span>
+    <span class="doccomment">/// pointers.  We don&#39;t store the details of how the transform is</span>
+    <span class="doccomment">/// done (in fact, we don&#39;t know that, because it might depend on</span>
+    <span class="doccomment">/// the precise type parameters). We just store the target</span>
+    <span class="doccomment">/// type. Trans figures out what has to be done at monomorphization</span>
+    <span class="doccomment">/// time based on the precise source/target type at hand.</span>
+    <span class="ident">Unsize</span>,
 }
 
-<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">Adjustment</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">is_identity</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
-        <span class="kw">match</span> <span class="self">self</span>.<span class="ident">kind</span> {
-            <span class="ident">Adjust</span>::<span class="ident">NeverToAny</span> <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">target</span>.<span class="ident">is_never</span>(),
+<span class="doccomment">/// An overloaded autoderef step, representing a `Deref(Mut)::deref(_mut)`</span>
+<span class="doccomment">/// call, with the signature `&amp;&#39;a T -&gt; &amp;&#39;a U` or `&amp;&#39;a mut T -&gt; &amp;&#39;a mut U`.</span>
+<span class="doccomment">/// The target type is `U` in both cases, with the region and mutability</span>
+<span class="doccomment">/// being those shared by both the receiver and the returned reference.</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Copy</span>, <span class="ident">Clone</span>, <span class="ident">PartialEq</span>, <span class="ident">Debug</span>, <span class="ident">RustcEncodable</span>, <span class="ident">RustcDecodable</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">OverloadedDeref</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="ident">region</span>: <span class="ident">ty</span>::<span class="ident">Region</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="kw">pub</span> <span class="ident">mutbl</span>: <span class="ident">hir</span>::<span class="ident">Mutability</span>,
+}
 
-            <span class="ident">Adjust</span>::<span class="ident">DerefRef</span> { <span class="ident">autoderefs</span>: <span class="number">0</span>, <span class="ident">autoref</span>: <span class="prelude-val">None</span>, <span class="ident">unsize</span>: <span class="bool-val">false</span> } <span class="op">=&gt;</span> <span class="bool-val">true</span>,
-
-            <span class="ident">Adjust</span>::<span class="ident">ReifyFnPointer</span> <span class="op">|</span>
-            <span class="ident">Adjust</span>::<span class="ident">UnsafeFnPointer</span> <span class="op">|</span>
-            <span class="ident">Adjust</span>::<span class="ident">ClosureFnPointer</span> <span class="op">|</span>
-            <span class="ident">Adjust</span>::<span class="ident">MutToConstPointer</span> <span class="op">|</span>
-            <span class="ident">Adjust</span>::<span class="ident">DerefRef</span> {..} <span class="op">=&gt;</span> <span class="bool-val">false</span>,
-        }
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">OverloadedDeref</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">method_call</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">source</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+                       <span class="op">-&gt;</span> (<span class="ident">DefId</span>, <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) {
+        <span class="kw">let</span> <span class="ident">trait_def_id</span> <span class="op">=</span> <span class="kw">match</span> <span class="self">self</span>.<span class="ident">mutbl</span> {
+            <span class="ident">hir</span>::<span class="ident">MutImmutable</span> <span class="op">=&gt;</span> <span class="ident">tcx</span>.<span class="ident">lang_items</span>.<span class="ident">deref_trait</span>(),
+            <span class="ident">hir</span>::<span class="ident">MutMutable</span> <span class="op">=&gt;</span> <span class="ident">tcx</span>.<span class="ident">lang_items</span>.<span class="ident">deref_mut_trait</span>()
+        };
+        <span class="kw">let</span> <span class="ident">method_def_id</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">associated_items</span>(<span class="ident">trait_def_id</span>.<span class="ident">unwrap</span>())
+            .<span class="ident">find</span>(<span class="op">|</span><span class="ident">m</span><span class="op">|</span> <span class="ident">m</span>.<span class="ident">kind</span> <span class="op">==</span> <span class="ident">ty</span>::<span class="ident">AssociatedKind</span>::<span class="ident">Method</span>).<span class="ident">unwrap</span>().<span class="ident">def_id</span>;
+        (<span class="ident">method_def_id</span>, <span class="ident">tcx</span>.<span class="ident">mk_substs_trait</span>(<span class="ident">source</span>, <span class="kw-2">&amp;</span>[]))
     }
 }
 
 <span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Copy</span>, <span class="ident">Clone</span>, <span class="ident">PartialEq</span>, <span class="ident">Debug</span>, <span class="ident">RustcEncodable</span>, <span class="ident">RustcDecodable</span>)]</span>
 <span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">AutoBorrow</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
     <span class="doccomment">/// Convert from T to &amp;T.</span>
-    <span class="ident">Ref</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span>, <span class="ident">hir</span>::<span class="ident">Mutability</span>),
+    <span class="ident">Ref</span>(<span class="ident">ty</span>::<span class="ident">Region</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">hir</span>::<span class="ident">Mutability</span>),
 
     <span class="doccomment">/// Convert from T to *T.</span>
     <span class="ident">RawPtr</span>(<span class="ident">hir</span>::<span class="ident">Mutability</span>),
@@ -410,51 +343,6 @@
 <span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">CustomCoerceUnsized</span> {
     <span class="doccomment">/// Records the index of the field being coerced.</span>
     <span class="ident">Struct</span>(<span class="ident">usize</span>)
-}
-
-<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">ty</span>::<span class="ident">TyS</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">adjust_for_autoderef</span><span class="op">&lt;</span><span class="ident">F</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="self">self</span>,
-                                   <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
-                                   <span class="ident">expr_id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>,
-                                   <span class="ident">expr_span</span>: <span class="ident">Span</span>,
-                                   <span class="ident">autoderef</span>: <span class="ident">u32</span>, <span class="comment">// how many autoderefs so far?</span>
-                                   <span class="kw-2">mut</span> <span class="ident">method_type</span>: <span class="ident">F</span>)
-                                   <span class="op">-&gt;</span> <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="kw">where</span>
-        <span class="ident">F</span>: <span class="ident">FnMut</span>(<span class="ident">ty</span>::<span class="ident">MethodCall</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,
-    {
-        <span class="kw">let</span> <span class="ident">method_call</span> <span class="op">=</span> <span class="ident">ty</span>::<span class="ident">MethodCall</span>::<span class="ident">autoderef</span>(<span class="ident">expr_id</span>, <span class="ident">autoderef</span>);
-        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">adjusted_ty</span> <span class="op">=</span> <span class="self">self</span>;
-        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">method_ty</span>) <span class="op">=</span> <span class="ident">method_type</span>(<span class="ident">method_call</span>) {
-            <span class="comment">// Method calls always have all late-bound regions</span>
-            <span class="comment">// fully instantiated.</span>
-            <span class="ident">adjusted_ty</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">no_late_bound_regions</span>(<span class="kw-2">&amp;</span><span class="ident">method_ty</span>.<span class="ident">fn_ret</span>()).<span class="ident">unwrap</span>();
-        }
-        <span class="kw">match</span> <span class="ident">adjusted_ty</span>.<span class="ident">builtin_deref</span>(<span class="bool-val">true</span>, <span class="ident">NoPreference</span>) {
-            <span class="prelude-val">Some</span>(<span class="ident">mt</span>) <span class="op">=&gt;</span> <span class="ident">mt</span>.<span class="ident">ty</span>,
-            <span class="prelude-val">None</span> <span class="op">=&gt;</span> {
-                <span class="macro">span_bug</span><span class="macro">!</span>(
-                    <span class="ident">expr_span</span>,
-                    <span class="string">&quot;the {}th autoderef for {} failed: {}&quot;</span>,
-                    <span class="ident">autoderef</span>,
-                    <span class="ident">expr_id</span>,
-                    <span class="ident">adjusted_ty</span>);
-            }
-        }
-    }
-
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">adjust_for_autoref</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="self">self</span>, <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
-                              <span class="ident">autoref</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">AutoBorrow</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>)
-                              <span class="op">-&gt;</span> <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
-        <span class="kw">match</span> <span class="ident">autoref</span> {
-            <span class="prelude-val">None</span> <span class="op">=&gt;</span> <span class="self">self</span>,
-            <span class="prelude-val">Some</span>(<span class="ident">AutoBorrow</span>::<span class="ident">Ref</span>(<span class="ident">r</span>, <span class="ident">m</span>)) <span class="op">=&gt;</span> {
-                <span class="ident">tcx</span>.<span class="ident">mk_ref</span>(<span class="ident">r</span>, <span class="ident">TypeAndMut</span> { <span class="ident">ty</span>: <span class="self">self</span>, <span class="ident">mutbl</span>: <span class="ident">m</span> })
-            }
-            <span class="prelude-val">Some</span>(<span class="ident">AutoBorrow</span>::<span class="ident">RawPtr</span>(<span class="ident">m</span>)) <span class="op">=&gt;</span> {
-                <span class="ident">tcx</span>.<span class="ident">mk_ptr</span>(<span class="ident">TypeAndMut</span> { <span class="ident">ty</span>: <span class="self">self</span>, <span class="ident">mutbl</span>: <span class="ident">m</span> })
-            }
-        }
-    }
 }
 </pre>
 </section>
@@ -514,7 +402,6 @@
         window.rootPath = "../../../";
         window.currentCrate = "rustc";
     </script>
-    <script src="../../../jquery.js"></script>
     <script src="../../../main.js"></script>
     <script defer src="../../../search-index.js"></script>
 </body>

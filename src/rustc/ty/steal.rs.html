@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="rustdoc">
+    <meta name="description" content="Source to the Rust file `src/librustc/ty/steal.rs`.">
+    <meta name="keywords" content="rust, rustlang, rust-lang">
+
+    <title>steal.rs.html -- source</title>
+
+    <link rel="stylesheet" type="text/css" href="../../../normalize.css">
+    <link rel="stylesheet" type="text/css" href="../../../rustdoc.css">
+    <link rel="stylesheet" type="text/css" href="../../../main.css">
+    
+
+    <link rel="shortcut icon" href="https://doc.rust-lang.org/favicon.ico">
+    
+</head>
+<body class="rustdoc source">
+    <!--[if lte IE 8]>
+    <div class="warning">
+        This old browser is unsupported and will most likely display funky
+        things.
+    </div>
+    <![endif]-->
+
+    
+
+    <nav class="sidebar">
+        <a href='../../../rustc/index.html'><img src='https://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png' alt='logo' width='100'></a>
+        
+    </nav>
+
+    <nav class="sub">
+        <form class="search-form js-only">
+            <div class="search-container">
+                <input class="search-input" name="search"
+                       autocomplete="off"
+                       placeholder="Click or press ‘S’ to search, ‘?’ for more options…"
+                       type="search">
+            </div>
+        </form>
+    </nav>
+
+    <section id='main' class="content"><pre class="line-numbers"><span id="1"> 1</span>
+<span id="2"> 2</span>
+<span id="3"> 3</span>
+<span id="4"> 4</span>
+<span id="5"> 5</span>
+<span id="6"> 6</span>
+<span id="7"> 7</span>
+<span id="8"> 8</span>
+<span id="9"> 9</span>
+<span id="10">10</span>
+<span id="11">11</span>
+<span id="12">12</span>
+<span id="13">13</span>
+<span id="14">14</span>
+<span id="15">15</span>
+<span id="16">16</span>
+<span id="17">17</span>
+<span id="18">18</span>
+<span id="19">19</span>
+<span id="20">20</span>
+<span id="21">21</span>
+<span id="22">22</span>
+<span id="23">23</span>
+<span id="24">24</span>
+<span id="25">25</span>
+<span id="26">26</span>
+<span id="27">27</span>
+<span id="28">28</span>
+<span id="29">29</span>
+<span id="30">30</span>
+<span id="31">31</span>
+<span id="32">32</span>
+<span id="33">33</span>
+<span id="34">34</span>
+<span id="35">35</span>
+<span id="36">36</span>
+<span id="37">37</span>
+<span id="38">38</span>
+<span id="39">39</span>
+<span id="40">40</span>
+<span id="41">41</span>
+<span id="42">42</span>
+<span id="43">43</span>
+<span id="44">44</span>
+<span id="45">45</span>
+<span id="46">46</span>
+<span id="47">47</span>
+<span id="48">48</span>
+<span id="49">49</span>
+<span id="50">50</span>
+<span id="51">51</span>
+<span id="52">52</span>
+<span id="53">53</span>
+<span id="54">54</span>
+<span id="55">55</span>
+<span id="56">56</span>
+<span id="57">57</span>
+</pre><pre class="rust ">
+<span class="comment">// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
+<span class="comment">// file at the top-level directory of this distribution and at</span>
+<span class="comment">// http://rust-lang.org/COPYRIGHT.</span>
+<span class="comment">//</span>
+<span class="comment">// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class="comment">// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class="comment">// option. This file may not be copied, modified, or distributed</span>
+<span class="comment">// except according to those terms.</span>
+
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">cell</span>::{<span class="ident">Ref</span>, <span class="ident">RefCell</span>};
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">mem</span>;
+
+<span class="doccomment">/// The `Steal` struct is intended to used as the value for a query.</span>
+<span class="doccomment">/// Specifically, we sometimes have queries (*cough* MIR *cough*)</span>
+<span class="doccomment">/// where we create a large, complex value that we want to iteratively</span>
+<span class="doccomment">/// update (e.g., optimize). We could clone the value for each</span>
+<span class="doccomment">/// optimization, but that&#39;d be expensive. And yet we don&#39;t just want</span>
+<span class="doccomment">/// to mutate it in place, because that would spoil the idea that</span>
+<span class="doccomment">/// queries are these pure functions that produce an immutable value</span>
+<span class="doccomment">/// (since if you did the query twice, you could observe the</span>
+<span class="doccomment">/// mutations). So instead we have the query produce a `&amp;&#39;tcx</span>
+<span class="doccomment">/// Steal&lt;Mir&lt;&#39;tcx&gt;&gt;` (to be very specific). Now we can read from this</span>
+<span class="doccomment">/// as much as we want (using `borrow()`), but you can also</span>
+<span class="doccomment">/// `steal()`. Once you steal, any further attempt to read will panic.</span>
+<span class="doccomment">/// Therefore we know that -- assuming no ICE -- nobody is observing</span>
+<span class="doccomment">/// the fact that the MIR was updated.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Obviously, whenever you have a query that yields a `Steal` value,</span>
+<span class="doccomment">/// you must treat it with caution, and make sure that you know that</span>
+<span class="doccomment">/// -- once the value is stolen -- it will never be read from again.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// FIXME(#41710) -- what is the best way to model linear queries?</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">Steal</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="ident">value</span>: <span class="ident">RefCell</span><span class="op">&lt;</span><span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span>
+}
+
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">Steal</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">new</span>(<span class="ident">value</span>: <span class="ident">T</span>) <span class="op">-&gt;</span> <span class="self">Self</span> {
+        <span class="ident">Steal</span> {
+            <span class="ident">value</span>: <span class="ident">RefCell</span>::<span class="ident">new</span>(<span class="prelude-val">Some</span>(<span class="ident">value</span>))
+        }
+    }
+
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">borrow</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">Ref</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+        <span class="ident">Ref</span>::<span class="ident">map</span>(<span class="self">self</span>.<span class="ident">value</span>.<span class="ident">borrow</span>(), <span class="op">|</span><span class="ident">opt</span><span class="op">|</span> <span class="kw">match</span> <span class="kw-2">*</span><span class="ident">opt</span> {
+            <span class="prelude-val">None</span> <span class="op">=&gt;</span> <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;attempted to read from stolen value&quot;</span>),
+            <span class="prelude-val">Some</span>(<span class="kw-2">ref</span> <span class="ident">v</span>) <span class="op">=&gt;</span> <span class="ident">v</span>
+        })
+    }
+
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">steal</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">T</span> {
+        <span class="kw">let</span> <span class="ident">value_ref</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="kw-2">*</span><span class="self">self</span>.<span class="ident">value</span>.<span class="ident">borrow_mut</span>();
+        <span class="kw">let</span> <span class="ident">value</span> <span class="op">=</span> <span class="ident">mem</span>::<span class="ident">replace</span>(<span class="ident">value_ref</span>, <span class="prelude-val">None</span>);
+        <span class="ident">value</span>.<span class="ident">expect</span>(<span class="string">&quot;attempt to read from stolen value&quot;</span>)
+    }
+}
+</pre>
+</section>
+    <section id='search' class="content hidden"></section>
+
+    <section class="footer"></section>
+
+    <aside id="help" class="hidden">
+        <div>
+            <h1 class="hidden">Help</h1>
+
+            <div class="shortcuts">
+                <h2>Keyboard Shortcuts</h2>
+
+                <dl>
+                    <dt>?</dt>
+                    <dd>Show this help dialog</dd>
+                    <dt>S</dt>
+                    <dd>Focus the search field</dd>
+                    <dt>&larrb;</dt>
+                    <dd>Move up in search results</dd>
+                    <dt>&rarrb;</dt>
+                    <dd>Move down in search results</dd>
+                    <dt>&#9166;</dt>
+                    <dd>Go to active search result</dd>
+                    <dt>+</dt>
+                    <dd>Collapse/expand all sections</dd>
+                </dl>
+            </div>
+
+            <div class="infos">
+                <h2>Search Tricks</h2>
+
+                <p>
+                    Prefix searches with a type followed by a colon (e.g.
+                    <code>fn:</code>) to restrict the search to a given type.
+                </p>
+
+                <p>
+                    Accepted types are: <code>fn</code>, <code>mod</code>,
+                    <code>struct</code>, <code>enum</code>,
+                    <code>trait</code>, <code>type</code>, <code>macro</code>,
+                    and <code>const</code>.
+                </p>
+
+                <p>
+                    Search functions by type signature (e.g.
+                    <code>vec -> usize</code> or <code>* -> vec</code>)
+                </p>
+            </div>
+        </div>
+    </aside>
+
+    
+
+    <script>
+        window.rootPath = "../../../";
+        window.currentCrate = "rustc";
+    </script>
+    <script src="../../../main.js"></script>
+    <script defer src="../../../search-index.js"></script>
+</body>
+</html>

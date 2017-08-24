@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["maketest",""],["run",""]],"struct":[["Collector",""],["TestOptions",""]]});
+initSidebarItems({"fn":[["make_test",""],["run",""]],"struct":[["Collector",""],["TestOptions",""]]});

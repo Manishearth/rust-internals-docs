@@ -262,11 +262,6 @@
 <span id="217">217</span>
 <span id="218">218</span>
 <span id="219">219</span>
-<span id="220">220</span>
-<span id="221">221</span>
-<span id="222">222</span>
-<span id="223">223</span>
-<span id="224">224</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class="comment">// file at the top-level directory of this distribution and at</span>
@@ -333,7 +328,7 @@
             <span class="ident">start_col</span>: <span class="self">self</span>.<span class="ident">start_col</span>,
             <span class="ident">end_col</span>: <span class="self">self</span>.<span class="ident">start_col</span> <span class="op">+</span> <span class="number">1</span>,
             <span class="ident">is_primary</span>: <span class="self">self</span>.<span class="ident">is_primary</span>,
-            <span class="ident">label</span>: <span class="prelude-val">Some</span>(<span class="string">&quot;starting here...&quot;</span>.<span class="ident">to_owned</span>()),
+            <span class="ident">label</span>: <span class="prelude-val">None</span>,
             <span class="ident">annotation_type</span>: <span class="ident">AnnotationType</span>::<span class="ident">MultilineStart</span>(<span class="self">self</span>.<span class="ident">depth</span>)
         }
     }
@@ -343,10 +338,7 @@
             <span class="ident">start_col</span>: <span class="self">self</span>.<span class="ident">end_col</span> <span class="op">-</span> <span class="number">1</span>,
             <span class="ident">end_col</span>: <span class="self">self</span>.<span class="ident">end_col</span>,
             <span class="ident">is_primary</span>: <span class="self">self</span>.<span class="ident">is_primary</span>,
-            <span class="ident">label</span>: <span class="kw">match</span> <span class="self">self</span>.<span class="ident">label</span> {
-                <span class="prelude-val">Some</span>(<span class="kw-2">ref</span> <span class="ident">label</span>) <span class="op">=&gt;</span> <span class="prelude-val">Some</span>(<span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;...ending here: {}&quot;</span>, <span class="ident">label</span>)),
-                <span class="prelude-val">None</span> <span class="op">=&gt;</span> <span class="prelude-val">Some</span>(<span class="string">&quot;...ending here&quot;</span>.<span class="ident">to_owned</span>()),
-            },
+            <span class="ident">label</span>: <span class="self">self</span>.<span class="ident">label</span>.<span class="ident">clone</span>(),
             <span class="ident">annotation_type</span>: <span class="ident">AnnotationType</span>::<span class="ident">MultilineEnd</span>(<span class="self">self</span>.<span class="ident">depth</span>)
         }
     }
@@ -367,9 +359,6 @@
     <span class="doccomment">/// Annotation under a single line of code</span>
     <span class="ident">Singleline</span>,
 
-    <span class="doccomment">/// Annotation under the first character of a multiline span</span>
-    <span class="ident">Minimized</span>,
-
     <span class="doccomment">/// Annotation enclosing the first and last character of a multiline span</span>
     <span class="ident">Multiline</span>(<span class="ident">MultilineAnnotation</span>),
 
@@ -379,15 +368,18 @@
     <span class="comment">// Each of these corresponds to one part of the following diagram:</span>
     <span class="comment">//</span>
     <span class="comment">//     x |   foo(1 + bar(x,</span>
-    <span class="comment">//       |  _________^ starting here...           &lt; MultilineStart</span>
-    <span class="comment">//     x | |             y),                      &lt; MultilineLine</span>
-    <span class="comment">//       | |______________^ ...ending here: label &lt; MultilineEnd</span>
+    <span class="comment">//       |  _________^              &lt; MultilineStart</span>
+    <span class="comment">//     x | |             y),        &lt; MultilineLine</span>
+    <span class="comment">//       | |______________^ label   &lt; MultilineEnd</span>
     <span class="comment">//     x |       z);</span>
     <span class="doccomment">/// Annotation marking the first character of a fully shown multiline span</span>
     <span class="ident">MultilineStart</span>(<span class="ident">usize</span>),
     <span class="doccomment">/// Annotation marking the last character of a fully shown multiline span</span>
     <span class="ident">MultilineEnd</span>(<span class="ident">usize</span>),
     <span class="doccomment">/// Line at the left enclosing the lines of a fully shown multiline span</span>
+    <span class="comment">// Just a placeholder for the drawing algorithm, to know that it shouldn&#39;t skip the first 4</span>
+    <span class="comment">// and last 2 lines of code. The actual line is drawn in `emit_message_default` and not in</span>
+    <span class="comment">// `draw_multiline_line`.</span>
     <span class="ident">MultilineLine</span>(<span class="ident">usize</span>),
 }
 
@@ -414,14 +406,7 @@
 }
 
 <span class="kw">impl</span> <span class="ident">Annotation</span> {
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">is_minimized</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
-        <span class="kw">match</span> <span class="self">self</span>.<span class="ident">annotation_type</span> {
-            <span class="ident">AnnotationType</span>::<span class="ident">Minimized</span> <span class="op">=&gt;</span> <span class="bool-val">true</span>,
-            _ <span class="op">=&gt;</span> <span class="bool-val">false</span>,
-        }
-    }
-
-    <span class="doccomment">/// Wether this annotation is a vertical line placeholder.</span>
+    <span class="doccomment">/// Whether this annotation is a vertical line placeholder.</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">is_line</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
         <span class="kw">if</span> <span class="kw">let</span> <span class="ident">AnnotationType</span>::<span class="ident">MultilineLine</span>(_) <span class="op">=</span> <span class="self">self</span>.<span class="ident">annotation_type</span> {
             <span class="bool-val">true</span>
@@ -466,6 +451,15 @@
             <span class="bool-val">false</span>
         }
     }
+
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">takes_space</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+        <span class="comment">// Multiline annotations always have to keep vertical space.</span>
+        <span class="kw">match</span> <span class="self">self</span>.<span class="ident">annotation_type</span> {
+            <span class="ident">AnnotationType</span>::<span class="ident">MultilineStart</span>(_) <span class="op">|</span>
+            <span class="ident">AnnotationType</span>::<span class="ident">MultilineEnd</span>(_) <span class="op">=&gt;</span> <span class="bool-val">true</span>,
+            _ <span class="op">=&gt;</span> <span class="bool-val">false</span>,
+        }
+    }
 }
 
 <span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>)]</span>
@@ -477,7 +471,6 @@
 <span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Copy</span>, <span class="ident">Clone</span>, <span class="ident">Debug</span>, <span class="ident">PartialEq</span>, <span class="ident">RustcEncodable</span>, <span class="ident">RustcDecodable</span>)]</span>
 <span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">Style</span> {
     <span class="ident">HeaderMsg</span>,
-    <span class="ident">FileNameStyle</span>,
     <span class="ident">LineAndColumn</span>,
     <span class="ident">LineNumber</span>,
     <span class="ident">Quotation</span>,
@@ -485,10 +478,7 @@
     <span class="ident">UnderlineSecondary</span>,
     <span class="ident">LabelPrimary</span>,
     <span class="ident">LabelSecondary</span>,
-    <span class="ident">OldSchoolNoteText</span>,
-    <span class="ident">OldSchoolNote</span>,
     <span class="ident">NoStyle</span>,
-    <span class="ident">ErrorCode</span>,
     <span class="ident">Level</span>(<span class="ident">Level</span>),
     <span class="ident">Highlight</span>,
 }
@@ -550,7 +540,6 @@
         window.rootPath = "../../";
         window.currentCrate = "rustc_errors";
     </script>
-    <script src="../../jquery.js"></script>
     <script src="../../main.js"></script>
     <script defer src="../../search-index.js"></script>
 </body>

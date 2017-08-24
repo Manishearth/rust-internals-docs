@@ -411,6 +411,13 @@
 <span id="366">366</span>
 <span id="367">367</span>
 <span id="368">368</span>
+<span id="369">369</span>
+<span id="370">370</span>
+<span id="371">371</span>
+<span id="372">372</span>
+<span id="373">373</span>
+<span id="374">374</span>
+<span id="375">375</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class="comment">// file at the top-level directory of this distribution and at</span>
@@ -422,11 +429,8 @@
 <span class="comment">// option. This file may not be copied, modified, or distributed</span>
 <span class="comment">// except according to those terms.</span>
 
-<span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">RelationDir</span>::<span class="kw-2">*</span>;
 <span class="kw">use</span> <span class="self">self</span>::<span class="ident">TypeVariableValue</span>::<span class="kw-2">*</span>;
-<span class="kw">use</span> <span class="self">self</span>::<span class="ident">UndoEntry</span>::<span class="kw-2">*</span>;
 <span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">def_id</span>::{<span class="ident">DefId</span>};
-<span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">util</span>::<span class="ident">small_vector</span>::<span class="ident">SmallVector</span>;
 <span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">ast</span>;
 <span class="kw">use</span> <span class="ident">syntax_pos</span>::<span class="ident">Span</span>;
 <span class="kw">use</span> <span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">Ty</span>};
@@ -435,16 +439,39 @@
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">marker</span>::<span class="ident">PhantomData</span>;
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">mem</span>;
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">u32</span>;
+<span class="kw">use</span> <span class="ident">rustc_data_structures</span>::<span class="ident">fx</span>::<span class="ident">FxHashMap</span>;
 <span class="kw">use</span> <span class="ident">rustc_data_structures</span>::<span class="ident">snapshot_vec</span> <span class="kw">as</span> <span class="ident">sv</span>;
 <span class="kw">use</span> <span class="ident">rustc_data_structures</span>::<span class="ident">unify</span> <span class="kw">as</span> <span class="ident">ut</span>;
 
 <span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">TypeVariableTable</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
     <span class="ident">values</span>: <span class="ident">sv</span>::<span class="ident">SnapshotVec</span><span class="op">&lt;</span><span class="ident">Delegate</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,
+
+    <span class="doccomment">/// Two variables are unified in `eq_relations` when we have a</span>
+    <span class="doccomment">/// constraint `?X == ?Y`.</span>
     <span class="ident">eq_relations</span>: <span class="ident">ut</span>::<span class="ident">UnificationTable</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">TyVid</span><span class="op">&gt;</span>,
+
+    <span class="doccomment">/// Two variables are unified in `eq_relations` when we have a</span>
+    <span class="doccomment">/// constraint `?X &lt;: ?Y` *or* a constraint `?Y &lt;: ?X`. This second</span>
+    <span class="doccomment">/// table exists only to help with the occurs check. In particular,</span>
+    <span class="doccomment">/// we want to report constraints like these as an occurs check</span>
+    <span class="doccomment">/// violation:</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">///     ?1 &lt;: ?3</span>
+    <span class="doccomment">///     Box&lt;?3&gt; &lt;: ?1</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This works because `?1` and `?3` are unified in the</span>
+    <span class="doccomment">/// `sub_relations` relation (not in `eq_relations`). Then when we</span>
+    <span class="doccomment">/// process the `Box&lt;?3&gt; &lt;: ?1` constraint, we do an occurs check</span>
+    <span class="doccomment">/// on `Box&lt;?3&gt;` and find a potential cycle.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This is reasonable because, in Rust, subtypes have the same</span>
+    <span class="doccomment">/// &quot;skeleton&quot; and hence there is no possible type such that</span>
+    <span class="doccomment">/// (e.g.)  `Box&lt;?3&gt; &lt;: ?3` for any `?3`.</span>
+    <span class="ident">sub_relations</span>: <span class="ident">ut</span>::<span class="ident">UnificationTable</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">TyVid</span><span class="op">&gt;</span>,
 }
 
 <span class="doccomment">/// Reasons to create a type inference variable</span>
-<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>)]</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Copy</span>, <span class="ident">Clone</span>, <span class="ident">Debug</span>)]</span>
 <span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">TypeVariableOrigin</span> {
     <span class="ident">MiscVariable</span>(<span class="ident">Span</span>),
     <span class="ident">NormalizeProjectionType</span>(<span class="ident">Span</span>),
@@ -458,7 +485,10 @@
     <span class="ident">DivergingBlockExpr</span>(<span class="ident">Span</span>),
     <span class="ident">DivergingFn</span>(<span class="ident">Span</span>),
     <span class="ident">LatticeVariable</span>(<span class="ident">Span</span>),
+    <span class="ident">Generalized</span>(<span class="ident">ty</span>::<span class="ident">TyVid</span>),
 }
+
+<span class="kw">pub</span> <span class="kw">type</span> <span class="ident">TypeVariableMap</span> <span class="op">=</span> <span class="ident">FxHashMap</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">TyVid</span>, <span class="ident">TypeVariableOrigin</span><span class="op">&gt;</span>;
 
 <span class="kw">struct</span> <span class="ident">TypeVariableData</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
     <span class="ident">value</span>: <span class="ident">TypeVariableValue</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
@@ -469,7 +499,6 @@
 <span class="kw">enum</span> <span class="ident">TypeVariableValue</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
     <span class="ident">Known</span>(<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>),
     <span class="ident">Bounded</span> {
-        <span class="ident">relations</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Relation</span><span class="op">&gt;</span>,
         <span class="ident">default</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Default</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>
     }
 }
@@ -488,45 +517,23 @@
 <span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">Snapshot</span> {
     <span class="ident">snapshot</span>: <span class="ident">sv</span>::<span class="ident">Snapshot</span>,
     <span class="ident">eq_snapshot</span>: <span class="ident">ut</span>::<span class="ident">Snapshot</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">TyVid</span><span class="op">&gt;</span>,
+    <span class="ident">sub_snapshot</span>: <span class="ident">ut</span>::<span class="ident">Snapshot</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">TyVid</span><span class="op">&gt;</span>,
 }
 
-<span class="kw">enum</span> <span class="ident">UndoEntry</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
-    <span class="comment">// The type of the var was specified.</span>
-    <span class="ident">SpecifyVar</span>(<span class="ident">ty</span>::<span class="ident">TyVid</span>, <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Relation</span><span class="op">&gt;</span>, <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Default</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>),
-    <span class="ident">Relate</span>(<span class="ident">ty</span>::<span class="ident">TyVid</span>, <span class="ident">ty</span>::<span class="ident">TyVid</span>),
-    <span class="ident">RelateRange</span>(<span class="ident">ty</span>::<span class="ident">TyVid</span>, <span class="ident">usize</span>),
+<span class="kw">struct</span> <span class="ident">Instantiate</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="ident">vid</span>: <span class="ident">ty</span>::<span class="ident">TyVid</span>,
+    <span class="ident">default</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Default</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,
 }
 
 <span class="kw">struct</span> <span class="ident">Delegate</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">PhantomData</span><span class="op">&lt;</span><span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> ()<span class="op">&gt;</span>);
-
-<span class="kw">type</span> <span class="ident">Relation</span> <span class="op">=</span> (<span class="ident">RelationDir</span>, <span class="ident">ty</span>::<span class="ident">TyVid</span>);
-
-<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Copy</span>, <span class="ident">Clone</span>, <span class="ident">Eq</span>, <span class="ident">PartialEq</span>, <span class="ident">Hash</span>, <span class="ident">Debug</span>)]</span>
-<span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">RelationDir</span> {
-    <span class="ident">SubtypeOf</span>, <span class="ident">SupertypeOf</span>, <span class="ident">EqTo</span>, <span class="ident">BiTo</span>
-}
-
-<span class="kw">impl</span> <span class="ident">RelationDir</span> {
-    <span class="kw">fn</span> <span class="ident">opposite</span>(<span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">RelationDir</span> {
-        <span class="kw">match</span> <span class="self">self</span> {
-            <span class="ident">SubtypeOf</span> <span class="op">=&gt;</span> <span class="ident">SupertypeOf</span>,
-            <span class="ident">SupertypeOf</span> <span class="op">=&gt;</span> <span class="ident">SubtypeOf</span>,
-            <span class="ident">EqTo</span> <span class="op">=&gt;</span> <span class="ident">EqTo</span>,
-            <span class="ident">BiTo</span> <span class="op">=&gt;</span> <span class="ident">BiTo</span>,
-        }
-    }
-}
 
 <span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">TypeVariableTable</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">new</span>() <span class="op">-&gt;</span> <span class="ident">TypeVariableTable</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
         <span class="ident">TypeVariableTable</span> {
             <span class="ident">values</span>: <span class="ident">sv</span>::<span class="ident">SnapshotVec</span>::<span class="ident">new</span>(),
             <span class="ident">eq_relations</span>: <span class="ident">ut</span>::<span class="ident">UnificationTable</span>::<span class="ident">new</span>(),
+            <span class="ident">sub_relations</span>: <span class="ident">ut</span>::<span class="ident">UnificationTable</span>::<span class="ident">new</span>(),
         }
-    }
-
-    <span class="kw">fn</span> <span class="ident">relations</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">a</span>: <span class="ident">ty</span>::<span class="ident">TyVid</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="kw-2">mut</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Relation</span><span class="op">&gt;</span> {
-        <span class="ident">relations</span>(<span class="self">self</span>.<span class="ident">values</span>.<span class="ident">get_mut</span>(<span class="ident">a</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>))
     }
 
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">default</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">vid</span>: <span class="ident">ty</span>::<span class="ident">TyVid</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Default</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span> {
@@ -544,68 +551,46 @@
         <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">values</span>.<span class="ident">get</span>(<span class="ident">vid</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>).<span class="ident">origin</span>
     }
 
-    <span class="doccomment">/// Records that `a &lt;: b`, `a :&gt; b`, or `a == b`, depending on `dir`.</span>
+    <span class="doccomment">/// Records that `a == b`, depending on `dir`.</span>
     <span class="doccomment">///</span>
     <span class="doccomment">/// Precondition: neither `a` nor `b` are known.</span>
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">relate_vars</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">a</span>: <span class="ident">ty</span>::<span class="ident">TyVid</span>, <span class="ident">dir</span>: <span class="ident">RelationDir</span>, <span class="ident">b</span>: <span class="ident">ty</span>::<span class="ident">TyVid</span>) {
-        <span class="kw">let</span> <span class="ident">a</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">root_var</span>(<span class="ident">a</span>);
-        <span class="kw">let</span> <span class="ident">b</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">root_var</span>(<span class="ident">b</span>);
-        <span class="kw">if</span> <span class="ident">a</span> <span class="op">!=</span> <span class="ident">b</span> {
-            <span class="kw">if</span> <span class="ident">dir</span> <span class="op">==</span> <span class="ident">EqTo</span> {
-                <span class="comment">// a and b must be equal which we mark in the unification table</span>
-                <span class="kw">let</span> <span class="ident">root</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">eq_relations</span>.<span class="ident">union</span>(<span class="ident">a</span>, <span class="ident">b</span>);
-                <span class="comment">// In addition to being equal, all relations from the variable which is no longer</span>
-                <span class="comment">// the root must be added to the root so they are not forgotten as the other</span>
-                <span class="comment">// variable should no longer be referenced (other than to get the root)</span>
-                <span class="kw">let</span> <span class="ident">other</span> <span class="op">=</span> <span class="kw">if</span> <span class="ident">a</span> <span class="op">==</span> <span class="ident">root</span> { <span class="ident">b</span> } <span class="kw">else</span> { <span class="ident">a</span> };
-                <span class="kw">let</span> <span class="ident">count</span> <span class="op">=</span> {
-                    <span class="kw">let</span> (<span class="ident">relations</span>, <span class="ident">root_relations</span>) <span class="op">=</span> <span class="kw">if</span> <span class="ident">other</span>.<span class="ident">index</span> <span class="op">&lt;</span> <span class="ident">root</span>.<span class="ident">index</span> {
-                        <span class="kw">let</span> (<span class="ident">pre</span>, <span class="ident">post</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">values</span>.<span class="ident">split_at_mut</span>(<span class="ident">root</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>);
-                        (<span class="ident">relations</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">pre</span>[<span class="ident">other</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>]), <span class="ident">relations</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">post</span>[<span class="number">0</span>]))
-                    } <span class="kw">else</span> {
-                        <span class="kw">let</span> (<span class="ident">pre</span>, <span class="ident">post</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">values</span>.<span class="ident">split_at_mut</span>(<span class="ident">other</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>);
-                        (<span class="ident">relations</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">post</span>[<span class="number">0</span>]), <span class="ident">relations</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">pre</span>[<span class="ident">root</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>]))
-                    };
-                    <span class="ident">root_relations</span>.<span class="ident">extend_from_slice</span>(<span class="ident">relations</span>);
-                    <span class="ident">relations</span>.<span class="ident">len</span>()
-                };
-                <span class="self">self</span>.<span class="ident">values</span>.<span class="ident">record</span>(<span class="ident">RelateRange</span>(<span class="ident">root</span>, <span class="ident">count</span>));
-            } <span class="kw">else</span> {
-                <span class="self">self</span>.<span class="ident">relations</span>(<span class="ident">a</span>).<span class="ident">push</span>((<span class="ident">dir</span>, <span class="ident">b</span>));
-                <span class="self">self</span>.<span class="ident">relations</span>(<span class="ident">b</span>).<span class="ident">push</span>((<span class="ident">dir</span>.<span class="ident">opposite</span>(), <span class="ident">a</span>));
-                <span class="self">self</span>.<span class="ident">values</span>.<span class="ident">record</span>(<span class="ident">Relate</span>(<span class="ident">a</span>, <span class="ident">b</span>));
-            }
-        }
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">equate</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">a</span>: <span class="ident">ty</span>::<span class="ident">TyVid</span>, <span class="ident">b</span>: <span class="ident">ty</span>::<span class="ident">TyVid</span>) {
+        <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">probe</span>(<span class="ident">a</span>).<span class="ident">is_none</span>());
+        <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">probe</span>(<span class="ident">b</span>).<span class="ident">is_none</span>());
+        <span class="self">self</span>.<span class="ident">eq_relations</span>.<span class="ident">union</span>(<span class="ident">a</span>, <span class="ident">b</span>);
+        <span class="self">self</span>.<span class="ident">sub_relations</span>.<span class="ident">union</span>(<span class="ident">a</span>, <span class="ident">b</span>);
     }
 
-    <span class="doccomment">/// Instantiates `vid` with the type `ty` and then pushes an entry onto `stack` for each of the</span>
-    <span class="doccomment">/// relations of `vid` to other variables. The relations will have the form `(ty, dir, vid1)`</span>
-    <span class="doccomment">/// where `vid1` is some other variable id.</span>
+    <span class="doccomment">/// Records that `a &lt;: b`, depending on `dir`.</span>
     <span class="doccomment">///</span>
-    <span class="doccomment">/// Precondition: `vid` must be a root in the unification table</span>
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">instantiate_and_push</span>(
-        <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
-        <span class="ident">vid</span>: <span class="ident">ty</span>::<span class="ident">TyVid</span>,
-        <span class="ident">ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
-        <span class="ident">stack</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">SmallVector</span><span class="op">&lt;</span>(<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">RelationDir</span>, <span class="ident">ty</span>::<span class="ident">TyVid</span>)<span class="op">&gt;</span>)
-    {
-        <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">root_var</span>(<span class="ident">vid</span>) <span class="op">==</span> <span class="ident">vid</span>);
+    <span class="doccomment">/// Precondition: neither `a` nor `b` are known.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">sub</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">a</span>: <span class="ident">ty</span>::<span class="ident">TyVid</span>, <span class="ident">b</span>: <span class="ident">ty</span>::<span class="ident">TyVid</span>) {
+        <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">probe</span>(<span class="ident">a</span>).<span class="ident">is_none</span>());
+        <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">probe</span>(<span class="ident">b</span>).<span class="ident">is_none</span>());
+        <span class="self">self</span>.<span class="ident">sub_relations</span>.<span class="ident">union</span>(<span class="ident">a</span>, <span class="ident">b</span>);
+    }
+
+    <span class="doccomment">/// Instantiates `vid` with the type `ty`.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Precondition: `vid` must not have been previously instantiated.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">instantiate</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">vid</span>: <span class="ident">ty</span>::<span class="ident">TyVid</span>, <span class="ident">ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) {
+        <span class="kw">let</span> <span class="ident">vid</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">root_var</span>(<span class="ident">vid</span>);
+        <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">probe_root</span>(<span class="ident">vid</span>).<span class="ident">is_none</span>());
+
         <span class="kw">let</span> <span class="ident">old_value</span> <span class="op">=</span> {
-            <span class="kw">let</span> <span class="ident">value_ptr</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>.<span class="ident">values</span>.<span class="ident">get_mut</span>(<span class="ident">vid</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>).<span class="ident">value</span>;
-            <span class="ident">mem</span>::<span class="ident">replace</span>(<span class="ident">value_ptr</span>, <span class="ident">Known</span>(<span class="ident">ty</span>))
+            <span class="kw">let</span> <span class="ident">vid_data</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>.<span class="ident">values</span>[<span class="ident">vid</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>];
+            <span class="ident">mem</span>::<span class="ident">replace</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">vid_data</span>.<span class="ident">value</span>, <span class="ident">TypeVariableValue</span>::<span class="ident">Known</span>(<span class="ident">ty</span>))
         };
 
-        <span class="kw">let</span> (<span class="ident">relations</span>, <span class="ident">default</span>) <span class="op">=</span> <span class="kw">match</span> <span class="ident">old_value</span> {
-            <span class="ident">Bounded</span> { <span class="ident">relations</span>, <span class="ident">default</span> } <span class="op">=&gt;</span> (<span class="ident">relations</span>, <span class="ident">default</span>),
-            <span class="ident">Known</span>(_) <span class="op">=&gt;</span> <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;Asked to instantiate variable that is \
-                              already instantiated&quot;</span>)
-        };
-
-        <span class="kw">for</span> <span class="kw-2">&amp;</span>(<span class="ident">dir</span>, <span class="ident">vid</span>) <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="ident">relations</span> {
-            <span class="ident">stack</span>.<span class="ident">push</span>((<span class="ident">ty</span>, <span class="ident">dir</span>, <span class="ident">vid</span>));
+        <span class="kw">match</span> <span class="ident">old_value</span> {
+            <span class="ident">TypeVariableValue</span>::<span class="ident">Bounded</span> { <span class="ident">default</span> } <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">values</span>.<span class="ident">record</span>(<span class="ident">Instantiate</span> { <span class="ident">vid</span>: <span class="ident">vid</span>, <span class="ident">default</span>: <span class="ident">default</span> });
+            }
+            <span class="ident">TypeVariableValue</span>::<span class="ident">Known</span>(<span class="ident">old_ty</span>) <span class="op">=&gt;</span> {
+                <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;instantiating type variable `{:?}` twice: new-value = {:?}, old-value={:?}&quot;</span>,
+                     <span class="ident">vid</span>, <span class="ident">ty</span>, <span class="ident">old_ty</span>)
+            }
         }
-
-        <span class="self">self</span>.<span class="ident">values</span>.<span class="ident">record</span>(<span class="ident">SpecifyVar</span>(<span class="ident">vid</span>, <span class="ident">relations</span>, <span class="ident">default</span>));
     }
 
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">new_var</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
@@ -614,10 +599,11 @@
                    <span class="ident">default</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Default</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,) <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">TyVid</span> {
         <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;new_var(diverging={:?}, origin={:?})&quot;</span>, <span class="ident">diverging</span>, <span class="ident">origin</span>);
         <span class="self">self</span>.<span class="ident">eq_relations</span>.<span class="ident">new_key</span>(());
+        <span class="self">self</span>.<span class="ident">sub_relations</span>.<span class="ident">new_key</span>(());
         <span class="kw">let</span> <span class="ident">index</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">values</span>.<span class="ident">push</span>(<span class="ident">TypeVariableData</span> {
-            <span class="ident">value</span>: <span class="ident">Bounded</span> { <span class="ident">relations</span>: <span class="macro">vec</span><span class="macro">!</span>[], <span class="ident">default</span>: <span class="ident">default</span> },
-            <span class="ident">origin</span>: <span class="ident">origin</span>,
-            <span class="ident">diverging</span>: <span class="ident">diverging</span>
+            <span class="ident">value</span>: <span class="ident">Bounded</span> { <span class="ident">default</span>: <span class="ident">default</span> },
+            <span class="ident">origin</span>,
+            <span class="ident">diverging</span>,
         });
         <span class="kw">let</span> <span class="ident">v</span> <span class="op">=</span> <span class="ident">ty</span>::<span class="ident">TyVid</span> { <span class="ident">index</span>: <span class="ident">index</span> <span class="kw">as</span> <span class="ident">u32</span> };
         <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;new_var: diverging={:?} index={:?}&quot;</span>, <span class="ident">diverging</span>, <span class="ident">v</span>);
@@ -628,13 +614,39 @@
         <span class="self">self</span>.<span class="ident">values</span>.<span class="ident">len</span>()
     }
 
+    <span class="doccomment">/// Returns the &quot;root&quot; variable of `vid` in the `eq_relations`</span>
+    <span class="doccomment">/// equivalence table. All type variables that have been equated</span>
+    <span class="doccomment">/// will yield the same root variable (per the union-find</span>
+    <span class="doccomment">/// algorithm), so `root_var(a) == root_var(b)` implies that `a ==</span>
+    <span class="doccomment">/// b` (transitively).</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">root_var</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">vid</span>: <span class="ident">ty</span>::<span class="ident">TyVid</span>) <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">TyVid</span> {
         <span class="self">self</span>.<span class="ident">eq_relations</span>.<span class="ident">find</span>(<span class="ident">vid</span>)
+    }
+
+    <span class="doccomment">/// Returns the &quot;root&quot; variable of `vid` in the `sub_relations`</span>
+    <span class="doccomment">/// equivalence table. All type variables that have been are</span>
+    <span class="doccomment">/// related via equality or subtyping will yield the same root</span>
+    <span class="doccomment">/// variable (per the union-find algorithm), so `sub_root_var(a)</span>
+    <span class="doccomment">/// == sub_root_var(b)` implies that:</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">///     exists X. (a &lt;: X || X &lt;: a) &amp;&amp; (b &lt;: X || X &lt;: b)</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">sub_root_var</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">vid</span>: <span class="ident">ty</span>::<span class="ident">TyVid</span>) <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">TyVid</span> {
+        <span class="self">self</span>.<span class="ident">sub_relations</span>.<span class="ident">find</span>(<span class="ident">vid</span>)
+    }
+
+    <span class="doccomment">/// True if `a` and `b` have same &quot;sub-root&quot; (i.e., exists some</span>
+    <span class="doccomment">/// type X such that `forall i in {a, b}. (i &lt;: X || X &lt;: i)`.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">sub_unified</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">a</span>: <span class="ident">ty</span>::<span class="ident">TyVid</span>, <span class="ident">b</span>: <span class="ident">ty</span>::<span class="ident">TyVid</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
+        <span class="self">self</span>.<span class="ident">sub_root_var</span>(<span class="ident">a</span>) <span class="op">==</span> <span class="self">self</span>.<span class="ident">sub_root_var</span>(<span class="ident">b</span>)
     }
 
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">probe</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">vid</span>: <span class="ident">ty</span>::<span class="ident">TyVid</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span> {
         <span class="kw">let</span> <span class="ident">vid</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">root_var</span>(<span class="ident">vid</span>);
         <span class="self">self</span>.<span class="ident">probe_root</span>(<span class="ident">vid</span>)
+    }
+
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">origin</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">vid</span>: <span class="ident">ty</span>::<span class="ident">TyVid</span>) <span class="op">-&gt;</span> <span class="ident">TypeVariableOrigin</span> {
+        <span class="self">self</span>.<span class="ident">values</span>.<span class="ident">get</span>(<span class="ident">vid</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>).<span class="ident">origin</span>.<span class="ident">clone</span>()
     }
 
     <span class="doccomment">/// Retrieves the type of `vid` given that it is currently a root in the unification table</span>
@@ -662,6 +674,7 @@
         <span class="ident">Snapshot</span> {
             <span class="ident">snapshot</span>: <span class="self">self</span>.<span class="ident">values</span>.<span class="ident">start_snapshot</span>(),
             <span class="ident">eq_snapshot</span>: <span class="self">self</span>.<span class="ident">eq_relations</span>.<span class="ident">snapshot</span>(),
+            <span class="ident">sub_snapshot</span>: <span class="self">self</span>.<span class="ident">sub_relations</span>.<span class="ident">snapshot</span>(),
         }
     }
 
@@ -677,13 +690,37 @@
             }
         });
 
-        <span class="self">self</span>.<span class="ident">values</span>.<span class="ident">rollback_to</span>(<span class="ident">s</span>.<span class="ident">snapshot</span>);
-        <span class="self">self</span>.<span class="ident">eq_relations</span>.<span class="ident">rollback_to</span>(<span class="ident">s</span>.<span class="ident">eq_snapshot</span>);
+        <span class="kw">let</span> <span class="ident">Snapshot</span> { <span class="ident">snapshot</span>, <span class="ident">eq_snapshot</span>, <span class="ident">sub_snapshot</span> } <span class="op">=</span> <span class="ident">s</span>;
+        <span class="self">self</span>.<span class="ident">values</span>.<span class="ident">rollback_to</span>(<span class="ident">snapshot</span>);
+        <span class="self">self</span>.<span class="ident">eq_relations</span>.<span class="ident">rollback_to</span>(<span class="ident">eq_snapshot</span>);
+        <span class="self">self</span>.<span class="ident">sub_relations</span>.<span class="ident">rollback_to</span>(<span class="ident">sub_snapshot</span>);
     }
 
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">commit</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">s</span>: <span class="ident">Snapshot</span>) {
-        <span class="self">self</span>.<span class="ident">values</span>.<span class="ident">commit</span>(<span class="ident">s</span>.<span class="ident">snapshot</span>);
-        <span class="self">self</span>.<span class="ident">eq_relations</span>.<span class="ident">commit</span>(<span class="ident">s</span>.<span class="ident">eq_snapshot</span>);
+        <span class="kw">let</span> <span class="ident">Snapshot</span> { <span class="ident">snapshot</span>, <span class="ident">eq_snapshot</span>, <span class="ident">sub_snapshot</span> } <span class="op">=</span> <span class="ident">s</span>;
+        <span class="self">self</span>.<span class="ident">values</span>.<span class="ident">commit</span>(<span class="ident">snapshot</span>);
+        <span class="self">self</span>.<span class="ident">eq_relations</span>.<span class="ident">commit</span>(<span class="ident">eq_snapshot</span>);
+        <span class="self">self</span>.<span class="ident">sub_relations</span>.<span class="ident">commit</span>(<span class="ident">sub_snapshot</span>);
+    }
+
+    <span class="doccomment">/// Returns a map `{V1 -&gt; V2}`, where the keys `{V1}` are</span>
+    <span class="doccomment">/// ty-variables created during the snapshot, and the values</span>
+    <span class="doccomment">/// `{V2}` are the root variables that they were unified with,</span>
+    <span class="doccomment">/// along with their origin.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">types_created_since_snapshot</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">s</span>: <span class="kw-2">&amp;</span><span class="ident">Snapshot</span>) <span class="op">-&gt;</span> <span class="ident">TypeVariableMap</span> {
+        <span class="kw">let</span> <span class="ident">actions_since_snapshot</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">values</span>.<span class="ident">actions_since_snapshot</span>(<span class="kw-2">&amp;</span><span class="ident">s</span>.<span class="ident">snapshot</span>);
+
+        <span class="ident">actions_since_snapshot</span>
+            .<span class="ident">iter</span>()
+            .<span class="ident">filter_map</span>(<span class="op">|</span><span class="ident">action</span><span class="op">|</span> <span class="kw">match</span> <span class="ident">action</span> {
+                <span class="kw-2">&amp;</span><span class="ident">sv</span>::<span class="ident">UndoLog</span>::<span class="ident">NewElem</span>(<span class="ident">index</span>) <span class="op">=&gt;</span> <span class="prelude-val">Some</span>(<span class="ident">ty</span>::<span class="ident">TyVid</span> { <span class="ident">index</span>: <span class="ident">index</span> <span class="kw">as</span> <span class="ident">u32</span> }),
+                _ <span class="op">=&gt;</span> <span class="prelude-val">None</span>,
+            })
+            .<span class="ident">map</span>(<span class="op">|</span><span class="ident">vid</span><span class="op">|</span> {
+                <span class="kw">let</span> <span class="ident">origin</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">values</span>.<span class="ident">get</span>(<span class="ident">vid</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>).<span class="ident">origin</span>.<span class="ident">clone</span>();
+                (<span class="ident">vid</span>, <span class="ident">origin</span>)
+            })
+            .<span class="ident">collect</span>()
     }
 
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">types_escaping_snapshot</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">s</span>: <span class="kw-2">&amp;</span><span class="ident">Snapshot</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span> {
@@ -712,7 +749,7 @@
                     <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;NewElem({}) new_elem_threshold={}&quot;</span>, <span class="ident">index</span>, <span class="ident">new_elem_threshold</span>);
                 }
 
-                <span class="ident">sv</span>::<span class="ident">UndoLog</span>::<span class="ident">Other</span>(<span class="ident">SpecifyVar</span>(<span class="ident">vid</span>, ..)) <span class="op">=&gt;</span> {
+                <span class="ident">sv</span>::<span class="ident">UndoLog</span>::<span class="ident">Other</span>(<span class="ident">Instantiate</span> { <span class="ident">vid</span>, .. }) <span class="op">=&gt;</span> {
                     <span class="kw">if</span> <span class="ident">vid</span>.<span class="ident">index</span> <span class="op">&lt;</span> <span class="ident">new_elem_threshold</span> {
                         <span class="comment">// quick check to see if this variable was</span>
                         <span class="comment">// created since the snapshot started or not.</span>
@@ -748,36 +785,13 @@
 
 <span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">sv</span>::<span class="ident">SnapshotVecDelegate</span> <span class="kw">for</span> <span class="ident">Delegate</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
     <span class="kw">type</span> <span class="ident">Value</span> <span class="op">=</span> <span class="ident">TypeVariableData</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>;
-    <span class="kw">type</span> <span class="ident">Undo</span> <span class="op">=</span> <span class="ident">UndoEntry</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>;
+    <span class="kw">type</span> <span class="ident">Undo</span> <span class="op">=</span> <span class="ident">Instantiate</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>;
 
-    <span class="kw">fn</span> <span class="ident">reverse</span>(<span class="ident">values</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">TypeVariableData</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>, <span class="ident">action</span>: <span class="ident">UndoEntry</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) {
-        <span class="kw">match</span> <span class="ident">action</span> {
-            <span class="ident">SpecifyVar</span>(<span class="ident">vid</span>, <span class="ident">relations</span>, <span class="ident">default</span>) <span class="op">=&gt;</span> {
-                <span class="ident">values</span>[<span class="ident">vid</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>].<span class="ident">value</span> <span class="op">=</span> <span class="ident">Bounded</span> {
-                    <span class="ident">relations</span>: <span class="ident">relations</span>,
-                    <span class="ident">default</span>: <span class="ident">default</span>
-                };
-            }
-
-            <span class="ident">Relate</span>(<span class="ident">a</span>, <span class="ident">b</span>) <span class="op">=&gt;</span> {
-                <span class="ident">relations</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> (<span class="kw-2">*</span><span class="ident">values</span>)[<span class="ident">a</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>]).<span class="ident">pop</span>();
-                <span class="ident">relations</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> (<span class="kw-2">*</span><span class="ident">values</span>)[<span class="ident">b</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>]).<span class="ident">pop</span>();
-            }
-
-            <span class="ident">RelateRange</span>(<span class="ident">i</span>, <span class="ident">n</span>) <span class="op">=&gt;</span> {
-                <span class="kw">let</span> <span class="ident">relations</span> <span class="op">=</span> <span class="ident">relations</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> (<span class="kw-2">*</span><span class="ident">values</span>)[<span class="ident">i</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>]);
-                <span class="kw">for</span> _ <span class="kw">in</span> <span class="number">0</span>..<span class="ident">n</span> {
-                    <span class="ident">relations</span>.<span class="ident">pop</span>();
-                }
-            }
-        }
-    }
-}
-
-<span class="kw">fn</span> <span class="ident">relations</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>(<span class="ident">v</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="kw-2">mut</span> <span class="ident">TypeVariableData</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="kw-2">mut</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Relation</span><span class="op">&gt;</span> {
-    <span class="kw">match</span> <span class="ident">v</span>.<span class="ident">value</span> {
-        <span class="ident">Known</span>(_) <span class="op">=&gt;</span> <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;var_sub_var: variable is known&quot;</span>),
-        <span class="ident">Bounded</span> { <span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">relations</span>, .. } <span class="op">=&gt;</span> <span class="ident">relations</span>
+    <span class="kw">fn</span> <span class="ident">reverse</span>(<span class="ident">values</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">TypeVariableData</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>, <span class="ident">action</span>: <span class="ident">Instantiate</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) {
+        <span class="kw">let</span> <span class="ident">Instantiate</span> { <span class="ident">vid</span>, <span class="ident">default</span> } <span class="op">=</span> <span class="ident">action</span>;
+        <span class="ident">values</span>[<span class="ident">vid</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>].<span class="ident">value</span> <span class="op">=</span> <span class="ident">Bounded</span> {
+            <span class="ident">default</span>,
+        };
     }
 }
 </pre>
@@ -838,7 +852,6 @@
         window.rootPath = "../../../";
         window.currentCrate = "rustc";
     </script>
-    <script src="../../../jquery.js"></script>
     <script src="../../../main.js"></script>
     <script defer src="../../../search-index.js"></script>
 </body>

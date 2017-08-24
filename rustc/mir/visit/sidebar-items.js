@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["LvalueContext",""]],"trait":[["MutVisitor",""],["Visitor",""]]});
+initSidebarItems({"enum":[["Lookup",""],["LvalueContext",""]],"trait":[["MutVisitor",""],["Visitor",""]]});

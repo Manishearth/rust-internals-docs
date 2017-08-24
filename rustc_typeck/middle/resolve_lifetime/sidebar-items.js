@@ -1,1 +1,0 @@
-initSidebarItems({"enum":[["Region",""],["Set1","A set containing, at most, one known element. If two distinct values are inserted into a set, then it becomes `Many`, which can be used to detect ambiguities."]],"fn":[["krate",""]],"struct":[["NamedRegionMap",""]],"type":[["ObjectLifetimeDefault",""]]});

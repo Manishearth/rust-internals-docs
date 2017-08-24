@@ -1,6 +1,5 @@
 (function() {var implementors = {};
 implementors["rls_span"] = [];
-implementors["rustdoc"] = [];
 
             if (window.register_implementors) {
                 window.register_implementors(implementors);

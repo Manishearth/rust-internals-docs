@@ -1,1 +1,0 @@
-initSidebarItems({"enum":[["LookingFor",""],["Mode",""],["PickKind",""]],"struct":[["IsSuggestion","Boolean flag used to indicate if this search is for a suggestion or not.  If true, we can allow ambiguity and so forth."],["Pick",""]],"type":[["PickResult",""]]});

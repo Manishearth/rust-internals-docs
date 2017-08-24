@@ -835,7 +835,6 @@
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::<span class="ident">subst</span>::<span class="ident">Substs</span>;
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">AdtKind</span>, <span class="ident">Ty</span>, <span class="ident">TyCtxt</span>};
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::<span class="ident">layout</span>::{<span class="ident">Layout</span>, <span class="ident">Primitive</span>};
-<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">traits</span>::<span class="ident">Reveal</span>;
 <span class="kw">use</span> <span class="ident">middle</span>::<span class="ident">const_val</span>::<span class="ident">ConstVal</span>;
 <span class="kw">use</span> <span class="ident">rustc_const_eval</span>::<span class="ident">ConstContext</span>;
 <span class="kw">use</span> <span class="ident">util</span>::<span class="ident">nodemap</span>::<span class="ident">FxHashSet</span>;
@@ -914,7 +913,7 @@
                 }
 
                 <span class="kw">if</span> <span class="ident">binop</span>.<span class="ident">node</span>.<span class="ident">is_shift</span>() {
-                    <span class="kw">let</span> <span class="ident">opt_ty_bits</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">cx</span>.<span class="ident">tables</span>.<span class="ident">node_id_to_type</span>(<span class="ident">l</span>.<span class="ident">id</span>).<span class="ident">sty</span> {
+                    <span class="kw">let</span> <span class="ident">opt_ty_bits</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">cx</span>.<span class="ident">tables</span>.<span class="ident">node_id_to_type</span>(<span class="ident">l</span>.<span class="ident">hir_id</span>).<span class="ident">sty</span> {
                         <span class="ident">ty</span>::<span class="ident">TyInt</span>(<span class="ident">t</span>) <span class="op">=&gt;</span> <span class="prelude-val">Some</span>(<span class="ident">int_ty_bits</span>(<span class="ident">t</span>, <span class="ident">cx</span>.<span class="ident">sess</span>().<span class="ident">target</span>.<span class="ident">int_type</span>)),
                         <span class="ident">ty</span>::<span class="ident">TyUint</span>(<span class="ident">t</span>) <span class="op">=&gt;</span> <span class="prelude-val">Some</span>(<span class="ident">uint_ty_bits</span>(<span class="ident">t</span>, <span class="ident">cx</span>.<span class="ident">sess</span>().<span class="ident">target</span>.<span class="ident">uint_type</span>)),
                         _ <span class="op">=&gt;</span> <span class="prelude-val">None</span>,
@@ -928,7 +927,16 @@
                                 <span class="bool-val">false</span>
                             }
                         } <span class="kw">else</span> {
-                            <span class="kw">let</span> <span class="ident">const_cx</span> <span class="op">=</span> <span class="ident">ConstContext</span>::<span class="ident">with_tables</span>(<span class="ident">cx</span>.<span class="ident">tcx</span>, <span class="ident">cx</span>.<span class="ident">tables</span>);
+                            <span class="comment">// HACK(eddyb) This might be quite inefficient.</span>
+                            <span class="comment">// This would be better left to MIR constant propagation,</span>
+                            <span class="comment">// perhaps even at trans time (like is the case already</span>
+                            <span class="comment">// when the value being shifted is *also* constant).</span>
+                            <span class="kw">let</span> <span class="ident">parent_item</span> <span class="op">=</span> <span class="ident">cx</span>.<span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">get_parent</span>(<span class="ident">e</span>.<span class="ident">id</span>);
+                            <span class="kw">let</span> <span class="ident">parent_def_id</span> <span class="op">=</span> <span class="ident">cx</span>.<span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">local_def_id</span>(<span class="ident">parent_item</span>);
+                            <span class="kw">let</span> <span class="ident">substs</span> <span class="op">=</span> <span class="ident">Substs</span>::<span class="ident">identity_for_item</span>(<span class="ident">cx</span>.<span class="ident">tcx</span>, <span class="ident">parent_def_id</span>);
+                            <span class="kw">let</span> <span class="ident">const_cx</span> <span class="op">=</span> <span class="ident">ConstContext</span>::<span class="ident">new</span>(<span class="ident">cx</span>.<span class="ident">tcx</span>,
+                                                             <span class="ident">cx</span>.<span class="ident">param_env</span>.<span class="ident">and</span>(<span class="ident">substs</span>),
+                                                             <span class="ident">cx</span>.<span class="ident">tables</span>);
                             <span class="kw">match</span> <span class="ident">const_cx</span>.<span class="ident">eval</span>(<span class="kw-2">&amp;</span><span class="ident">r</span>) {
                                 <span class="prelude-val">Ok</span>(<span class="ident">ConstVal</span>::<span class="ident">Integral</span>(<span class="ident">i</span>)) <span class="op">=&gt;</span> {
                                     <span class="ident">i</span>.<span class="ident">is_negative</span>() <span class="op">||</span>
@@ -948,7 +956,7 @@
                 }
             }
             <span class="ident">hir</span>::<span class="ident">ExprLit</span>(<span class="kw-2">ref</span> <span class="ident">lit</span>) <span class="op">=&gt;</span> {
-                <span class="kw">match</span> <span class="ident">cx</span>.<span class="ident">tables</span>.<span class="ident">node_id_to_type</span>(<span class="ident">e</span>.<span class="ident">id</span>).<span class="ident">sty</span> {
+                <span class="kw">match</span> <span class="ident">cx</span>.<span class="ident">tables</span>.<span class="ident">node_id_to_type</span>(<span class="ident">e</span>.<span class="ident">hir_id</span>).<span class="ident">sty</span> {
                     <span class="ident">ty</span>::<span class="ident">TyInt</span>(<span class="ident">t</span>) <span class="op">=&gt;</span> {
                         <span class="kw">match</span> <span class="ident">lit</span>.<span class="ident">node</span> {
                             <span class="ident">ast</span>::<span class="ident">LitKind</span>::<span class="ident">Int</span>(<span class="ident">v</span>, <span class="ident">ast</span>::<span class="ident">LitIntType</span>::<span class="ident">Signed</span>(_)) <span class="op">|</span>
@@ -995,18 +1003,17 @@
                         }
                     }
                     <span class="ident">ty</span>::<span class="ident">TyFloat</span>(<span class="ident">t</span>) <span class="op">=&gt;</span> {
-                        <span class="kw">let</span> (<span class="ident">min</span>, <span class="ident">max</span>) <span class="op">=</span> <span class="ident">float_ty_range</span>(<span class="ident">t</span>);
-                        <span class="kw">let</span> <span class="ident">lit_val</span>: <span class="ident">f64</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">lit</span>.<span class="ident">node</span> {
+                        <span class="kw">let</span> <span class="ident">is_infinite</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">lit</span>.<span class="ident">node</span> {
                             <span class="ident">ast</span>::<span class="ident">LitKind</span>::<span class="ident">Float</span>(<span class="ident">v</span>, _) <span class="op">|</span>
                             <span class="ident">ast</span>::<span class="ident">LitKind</span>::<span class="ident">FloatUnsuffixed</span>(<span class="ident">v</span>) <span class="op">=&gt;</span> {
-                                <span class="kw">match</span> <span class="ident">v</span>.<span class="ident">as_str</span>().<span class="ident">parse</span>() {
-                                    <span class="prelude-val">Ok</span>(<span class="ident">f</span>) <span class="op">=&gt;</span> <span class="ident">f</span>,
-                                    <span class="prelude-val">Err</span>(_) <span class="op">=&gt;</span> <span class="kw">return</span>,
+                                <span class="kw">match</span> <span class="ident">t</span> {
+                                    <span class="ident">ast</span>::<span class="ident">FloatTy</span>::<span class="ident">F32</span> <span class="op">=&gt;</span> <span class="ident">v</span>.<span class="ident">as_str</span>().<span class="ident">parse</span>().<span class="ident">map</span>(<span class="ident">f32</span>::<span class="ident">is_infinite</span>),
+                                    <span class="ident">ast</span>::<span class="ident">FloatTy</span>::<span class="ident">F64</span> <span class="op">=&gt;</span> <span class="ident">v</span>.<span class="ident">as_str</span>().<span class="ident">parse</span>().<span class="ident">map</span>(<span class="ident">f64</span>::<span class="ident">is_infinite</span>),
                                 }
                             }
                             _ <span class="op">=&gt;</span> <span class="macro">bug</span><span class="macro">!</span>(),
                         };
-                        <span class="kw">if</span> <span class="ident">lit_val</span> <span class="op">&lt;</span> <span class="ident">min</span> <span class="op">||</span> <span class="ident">lit_val</span> <span class="op">&gt;</span> <span class="ident">max</span> {
+                        <span class="kw">if</span> <span class="ident">is_infinite</span> <span class="op">==</span> <span class="prelude-val">Ok</span>(<span class="bool-val">true</span>) {
                             <span class="ident">cx</span>.<span class="ident">span_lint</span>(<span class="ident">OVERFLOWING_LITERALS</span>,
                                          <span class="ident">e</span>.<span class="ident">span</span>,
                                          <span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;literal out of range for {:?}&quot;</span>, <span class="ident">t</span>));
@@ -1064,13 +1071,6 @@
             }
         }
 
-        <span class="kw">fn</span> <span class="ident">float_ty_range</span>(<span class="ident">float_ty</span>: <span class="ident">ast</span>::<span class="ident">FloatTy</span>) <span class="op">-&gt;</span> (<span class="ident">f64</span>, <span class="ident">f64</span>) {
-            <span class="kw">match</span> <span class="ident">float_ty</span> {
-                <span class="ident">ast</span>::<span class="ident">FloatTy</span>::<span class="ident">F32</span> <span class="op">=&gt;</span> (<span class="ident">f32</span>::<span class="ident">MIN</span> <span class="kw">as</span> <span class="ident">f64</span>, <span class="ident">f32</span>::<span class="ident">MAX</span> <span class="kw">as</span> <span class="ident">f64</span>),
-                <span class="ident">ast</span>::<span class="ident">FloatTy</span>::<span class="ident">F64</span> <span class="op">=&gt;</span> (<span class="ident">f64</span>::<span class="ident">MIN</span>, <span class="ident">f64</span>::<span class="ident">MAX</span>),
-            }
-        }
-
         <span class="kw">fn</span> <span class="ident">int_ty_bits</span>(<span class="ident">int_ty</span>: <span class="ident">ast</span>::<span class="ident">IntTy</span>, <span class="ident">target_int_ty</span>: <span class="ident">ast</span>::<span class="ident">IntTy</span>) <span class="op">-&gt;</span> <span class="ident">u64</span> {
             <span class="kw">match</span> <span class="ident">int_ty</span> {
                 <span class="ident">ast</span>::<span class="ident">IntTy</span>::<span class="ident">Is</span> <span class="op">=&gt;</span> <span class="ident">int_ty_bits</span>(<span class="ident">target_int_ty</span>, <span class="ident">target_int_ty</span>),
@@ -1106,7 +1106,7 @@
             <span class="comment">// Normalize the binop so that the literal is always on the RHS in</span>
             <span class="comment">// the comparison</span>
             <span class="kw">let</span> <span class="ident">norm_binop</span> <span class="op">=</span> <span class="kw">if</span> <span class="ident">swap</span> { <span class="ident">rev_binop</span>(<span class="ident">binop</span>) } <span class="kw">else</span> { <span class="ident">binop</span> };
-            <span class="kw">match</span> <span class="ident">cx</span>.<span class="ident">tables</span>.<span class="ident">node_id_to_type</span>(<span class="ident">expr</span>.<span class="ident">id</span>).<span class="ident">sty</span> {
+            <span class="kw">match</span> <span class="ident">cx</span>.<span class="ident">tables</span>.<span class="ident">node_id_to_type</span>(<span class="ident">expr</span>.<span class="ident">hir_id</span>).<span class="ident">sty</span> {
                 <span class="ident">ty</span>::<span class="ident">TyInt</span>(<span class="ident">int_ty</span>) <span class="op">=&gt;</span> {
                     <span class="kw">let</span> (<span class="ident">min</span>, <span class="ident">max</span>) <span class="op">=</span> <span class="ident">int_ty_range</span>(<span class="ident">int_ty</span>);
                     <span class="kw">let</span> <span class="ident">lit_val</span>: <span class="ident">i128</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">lit</span>.<span class="ident">node</span> {
@@ -1237,7 +1237,7 @@
                 }
                 <span class="kw">match</span> <span class="ident">def</span>.<span class="ident">adt_kind</span>() {
                     <span class="ident">AdtKind</span>::<span class="ident">Struct</span> <span class="op">=&gt;</span> {
-                        <span class="kw">if</span> <span class="op">!</span><span class="ident">def</span>.<span class="ident">repr</span>.<span class="ident">c</span> {
+                        <span class="kw">if</span> <span class="op">!</span><span class="ident">def</span>.<span class="ident">repr</span>.<span class="ident">c</span>() {
                             <span class="kw">return</span> <span class="ident">FfiUnsafe</span>(<span class="string">&quot;found struct without foreign-function-safe \
                                               representation annotation in foreign module, \
                                               consider adding a #[repr(C)] attribute to the type&quot;</span>);
@@ -1271,7 +1271,7 @@
                         <span class="kw">if</span> <span class="ident">all_phantom</span> { <span class="ident">FfiPhantom</span> } <span class="kw">else</span> { <span class="ident">FfiSafe</span> }
                     }
                     <span class="ident">AdtKind</span>::<span class="ident">Union</span> <span class="op">=&gt;</span> {
-                        <span class="kw">if</span> <span class="op">!</span><span class="ident">def</span>.<span class="ident">repr</span>.<span class="ident">c</span> {
+                        <span class="kw">if</span> <span class="op">!</span><span class="ident">def</span>.<span class="ident">repr</span>.<span class="ident">c</span>() {
                             <span class="kw">return</span> <span class="ident">FfiUnsafe</span>(<span class="string">&quot;found union without foreign-function-safe \
                                               representation annotation in foreign module, \
                                               consider adding a #[repr(C)] attribute to the type&quot;</span>);
@@ -1310,7 +1310,7 @@
 
                         <span class="comment">// Check for a repr() attribute to specify the size of the</span>
                         <span class="comment">// discriminant.</span>
-                        <span class="kw">if</span> <span class="op">!</span><span class="ident">def</span>.<span class="ident">repr</span>.<span class="ident">c</span> <span class="op">&amp;&amp;</span> <span class="ident">def</span>.<span class="ident">repr</span>.<span class="ident">int</span>.<span class="ident">is_none</span>() {
+                        <span class="kw">if</span> <span class="op">!</span><span class="ident">def</span>.<span class="ident">repr</span>.<span class="ident">c</span>() <span class="op">&amp;&amp;</span> <span class="ident">def</span>.<span class="ident">repr</span>.<span class="ident">int</span>.<span class="ident">is_none</span>() {
                             <span class="comment">// Special-case types like `Option&lt;extern fn()&gt;`.</span>
                             <span class="kw">if</span> <span class="op">!</span><span class="ident">is_repr_nullable_ptr</span>(<span class="ident">cx</span>, <span class="ident">def</span>, <span class="ident">substs</span>) {
                                 <span class="kw">return</span> <span class="ident">FfiUnsafe</span>(<span class="string">&quot;found enum without foreign-function-safe \
@@ -1481,7 +1481,7 @@
 
     <span class="kw">fn</span> <span class="ident">check_foreign_fn</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>, <span class="ident">decl</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">FnDecl</span>) {
         <span class="kw">let</span> <span class="ident">def_id</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">cx</span>.<span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">local_def_id</span>(<span class="ident">id</span>);
-        <span class="kw">let</span> <span class="ident">sig</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">cx</span>.<span class="ident">tcx</span>.<span class="ident">item_type</span>(<span class="ident">def_id</span>).<span class="ident">fn_sig</span>();
+        <span class="kw">let</span> <span class="ident">sig</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">cx</span>.<span class="ident">tcx</span>.<span class="ident">fn_sig</span>(<span class="ident">def_id</span>);
         <span class="kw">let</span> <span class="ident">sig</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">cx</span>.<span class="ident">tcx</span>.<span class="ident">erase_late_bound_regions</span>(<span class="kw-2">&amp;</span><span class="ident">sig</span>);
 
         <span class="kw">for</span> (<span class="ident">input_ty</span>, <span class="ident">input_hir</span>) <span class="kw">in</span> <span class="ident">sig</span>.<span class="ident">inputs</span>().<span class="ident">iter</span>().<span class="ident">zip</span>(<span class="kw-2">&amp;</span><span class="ident">decl</span>.<span class="ident">inputs</span>) {
@@ -1498,7 +1498,7 @@
 
     <span class="kw">fn</span> <span class="ident">check_foreign_static</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>, <span class="ident">span</span>: <span class="ident">Span</span>) {
         <span class="kw">let</span> <span class="ident">def_id</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">cx</span>.<span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">local_def_id</span>(<span class="ident">id</span>);
-        <span class="kw">let</span> <span class="ident">ty</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">cx</span>.<span class="ident">tcx</span>.<span class="ident">item_type</span>(<span class="ident">def_id</span>);
+        <span class="kw">let</span> <span class="ident">ty</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">cx</span>.<span class="ident">tcx</span>.<span class="ident">type_of</span>(<span class="ident">def_id</span>);
         <span class="self">self</span>.<span class="ident">check_type_for_ffi_and_report_errors</span>(<span class="ident">span</span>, <span class="ident">ty</span>);
     }
 }
@@ -1545,16 +1545,16 @@
         <span class="kw">if</span> <span class="kw">let</span> <span class="ident">hir</span>::<span class="ident">ItemEnum</span>(<span class="kw-2">ref</span> <span class="ident">enum_definition</span>, <span class="kw-2">ref</span> <span class="ident">gens</span>) <span class="op">=</span> <span class="ident">it</span>.<span class="ident">node</span> {
             <span class="kw">if</span> <span class="ident">gens</span>.<span class="ident">ty_params</span>.<span class="ident">is_empty</span>() {
                 <span class="comment">// sizes only make sense for non-generic types</span>
-                <span class="kw">let</span> <span class="ident">t</span> <span class="op">=</span> <span class="ident">cx</span>.<span class="ident">tcx</span>.<span class="ident">item_type</span>(<span class="ident">cx</span>.<span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">local_def_id</span>(<span class="ident">it</span>.<span class="ident">id</span>));
-                <span class="kw">let</span> <span class="ident">layout</span> <span class="op">=</span> <span class="ident">cx</span>.<span class="ident">tcx</span>.<span class="ident">infer_ctxt</span>((), <span class="ident">Reveal</span>::<span class="ident">All</span>).<span class="ident">enter</span>(<span class="op">|</span><span class="ident">infcx</span><span class="op">|</span> {
-                    <span class="kw">let</span> <span class="ident">ty</span> <span class="op">=</span> <span class="ident">cx</span>.<span class="ident">tcx</span>.<span class="ident">erase_regions</span>(<span class="kw-2">&amp;</span><span class="ident">t</span>);
-                    <span class="ident">ty</span>.<span class="ident">layout</span>(<span class="kw-2">&amp;</span><span class="ident">infcx</span>).<span class="ident">unwrap_or_else</span>(<span class="op">|</span><span class="ident">e</span><span class="op">|</span> {
-                        <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;failed to get layout for `{}`: {}&quot;</span>, <span class="ident">t</span>, <span class="ident">e</span>)
-                    })
+                <span class="kw">let</span> <span class="ident">item_def_id</span> <span class="op">=</span> <span class="ident">cx</span>.<span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">local_def_id</span>(<span class="ident">it</span>.<span class="ident">id</span>);
+                <span class="kw">let</span> <span class="ident">t</span> <span class="op">=</span> <span class="ident">cx</span>.<span class="ident">tcx</span>.<span class="ident">type_of</span>(<span class="ident">item_def_id</span>);
+                <span class="kw">let</span> <span class="ident">param_env</span> <span class="op">=</span> <span class="ident">cx</span>.<span class="ident">param_env</span>.<span class="ident">reveal_all</span>();
+                <span class="kw">let</span> <span class="ident">ty</span> <span class="op">=</span> <span class="ident">cx</span>.<span class="ident">tcx</span>.<span class="ident">erase_regions</span>(<span class="kw-2">&amp;</span><span class="ident">t</span>);
+                <span class="kw">let</span> <span class="ident">layout</span> <span class="op">=</span> <span class="ident">ty</span>.<span class="ident">layout</span>(<span class="ident">cx</span>.<span class="ident">tcx</span>, <span class="ident">param_env</span>).<span class="ident">unwrap_or_else</span>(<span class="op">|</span><span class="ident">e</span><span class="op">|</span> {
+                    <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;failed to get layout for `{}`: {}&quot;</span>, <span class="ident">t</span>, <span class="ident">e</span>)
                 });
 
                 <span class="kw">if</span> <span class="kw">let</span> <span class="ident">Layout</span>::<span class="ident">General</span> { <span class="kw-2">ref</span> <span class="ident">variants</span>, <span class="kw-2">ref</span> <span class="ident">size</span>, <span class="ident">discr</span>, .. } <span class="op">=</span> <span class="kw-2">*</span><span class="ident">layout</span> {
-                    <span class="kw">let</span> <span class="ident">discr_size</span> <span class="op">=</span> <span class="ident">Primitive</span>::<span class="ident">Int</span>(<span class="ident">discr</span>).<span class="ident">size</span>(<span class="kw-2">&amp;</span><span class="ident">cx</span>.<span class="ident">tcx</span>.<span class="ident">data_layout</span>).<span class="ident">bytes</span>();
+                    <span class="kw">let</span> <span class="ident">discr_size</span> <span class="op">=</span> <span class="ident">Primitive</span>::<span class="ident">Int</span>(<span class="ident">discr</span>).<span class="ident">size</span>(<span class="ident">cx</span>.<span class="ident">tcx</span>).<span class="ident">bytes</span>();
 
                     <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;enum `{}` is {} bytes large with layout:\n{:#?}&quot;</span>,
                       <span class="ident">t</span>, <span class="ident">size</span>.<span class="ident">bytes</span>(), <span class="ident">layout</span>);
@@ -1652,7 +1652,6 @@
         window.rootPath = "../../";
         window.currentCrate = "rustc_lint";
     </script>
-    <script src="../../jquery.js"></script>
     <script src="../../main.js"></script>
     <script defer src="../../search-index.js"></script>
 </body>

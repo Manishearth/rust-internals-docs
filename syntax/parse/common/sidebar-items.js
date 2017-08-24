@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["SeqSep","SeqSep : a sequence separator (token) and whether a trailing separator is allowed."]]});
+initSidebarItems({"struct":[["SeqSep","`SeqSep` : a sequence separator (token) and whether a trailing separator is allowed."]]});

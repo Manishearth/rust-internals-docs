@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Config","Used to configure save-analysis."]]});

@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["CacheCase",""],["Effect",""]],"fn":[["cons_of_key",""],["cons_of_query_msg",""],["html_of_effect",""],["write_counts",""],["write_style",""],["write_traces",""]],"struct":[["Query",""],["QueryMetric",""],["Rec","Recursive trace structure"]]});

@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["FreeRegionMap",""]]});
+initSidebarItems({"struct":[["FreeRegionMap",""],["RegionRelations","Combines a `RegionMaps` (which governs relationships between scopes) and a `FreeRegionMap` (which governs relationships between free regions) to yield a complete relation between concrete regions."]]});

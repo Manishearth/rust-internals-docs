@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["begin","begin a profile thread, if not already running"],["dump","dump files with profiling information to the given base path, and wait for this dump to complete."]],"mod":[["trace",""]]});

@@ -1,1 +1,0 @@
-initSidebarItems({"struct":[["CallGraph",""],["SCCIterator","Iterator over strongly-connected-components using Tarjan's algorithm[1]"]]});

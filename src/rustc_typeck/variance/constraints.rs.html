@@ -531,52 +531,6 @@
 <span id="486">486</span>
 <span id="487">487</span>
 <span id="488">488</span>
-<span id="489">489</span>
-<span id="490">490</span>
-<span id="491">491</span>
-<span id="492">492</span>
-<span id="493">493</span>
-<span id="494">494</span>
-<span id="495">495</span>
-<span id="496">496</span>
-<span id="497">497</span>
-<span id="498">498</span>
-<span id="499">499</span>
-<span id="500">500</span>
-<span id="501">501</span>
-<span id="502">502</span>
-<span id="503">503</span>
-<span id="504">504</span>
-<span id="505">505</span>
-<span id="506">506</span>
-<span id="507">507</span>
-<span id="508">508</span>
-<span id="509">509</span>
-<span id="510">510</span>
-<span id="511">511</span>
-<span id="512">512</span>
-<span id="513">513</span>
-<span id="514">514</span>
-<span id="515">515</span>
-<span id="516">516</span>
-<span id="517">517</span>
-<span id="518">518</span>
-<span id="519">519</span>
-<span id="520">520</span>
-<span id="521">521</span>
-<span id="522">522</span>
-<span id="523">523</span>
-<span id="524">524</span>
-<span id="525">525</span>
-<span id="526">526</span>
-<span id="527">527</span>
-<span id="528">528</span>
-<span id="529">529</span>
-<span id="530">530</span>
-<span id="531">531</span>
-<span id="532">532</span>
-<span id="533">533</span>
-<span id="534">534</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2013 The Rust Project Developers. See the COPYRIGHT</span>
 <span class="comment">// file at the top-level directory of this distribution and at</span>
@@ -594,19 +548,17 @@
 <span class="doccomment">//! We walk the set of items and, for each member, generate new constraints.</span>
 
 <span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">def_id</span>::<span class="ident">DefId</span>;
-<span class="kw">use</span> <span class="ident">middle</span>::<span class="ident">resolve_lifetime</span> <span class="kw">as</span> <span class="ident">rl</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">dep_graph</span>::{<span class="ident">AssertDepGraphSafe</span>, <span class="ident">DepKind</span>};
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::<span class="ident">subst</span>::<span class="ident">Substs</span>;
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">Ty</span>, <span class="ident">TyCtxt</span>};
-<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">hir</span>::<span class="ident">map</span> <span class="kw">as</span> <span class="ident">hir_map</span>;
 <span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">ast</span>;
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">hir</span>;
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">hir</span>::<span class="ident">itemlikevisit</span>::<span class="ident">ItemLikeVisitor</span>;
 
+<span class="kw">use</span> <span class="ident">rustc_data_structures</span>::<span class="ident">transitive_relation</span>::<span class="ident">TransitiveRelation</span>;
+
 <span class="kw">use</span> <span class="kw">super</span>::<span class="ident">terms</span>::<span class="kw-2">*</span>;
 <span class="kw">use</span> <span class="kw">super</span>::<span class="ident">terms</span>::<span class="ident">VarianceTerm</span>::<span class="kw-2">*</span>;
-<span class="kw">use</span> <span class="kw">super</span>::<span class="ident">xform</span>::<span class="kw-2">*</span>;
-
-<span class="kw">use</span> <span class="ident">dep_graph</span>::<span class="ident">DepNode</span>::<span class="ident">ItemSignature</span> <span class="kw">as</span> <span class="ident">VarianceDepNode</span>;
 
 <span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">ConstraintContext</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>: <span class="lifetime">&#39;a</span><span class="op">&gt;</span> {
     <span class="kw">pub</span> <span class="ident">terms_cx</span>: <span class="ident">TermsContext</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
@@ -618,6 +570,11 @@
     <span class="ident">bivariant</span>: <span class="ident">VarianceTermPtr</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>,
 
     <span class="kw">pub</span> <span class="ident">constraints</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Constraint</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;&gt;</span>,
+
+    <span class="doccomment">/// This relation tracks the dependencies between the variance of</span>
+    <span class="doccomment">/// various items. In particular, if `a &lt; b`, then the variance of</span>
+    <span class="doccomment">/// `a` depends on the sources of `b`.</span>
+    <span class="kw">pub</span> <span class="ident">dependencies</span>: <span class="ident">TransitiveRelation</span><span class="op">&lt;</span><span class="ident">DefId</span><span class="op">&gt;</span>,
 }
 
 <span class="doccomment">/// Declares that the variable `decl_id` appears in a location with</span>
@@ -628,6 +585,20 @@
     <span class="kw">pub</span> <span class="ident">variance</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">VarianceTerm</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>,
 }
 
+<span class="doccomment">/// To build constraints, we visit one item (type, trait) at a time</span>
+<span class="doccomment">/// and look at its contents. So e.g. if we have</span>
+<span class="doccomment">///</span>
+<span class="doccomment">///     struct Foo&lt;T&gt; {</span>
+<span class="doccomment">///         b: Bar&lt;T&gt;</span>
+<span class="doccomment">///     }</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// then while we are visiting `Bar&lt;T&gt;`, the `CurrentItem` would have</span>
+<span class="doccomment">/// the def-id and the start of `Foo`&#39;s inferreds.</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">CurrentItem</span> {
+    <span class="ident">def_id</span>: <span class="ident">DefId</span>,
+    <span class="ident">inferred_start</span>: <span class="ident">InferredIndex</span>,
+}
+
 <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">add_constraints_from_crate</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">terms_cx</span>: <span class="ident">TermsContext</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
                                             <span class="op">-&gt;</span> <span class="ident">ConstraintContext</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
     <span class="kw">let</span> <span class="ident">tcx</span> <span class="op">=</span> <span class="ident">terms_cx</span>.<span class="ident">tcx</span>;
@@ -636,194 +607,147 @@
     <span class="kw">let</span> <span class="ident">invariant</span> <span class="op">=</span> <span class="ident">terms_cx</span>.<span class="ident">arena</span>.<span class="ident">alloc</span>(<span class="ident">ConstantTerm</span>(<span class="ident">ty</span>::<span class="ident">Invariant</span>));
     <span class="kw">let</span> <span class="ident">bivariant</span> <span class="op">=</span> <span class="ident">terms_cx</span>.<span class="ident">arena</span>.<span class="ident">alloc</span>(<span class="ident">ConstantTerm</span>(<span class="ident">ty</span>::<span class="ident">Bivariant</span>));
     <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">constraint_cx</span> <span class="op">=</span> <span class="ident">ConstraintContext</span> {
-        <span class="ident">terms_cx</span>: <span class="ident">terms_cx</span>,
-        <span class="ident">covariant</span>: <span class="ident">covariant</span>,
-        <span class="ident">contravariant</span>: <span class="ident">contravariant</span>,
-        <span class="ident">invariant</span>: <span class="ident">invariant</span>,
-        <span class="ident">bivariant</span>: <span class="ident">bivariant</span>,
+        <span class="ident">terms_cx</span>,
+        <span class="ident">covariant</span>,
+        <span class="ident">contravariant</span>,
+        <span class="ident">invariant</span>,
+        <span class="ident">bivariant</span>,
         <span class="ident">constraints</span>: <span class="ident">Vec</span>::<span class="ident">new</span>(),
+        <span class="ident">dependencies</span>: <span class="ident">TransitiveRelation</span>::<span class="ident">new</span>(),
     };
 
-    <span class="comment">// See README.md for a discussion on dep-graph management.</span>
-    <span class="ident">tcx</span>.<span class="ident">visit_all_item_likes_in_krate</span>(<span class="ident">VarianceDepNode</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">constraint_cx</span>);
+    <span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">krate</span>().<span class="ident">visit_all_item_likes</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">constraint_cx</span>);
 
     <span class="ident">constraint_cx</span>
 }
 
 <span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;v</span><span class="op">&gt;</span> <span class="ident">ItemLikeVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;v</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">ConstraintContext</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
     <span class="kw">fn</span> <span class="ident">visit_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">item</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">Item</span>) {
-        <span class="kw">let</span> <span class="ident">tcx</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">terms_cx</span>.<span class="ident">tcx</span>;
-        <span class="kw">let</span> <span class="ident">did</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">local_def_id</span>(<span class="ident">item</span>.<span class="ident">id</span>);
-
-        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;visit_item item={}&quot;</span>, <span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">node_to_string</span>(<span class="ident">item</span>.<span class="ident">id</span>));
-
         <span class="kw">match</span> <span class="ident">item</span>.<span class="ident">node</span> {
-            <span class="ident">hir</span>::<span class="ident">ItemEnum</span>(..) <span class="op">|</span>
-            <span class="ident">hir</span>::<span class="ident">ItemStruct</span>(..) <span class="op">|</span>
-            <span class="ident">hir</span>::<span class="ident">ItemUnion</span>(..) <span class="op">=&gt;</span> {
-                <span class="kw">let</span> <span class="ident">generics</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">item_generics</span>(<span class="ident">did</span>);
+            <span class="ident">hir</span>::<span class="ident">ItemStruct</span>(<span class="kw-2">ref</span> <span class="ident">struct_def</span>, _) <span class="op">|</span>
+            <span class="ident">hir</span>::<span class="ident">ItemUnion</span>(<span class="kw-2">ref</span> <span class="ident">struct_def</span>, _) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">visit_node_helper</span>(<span class="ident">item</span>.<span class="ident">id</span>);
 
+                <span class="kw">if</span> <span class="kw">let</span> <span class="ident">hir</span>::<span class="ident">VariantData</span>::<span class="ident">Tuple</span>(..) <span class="op">=</span> <span class="kw-2">*</span><span class="ident">struct_def</span> {
+                    <span class="self">self</span>.<span class="ident">visit_node_helper</span>(<span class="ident">struct_def</span>.<span class="ident">id</span>());
+                }
+            }
+
+            <span class="ident">hir</span>::<span class="ident">ItemEnum</span>(<span class="kw-2">ref</span> <span class="ident">enum_def</span>, _) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">visit_node_helper</span>(<span class="ident">item</span>.<span class="ident">id</span>);
+
+                <span class="kw">for</span> <span class="ident">variant</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="ident">enum_def</span>.<span class="ident">variants</span> {
+                    <span class="kw">if</span> <span class="kw">let</span> <span class="ident">hir</span>::<span class="ident">VariantData</span>::<span class="ident">Tuple</span>(..) <span class="op">=</span> <span class="ident">variant</span>.<span class="ident">node</span>.<span class="ident">data</span> {
+                        <span class="self">self</span>.<span class="ident">visit_node_helper</span>(<span class="ident">variant</span>.<span class="ident">node</span>.<span class="ident">data</span>.<span class="ident">id</span>());
+                    }
+                }
+            }
+
+            <span class="ident">hir</span>::<span class="ident">ItemFn</span>(..) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">visit_node_helper</span>(<span class="ident">item</span>.<span class="ident">id</span>);
+            }
+
+            <span class="ident">hir</span>::<span class="ident">ItemForeignMod</span>(<span class="kw-2">ref</span> <span class="ident">foreign_mod</span>) <span class="op">=&gt;</span> {
+                <span class="kw">for</span> <span class="ident">foreign_item</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="ident">foreign_mod</span>.<span class="ident">items</span> {
+                    <span class="kw">if</span> <span class="kw">let</span> <span class="ident">hir</span>::<span class="ident">ForeignItemFn</span>(..) <span class="op">=</span> <span class="ident">foreign_item</span>.<span class="ident">node</span> {
+                        <span class="self">self</span>.<span class="ident">visit_node_helper</span>(<span class="ident">foreign_item</span>.<span class="ident">id</span>);
+                    }
+                }
+            }
+
+            _ <span class="op">=&gt;</span> {}
+        }
+    }
+
+    <span class="kw">fn</span> <span class="ident">visit_trait_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">trait_item</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">TraitItem</span>) {
+        <span class="kw">if</span> <span class="kw">let</span> <span class="ident">hir</span>::<span class="ident">TraitItemKind</span>::<span class="ident">Method</span>(..) <span class="op">=</span> <span class="ident">trait_item</span>.<span class="ident">node</span> {
+            <span class="self">self</span>.<span class="ident">visit_node_helper</span>(<span class="ident">trait_item</span>.<span class="ident">id</span>);
+        }
+    }
+
+    <span class="kw">fn</span> <span class="ident">visit_impl_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">impl_item</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">ImplItem</span>) {
+        <span class="kw">if</span> <span class="kw">let</span> <span class="ident">hir</span>::<span class="ident">ImplItemKind</span>::<span class="ident">Method</span>(..) <span class="op">=</span> <span class="ident">impl_item</span>.<span class="ident">node</span> {
+            <span class="self">self</span>.<span class="ident">visit_node_helper</span>(<span class="ident">impl_item</span>.<span class="ident">id</span>);
+        }
+    }
+}
+
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">ConstraintContext</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">visit_node_helper</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>) {
+        <span class="kw">let</span> <span class="ident">tcx</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">terms_cx</span>.<span class="ident">tcx</span>;
+        <span class="kw">let</span> <span class="ident">def_id</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">local_def_id</span>(<span class="ident">id</span>);
+
+        <span class="comment">// Encapsulate constructing the constraints into a task we can</span>
+        <span class="comment">// reference later. This can go away once the red-green</span>
+        <span class="comment">// algorithm is in place.</span>
+        <span class="comment">//</span>
+        <span class="comment">// See README.md for a detailed discussion</span>
+        <span class="comment">// on dep-graph management.</span>
+        <span class="kw">let</span> <span class="ident">dep_node</span> <span class="op">=</span> <span class="ident">def_id</span>.<span class="ident">to_dep_node</span>(<span class="ident">tcx</span>, <span class="ident">DepKind</span>::<span class="ident">ItemVarianceConstraints</span>);
+        <span class="ident">tcx</span>.<span class="ident">dep_graph</span>.<span class="ident">with_task</span>(<span class="ident">dep_node</span>,
+                                <span class="ident">AssertDepGraphSafe</span>(<span class="self">self</span>),
+                                <span class="ident">def_id</span>,
+                                <span class="ident">visit_item_task</span>);
+
+        <span class="kw">fn</span> <span class="ident">visit_item_task</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">ccx</span>: <span class="ident">AssertDepGraphSafe</span><span class="op">&lt;</span><span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">ConstraintContext</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>,
+                                     <span class="ident">def_id</span>: <span class="ident">DefId</span>)
+        {
+            <span class="ident">ccx</span>.<span class="number">0</span>.<span class="ident">build_constraints_for_item</span>(<span class="ident">def_id</span>);
+        }
+    }
+
+    <span class="kw">fn</span> <span class="ident">tcx</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="self">self</span>.<span class="ident">terms_cx</span>.<span class="ident">tcx</span>
+    }
+
+    <span class="kw">fn</span> <span class="ident">build_constraints_for_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">def_id</span>: <span class="ident">DefId</span>) {
+        <span class="kw">let</span> <span class="ident">tcx</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>();
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;build_constraints_for_item({})&quot;</span>, <span class="ident">tcx</span>.<span class="ident">item_path_str</span>(<span class="ident">def_id</span>));
+
+        <span class="comment">// Skip items with no generics - there&#39;s nothing to infer in them.</span>
+        <span class="kw">if</span> <span class="ident">tcx</span>.<span class="ident">generics_of</span>(<span class="ident">def_id</span>).<span class="ident">count</span>() <span class="op">==</span> <span class="number">0</span> {
+            <span class="kw">return</span>;
+        }
+
+        <span class="kw">let</span> <span class="ident">id</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">as_local_node_id</span>(<span class="ident">def_id</span>).<span class="ident">unwrap</span>();
+        <span class="kw">let</span> <span class="ident">inferred_start</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">terms_cx</span>.<span class="ident">inferred_starts</span>[<span class="kw-2">&amp;</span><span class="ident">id</span>];
+        <span class="kw">let</span> <span class="ident">current_item</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="ident">CurrentItem</span> { <span class="ident">def_id</span>, <span class="ident">inferred_start</span> };
+        <span class="kw">match</span> <span class="ident">tcx</span>.<span class="ident">type_of</span>(<span class="ident">def_id</span>).<span class="ident">sty</span> {
+            <span class="ident">ty</span>::<span class="ident">TyAdt</span>(<span class="ident">def</span>, _) <span class="op">=&gt;</span> {
                 <span class="comment">// Not entirely obvious: constraints on structs/enums do not</span>
                 <span class="comment">// affect the variance of their type parameters. See discussion</span>
                 <span class="comment">// in comment at top of module.</span>
                 <span class="comment">//</span>
                 <span class="comment">// self.add_constraints_from_generics(generics);</span>
 
-                <span class="kw">for</span> <span class="ident">field</span> <span class="kw">in</span> <span class="ident">tcx</span>.<span class="ident">lookup_adt_def</span>(<span class="ident">did</span>).<span class="ident">all_fields</span>() {
-                    <span class="self">self</span>.<span class="ident">add_constraints_from_ty</span>(<span class="ident">generics</span>,
-                                                 <span class="ident">tcx</span>.<span class="ident">item_type</span>(<span class="ident">field</span>.<span class="ident">did</span>),
+                <span class="kw">for</span> <span class="ident">field</span> <span class="kw">in</span> <span class="ident">def</span>.<span class="ident">all_fields</span>() {
+                    <span class="self">self</span>.<span class="ident">add_constraints_from_ty</span>(<span class="ident">current_item</span>,
+                                                 <span class="ident">tcx</span>.<span class="ident">type_of</span>(<span class="ident">field</span>.<span class="ident">did</span>),
                                                  <span class="self">self</span>.<span class="ident">covariant</span>);
                 }
             }
-            <span class="ident">hir</span>::<span class="ident">ItemTrait</span>(..) <span class="op">=&gt;</span> {
-                <span class="kw">let</span> <span class="ident">generics</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">item_generics</span>(<span class="ident">did</span>);
-                <span class="kw">let</span> <span class="ident">trait_ref</span> <span class="op">=</span> <span class="ident">ty</span>::<span class="ident">TraitRef</span> {
-                    <span class="ident">def_id</span>: <span class="ident">did</span>,
-                    <span class="ident">substs</span>: <span class="ident">Substs</span>::<span class="ident">identity_for_item</span>(<span class="ident">tcx</span>, <span class="ident">did</span>)
-                };
-                <span class="self">self</span>.<span class="ident">add_constraints_from_trait_ref</span>(<span class="ident">generics</span>,
-                                                    <span class="ident">trait_ref</span>,
-                                                    <span class="self">self</span>.<span class="ident">invariant</span>);
+
+            <span class="ident">ty</span>::<span class="ident">TyFnDef</span>(..) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">add_constraints_from_sig</span>(<span class="ident">current_item</span>,
+                                              <span class="ident">tcx</span>.<span class="ident">fn_sig</span>(<span class="ident">def_id</span>),
+                                              <span class="self">self</span>.<span class="ident">covariant</span>);
             }
 
-            <span class="ident">hir</span>::<span class="ident">ItemExternCrate</span>(_) <span class="op">|</span>
-            <span class="ident">hir</span>::<span class="ident">ItemUse</span>(..) <span class="op">|</span>
-            <span class="ident">hir</span>::<span class="ident">ItemStatic</span>(..) <span class="op">|</span>
-            <span class="ident">hir</span>::<span class="ident">ItemConst</span>(..) <span class="op">|</span>
-            <span class="ident">hir</span>::<span class="ident">ItemFn</span>(..) <span class="op">|</span>
-            <span class="ident">hir</span>::<span class="ident">ItemMod</span>(..) <span class="op">|</span>
-            <span class="ident">hir</span>::<span class="ident">ItemForeignMod</span>(..) <span class="op">|</span>
-            <span class="ident">hir</span>::<span class="ident">ItemTy</span>(..) <span class="op">|</span>
-            <span class="ident">hir</span>::<span class="ident">ItemImpl</span>(..) <span class="op">|</span>
-            <span class="ident">hir</span>::<span class="ident">ItemDefaultImpl</span>(..) <span class="op">=&gt;</span> {}
-        }
-    }
-
-    <span class="kw">fn</span> <span class="ident">visit_trait_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">_trait_item</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">TraitItem</span>) {
-    }
-
-    <span class="kw">fn</span> <span class="ident">visit_impl_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">_impl_item</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">ImplItem</span>) {
-    }
-}
-
-<span class="doccomment">/// Is `param_id` a lifetime according to `map`?</span>
-<span class="kw">fn</span> <span class="ident">is_lifetime</span>(<span class="ident">map</span>: <span class="kw-2">&amp;</span><span class="ident">hir_map</span>::<span class="ident">Map</span>, <span class="ident">param_id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
-    <span class="kw">match</span> <span class="ident">map</span>.<span class="ident">find</span>(<span class="ident">param_id</span>) {
-        <span class="prelude-val">Some</span>(<span class="ident">hir_map</span>::<span class="ident">NodeLifetime</span>(..)) <span class="op">=&gt;</span> <span class="bool-val">true</span>,
-        _ <span class="op">=&gt;</span> <span class="bool-val">false</span>,
-    }
-}
-
-<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">ConstraintContext</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
-    <span class="kw">fn</span> <span class="ident">tcx</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
-        <span class="self">self</span>.<span class="ident">terms_cx</span>.<span class="ident">tcx</span>
-    }
-
-    <span class="kw">fn</span> <span class="ident">inferred_index</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">param_id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>) <span class="op">-&gt;</span> <span class="ident">InferredIndex</span> {
-        <span class="kw">match</span> <span class="self">self</span>.<span class="ident">terms_cx</span>.<span class="ident">inferred_map</span>.<span class="ident">get</span>(<span class="kw-2">&amp;</span><span class="ident">param_id</span>) {
-            <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="ident">index</span>) <span class="op">=&gt;</span> <span class="ident">index</span>,
-            <span class="prelude-val">None</span> <span class="op">=&gt;</span> {
-                <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;no inferred index entry for {}&quot;</span>,
-                     <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">hir</span>.<span class="ident">node_to_string</span>(<span class="ident">param_id</span>));
+            _ <span class="op">=&gt;</span> {
+                <span class="macro">span_bug</span><span class="macro">!</span>(<span class="ident">tcx</span>.<span class="ident">def_span</span>(<span class="ident">def_id</span>),
+                          <span class="string">&quot;`build_constraints_for_item` unsupported for this item&quot;</span>);
             }
-        }
-    }
-
-    <span class="kw">fn</span> <span class="ident">find_binding_for_lifetime</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">param_id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>) <span class="op">-&gt;</span> <span class="ident">ast</span>::<span class="ident">NodeId</span> {
-        <span class="kw">let</span> <span class="ident">tcx</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">terms_cx</span>.<span class="ident">tcx</span>;
-        <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">is_lifetime</span>(<span class="kw-2">&amp;</span><span class="ident">tcx</span>.<span class="ident">hir</span>, <span class="ident">param_id</span>));
-        <span class="kw">match</span> <span class="ident">tcx</span>.<span class="ident">named_region_map</span>.<span class="ident">defs</span>.<span class="ident">get</span>(<span class="kw-2">&amp;</span><span class="ident">param_id</span>) {
-            <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="ident">rl</span>::<span class="ident">Region</span>::<span class="ident">EarlyBound</span>(_, <span class="ident">lifetime_decl_id</span>)) <span class="op">=&gt;</span> <span class="ident">lifetime_decl_id</span>,
-            <span class="prelude-val">Some</span>(_) <span class="op">=&gt;</span> <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;should not encounter non early-bound cases&quot;</span>),
-
-            <span class="comment">// The lookup should only fail when `param_id` is</span>
-            <span class="comment">// itself a lifetime binding: use it as the decl_id.</span>
-            <span class="prelude-val">None</span> <span class="op">=&gt;</span> <span class="ident">param_id</span>,
-        }
-
-    }
-
-    <span class="doccomment">/// Is `param_id` a type parameter for which we infer variance?</span>
-    <span class="kw">fn</span> <span class="ident">is_to_be_inferred</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">param_id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
-        <span class="kw">let</span> <span class="ident">result</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">terms_cx</span>.<span class="ident">inferred_map</span>.<span class="ident">contains_key</span>(<span class="kw-2">&amp;</span><span class="ident">param_id</span>);
-
-        <span class="comment">// To safe-guard against invalid inferred_map constructions,</span>
-        <span class="comment">// double-check if variance is inferred at some use of a type</span>
-        <span class="comment">// parameter (by inspecting parent of its binding declaration</span>
-        <span class="comment">// to see if it is introduced by a type or by a fn/impl).</span>
-
-        <span class="kw">let</span> <span class="ident">check_result</span> <span class="op">=</span> <span class="op">|</span><span class="ident">this</span>: <span class="kw-2">&amp;</span><span class="ident">ConstraintContext</span><span class="op">|</span> <span class="op">-&gt;</span> <span class="ident">bool</span> {
-            <span class="kw">let</span> <span class="ident">tcx</span> <span class="op">=</span> <span class="ident">this</span>.<span class="ident">terms_cx</span>.<span class="ident">tcx</span>;
-            <span class="kw">let</span> <span class="ident">decl_id</span> <span class="op">=</span> <span class="ident">this</span>.<span class="ident">find_binding_for_lifetime</span>(<span class="ident">param_id</span>);
-            <span class="comment">// Currently only called on lifetimes; double-checking that.</span>
-            <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">is_lifetime</span>(<span class="kw-2">&amp;</span><span class="ident">tcx</span>.<span class="ident">hir</span>, <span class="ident">param_id</span>));
-            <span class="kw">let</span> <span class="ident">parent_id</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">get_parent</span>(<span class="ident">decl_id</span>);
-            <span class="kw">let</span> <span class="ident">parent</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">hir</span>
-                .<span class="ident">find</span>(<span class="ident">parent_id</span>)
-                .<span class="ident">unwrap_or_else</span>(<span class="op">||</span> <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;tcx.hir missing entry for id: {}&quot;</span>, <span class="ident">parent_id</span>));
-
-            <span class="kw">let</span> <span class="ident">is_inferred</span>;
-            <span class="macro">macro_rules</span><span class="macro">!</span> <span class="ident">cannot_happen</span> { () <span class="op">=&gt;</span> { {
-                <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;invalid parent: {} for {}&quot;</span>,
-                     <span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">node_to_string</span>(<span class="ident">parent_id</span>),
-                     <span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">node_to_string</span>(<span class="ident">param_id</span>));
-            } } }
-
-            <span class="kw">match</span> <span class="ident">parent</span> {
-                <span class="ident">hir_map</span>::<span class="ident">NodeItem</span>(<span class="ident">p</span>) <span class="op">=&gt;</span> {
-                    <span class="kw">match</span> <span class="ident">p</span>.<span class="ident">node</span> {
-                        <span class="ident">hir</span>::<span class="ident">ItemTy</span>(..) <span class="op">|</span>
-                        <span class="ident">hir</span>::<span class="ident">ItemEnum</span>(..) <span class="op">|</span>
-                        <span class="ident">hir</span>::<span class="ident">ItemStruct</span>(..) <span class="op">|</span>
-                        <span class="ident">hir</span>::<span class="ident">ItemUnion</span>(..) <span class="op">|</span>
-                        <span class="ident">hir</span>::<span class="ident">ItemTrait</span>(..) <span class="op">=&gt;</span> <span class="ident">is_inferred</span> <span class="op">=</span> <span class="bool-val">true</span>,
-                        <span class="ident">hir</span>::<span class="ident">ItemFn</span>(..) <span class="op">=&gt;</span> <span class="ident">is_inferred</span> <span class="op">=</span> <span class="bool-val">false</span>,
-                        _ <span class="op">=&gt;</span> <span class="macro">cannot_happen</span><span class="macro">!</span>(),
-                    }
-                }
-                <span class="ident">hir_map</span>::<span class="ident">NodeTraitItem</span>(..) <span class="op">=&gt;</span> <span class="ident">is_inferred</span> <span class="op">=</span> <span class="bool-val">false</span>,
-                <span class="ident">hir_map</span>::<span class="ident">NodeImplItem</span>(..) <span class="op">=&gt;</span> <span class="ident">is_inferred</span> <span class="op">=</span> <span class="bool-val">false</span>,
-                _ <span class="op">=&gt;</span> <span class="macro">cannot_happen</span><span class="macro">!</span>(),
-            }
-
-            <span class="kw">return</span> <span class="ident">is_inferred</span>;
-        };
-
-        <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">result</span>, <span class="ident">check_result</span>(<span class="self">self</span>));
-
-        <span class="kw">return</span> <span class="ident">result</span>;
-    }
-
-    <span class="doccomment">/// Returns a variance term representing the declared variance of the type/region parameter</span>
-    <span class="doccomment">/// with the given id.</span>
-    <span class="kw">fn</span> <span class="ident">declared_variance</span>(<span class="kw-2">&amp;</span><span class="self">self</span>,
-                         <span class="ident">param_def_id</span>: <span class="ident">DefId</span>,
-                         <span class="ident">item_def_id</span>: <span class="ident">DefId</span>,
-                         <span class="ident">index</span>: <span class="ident">usize</span>)
-                         <span class="op">-&gt;</span> <span class="ident">VarianceTermPtr</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span> {
-        <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">param_def_id</span>.<span class="ident">krate</span>, <span class="ident">item_def_id</span>.<span class="ident">krate</span>);
-
-        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">param_node_id</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">hir</span>.<span class="ident">as_local_node_id</span>(<span class="ident">param_def_id</span>) {
-            <span class="comment">// Parameter on an item defined within current crate:</span>
-            <span class="comment">// variance not yet inferred, so return a symbolic</span>
-            <span class="comment">// variance.</span>
-            <span class="kw">let</span> <span class="ident">InferredIndex</span>(<span class="ident">index</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">inferred_index</span>(<span class="ident">param_node_id</span>);
-            <span class="self">self</span>.<span class="ident">terms_cx</span>.<span class="ident">inferred_infos</span>[<span class="ident">index</span>].<span class="ident">term</span>
-        } <span class="kw">else</span> {
-            <span class="comment">// Parameter on an item defined within another crate:</span>
-            <span class="comment">// variance already inferred, just look it up.</span>
-            <span class="kw">let</span> <span class="ident">variances</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">item_variances</span>(<span class="ident">item_def_id</span>);
-            <span class="self">self</span>.<span class="ident">constant_term</span>(<span class="ident">variances</span>[<span class="ident">index</span>])
         }
     }
 
     <span class="kw">fn</span> <span class="ident">add_constraint</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
-                      <span class="ident">InferredIndex</span>(<span class="ident">index</span>): <span class="ident">InferredIndex</span>,
+                      <span class="ident">current</span>: <span class="kw-2">&amp;</span><span class="ident">CurrentItem</span>,
+                      <span class="ident">index</span>: <span class="ident">u32</span>,
                       <span class="ident">variance</span>: <span class="ident">VarianceTermPtr</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>) {
         <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;add_constraint(index={}, variance={:?})&quot;</span>, <span class="ident">index</span>, <span class="ident">variance</span>);
         <span class="self">self</span>.<span class="ident">constraints</span>.<span class="ident">push</span>(<span class="ident">Constraint</span> {
-            <span class="ident">inferred</span>: <span class="ident">InferredIndex</span>(<span class="ident">index</span>),
-            <span class="ident">variance</span>: <span class="ident">variance</span>,
+            <span class="ident">inferred</span>: <span class="ident">InferredIndex</span>(<span class="ident">current</span>.<span class="ident">inferred_start</span>.<span class="number">0</span> <span class="op">+</span> <span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>),
+            <span class="ident">variance</span>,
         });
     }
 
@@ -858,33 +782,39 @@
     }
 
     <span class="kw">fn</span> <span class="ident">add_constraints_from_trait_ref</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
-                                      <span class="ident">generics</span>: <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">Generics</span>,
+                                      <span class="ident">current</span>: <span class="kw-2">&amp;</span><span class="ident">CurrentItem</span>,
                                       <span class="ident">trait_ref</span>: <span class="ident">ty</span>::<span class="ident">TraitRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
                                       <span class="ident">variance</span>: <span class="ident">VarianceTermPtr</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>) {
         <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;add_constraints_from_trait_ref: trait_ref={:?} variance={:?}&quot;</span>,
                <span class="ident">trait_ref</span>,
                <span class="ident">variance</span>);
+        <span class="self">self</span>.<span class="ident">add_constraints_from_invariant_substs</span>(<span class="ident">current</span>, <span class="ident">trait_ref</span>.<span class="ident">substs</span>, <span class="ident">variance</span>);
+    }
 
-        <span class="kw">let</span> <span class="ident">trait_generics</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">item_generics</span>(<span class="ident">trait_ref</span>.<span class="ident">def_id</span>);
+    <span class="kw">fn</span> <span class="ident">add_constraints_from_invariant_substs</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                                             <span class="ident">current</span>: <span class="kw-2">&amp;</span><span class="ident">CurrentItem</span>,
+                                             <span class="ident">substs</span>: <span class="kw-2">&amp;</span><span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                             <span class="ident">variance</span>: <span class="ident">VarianceTermPtr</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>) {
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;add_constraints_from_invariant_substs: substs={:?} variance={:?}&quot;</span>,
+               <span class="ident">substs</span>,
+               <span class="ident">variance</span>);
 
-        <span class="comment">// This edge is actually implied by the call to</span>
-        <span class="comment">// `lookup_trait_def`, but I&#39;m trying to be future-proof. See</span>
-        <span class="comment">// README.md for a discussion on dep-graph management.</span>
-        <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">dep_graph</span>.<span class="ident">read</span>(<span class="ident">VarianceDepNode</span>(<span class="ident">trait_ref</span>.<span class="ident">def_id</span>));
+        <span class="comment">// Trait are always invariant so we can take advantage of that.</span>
+        <span class="kw">let</span> <span class="ident">variance_i</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">invariant</span>(<span class="ident">variance</span>);
+        <span class="kw">for</span> <span class="ident">ty</span> <span class="kw">in</span> <span class="ident">substs</span>.<span class="ident">types</span>() {
+            <span class="self">self</span>.<span class="ident">add_constraints_from_ty</span>(<span class="ident">current</span>, <span class="ident">ty</span>, <span class="ident">variance_i</span>);
+        }
 
-        <span class="self">self</span>.<span class="ident">add_constraints_from_substs</span>(<span class="ident">generics</span>,
-                                         <span class="ident">trait_ref</span>.<span class="ident">def_id</span>,
-                                         <span class="kw-2">&amp;</span><span class="ident">trait_generics</span>.<span class="ident">types</span>,
-                                         <span class="kw-2">&amp;</span><span class="ident">trait_generics</span>.<span class="ident">regions</span>,
-                                         <span class="ident">trait_ref</span>.<span class="ident">substs</span>,
-                                         <span class="ident">variance</span>);
+        <span class="kw">for</span> <span class="ident">region</span> <span class="kw">in</span> <span class="ident">substs</span>.<span class="ident">regions</span>() {
+            <span class="self">self</span>.<span class="ident">add_constraints_from_region</span>(<span class="ident">current</span>, <span class="ident">region</span>, <span class="ident">variance_i</span>);
+        }
     }
 
     <span class="doccomment">/// Adds constraints appropriate for an instance of `ty` appearing</span>
     <span class="doccomment">/// in a context with the generics defined in `generics` and</span>
     <span class="doccomment">/// ambient variance `variance`</span>
     <span class="kw">fn</span> <span class="ident">add_constraints_from_ty</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
-                               <span class="ident">generics</span>: <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">Generics</span>,
+                               <span class="ident">current</span>: <span class="kw-2">&amp;</span><span class="ident">CurrentItem</span>,
                                <span class="ident">ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
                                <span class="ident">variance</span>: <span class="ident">VarianceTermPtr</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>) {
         <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;add_constraints_from_ty(ty={:?}, variance={:?})&quot;</span>,
@@ -897,103 +827,66 @@
                 <span class="comment">// leaf type -- noop</span>
             }
 
-            <span class="ident">ty</span>::<span class="ident">TyClosure</span>(..) <span class="op">|</span>
-            <span class="ident">ty</span>::<span class="ident">TyAnon</span>(..) <span class="op">=&gt;</span> {
+            <span class="ident">ty</span>::<span class="ident">TyFnDef</span>(..) <span class="op">|</span>
+            <span class="ident">ty</span>::<span class="ident">TyClosure</span>(..) <span class="op">=&gt;</span> {
                 <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;Unexpected closure type in variance computation&quot;</span>);
             }
 
             <span class="ident">ty</span>::<span class="ident">TyRef</span>(<span class="ident">region</span>, <span class="kw-2">ref</span> <span class="ident">mt</span>) <span class="op">=&gt;</span> {
                 <span class="kw">let</span> <span class="ident">contra</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">contravariant</span>(<span class="ident">variance</span>);
-                <span class="self">self</span>.<span class="ident">add_constraints_from_region</span>(<span class="ident">generics</span>, <span class="ident">region</span>, <span class="ident">contra</span>);
-                <span class="self">self</span>.<span class="ident">add_constraints_from_mt</span>(<span class="ident">generics</span>, <span class="ident">mt</span>, <span class="ident">variance</span>);
+                <span class="self">self</span>.<span class="ident">add_constraints_from_region</span>(<span class="ident">current</span>, <span class="ident">region</span>, <span class="ident">contra</span>);
+                <span class="self">self</span>.<span class="ident">add_constraints_from_mt</span>(<span class="ident">current</span>, <span class="ident">mt</span>, <span class="ident">variance</span>);
             }
 
             <span class="ident">ty</span>::<span class="ident">TyArray</span>(<span class="ident">typ</span>, _) <span class="op">|</span>
             <span class="ident">ty</span>::<span class="ident">TySlice</span>(<span class="ident">typ</span>) <span class="op">=&gt;</span> {
-                <span class="self">self</span>.<span class="ident">add_constraints_from_ty</span>(<span class="ident">generics</span>, <span class="ident">typ</span>, <span class="ident">variance</span>);
+                <span class="self">self</span>.<span class="ident">add_constraints_from_ty</span>(<span class="ident">current</span>, <span class="ident">typ</span>, <span class="ident">variance</span>);
             }
 
             <span class="ident">ty</span>::<span class="ident">TyRawPtr</span>(<span class="kw-2">ref</span> <span class="ident">mt</span>) <span class="op">=&gt;</span> {
-                <span class="self">self</span>.<span class="ident">add_constraints_from_mt</span>(<span class="ident">generics</span>, <span class="ident">mt</span>, <span class="ident">variance</span>);
+                <span class="self">self</span>.<span class="ident">add_constraints_from_mt</span>(<span class="ident">current</span>, <span class="ident">mt</span>, <span class="ident">variance</span>);
             }
 
             <span class="ident">ty</span>::<span class="ident">TyTuple</span>(<span class="ident">subtys</span>, _) <span class="op">=&gt;</span> {
                 <span class="kw">for</span> <span class="kw-2">&amp;</span><span class="ident">subty</span> <span class="kw">in</span> <span class="ident">subtys</span> {
-                    <span class="self">self</span>.<span class="ident">add_constraints_from_ty</span>(<span class="ident">generics</span>, <span class="ident">subty</span>, <span class="ident">variance</span>);
+                    <span class="self">self</span>.<span class="ident">add_constraints_from_ty</span>(<span class="ident">current</span>, <span class="ident">subty</span>, <span class="ident">variance</span>);
                 }
             }
 
             <span class="ident">ty</span>::<span class="ident">TyAdt</span>(<span class="ident">def</span>, <span class="ident">substs</span>) <span class="op">=&gt;</span> {
-                <span class="kw">let</span> <span class="ident">adt_generics</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">item_generics</span>(<span class="ident">def</span>.<span class="ident">did</span>);
-
-                <span class="comment">// This edge is actually implied by the call to</span>
-                <span class="comment">// `lookup_trait_def`, but I&#39;m trying to be future-proof. See</span>
-                <span class="comment">// README.md for a discussion on dep-graph management.</span>
-                <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">dep_graph</span>.<span class="ident">read</span>(<span class="ident">VarianceDepNode</span>(<span class="ident">def</span>.<span class="ident">did</span>));
-
-                <span class="self">self</span>.<span class="ident">add_constraints_from_substs</span>(<span class="ident">generics</span>,
-                                                 <span class="ident">def</span>.<span class="ident">did</span>,
-                                                 <span class="kw-2">&amp;</span><span class="ident">adt_generics</span>.<span class="ident">types</span>,
-                                                 <span class="kw-2">&amp;</span><span class="ident">adt_generics</span>.<span class="ident">regions</span>,
-                                                 <span class="ident">substs</span>,
-                                                 <span class="ident">variance</span>);
+                <span class="self">self</span>.<span class="ident">add_constraints_from_substs</span>(<span class="ident">current</span>, <span class="ident">def</span>.<span class="ident">did</span>, <span class="ident">substs</span>, <span class="ident">variance</span>);
             }
 
             <span class="ident">ty</span>::<span class="ident">TyProjection</span>(<span class="kw-2">ref</span> <span class="ident">data</span>) <span class="op">=&gt;</span> {
-                <span class="kw">let</span> <span class="ident">trait_ref</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="ident">data</span>.<span class="ident">trait_ref</span>;
-                <span class="kw">let</span> <span class="ident">trait_generics</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">item_generics</span>(<span class="ident">trait_ref</span>.<span class="ident">def_id</span>);
+                <span class="kw">let</span> <span class="ident">tcx</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>();
+                <span class="self">self</span>.<span class="ident">add_constraints_from_trait_ref</span>(<span class="ident">current</span>, <span class="ident">data</span>.<span class="ident">trait_ref</span>(<span class="ident">tcx</span>), <span class="ident">variance</span>);
+            }
 
-                <span class="comment">// This edge is actually implied by the call to</span>
-                <span class="comment">// `lookup_trait_def`, but I&#39;m trying to be future-proof. See</span>
-                <span class="comment">// README.md for a discussion on dep-graph management.</span>
-                <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">dep_graph</span>.<span class="ident">read</span>(<span class="ident">VarianceDepNode</span>(<span class="ident">trait_ref</span>.<span class="ident">def_id</span>));
-
-                <span class="self">self</span>.<span class="ident">add_constraints_from_substs</span>(<span class="ident">generics</span>,
-                                                 <span class="ident">trait_ref</span>.<span class="ident">def_id</span>,
-                                                 <span class="kw-2">&amp;</span><span class="ident">trait_generics</span>.<span class="ident">types</span>,
-                                                 <span class="kw-2">&amp;</span><span class="ident">trait_generics</span>.<span class="ident">regions</span>,
-                                                 <span class="ident">trait_ref</span>.<span class="ident">substs</span>,
-                                                 <span class="ident">variance</span>);
+            <span class="ident">ty</span>::<span class="ident">TyAnon</span>(_, <span class="ident">substs</span>) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">add_constraints_from_invariant_substs</span>(<span class="ident">current</span>, <span class="ident">substs</span>, <span class="ident">variance</span>);
             }
 
             <span class="ident">ty</span>::<span class="ident">TyDynamic</span>(<span class="kw-2">ref</span> <span class="ident">data</span>, <span class="ident">r</span>) <span class="op">=&gt;</span> {
                 <span class="comment">// The type `Foo&lt;T+&#39;a&gt;` is contravariant w/r/t `&#39;a`:</span>
                 <span class="kw">let</span> <span class="ident">contra</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">contravariant</span>(<span class="ident">variance</span>);
-                <span class="self">self</span>.<span class="ident">add_constraints_from_region</span>(<span class="ident">generics</span>, <span class="ident">r</span>, <span class="ident">contra</span>);
+                <span class="self">self</span>.<span class="ident">add_constraints_from_region</span>(<span class="ident">current</span>, <span class="ident">r</span>, <span class="ident">contra</span>);
 
                 <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">p</span>) <span class="op">=</span> <span class="ident">data</span>.<span class="ident">principal</span>() {
                     <span class="kw">let</span> <span class="ident">poly_trait_ref</span> <span class="op">=</span> <span class="ident">p</span>.<span class="ident">with_self_ty</span>(<span class="self">self</span>.<span class="ident">tcx</span>(), <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">types</span>.<span class="ident">err</span>);
-                    <span class="self">self</span>.<span class="ident">add_constraints_from_trait_ref</span>(<span class="ident">generics</span>, <span class="ident">poly_trait_ref</span>.<span class="number">0</span>, <span class="ident">variance</span>);
+                    <span class="self">self</span>.<span class="ident">add_constraints_from_trait_ref</span>(<span class="ident">current</span>, <span class="ident">poly_trait_ref</span>.<span class="number">0</span>, <span class="ident">variance</span>);
                 }
 
                 <span class="kw">for</span> <span class="ident">projection</span> <span class="kw">in</span> <span class="ident">data</span>.<span class="ident">projection_bounds</span>() {
-                    <span class="self">self</span>.<span class="ident">add_constraints_from_ty</span>(<span class="ident">generics</span>, <span class="ident">projection</span>.<span class="number">0</span>.<span class="ident">ty</span>, <span class="self">self</span>.<span class="ident">invariant</span>);
+                    <span class="self">self</span>.<span class="ident">add_constraints_from_ty</span>(<span class="ident">current</span>, <span class="ident">projection</span>.<span class="number">0</span>.<span class="ident">ty</span>, <span class="self">self</span>.<span class="ident">invariant</span>);
                 }
             }
 
             <span class="ident">ty</span>::<span class="ident">TyParam</span>(<span class="kw-2">ref</span> <span class="ident">data</span>) <span class="op">=&gt;</span> {
-                <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">generics</span>.<span class="ident">parent</span>, <span class="prelude-val">None</span>);
-                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">i</span> <span class="op">=</span> <span class="ident">data</span>.<span class="ident">idx</span> <span class="kw">as</span> <span class="ident">usize</span>;
-                <span class="kw">if</span> <span class="op">!</span><span class="ident">generics</span>.<span class="ident">has_self</span> <span class="op">||</span> <span class="ident">i</span> <span class="op">&gt;</span> <span class="number">0</span> {
-                    <span class="ident">i</span> <span class="op">-=</span> <span class="ident">generics</span>.<span class="ident">regions</span>.<span class="ident">len</span>();
-                }
-                <span class="kw">let</span> <span class="ident">def_id</span> <span class="op">=</span> <span class="ident">generics</span>.<span class="ident">types</span>[<span class="ident">i</span>].<span class="ident">def_id</span>;
-                <span class="kw">let</span> <span class="ident">node_id</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">hir</span>.<span class="ident">as_local_node_id</span>(<span class="ident">def_id</span>).<span class="ident">unwrap</span>();
-                <span class="kw">match</span> <span class="self">self</span>.<span class="ident">terms_cx</span>.<span class="ident">inferred_map</span>.<span class="ident">get</span>(<span class="kw-2">&amp;</span><span class="ident">node_id</span>) {
-                    <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="ident">index</span>) <span class="op">=&gt;</span> {
-                        <span class="self">self</span>.<span class="ident">add_constraint</span>(<span class="ident">index</span>, <span class="ident">variance</span>);
-                    }
-                    <span class="prelude-val">None</span> <span class="op">=&gt;</span> {
-                        <span class="comment">// We do not infer variance for type parameters</span>
-                        <span class="comment">// declared on methods. They will not be present</span>
-                        <span class="comment">// in the inferred_map.</span>
-                    }
-                }
+                <span class="self">self</span>.<span class="ident">add_constraint</span>(<span class="ident">current</span>, <span class="ident">data</span>.<span class="ident">idx</span>, <span class="ident">variance</span>);
             }
 
-            <span class="ident">ty</span>::<span class="ident">TyFnDef</span>(.., <span class="ident">sig</span>) <span class="op">|</span>
             <span class="ident">ty</span>::<span class="ident">TyFnPtr</span>(<span class="ident">sig</span>) <span class="op">=&gt;</span> {
-                <span class="self">self</span>.<span class="ident">add_constraints_from_sig</span>(<span class="ident">generics</span>, <span class="ident">sig</span>, <span class="ident">variance</span>);
+                <span class="self">self</span>.<span class="ident">add_constraints_from_sig</span>(<span class="ident">current</span>, <span class="ident">sig</span>, <span class="ident">variance</span>);
             }
 
             <span class="ident">ty</span>::<span class="ident">TyError</span> <span class="op">=&gt;</span> {
@@ -1012,10 +905,8 @@
     <span class="doccomment">/// Adds constraints appropriate for a nominal type (enum, struct,</span>
     <span class="doccomment">/// object, etc) appearing in a context with ambient variance `variance`</span>
     <span class="kw">fn</span> <span class="ident">add_constraints_from_substs</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
-                                   <span class="ident">generics</span>: <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">Generics</span>,
+                                   <span class="ident">current</span>: <span class="kw-2">&amp;</span><span class="ident">CurrentItem</span>,
                                    <span class="ident">def_id</span>: <span class="ident">DefId</span>,
-                                   <span class="ident">type_param_defs</span>: <span class="kw-2">&amp;</span>[<span class="ident">ty</span>::<span class="ident">TypeParameterDef</span>],
-                                   <span class="ident">region_param_defs</span>: <span class="kw-2">&amp;</span>[<span class="ident">ty</span>::<span class="ident">RegionParameterDef</span>],
                                    <span class="ident">substs</span>: <span class="kw-2">&amp;</span><span class="ident">Substs</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
                                    <span class="ident">variance</span>: <span class="ident">VarianceTermPtr</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>) {
         <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;add_constraints_from_substs(def_id={:?}, substs={:?}, variance={:?})&quot;</span>,
@@ -1023,60 +914,77 @@
                <span class="ident">substs</span>,
                <span class="ident">variance</span>);
 
-        <span class="kw">for</span> <span class="ident">p</span> <span class="kw">in</span> <span class="ident">type_param_defs</span> {
-            <span class="kw">let</span> <span class="ident">variance_decl</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">declared_variance</span>(<span class="ident">p</span>.<span class="ident">def_id</span>, <span class="ident">def_id</span>, <span class="ident">p</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>);
+        <span class="comment">// We don&#39;t record `inferred_starts` entries for empty generics.</span>
+        <span class="kw">if</span> <span class="ident">substs</span>.<span class="ident">is_empty</span>() {
+            <span class="kw">return</span>;
+        }
+
+        <span class="comment">// Add a corresponding relation into the dependencies to</span>
+        <span class="comment">// indicate that the variance for `current` relies on `def_id`.</span>
+        <span class="kw">if</span> <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">dep_graph</span>.<span class="ident">is_fully_enabled</span>() {
+            <span class="self">self</span>.<span class="ident">dependencies</span>.<span class="ident">add</span>(<span class="ident">current</span>.<span class="ident">def_id</span>, <span class="ident">def_id</span>);
+        }
+
+        <span class="kw">let</span> (<span class="ident">local</span>, <span class="ident">remote</span>) <span class="op">=</span> <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">id</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">hir</span>.<span class="ident">as_local_node_id</span>(<span class="ident">def_id</span>) {
+            (<span class="prelude-val">Some</span>(<span class="self">self</span>.<span class="ident">terms_cx</span>.<span class="ident">inferred_starts</span>[<span class="kw-2">&amp;</span><span class="ident">id</span>]), <span class="prelude-val">None</span>)
+        } <span class="kw">else</span> {
+            (<span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(<span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">variances_of</span>(<span class="ident">def_id</span>)))
+        };
+
+        <span class="kw">for</span> (<span class="ident">i</span>, <span class="ident">k</span>) <span class="kw">in</span> <span class="ident">substs</span>.<span class="ident">iter</span>().<span class="ident">enumerate</span>() {
+            <span class="kw">let</span> <span class="ident">variance_decl</span> <span class="op">=</span> <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">InferredIndex</span>(<span class="ident">start</span>)) <span class="op">=</span> <span class="ident">local</span> {
+                <span class="comment">// Parameter on an item defined within current crate:</span>
+                <span class="comment">// variance not yet inferred, so return a symbolic</span>
+                <span class="comment">// variance.</span>
+                <span class="self">self</span>.<span class="ident">terms_cx</span>.<span class="ident">inferred_terms</span>[<span class="ident">start</span> <span class="op">+</span> <span class="ident">i</span>]
+            } <span class="kw">else</span> {
+                <span class="comment">// Parameter on an item defined within another crate:</span>
+                <span class="comment">// variance already inferred, just look it up.</span>
+                <span class="self">self</span>.<span class="ident">constant_term</span>(<span class="ident">remote</span>.<span class="ident">as_ref</span>().<span class="ident">unwrap</span>()[<span class="ident">i</span>])
+            };
             <span class="kw">let</span> <span class="ident">variance_i</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">xform</span>(<span class="ident">variance</span>, <span class="ident">variance_decl</span>);
-            <span class="kw">let</span> <span class="ident">substs_ty</span> <span class="op">=</span> <span class="ident">substs</span>.<span class="ident">type_for_def</span>(<span class="ident">p</span>);
             <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;add_constraints_from_substs: variance_decl={:?} variance_i={:?}&quot;</span>,
                    <span class="ident">variance_decl</span>,
                    <span class="ident">variance_i</span>);
-            <span class="self">self</span>.<span class="ident">add_constraints_from_ty</span>(<span class="ident">generics</span>, <span class="ident">substs_ty</span>, <span class="ident">variance_i</span>);
-        }
-
-        <span class="kw">for</span> <span class="ident">p</span> <span class="kw">in</span> <span class="ident">region_param_defs</span> {
-            <span class="kw">let</span> <span class="ident">variance_decl</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">declared_variance</span>(<span class="ident">p</span>.<span class="ident">def_id</span>, <span class="ident">def_id</span>, <span class="ident">p</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span>);
-            <span class="kw">let</span> <span class="ident">variance_i</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">xform</span>(<span class="ident">variance</span>, <span class="ident">variance_decl</span>);
-            <span class="kw">let</span> <span class="ident">substs_r</span> <span class="op">=</span> <span class="ident">substs</span>.<span class="ident">region_for_def</span>(<span class="ident">p</span>);
-            <span class="self">self</span>.<span class="ident">add_constraints_from_region</span>(<span class="ident">generics</span>, <span class="ident">substs_r</span>, <span class="ident">variance_i</span>);
+            <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">ty</span>) <span class="op">=</span> <span class="ident">k</span>.<span class="ident">as_type</span>() {
+                <span class="self">self</span>.<span class="ident">add_constraints_from_ty</span>(<span class="ident">current</span>, <span class="ident">ty</span>, <span class="ident">variance_i</span>);
+            } <span class="kw">else</span> <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">r</span>) <span class="op">=</span> <span class="ident">k</span>.<span class="ident">as_region</span>() {
+                <span class="self">self</span>.<span class="ident">add_constraints_from_region</span>(<span class="ident">current</span>, <span class="ident">r</span>, <span class="ident">variance_i</span>);
+            } <span class="kw">else</span> {
+                <span class="macro">bug</span><span class="macro">!</span>();
+            }
         }
     }
 
     <span class="doccomment">/// Adds constraints appropriate for a function with signature</span>
     <span class="doccomment">/// `sig` appearing in a context with ambient variance `variance`</span>
     <span class="kw">fn</span> <span class="ident">add_constraints_from_sig</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
-                                <span class="ident">generics</span>: <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">Generics</span>,
+                                <span class="ident">current</span>: <span class="kw-2">&amp;</span><span class="ident">CurrentItem</span>,
                                 <span class="ident">sig</span>: <span class="ident">ty</span>::<span class="ident">PolyFnSig</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
                                 <span class="ident">variance</span>: <span class="ident">VarianceTermPtr</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>) {
         <span class="kw">let</span> <span class="ident">contra</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">contravariant</span>(<span class="ident">variance</span>);
         <span class="kw">for</span> <span class="kw-2">&amp;</span><span class="ident">input</span> <span class="kw">in</span> <span class="ident">sig</span>.<span class="number">0</span>.<span class="ident">inputs</span>() {
-            <span class="self">self</span>.<span class="ident">add_constraints_from_ty</span>(<span class="ident">generics</span>, <span class="ident">input</span>, <span class="ident">contra</span>);
+            <span class="self">self</span>.<span class="ident">add_constraints_from_ty</span>(<span class="ident">current</span>, <span class="ident">input</span>, <span class="ident">contra</span>);
         }
-        <span class="self">self</span>.<span class="ident">add_constraints_from_ty</span>(<span class="ident">generics</span>, <span class="ident">sig</span>.<span class="number">0</span>.<span class="ident">output</span>(), <span class="ident">variance</span>);
+        <span class="self">self</span>.<span class="ident">add_constraints_from_ty</span>(<span class="ident">current</span>, <span class="ident">sig</span>.<span class="number">0</span>.<span class="ident">output</span>(), <span class="ident">variance</span>);
     }
 
     <span class="doccomment">/// Adds constraints appropriate for a region appearing in a</span>
     <span class="doccomment">/// context with ambient variance `variance`</span>
     <span class="kw">fn</span> <span class="ident">add_constraints_from_region</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
-                                   <span class="ident">generics</span>: <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">Generics</span>,
-                                   <span class="ident">region</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Region</span>,
+                                   <span class="ident">current</span>: <span class="kw-2">&amp;</span><span class="ident">CurrentItem</span>,
+                                   <span class="ident">region</span>: <span class="ident">ty</span>::<span class="ident">Region</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
                                    <span class="ident">variance</span>: <span class="ident">VarianceTermPtr</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>) {
         <span class="kw">match</span> <span class="kw-2">*</span><span class="ident">region</span> {
             <span class="ident">ty</span>::<span class="ident">ReEarlyBound</span>(<span class="kw-2">ref</span> <span class="ident">data</span>) <span class="op">=&gt;</span> {
-                <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">generics</span>.<span class="ident">parent</span>, <span class="prelude-val">None</span>);
-                <span class="kw">let</span> <span class="ident">i</span> <span class="op">=</span> <span class="ident">data</span>.<span class="ident">index</span> <span class="kw">as</span> <span class="ident">usize</span> <span class="op">-</span> <span class="ident">generics</span>.<span class="ident">has_self</span> <span class="kw">as</span> <span class="ident">usize</span>;
-                <span class="kw">let</span> <span class="ident">def_id</span> <span class="op">=</span> <span class="ident">generics</span>.<span class="ident">regions</span>[<span class="ident">i</span>].<span class="ident">def_id</span>;
-                <span class="kw">let</span> <span class="ident">node_id</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">hir</span>.<span class="ident">as_local_node_id</span>(<span class="ident">def_id</span>).<span class="ident">unwrap</span>();
-                <span class="kw">if</span> <span class="self">self</span>.<span class="ident">is_to_be_inferred</span>(<span class="ident">node_id</span>) {
-                    <span class="kw">let</span> <span class="ident">index</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">inferred_index</span>(<span class="ident">node_id</span>);
-                    <span class="self">self</span>.<span class="ident">add_constraint</span>(<span class="ident">index</span>, <span class="ident">variance</span>);
-                }
+                <span class="self">self</span>.<span class="ident">add_constraint</span>(<span class="ident">current</span>, <span class="ident">data</span>.<span class="ident">index</span>, <span class="ident">variance</span>);
             }
 
             <span class="ident">ty</span>::<span class="ident">ReStatic</span> <span class="op">=&gt;</span> {}
 
             <span class="ident">ty</span>::<span class="ident">ReLateBound</span>(..) <span class="op">=&gt;</span> {
-                <span class="comment">// We do not infer variance for region parameters on</span>
-                <span class="comment">// methods or in fn types.</span>
+                <span class="comment">// Late-bound regions do not get substituted the same</span>
+                <span class="comment">// way early-bound regions do, so we skip them here.</span>
             }
 
             <span class="ident">ty</span>::<span class="ident">ReFree</span>(..) <span class="op">|</span>
@@ -1097,17 +1005,17 @@
     <span class="doccomment">/// Adds constraints appropriate for a mutability-type pair</span>
     <span class="doccomment">/// appearing in a context with ambient variance `variance`</span>
     <span class="kw">fn</span> <span class="ident">add_constraints_from_mt</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
-                               <span class="ident">generics</span>: <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">Generics</span>,
+                               <span class="ident">current</span>: <span class="kw-2">&amp;</span><span class="ident">CurrentItem</span>,
                                <span class="ident">mt</span>: <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">TypeAndMut</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
                                <span class="ident">variance</span>: <span class="ident">VarianceTermPtr</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>) {
         <span class="kw">match</span> <span class="ident">mt</span>.<span class="ident">mutbl</span> {
             <span class="ident">hir</span>::<span class="ident">MutMutable</span> <span class="op">=&gt;</span> {
                 <span class="kw">let</span> <span class="ident">invar</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">invariant</span>(<span class="ident">variance</span>);
-                <span class="self">self</span>.<span class="ident">add_constraints_from_ty</span>(<span class="ident">generics</span>, <span class="ident">mt</span>.<span class="ident">ty</span>, <span class="ident">invar</span>);
+                <span class="self">self</span>.<span class="ident">add_constraints_from_ty</span>(<span class="ident">current</span>, <span class="ident">mt</span>.<span class="ident">ty</span>, <span class="ident">invar</span>);
             }
 
             <span class="ident">hir</span>::<span class="ident">MutImmutable</span> <span class="op">=&gt;</span> {
-                <span class="self">self</span>.<span class="ident">add_constraints_from_ty</span>(<span class="ident">generics</span>, <span class="ident">mt</span>.<span class="ident">ty</span>, <span class="ident">variance</span>);
+                <span class="self">self</span>.<span class="ident">add_constraints_from_ty</span>(<span class="ident">current</span>, <span class="ident">mt</span>.<span class="ident">ty</span>, <span class="ident">variance</span>);
             }
         }
     }
@@ -1170,7 +1078,6 @@
         window.rootPath = "../../../";
         window.currentCrate = "rustc_typeck";
     </script>
-    <script src="../../../jquery.js"></script>
     <script src="../../../main.js"></script>
     <script defer src="../../../search-index.js"></script>
 </body>

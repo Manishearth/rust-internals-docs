@@ -132,6 +132,14 @@
 <span id="87">87</span>
 <span id="88">88</span>
 <span id="89">89</span>
+<span id="90">90</span>
+<span id="91">91</span>
+<span id="92">92</span>
+<span id="93">93</span>
+<span id="94">94</span>
+<span id="95">95</span>
+<span id="96">96</span>
+<span id="97">97</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2016 The Rust Project Developers. See the COPYRIGHT</span>
 <span class="comment">// file at the top-level directory of this distribution and at</span>
@@ -148,6 +156,7 @@
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">hir</span>::<span class="ident">def</span>::<span class="ident">Def</span>;
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">hir</span>::<span class="ident">def_id</span>::{<span class="ident">CrateNum</span>, <span class="ident">CRATE_DEF_INDEX</span>, <span class="ident">DefId</span>};
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::<span class="ident">Visibility</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">util</span>::<span class="ident">nodemap</span>::<span class="ident">FxHashSet</span>;
 
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">cell</span>::<span class="ident">RefMut</span>;
 
@@ -164,15 +173,18 @@
     <span class="ident">access_levels</span>: <span class="ident">RefMut</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">AccessLevels</span><span class="op">&lt;</span><span class="ident">DefId</span><span class="op">&gt;&gt;</span>,
     <span class="comment">// Previous accessibility level, None means unreachable</span>
     <span class="ident">prev_level</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">AccessLevel</span><span class="op">&gt;</span>,
+    <span class="comment">// Keeps track of already visited modules, in case a module re-exports its parent</span>
+    <span class="ident">visited_mods</span>: <span class="ident">FxHashSet</span><span class="op">&lt;</span><span class="ident">DefId</span><span class="op">&gt;</span>,
 }
 
 <span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;b</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">LibEmbargoVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;b</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">new</span>(<span class="ident">cx</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> ::<span class="ident">core</span>::<span class="ident">DocContext</span><span class="op">&lt;</span><span class="lifetime">&#39;b</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">LibEmbargoVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;b</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
         <span class="ident">LibEmbargoVisitor</span> {
-            <span class="ident">cx</span>: <span class="ident">cx</span>,
+            <span class="ident">cx</span>,
             <span class="ident">cstore</span>: <span class="kw-2">&amp;</span><span class="kw-2">*</span><span class="ident">cx</span>.<span class="ident">sess</span>().<span class="ident">cstore</span>,
             <span class="ident">access_levels</span>: <span class="ident">cx</span>.<span class="ident">access_levels</span>.<span class="ident">borrow_mut</span>(),
             <span class="ident">prev_level</span>: <span class="prelude-val">Some</span>(<span class="ident">AccessLevel</span>::<span class="ident">Public</span>),
+            <span class="ident">visited_mods</span>: <span class="ident">FxHashSet</span>()
         }
     }
 
@@ -197,7 +209,11 @@
     }
 
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">visit_mod</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">def_id</span>: <span class="ident">DefId</span>) {
-        <span class="kw">for</span> <span class="ident">item</span> <span class="kw">in</span> <span class="self">self</span>.<span class="ident">cstore</span>.<span class="ident">item_children</span>(<span class="ident">def_id</span>) {
+        <span class="kw">if</span> <span class="op">!</span><span class="self">self</span>.<span class="ident">visited_mods</span>.<span class="ident">insert</span>(<span class="ident">def_id</span>) {
+            <span class="kw">return</span>;
+        }
+
+        <span class="kw">for</span> <span class="ident">item</span> <span class="kw">in</span> <span class="self">self</span>.<span class="ident">cstore</span>.<span class="ident">item_children</span>(<span class="ident">def_id</span>, <span class="self">self</span>.<span class="ident">cx</span>.<span class="ident">tcx</span>.<span class="ident">sess</span>) {
             <span class="self">self</span>.<span class="ident">visit_item</span>(<span class="ident">item</span>.<span class="ident">def</span>);
         }
     }
@@ -280,7 +296,6 @@
         window.rootPath = "../../";
         window.currentCrate = "rustdoc";
     </script>
-    <script src="../../jquery.js"></script>
     <script src="../../main.js"></script>
     <script defer src="../../search-index.js"></script>
 </body>
