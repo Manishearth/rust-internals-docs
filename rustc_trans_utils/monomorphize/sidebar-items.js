@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["custom_coerce_unsize_info",""],["field_ty","Returns the normalized type of a struct field"],["resolve_closure",""],["resolve_drop_in_place",""]],"struct":[["Instance",""]]});

@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["InstantiationMode","Describes how a translation item will be instantiated in object files."],["TransItem",""]],"fn":[["linkage_by_name",""]],"struct":[["DefPathBasedNames","Same as `unique_type_name()` but with the result pushed onto the given `output` parameter."]],"trait":[["TransItemExt",""]]});

@@ -48,8 +48,128 @@
                    <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
                        [<span class='inner'>&#x2212;</span>]
                    </a>
-               </span><a class='srclink' href='../../src/std/ffi/mod.rs.html#11-24' title='goto source code'>[src]</a></span></h1>
+               </span><a class='srclink' href='../../src/std/ffi/mod.rs.html#11-175' title='goto source code'>[src]</a></span></h1>
 <div class='docblock'><p>Utilities related to FFI bindings.</p>
+
+<p>This module provides utilities to handle data across non-Rust
+interfaces, like other programming languages and the underlying
+operating system. It is mainly of use for FFI (Foreign Function
+Interface) bindings and code that needs to exchange C-like strings
+with other languages.</p>
+
+<h1 id='overview' class='section-header'><a href='#overview'>Overview</a></h1>
+<p>Rust represents owned strings with the <a href="../string/struct.String.html"><code>String</code></a> type, and
+borrowed slices of strings with the <a href="../primitive.str.html"><code>str</code></a> primitive. Both are
+always in UTF-8 encoding, and may contain nul bytes in the middle,
+i.e. if you look at the bytes that make up the string, there may
+be a <code>\0</code> among them. Both <code>String</code> and <code>str</code> store their length
+explicitly; there are no nul terminators at the end of strings
+like in C.</p>
+
+<p>C strings are different from Rust strings:</p>
+
+<ul>
+<li><p><strong>Encodings</strong> - Rust strings are UTF-8, but C strings may use
+other encodings. If you are using a string from C, you should
+check its encoding explicitly, rather than just assuming that it
+is UTF-8 like you can do in Rust.</p></li>
+<li><p><strong>Character size</strong> - C strings may use <code>char</code> or <code>wchar_t</code>-sized
+characters; please <strong>note</strong> that C&#39;s <code>char</code> is different from Rust&#39;s.
+The C standard leaves the actual sizes of those types open to
+interpretation, but defines different APIs for strings made up of
+each character type. Rust strings are always UTF-8, so different
+Unicode characters will be encoded in a variable number of bytes
+each. The Rust type <a href="../primitive.char.html"><code>char</code></a> represents a &#39;<a href="http://www.unicode.org/glossary/#unicode_scalar_value">Unicode scalar
+value</a>&#39;, which is similar to, but not the same as, a &#39;<a href="http://www.unicode.org/glossary/#code_point">Unicode
+code point</a>&#39;.</p></li>
+<li><p><strong>Nul terminators and implicit string lengths</strong> - Often, C
+strings are nul-terminated, i.e. they have a <code>\0</code> character at the
+end. The length of a string buffer is not stored, but has to be
+calculated; to compute the length of a string, C code must
+manually call a function like <code>strlen()</code> for <code>char</code>-based strings,
+or <code>wcslen()</code> for <code>wchar_t</code>-based ones. Those functions return
+the number of characters in the string excluding the nul
+terminator, so the buffer length is really <code>len+1</code> characters.
+Rust strings don&#39;t have a nul terminator; their length is always
+stored and does not need to be calculated. While in Rust
+accessing a string&#39;s length is a O(1) operation (becasue the
+length is stored); in C it is an O(length) operation because the
+length needs to be computed by scanning the string for the nul
+terminator.</p></li>
+<li><p><strong>Internal nul characters</strong> - When C strings have a nul
+terminator character, this usually means that they cannot have nul
+characters in the middle — a nul character would essentially
+truncate the string. Rust strings <em>can</em> have nul characters in
+the middle, because nul does not have to mark the end of the
+string in Rust.</p></li>
+</ul>
+
+<h1 id='representations-of-non-rust-strings' class='section-header'><a href='#representations-of-non-rust-strings'>Representations of non-Rust strings</a></h1>
+<p><a href="struct.CString.html"><code>CString</code></a> and <a href="struct.CStr.html"><code>CStr</code></a> are useful when you need to transfer
+UTF-8 strings to and from languages with a C ABI, like Python.</p>
+
+<ul>
+<li><p><strong>From Rust to C:</strong> <a href="struct.CString.html"><code>CString</code></a> represents an owned, C-friendly
+string: it is nul-terminated, and has no internal nul characters.
+Rust code can create a <code>CString</code> out of a normal string (provided
+that the string doesn&#39;t have nul characters in the middle), and
+then use a variety of methods to obtain a raw <code>*mut u8</code> that can
+then be passed as an argument to functions which use the C
+conventions for strings.</p></li>
+<li><p><strong>From C to Rust:</strong> <a href="struct.CStr.html"><code>CStr</code></a> represents a borrowed C string; it
+is what you would use to wrap a raw <code>*const u8</code> that you got from
+a C function. A <code>CStr</code> is guaranteed to be a nul-terminated array
+of bytes. Once you have a <code>CStr</code>, you can convert it to a Rust
+<code>&amp;str</code> if it&#39;s valid UTF-8, or lossily convert it by adding
+replacement characters.</p></li>
+</ul>
+
+<p><a href="struct.OsString.html"><code>OsString</code></a> and <a href="struct.OsStr.html"><code>OsStr</code></a> are useful when you need to transfer
+strings to and from the operating system itself, or when capturing
+the output of external commands. Conversions between <code>OsString</code>,
+<code>OsStr</code> and Rust strings work similarly to those for <a href="struct.CString.html"><code>CString</code></a>
+and <a href="struct.CStr.html"><code>CStr</code></a>.</p>
+
+<ul>
+<li><p><a href="struct.OsString.html"><code>OsString</code></a> represents an owned string in whatever
+representation the operating system prefers. In the Rust standard
+library, various APIs that transfer strings to/from the operating
+system use <code>OsString</code> instead of plain strings. For example,
+<a href="../env/fn.var_os.html"><code>env::var_os()</code></a> is used to query environment variables; it
+returns an <code>Option&lt;OsString&gt;</code>. If the environment variable exists
+you will get a <code>Some(os_string)</code>, which you can <em>then</em> try to
+convert to a Rust string. This yields a <a href="../result/enum.Result.html"><code>Result&lt;&gt;</code></a>, so that
+your code can detect errors in case the environment variable did
+not in fact contain valid Unicode data.</p></li>
+<li><p><a href="struct.OsStr.html"><code>OsStr</code></a> represents a borrowed reference to a string in a
+format that can be passed to the operating system. It can be
+converted into an UTF-8 Rust string slice in a similar way to
+<code>OsString</code>.</p></li>
+</ul>
+
+<h1 id='conversions' class='section-header'><a href='#conversions'>Conversions</a></h1>
+<h2 id='on-unix' class='section-header'><a href='#on-unix'>On Unix</a></h2>
+<p>On Unix, <a href="struct.OsStr.html"><code>OsStr</code></a> implements the
+<code>std::os::unix:ffi::</code><a href="../os/unix/ffi/trait.OsStrExt.html"><code>OsStrExt</code></a> trait, which
+augments it with two methods, <a href="../os/unix/ffi/trait.OsStrExt.html#tymethod.from_bytes"><code>from_bytes</code></a> and <a href="../os/unix/ffi/trait.OsStrExt.html#tymethod.as_bytes"><code>as_bytes</code></a>.
+These do inexpensive conversions from and to UTF-8 byte slices.</p>
+
+<p>Additionally, on Unix <a href="struct.OsString.html"><code>OsString</code></a> implements the
+<code>std::os::unix:ffi::</code><a href="../os/unix/ffi/trait.OsStringExt.html"><code>OsStringExt</code></a> trait,
+which provides <a href="../os/unix/ffi/trait.OsStringExt.html#tymethod.from_vec"><code>from_vec</code></a> and <a href="../os/unix/ffi/trait.OsStringExt.html#tymethod.into_vec"><code>into_vec</code></a> methods that consume
+their arguments, and take or produce vectors of <a href="../primitive.u8.html"><code>u8</code></a>.</p>
+
+<h2 id='on-windows' class='section-header'><a href='#on-windows'>On Windows</a></h2>
+<p>On Windows, <a href="struct.OsStr.html"><code>OsStr</code></a> implements the
+<code>std::os::windows::ffi::</code><a href="../os/windows/ffi/trait.OsStrExt.html"><code>OsStrExt</code></a> trait,
+which provides an <a href="../os/windows/ffi/trait.OsStrExt.html#tymethod.encode_wide"><code>encode_wide</code></a> method. This provides an
+iterator that can be <a href="../iter/trait.Iterator.html#method.collect"><code>collect</code></a>ed into a vector of <a href="../primitive.u16.html"><code>u16</code></a>.</p>
+
+<p>Additionally, on Windows <a href="struct.OsString.html"><code>OsString</code></a> implements the
+<code>std::os::windows:ffi::</code><a href="../os/windows/ffi/trait.OsStringExt.html"><code>OsStringExt</code></a>
+trait, which provides a <a href="../os/windows/ffi/trait.OsStringExt.html#tymethod.from_wide"><code>from_wide</code></a> method. The result of this
+method is an <code>OsString</code> which can be round-tripped to a Windows
+string losslessly.</p>
 </div><h2 id='structs' class='section-header'><a href="#structs">Structs</a></h2>
 <table>
                        <tr class=' module-item'>
@@ -63,38 +183,36 @@
                            <td><a class="struct" href="struct.CString.html"
                                   title='struct std::ffi::CString'>CString</a></td>
                            <td class='docblock-short'>
-                                <p>A type representing an owned C-compatible string.</p>
+                                <p>A type representing an owned, C-compatible, nul-terminated string with no nul bytes in the
+middle.</p>
                            </td>
                        </tr>
                        <tr class=' module-item'>
                            <td><a class="struct" href="struct.FromBytesWithNulError.html"
                                   title='struct std::ffi::FromBytesWithNulError'>FromBytesWithNulError</a></td>
                            <td class='docblock-short'>
-                                <p>An error returned from <a href="struct.CStr.html#method.from_bytes_with_nul"><code>CStr::from_bytes_with_nul</code></a> to indicate that a nul
-byte was found too early in the slice provided or one wasn&#39;t found at all.</p>
+                                <p>An error indicating that a nul byte was not in the expected position.</p>
                            </td>
                        </tr>
                        <tr class=' module-item'>
                            <td><a class="struct" href="struct.IntoStringError.html"
                                   title='struct std::ffi::IntoStringError'>IntoStringError</a></td>
                            <td class='docblock-short'>
-                                <p>An error returned from <a href="struct.CString.html#method.into_string"><code>CString::into_string</code></a> to indicate that a UTF-8 error
-was encountered during the conversion.</p>
+                                <p>An error indicating invalid UTF-8 when converting a <a href="struct.CString.html"><code>CString</code></a> into a <a href="../string/struct.String.html"><code>String</code></a>.</p>
                            </td>
                        </tr>
                        <tr class=' module-item'>
                            <td><a class="struct" href="struct.NulError.html"
                                   title='struct std::ffi::NulError'>NulError</a></td>
                            <td class='docblock-short'>
-                                <p>An error returned from <a href="struct.CString.html#method.new"><code>CString::new</code></a> to indicate that a nul byte was found
-in the vector provided.</p>
+                                <p>An error indicating that an interior nul byte was found.</p>
                            </td>
                        </tr>
                        <tr class=' module-item'>
                            <td><a class="struct" href="struct.OsStr.html"
                                   title='struct std::ffi::OsStr'>OsStr</a></td>
                            <td class='docblock-short'>
-                                <p>Slices into OS strings (see <a href="struct.OsString.html"><code>OsString</code></a>).</p>
+                                <p>Borrowed reference to an OS string (see <a href="struct.OsString.html"><code>OsString</code></a>).</p>
                            </td>
                        </tr>
                        <tr class=' module-item'>
@@ -121,10 +239,12 @@ cheaply inter-convertible with Rust strings.</p>
                     <dd>Show this help dialog</dd>
                     <dt>S</dt>
                     <dd>Focus the search field</dd>
-                    <dt>&larrb;</dt>
+                    <dt>↑</dt>
                     <dd>Move up in search results</dd>
-                    <dt>&rarrb;</dt>
+                    <dt>↓</dt>
                     <dd>Move down in search results</dd>
+                    <dt>↹</dt>
+                    <dd>Switch tab</dd>
                     <dt>&#9166;</dt>
                     <dd>Go to active search result</dd>
                     <dt>+</dt>

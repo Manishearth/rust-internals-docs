@@ -1,0 +1,1 @@
+initSidebarItems({"macro":[["define_invoke_proc_macro","This macro expands to the definition of another macro (whose name is given as a parameter)."],["define_proc_macros","This macro wraps `&str -> String` functions in custom `derive` implementations with `#[proc_macro_derive]`."]]});

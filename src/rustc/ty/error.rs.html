@@ -341,29 +341,6 @@
 <span id="296">296</span>
 <span id="297">297</span>
 <span id="298">298</span>
-<span id="299">299</span>
-<span id="300">300</span>
-<span id="301">301</span>
-<span id="302">302</span>
-<span id="303">303</span>
-<span id="304">304</span>
-<span id="305">305</span>
-<span id="306">306</span>
-<span id="307">307</span>
-<span id="308">308</span>
-<span id="309">309</span>
-<span id="310">310</span>
-<span id="311">311</span>
-<span id="312">312</span>
-<span id="313">313</span>
-<span id="314">314</span>
-<span id="315">315</span>
-<span id="316">316</span>
-<span id="317">317</span>
-<span id="318">318</span>
-<span id="319">319</span>
-<span id="320">320</span>
-<span id="321">321</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class="comment">// file at the top-level directory of this distribution and at</span>
@@ -377,6 +354,7 @@
 
 <span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">def_id</span>::<span class="ident">DefId</span>;
 <span class="kw">use</span> <span class="ident">infer</span>::<span class="ident">type_variable</span>;
+<span class="kw">use</span> <span class="ident">middle</span>::<span class="ident">const_val</span>::<span class="ident">ConstVal</span>;
 <span class="kw">use</span> <span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">BoundRegion</span>, <span class="ident">DefIdTree</span>, <span class="ident">Region</span>, <span class="ident">Ty</span>, <span class="ident">TyCtxt</span>};
 
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">fmt</span>;
@@ -384,6 +362,8 @@
 <span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">ast</span>;
 <span class="kw">use</span> <span class="ident">errors</span>::<span class="ident">DiagnosticBuilder</span>;
 <span class="kw">use</span> <span class="ident">syntax_pos</span>::<span class="ident">Span</span>;
+
+<span class="kw">use</span> <span class="ident">rustc_const_math</span>::<span class="ident">ConstInt</span>;
 
 <span class="kw">use</span> <span class="ident">hir</span>;
 
@@ -401,13 +381,13 @@
     <span class="ident">AbiMismatch</span>(<span class="ident">ExpectedFound</span><span class="op">&lt;</span><span class="ident">abi</span>::<span class="ident">Abi</span><span class="op">&gt;</span>),
     <span class="ident">Mutability</span>,
     <span class="ident">TupleSize</span>(<span class="ident">ExpectedFound</span><span class="op">&lt;</span><span class="ident">usize</span><span class="op">&gt;</span>),
-    <span class="ident">FixedArraySize</span>(<span class="ident">ExpectedFound</span><span class="op">&lt;</span><span class="ident">usize</span><span class="op">&gt;</span>),
+    <span class="ident">FixedArraySize</span>(<span class="ident">ExpectedFound</span><span class="op">&lt;</span><span class="ident">u64</span><span class="op">&gt;</span>),
     <span class="ident">ArgCount</span>,
+
     <span class="ident">RegionsDoesNotOutlive</span>(<span class="ident">Region</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">Region</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>),
-    <span class="ident">RegionsNotSame</span>(<span class="ident">Region</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">Region</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>),
-    <span class="ident">RegionsNoOverlap</span>(<span class="ident">Region</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">Region</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>),
     <span class="ident">RegionsInsufficientlyPolymorphic</span>(<span class="ident">BoundRegion</span>, <span class="ident">Region</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>),
     <span class="ident">RegionsOverlyPolymorphic</span>(<span class="ident">BoundRegion</span>, <span class="ident">Region</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>),
+
     <span class="ident">Sorts</span>(<span class="ident">ExpectedFound</span><span class="op">&lt;</span><span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>),
     <span class="ident">IntMismatch</span>(<span class="ident">ExpectedFound</span><span class="op">&lt;</span><span class="ident">ty</span>::<span class="ident">IntVarValue</span><span class="op">&gt;</span>),
     <span class="ident">FloatMismatch</span>(<span class="ident">ExpectedFound</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">FloatTy</span><span class="op">&gt;</span>),
@@ -476,12 +456,6 @@
             }
             <span class="ident">RegionsDoesNotOutlive</span>(..) <span class="op">=&gt;</span> {
                 <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;lifetime mismatch&quot;</span>)
-            }
-            <span class="ident">RegionsNotSame</span>(..) <span class="op">=&gt;</span> {
-                <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;lifetimes are not the same&quot;</span>)
-            }
-            <span class="ident">RegionsNoOverlap</span>(..) <span class="op">=&gt;</span> {
-                <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;lifetimes do not intersect&quot;</span>)
             }
             <span class="ident">RegionsInsufficientlyPolymorphic</span>(<span class="ident">br</span>, _) <span class="op">=&gt;</span> {
                 <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>,
@@ -552,7 +526,13 @@
             <span class="ident">ty</span>::<span class="ident">TyTuple</span>(<span class="kw-2">ref</span> <span class="ident">tys</span>, _) <span class="kw">if</span> <span class="ident">tys</span>.<span class="ident">is_empty</span>() <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">to_string</span>(),
 
             <span class="ident">ty</span>::<span class="ident">TyAdt</span>(<span class="ident">def</span>, _) <span class="op">=&gt;</span> <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;{} `{}`&quot;</span>, <span class="ident">def</span>.<span class="ident">descr</span>(), <span class="ident">tcx</span>.<span class="ident">item_path_str</span>(<span class="ident">def</span>.<span class="ident">did</span>)),
-            <span class="ident">ty</span>::<span class="ident">TyArray</span>(_, <span class="ident">n</span>) <span class="op">=&gt;</span> <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;array of {} elements&quot;</span>, <span class="ident">n</span>),
+            <span class="ident">ty</span>::<span class="ident">TyArray</span>(_, <span class="ident">n</span>) <span class="op">=&gt;</span> {
+                <span class="kw">if</span> <span class="kw">let</span> <span class="ident">ConstVal</span>::<span class="ident">Integral</span>(<span class="ident">ConstInt</span>::<span class="ident">Usize</span>(<span class="ident">n</span>)) <span class="op">=</span> <span class="ident">n</span>.<span class="ident">val</span> {
+                    <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;array of {} elements&quot;</span>, <span class="ident">n</span>)
+                } <span class="kw">else</span> {
+                    <span class="string">&quot;array&quot;</span>.<span class="ident">to_string</span>()
+                }
+            }
             <span class="ident">ty</span>::<span class="ident">TySlice</span>(_) <span class="op">=&gt;</span> <span class="string">&quot;slice&quot;</span>.<span class="ident">to_string</span>(),
             <span class="ident">ty</span>::<span class="ident">TyRawPtr</span>(_) <span class="op">=&gt;</span> <span class="string">&quot;*-ptr&quot;</span>.<span class="ident">to_string</span>(),
             <span class="ident">ty</span>::<span class="ident">TyRef</span>(<span class="ident">region</span>, <span class="ident">tymut</span>) <span class="op">=&gt;</span> {
@@ -580,6 +560,7 @@
                     <span class="op">|</span><span class="ident">p</span><span class="op">|</span> <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;trait {}&quot;</span>, <span class="ident">tcx</span>.<span class="ident">item_path_str</span>(<span class="ident">p</span>.<span class="ident">def_id</span>())))
             }
             <span class="ident">ty</span>::<span class="ident">TyClosure</span>(..) <span class="op">=&gt;</span> <span class="string">&quot;closure&quot;</span>.<span class="ident">to_string</span>(),
+            <span class="ident">ty</span>::<span class="ident">TyGenerator</span>(..) <span class="op">=&gt;</span> <span class="string">&quot;generator&quot;</span>.<span class="ident">to_string</span>(),
             <span class="ident">ty</span>::<span class="ident">TyTuple</span>(..) <span class="op">=&gt;</span> <span class="string">&quot;tuple&quot;</span>.<span class="ident">to_string</span>(),
             <span class="ident">ty</span>::<span class="ident">TyInfer</span>(<span class="ident">ty</span>::<span class="ident">TyVar</span>(_)) <span class="op">=&gt;</span> <span class="string">&quot;inferred type&quot;</span>.<span class="ident">to_string</span>(),
             <span class="ident">ty</span>::<span class="ident">TyInfer</span>(<span class="ident">ty</span>::<span class="ident">IntVar</span>(_)) <span class="op">=&gt;</span> <span class="string">&quot;integral variable&quot;</span>.<span class="ident">to_string</span>(),
@@ -609,33 +590,6 @@
         <span class="kw">use</span> <span class="self">self</span>::<span class="ident">TypeError</span>::<span class="kw-2">*</span>;
 
         <span class="kw">match</span> <span class="ident">err</span>.<span class="ident">clone</span>() {
-            <span class="ident">RegionsDoesNotOutlive</span>(<span class="ident">subregion</span>, <span class="ident">superregion</span>) <span class="op">=&gt;</span> {
-                <span class="self">self</span>.<span class="ident">note_and_explain_region</span>(<span class="ident">db</span>, <span class="string">&quot;&quot;</span>, <span class="ident">subregion</span>, <span class="string">&quot;...&quot;</span>);
-                <span class="self">self</span>.<span class="ident">note_and_explain_region</span>(<span class="ident">db</span>, <span class="string">&quot;...does not necessarily outlive &quot;</span>,
-                                           <span class="ident">superregion</span>, <span class="string">&quot;&quot;</span>);
-            }
-            <span class="ident">RegionsNotSame</span>(<span class="ident">region1</span>, <span class="ident">region2</span>) <span class="op">=&gt;</span> {
-                <span class="self">self</span>.<span class="ident">note_and_explain_region</span>(<span class="ident">db</span>, <span class="string">&quot;&quot;</span>, <span class="ident">region1</span>, <span class="string">&quot;...&quot;</span>);
-                <span class="self">self</span>.<span class="ident">note_and_explain_region</span>(<span class="ident">db</span>, <span class="string">&quot;...is not the same lifetime as &quot;</span>,
-                                           <span class="ident">region2</span>, <span class="string">&quot;&quot;</span>);
-            }
-            <span class="ident">RegionsNoOverlap</span>(<span class="ident">region1</span>, <span class="ident">region2</span>) <span class="op">=&gt;</span> {
-                <span class="self">self</span>.<span class="ident">note_and_explain_region</span>(<span class="ident">db</span>, <span class="string">&quot;&quot;</span>, <span class="ident">region1</span>, <span class="string">&quot;...&quot;</span>);
-                <span class="self">self</span>.<span class="ident">note_and_explain_region</span>(<span class="ident">db</span>, <span class="string">&quot;...does not overlap &quot;</span>,
-                                           <span class="ident">region2</span>, <span class="string">&quot;&quot;</span>);
-            }
-            <span class="ident">RegionsInsufficientlyPolymorphic</span>(_, <span class="ident">conc_region</span>) <span class="op">=&gt;</span> {
-                <span class="self">self</span>.<span class="ident">note_and_explain_region</span>(<span class="ident">db</span>, <span class="string">&quot;concrete lifetime that was found is &quot;</span>,
-                                           <span class="ident">conc_region</span>, <span class="string">&quot;&quot;</span>);
-            }
-            <span class="ident">RegionsOverlyPolymorphic</span>(_, <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">ReVar</span>(_)) <span class="op">=&gt;</span> {
-                <span class="comment">// don&#39;t bother to print out the message below for</span>
-                <span class="comment">// inference variables, it&#39;s not very illuminating.</span>
-            }
-            <span class="ident">RegionsOverlyPolymorphic</span>(_, <span class="ident">conc_region</span>) <span class="op">=&gt;</span> {
-                <span class="self">self</span>.<span class="ident">note_and_explain_region</span>(<span class="ident">db</span>, <span class="string">&quot;expected concrete lifetime is &quot;</span>,
-                                           <span class="ident">conc_region</span>, <span class="string">&quot;&quot;</span>);
-            }
             <span class="ident">Sorts</span>(<span class="ident">values</span>) <span class="op">=&gt;</span> {
                 <span class="kw">let</span> <span class="ident">expected_str</span> <span class="op">=</span> <span class="ident">values</span>.<span class="ident">expected</span>.<span class="ident">sort_string</span>(<span class="self">self</span>);
                 <span class="kw">let</span> <span class="ident">found_str</span> <span class="op">=</span> <span class="ident">values</span>.<span class="ident">found</span>.<span class="ident">sort_string</span>(<span class="self">self</span>);
@@ -704,10 +658,12 @@
                     <dd>Show this help dialog</dd>
                     <dt>S</dt>
                     <dd>Focus the search field</dd>
-                    <dt>&larrb;</dt>
+                    <dt>↑</dt>
                     <dd>Move up in search results</dd>
-                    <dt>&rarrb;</dt>
+                    <dt>↓</dt>
                     <dd>Move down in search results</dd>
+                    <dt>↹</dt>
+                    <dd>Switch tab</dd>
                     <dt>&#9166;</dt>
                     <dd>Go to active search result</dd>
                     <dt>+</dt>

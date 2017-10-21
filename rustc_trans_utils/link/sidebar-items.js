@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["default_output_for_target","Returns default crate type for target"],["filename_for_input",""],["find_crate_name",""],["invalid_output_for_target","Checks if target supports crate_type as output"]]});
+initSidebarItems({"fn":[["build_link_meta",""],["check_file_is_writeable",""],["default_output_for_target","Returns default crate type for target"],["filename_for_input",""],["find_crate_name",""],["invalid_output_for_target","Checks if target supports crate_type as output"],["out_filename",""]]});

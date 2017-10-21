@@ -1451,6 +1451,15 @@
 <span id="1406">1406</span>
 <span id="1407">1407</span>
 <span id="1408">1408</span>
+<span id="1409">1409</span>
+<span id="1410">1410</span>
+<span id="1411">1411</span>
+<span id="1412">1412</span>
+<span id="1413">1413</span>
+<span id="1414">1414</span>
+<span id="1415">1415</span>
+<span id="1416">1416</span>
+<span id="1417">1417</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class="comment">// file at the top-level directory of this distribution and at</span>
@@ -1466,19 +1475,18 @@
 
 <span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">def_id</span>::<span class="ident">DefId</span>;
 
+<span class="kw">use</span> <span class="ident">middle</span>::<span class="ident">const_val</span>::<span class="ident">ConstVal</span>;
 <span class="kw">use</span> <span class="ident">middle</span>::<span class="ident">region</span>;
 <span class="kw">use</span> <span class="ident">ty</span>::<span class="ident">subst</span>::{<span class="ident">Substs</span>, <span class="ident">Subst</span>};
 <span class="kw">use</span> <span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">AdtDef</span>, <span class="ident">TypeFlags</span>, <span class="ident">Ty</span>, <span class="ident">TyCtxt</span>, <span class="ident">TypeFoldable</span>};
 <span class="kw">use</span> <span class="ident">ty</span>::{<span class="ident">Slice</span>, <span class="ident">TyS</span>};
 <span class="kw">use</span> <span class="ident">ty</span>::<span class="ident">subst</span>::<span class="ident">Kind</span>;
 
-<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">fmt</span>;
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">iter</span>;
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">cmp</span>::<span class="ident">Ordering</span>;
 <span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">abi</span>;
 <span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">ast</span>::{<span class="self">self</span>, <span class="ident">Name</span>};
 <span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">symbol</span>::<span class="ident">keywords</span>;
-<span class="kw">use</span> <span class="ident">util</span>::<span class="ident">nodemap</span>::<span class="ident">FxHashMap</span>;
 
 <span class="kw">use</span> <span class="ident">serialize</span>;
 
@@ -1563,7 +1571,7 @@
     <span class="ident">TyStr</span>,
 
     <span class="doccomment">/// An array with the given length. Written as `[T; n]`.</span>
-    <span class="ident">TyArray</span>(<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">usize</span>),
+    <span class="ident">TyArray</span>(<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">ty</span>::<span class="ident">Const</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>),
 
     <span class="doccomment">/// The pointee of an array slice.  Written as `[T]`.</span>
     <span class="ident">TySlice</span>(<span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>),
@@ -1588,6 +1596,10 @@
     <span class="doccomment">/// The anonymous type of a closure. Used to represent the type of</span>
     <span class="doccomment">/// `|a| a`.</span>
     <span class="ident">TyClosure</span>(<span class="ident">DefId</span>, <span class="ident">ClosureSubsts</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>),
+
+    <span class="doccomment">/// The anonymous type of a generator. Used to represent the type of</span>
+    <span class="doccomment">/// `|a| yield a`.</span>
+    <span class="ident">TyGenerator</span>(<span class="ident">DefId</span>, <span class="ident">ClosureSubsts</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">GeneratorInterior</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>),
 
     <span class="doccomment">/// The never type `!`</span>
     <span class="ident">TyNever</span>,
@@ -1663,8 +1675,8 @@
 <span class="doccomment">/// as extra type parameters? The reason for this design is that the</span>
 <span class="doccomment">/// upvar types can reference lifetimes that are internal to the</span>
 <span class="doccomment">/// creating function. In my example above, for example, the lifetime</span>
-<span class="doccomment">/// `&#39;b` represents the extent of the closure itself; this is some</span>
-<span class="doccomment">/// subset of `foo`, probably just the extent of the call to the to</span>
+<span class="doccomment">/// `&#39;b` represents the scope of the closure itself; this is some</span>
+<span class="doccomment">/// subset of `foo`, probably just the scope of the call to the to</span>
 <span class="doccomment">/// `do()`. If we just had the lifetime/type parameters from the</span>
 <span class="doccomment">/// enclosing function, we couldn&#39;t name this lifetime `&#39;b`. Note that</span>
 <span class="doccomment">/// there can also be lifetimes in the types of the upvars themselves,</span>
@@ -1712,6 +1724,51 @@
         <span class="kw">let</span> <span class="ident">generics</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">generics_of</span>(<span class="ident">def_id</span>);
         <span class="self">self</span>.<span class="ident">substs</span>[<span class="self">self</span>.<span class="ident">substs</span>.<span class="ident">len</span>()<span class="op">-</span><span class="ident">generics</span>.<span class="ident">own_count</span>()..].<span class="ident">iter</span>().<span class="ident">map</span>(
             <span class="op">|</span><span class="ident">t</span><span class="op">|</span> <span class="ident">t</span>.<span class="ident">as_type</span>().<span class="ident">expect</span>(<span class="string">&quot;unexpected region in upvars&quot;</span>))
+    }
+}
+
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">ClosureSubsts</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// This returns the types of the MIR locals which had to be stored across suspension points.</span>
+    <span class="doccomment">/// It is calculated in rustc_mir::transform::generator::StateTransform.</span>
+    <span class="doccomment">/// All the types here must be in the tuple in GeneratorInterior.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">state_tys</span>(<span class="self">self</span>, <span class="ident">def_id</span>: <span class="ident">DefId</span>, <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) <span class="op">-&gt;</span>
+        <span class="kw">impl</span> <span class="ident">Iterator</span><span class="op">&lt;</span><span class="ident">Item</span><span class="op">=</span><span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span> <span class="op">+</span> <span class="lifetime">&#39;a</span>
+    {
+        <span class="kw">let</span> <span class="ident">state</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">generator_layout</span>(<span class="ident">def_id</span>).<span class="ident">fields</span>.<span class="ident">iter</span>();
+        <span class="ident">state</span>.<span class="ident">map</span>(<span class="kw">move</span> <span class="op">|</span><span class="ident">d</span><span class="op">|</span> <span class="ident">d</span>.<span class="ident">ty</span>.<span class="ident">subst</span>(<span class="ident">tcx</span>, <span class="self">self</span>.<span class="ident">substs</span>))
+    }
+
+    <span class="doccomment">/// This is the types of all the fields stored in a generator.</span>
+    <span class="doccomment">/// It includes the upvars, state types and the state discriminant which is u32.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">field_tys</span>(<span class="self">self</span>, <span class="ident">def_id</span>: <span class="ident">DefId</span>, <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) <span class="op">-&gt;</span>
+        <span class="kw">impl</span> <span class="ident">Iterator</span><span class="op">&lt;</span><span class="ident">Item</span><span class="op">=</span><span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span> <span class="op">+</span> <span class="lifetime">&#39;a</span>
+    {
+        <span class="kw">let</span> <span class="ident">upvars</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">upvar_tys</span>(<span class="ident">def_id</span>, <span class="ident">tcx</span>);
+        <span class="kw">let</span> <span class="ident">state</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">state_tys</span>(<span class="ident">def_id</span>, <span class="ident">tcx</span>);
+        <span class="ident">upvars</span>.<span class="ident">chain</span>(<span class="ident">iter</span>::<span class="ident">once</span>(<span class="ident">tcx</span>.<span class="ident">types</span>.<span class="ident">u32</span>)).<span class="ident">chain</span>(<span class="ident">state</span>)
+    }
+}
+
+<span class="doccomment">/// This describes the types that can be contained in a generator.</span>
+<span class="doccomment">/// It will be a type variable initially and unified in the last stages of typeck of a body.</span>
+<span class="doccomment">/// It contains a tuple of all the types that could end up on a generator frame.</span>
+<span class="doccomment">/// The state transformation MIR pass may only produce layouts which mention types in this tuple.</span>
+<span class="doccomment">/// Upvars are not counted here.</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Copy</span>, <span class="ident">Clone</span>, <span class="ident">PartialEq</span>, <span class="ident">Eq</span>, <span class="ident">Hash</span>, <span class="ident">Debug</span>, <span class="ident">RustcEncodable</span>, <span class="ident">RustcDecodable</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">GeneratorInterior</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="ident">witness</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+}
+
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">GeneratorInterior</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">new</span>(<span class="ident">witness</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">GeneratorInterior</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+        <span class="ident">GeneratorInterior</span> { <span class="ident">witness</span> }
+    }
+
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">as_slice</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Slice</span><span class="op">&lt;</span><span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span> {
+        <span class="kw">match</span> <span class="self">self</span>.<span class="ident">witness</span>.<span class="ident">sty</span> {
+            <span class="ident">ty</span>::<span class="ident">TyTuple</span>(<span class="ident">s</span>, _) <span class="op">=&gt;</span> <span class="ident">s</span>,
+            _ <span class="op">=&gt;</span> <span class="macro">bug</span><span class="macro">!</span>(),
+        }
     }
 }
 
@@ -1981,12 +2038,6 @@
     }
 }
 
-<span class="kw">impl</span> <span class="ident">fmt</span>::<span class="ident">Debug</span> <span class="kw">for</span> <span class="ident">TypeFlags</span> {
-    <span class="kw">fn</span> <span class="ident">fmt</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">f</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">fmt</span>::<span class="ident">Formatter</span>) <span class="op">-&gt;</span> <span class="ident">fmt</span>::<span class="prelude-ty">Result</span> {
-        <span class="macro">write</span><span class="macro">!</span>(<span class="ident">f</span>, <span class="string">&quot;{:x}&quot;</span>, <span class="self">self</span>.<span class="ident">bits</span>)
-    }
-}
-
 <span class="doccomment">/// Represents the projection of an associated type. In explicit UFCS</span>
 <span class="doccomment">/// form this would be written `&lt;T as Trait&lt;..&gt;&gt;::N`.</span>
 <span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Copy</span>, <span class="ident">Clone</span>, <span class="ident">PartialEq</span>, <span class="ident">Eq</span>, <span class="ident">Hash</span>, <span class="ident">Debug</span>, <span class="ident">RustcEncodable</span>, <span class="ident">RustcDecodable</span>)]</span>
@@ -2007,9 +2058,10 @@
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">from_ref_and_name</span>(
         <span class="ident">tcx</span>: <span class="ident">TyCtxt</span>, <span class="ident">trait_ref</span>: <span class="ident">ty</span>::<span class="ident">TraitRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">item_name</span>: <span class="ident">Name</span>
     ) <span class="op">-&gt;</span> <span class="ident">ProjectionTy</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
-        <span class="kw">let</span> <span class="ident">item_def_id</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">associated_items</span>(<span class="ident">trait_ref</span>.<span class="ident">def_id</span>).<span class="ident">find</span>(
-            <span class="op">|</span><span class="ident">item</span><span class="op">|</span> <span class="ident">item</span>.<span class="ident">name</span> <span class="op">==</span> <span class="ident">item_name</span> <span class="op">&amp;&amp;</span> <span class="ident">item</span>.<span class="ident">kind</span> <span class="op">==</span> <span class="ident">ty</span>::<span class="ident">AssociatedKind</span>::<span class="ident">Type</span>
-        ).<span class="ident">unwrap</span>().<span class="ident">def_id</span>;
+        <span class="kw">let</span> <span class="ident">item_def_id</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">associated_items</span>(<span class="ident">trait_ref</span>.<span class="ident">def_id</span>).<span class="ident">find</span>(<span class="op">|</span><span class="ident">item</span><span class="op">|</span> {
+            <span class="ident">item</span>.<span class="ident">kind</span> <span class="op">==</span> <span class="ident">ty</span>::<span class="ident">AssociatedKind</span>::<span class="ident">Type</span> <span class="op">&amp;&amp;</span>
+            <span class="ident">tcx</span>.<span class="ident">hygienic_eq</span>(<span class="ident">item_name</span>, <span class="ident">item</span>.<span class="ident">name</span>, <span class="ident">trait_ref</span>.<span class="ident">def_id</span>)
+        }).<span class="ident">unwrap</span>().<span class="ident">def_id</span>;
 
         <span class="ident">ProjectionTy</span> {
             <span class="ident">substs</span>: <span class="ident">trait_ref</span>.<span class="ident">substs</span>,
@@ -2033,6 +2085,22 @@
     }
 }
 
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Copy</span>, <span class="ident">Clone</span>, <span class="ident">Debug</span>, <span class="ident">PartialEq</span>, <span class="ident">Eq</span>, <span class="ident">Hash</span>, <span class="ident">RustcEncodable</span>, <span class="ident">RustcDecodable</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">GenSig</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="ident">yield_ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+    <span class="kw">pub</span> <span class="ident">return_ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+}
+
+<span class="kw">pub</span> <span class="kw">type</span> <span class="ident">PolyGenSig</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">Binder</span><span class="op">&lt;</span><span class="ident">GenSig</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span>;
+
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">PolyGenSig</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">yield_ty</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">Binder</span><span class="op">&lt;</span><span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span> {
+        <span class="self">self</span>.<span class="ident">map_bound_ref</span>(<span class="op">|</span><span class="ident">sig</span><span class="op">|</span> <span class="ident">sig</span>.<span class="ident">yield_ty</span>)
+    }
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">return_ty</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">Binder</span><span class="op">&lt;</span><span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span> {
+        <span class="self">self</span>.<span class="ident">map_bound_ref</span>(<span class="op">|</span><span class="ident">sig</span><span class="op">|</span> <span class="ident">sig</span>.<span class="ident">return_ty</span>)
+    }
+}
 
 <span class="doccomment">/// Signature of a function type, which I have arbitrarily</span>
 <span class="doccomment">/// decided to use to refer to the input/output types.</span>
@@ -2234,10 +2302,10 @@
     <span class="doccomment">/// region parameters.</span>
     <span class="ident">ReFree</span>(<span class="ident">FreeRegion</span>),
 
-    <span class="doccomment">/// A concrete region naming some statically determined extent</span>
+    <span class="doccomment">/// A concrete region naming some statically determined scope</span>
     <span class="doccomment">/// (e.g. an expression or sequence of statements) within the</span>
     <span class="doccomment">/// current function.</span>
-    <span class="ident">ReScope</span>(<span class="ident">region</span>::<span class="ident">CodeExtent</span>),
+    <span class="ident">ReScope</span>(<span class="ident">region</span>::<span class="ident">Scope</span>),
 
     <span class="doccomment">/// Static data that has an &quot;infinite&quot; lifetime. Top in the region lattice.</span>
     <span class="ident">ReStatic</span>,
@@ -2430,19 +2498,6 @@
 
         <span class="ident">flags</span>
     }
-
-    <span class="comment">// This method returns whether the given Region is Named</span>
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">is_named_region</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
-        <span class="kw">match</span> <span class="kw-2">*</span><span class="self">self</span> {
-            <span class="ident">ty</span>::<span class="ident">ReFree</span>(<span class="kw-2">ref</span> <span class="ident">free_region</span>) <span class="op">=&gt;</span> {
-                <span class="kw">match</span> <span class="ident">free_region</span>.<span class="ident">bound_region</span> {
-                    <span class="ident">ty</span>::<span class="ident">BrNamed</span>(..) <span class="op">=&gt;</span> <span class="bool-val">true</span>,
-                    _ <span class="op">=&gt;</span> <span class="bool-val">false</span>,
-                }
-            }
-            _ <span class="op">=&gt;</span> <span class="bool-val">false</span>,
-        }
-    }
 }
 
 <span class="doccomment">/// Type utilities</span>
@@ -2475,54 +2530,6 @@
             <span class="ident">TyTuple</span>(_, <span class="bool-val">true</span>) <span class="op">=&gt;</span> <span class="bool-val">true</span>,
             _ <span class="op">=&gt;</span> <span class="bool-val">false</span>,
         }
-    }
-
-    <span class="doccomment">/// Checks whether a type is visibly uninhabited from a particular module.</span>
-    <span class="doccomment">/// # Example</span>
-    <span class="doccomment">/// ```rust</span>
-    <span class="doccomment">/// enum Void {}</span>
-    <span class="doccomment">/// mod a {</span>
-    <span class="doccomment">///     pub mod b {</span>
-    <span class="doccomment">///         pub struct SecretlyUninhabited {</span>
-    <span class="doccomment">///             _priv: !,</span>
-    <span class="doccomment">///         }</span>
-    <span class="doccomment">///     }</span>
-    <span class="doccomment">/// }</span>
-    <span class="doccomment">///</span>
-    <span class="doccomment">/// mod c {</span>
-    <span class="doccomment">///     pub struct AlsoSecretlyUninhabited {</span>
-    <span class="doccomment">///         _priv: Void,</span>
-    <span class="doccomment">///     }</span>
-    <span class="doccomment">///     mod d {</span>
-    <span class="doccomment">///     }</span>
-    <span class="doccomment">/// }</span>
-    <span class="doccomment">///</span>
-    <span class="doccomment">/// struct Foo {</span>
-    <span class="doccomment">///     x: a::b::SecretlyUninhabited,</span>
-    <span class="doccomment">///     y: c::AlsoSecretlyUninhabited,</span>
-    <span class="doccomment">/// }</span>
-    <span class="doccomment">/// ```</span>
-    <span class="doccomment">/// In this code, the type `Foo` will only be visibly uninhabited inside the</span>
-    <span class="doccomment">/// modules b, c and d. This effects pattern-matching on `Foo` or types that</span>
-    <span class="doccomment">/// contain `Foo`.</span>
-    <span class="doccomment">///</span>
-    <span class="doccomment">/// # Example</span>
-    <span class="doccomment">/// ```rust</span>
-    <span class="doccomment">/// let foo_result: Result&lt;T, Foo&gt; = ... ;</span>
-    <span class="doccomment">/// let Ok(t) = foo_result;</span>
-    <span class="doccomment">/// ```</span>
-    <span class="doccomment">/// This code should only compile in modules where the uninhabitedness of Foo is</span>
-    <span class="doccomment">/// visible.</span>
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">is_uninhabited_from</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">module</span>: <span class="ident">DefId</span>, <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
-        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">visited</span> <span class="op">=</span> <span class="ident">FxHashMap</span>::<span class="ident">default</span>();
-        <span class="kw">let</span> <span class="ident">forest</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">uninhabited_from</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">visited</span>, <span class="ident">tcx</span>);
-
-        <span class="comment">// To check whether this type is uninhabited at all (not just from the</span>
-        <span class="comment">// given node) you could check whether the forest is empty.</span>
-        <span class="comment">// ```</span>
-        <span class="comment">// forest.is_empty()</span>
-        <span class="comment">// ```</span>
-        <span class="ident">forest</span>.<span class="ident">contains</span>(<span class="ident">tcx</span>, <span class="ident">module</span>)
     }
 
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">is_primitive</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> {
@@ -2833,7 +2840,7 @@
             <span class="ident">TyAdt</span>(_, <span class="ident">substs</span>) <span class="op">|</span> <span class="ident">TyAnon</span>(_, <span class="ident">substs</span>) <span class="op">=&gt;</span> {
                 <span class="ident">substs</span>.<span class="ident">regions</span>().<span class="ident">collect</span>()
             }
-            <span class="ident">TyClosure</span>(_, <span class="kw-2">ref</span> <span class="ident">substs</span>) <span class="op">=&gt;</span> {
+            <span class="ident">TyClosure</span>(_, <span class="kw-2">ref</span> <span class="ident">substs</span>) <span class="op">|</span> <span class="ident">TyGenerator</span>(_, <span class="kw-2">ref</span> <span class="ident">substs</span>, _) <span class="op">=&gt;</span> {
                 <span class="ident">substs</span>.<span class="ident">substs</span>.<span class="ident">regions</span>().<span class="ident">collect</span>()
             }
             <span class="ident">TyProjection</span>(<span class="kw-2">ref</span> <span class="ident">data</span>) <span class="op">=&gt;</span> {
@@ -2860,6 +2867,17 @@
         }
     }
 }
+
+<span class="doccomment">/// Typed constant value.</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Copy</span>, <span class="ident">Clone</span>, <span class="ident">Debug</span>, <span class="ident">Hash</span>, <span class="ident">RustcEncodable</span>, <span class="ident">RustcDecodable</span>, <span class="ident">Eq</span>, <span class="ident">PartialEq</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">Const</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="ident">ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+
+    <span class="comment">// FIXME(eddyb) Replace this with a miri value.</span>
+    <span class="kw">pub</span> <span class="ident">val</span>: <span class="ident">ConstVal</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+}
+
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">serialize</span>::<span class="ident">UseSpecializedDecodable</span> <span class="kw">for</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">Const</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {}
 </pre>
 </section>
     <section id='search' class="content hidden"></section>
@@ -2878,10 +2896,12 @@
                     <dd>Show this help dialog</dd>
                     <dt>S</dt>
                     <dd>Focus the search field</dd>
-                    <dt>&larrb;</dt>
+                    <dt>↑</dt>
                     <dd>Move up in search results</dd>
-                    <dt>&rarrb;</dt>
+                    <dt>↓</dt>
                     <dd>Move down in search results</dd>
+                    <dt>↹</dt>
+                    <dd>Switch tab</dd>
                     <dt>&#9166;</dt>
                     <dd>Go to active search result</dd>
                     <dt>+</dt>

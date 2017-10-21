@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["check_crate",""]]});
+initSidebarItems({"fn":[["check_crate",""],["provide",""]]});

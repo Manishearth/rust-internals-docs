@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["DummyMetadataLoader",""],["DummyTransCrate",""],["MetadataOnlyTransCrate",""],["NoLlvmMetadataLoader",""],["OngoingCrateTranslation",""],["TranslatedCrate",""]],"trait":[["TransCrate",""]]});

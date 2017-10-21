@@ -1,1 +1,0 @@
-initSidebarItems({"enum":[["Cfg",""]],"struct":[["InvalidCfgError",""]]});

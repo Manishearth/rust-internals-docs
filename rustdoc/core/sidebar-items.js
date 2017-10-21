@@ -1,1 +1,0 @@
-initSidebarItems({"enum":[["Input",""]],"fn":[["run_core",""]],"struct":[["DocContext",""],["SearchPaths",""]],"trait":[["DocAccessLevels",""]],"type":[["ExternalPaths",""]]});

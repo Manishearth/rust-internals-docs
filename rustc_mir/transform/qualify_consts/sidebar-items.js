@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["provide",""]],"struct":[["Qualif",""],["QualifyAndPromoteConstants",""]]});
+initSidebarItems({"fn":[["provide",""]],"struct":[["QualifyAndPromoteConstants",""]]});

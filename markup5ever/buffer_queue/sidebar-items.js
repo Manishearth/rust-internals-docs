@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["SetResult","Result from `pop_except_from`."]],"struct":[["BufferQueue","A queue of owned string buffers, which supports incrementally consuming characters."]]});

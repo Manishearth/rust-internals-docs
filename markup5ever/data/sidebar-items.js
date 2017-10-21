@@ -1,0 +1,1 @@
+initSidebarItems({"static":[["C1_REPLACEMENTS","The spec replaces most characters in the ISO-2022 C1 control code range (U+0080 through U+009F) with these characters, based on Windows 8-bit codepages."],["NAMED_ENTITIES",""]]});

@@ -991,6 +991,27 @@
 <span id="946">946</span>
 <span id="947">947</span>
 <span id="948">948</span>
+<span id="949">949</span>
+<span id="950">950</span>
+<span id="951">951</span>
+<span id="952">952</span>
+<span id="953">953</span>
+<span id="954">954</span>
+<span id="955">955</span>
+<span id="956">956</span>
+<span id="957">957</span>
+<span id="958">958</span>
+<span id="959">959</span>
+<span id="960">960</span>
+<span id="961">961</span>
+<span id="962">962</span>
+<span id="963">963</span>
+<span id="964">964</span>
+<span id="965">965</span>
+<span id="966">966</span>
+<span id="967">967</span>
+<span id="968">968</span>
+<span id="969">969</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class="comment">// file at the top-level directory of this distribution and at</span>
@@ -1017,14 +1038,15 @@
 <span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">def_id</span>::{<span class="ident">DefId</span>};
 <span class="kw">use</span> <span class="ident">infer</span>::<span class="ident">InferCtxt</span>;
 <span class="kw">use</span> <span class="ident">middle</span>::<span class="ident">mem_categorization</span> <span class="kw">as</span> <span class="ident">mc</span>;
-<span class="kw">use</span> <span class="ident">middle</span>::<span class="ident">region</span>::<span class="ident">RegionMaps</span>;
+<span class="kw">use</span> <span class="ident">middle</span>::<span class="ident">region</span>;
 <span class="kw">use</span> <span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">TyCtxt</span>, <span class="ident">adjustment</span>};
 
 <span class="kw">use</span> <span class="ident">hir</span>::{<span class="self">self</span>, <span class="ident">PatKind</span>};
-
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">rc</span>::<span class="ident">Rc</span>;
 <span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">ast</span>;
 <span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">ptr</span>::<span class="ident">P</span>;
 <span class="kw">use</span> <span class="ident">syntax_pos</span>::<span class="ident">Span</span>;
+<span class="kw">use</span> <span class="ident">util</span>::<span class="ident">nodemap</span>::<span class="ident">ItemLocalMap</span>;
 
 <span class="comment">///////////////////////////////////////////////////////////////////////////</span>
 <span class="comment">// The Delegate trait</span>
@@ -1205,9 +1227,9 @@
 <span class="kw">impl</span> <span class="ident">OverloadedCallType</span> {
     <span class="kw">fn</span> <span class="ident">from_trait_id</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span>, <span class="ident">trait_id</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">OverloadedCallType</span> {
         <span class="kw">for</span> <span class="kw-2">&amp;</span>(<span class="ident">maybe_function_trait</span>, <span class="ident">overloaded_call_type</span>) <span class="kw">in</span> <span class="kw-2">&amp;</span>[
-            (<span class="ident">tcx</span>.<span class="ident">lang_items</span>.<span class="ident">fn_once_trait</span>(), <span class="ident">FnOnceOverloadedCall</span>),
-            (<span class="ident">tcx</span>.<span class="ident">lang_items</span>.<span class="ident">fn_mut_trait</span>(), <span class="ident">FnMutOverloadedCall</span>),
-            (<span class="ident">tcx</span>.<span class="ident">lang_items</span>.<span class="ident">fn_trait</span>(), <span class="ident">FnOverloadedCall</span>)
+            (<span class="ident">tcx</span>.<span class="ident">lang_items</span>().<span class="ident">fn_once_trait</span>(), <span class="ident">FnOnceOverloadedCall</span>),
+            (<span class="ident">tcx</span>.<span class="ident">lang_items</span>().<span class="ident">fn_mut_trait</span>(), <span class="ident">FnMutOverloadedCall</span>),
+            (<span class="ident">tcx</span>.<span class="ident">lang_items</span>().<span class="ident">fn_trait</span>(), <span class="ident">FnOverloadedCall</span>)
         ] {
             <span class="kw">match</span> <span class="ident">maybe_function_trait</span> {
                 <span class="prelude-val">Some</span>(<span class="ident">function_trait</span>) <span class="kw">if</span> <span class="ident">function_trait</span> <span class="op">==</span> <span class="ident">trait_id</span> <span class="op">=&gt;</span> {
@@ -1256,15 +1278,30 @@
 }
 
 <span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">ExprUseVisitor</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// Creates the ExprUseVisitor, configuring it with the various options provided:</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// - `delegate` -- who receives the callbacks</span>
+    <span class="doccomment">/// - `param_env` --- parameter environment for trait lookups (esp. pertaining to `Copy`)</span>
+    <span class="doccomment">/// - `region_scope_tree` --- region scope tree for the code being analyzed</span>
+    <span class="doccomment">/// - `tables` --- typeck results for the code being analyzed</span>
+    <span class="doccomment">/// - `rvalue_promotable_map` --- if you care about rvalue promotion, then provide</span>
+    <span class="doccomment">///   the map here (it can be computed with `tcx.rvalue_promotable_map(def_id)`).</span>
+    <span class="doccomment">///   `None` means that rvalues will be given more conservative lifetimes.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// See also `with_infer`, which is used *during* typeck.</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">new</span>(<span class="ident">delegate</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="kw-2">mut</span> (<span class="ident">Delegate</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span><span class="op">+</span><span class="lifetime">&#39;a</span>),
                <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
                <span class="ident">param_env</span>: <span class="ident">ty</span>::<span class="ident">ParamEnv</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
-               <span class="ident">region_maps</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">RegionMaps</span>,
-               <span class="ident">tables</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">ty</span>::<span class="ident">TypeckTables</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
+               <span class="ident">region_scope_tree</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">region</span>::<span class="ident">ScopeTree</span>,
+               <span class="ident">tables</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">ty</span>::<span class="ident">TypeckTables</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+               <span class="ident">rvalue_promotable_map</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Rc</span><span class="op">&lt;</span><span class="ident">ItemLocalMap</span><span class="op">&lt;</span><span class="ident">bool</span><span class="op">&gt;&gt;</span><span class="op">&gt;</span>)
                <span class="op">-&gt;</span> <span class="self">Self</span>
     {
         <span class="ident">ExprUseVisitor</span> {
-            <span class="ident">mc</span>: <span class="ident">mc</span>::<span class="ident">MemCategorizationContext</span>::<span class="ident">new</span>(<span class="ident">tcx</span>, <span class="ident">region_maps</span>, <span class="ident">tables</span>),
+            <span class="ident">mc</span>: <span class="ident">mc</span>::<span class="ident">MemCategorizationContext</span>::<span class="ident">new</span>(<span class="ident">tcx</span>,
+                                                  <span class="ident">region_scope_tree</span>,
+                                                  <span class="ident">tables</span>,
+                                                  <span class="ident">rvalue_promotable_map</span>),
             <span class="ident">delegate</span>,
             <span class="ident">param_env</span>,
         }
@@ -1275,12 +1312,12 @@
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">with_infer</span>(<span class="ident">delegate</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="kw-2">mut</span> (<span class="ident">Delegate</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span><span class="op">+</span><span class="lifetime">&#39;a</span>),
                       <span class="ident">infcx</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">InferCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;gcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
                       <span class="ident">param_env</span>: <span class="ident">ty</span>::<span class="ident">ParamEnv</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
-                      <span class="ident">region_maps</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">RegionMaps</span>,
+                      <span class="ident">region_scope_tree</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">region</span>::<span class="ident">ScopeTree</span>,
                       <span class="ident">tables</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">ty</span>::<span class="ident">TypeckTables</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
                       <span class="op">-&gt;</span> <span class="self">Self</span>
     {
         <span class="ident">ExprUseVisitor</span> {
-            <span class="ident">mc</span>: <span class="ident">mc</span>::<span class="ident">MemCategorizationContext</span>::<span class="ident">with_infer</span>(<span class="ident">infcx</span>, <span class="ident">region_maps</span>, <span class="ident">tables</span>),
+            <span class="ident">mc</span>: <span class="ident">mc</span>::<span class="ident">MemCategorizationContext</span>::<span class="ident">with_infer</span>(<span class="ident">infcx</span>, <span class="ident">region_scope_tree</span>, <span class="ident">tables</span>),
             <span class="ident">delegate</span>,
             <span class="ident">param_env</span>,
         }
@@ -1292,7 +1329,8 @@
         <span class="kw">for</span> <span class="ident">arg</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="ident">body</span>.<span class="ident">arguments</span> {
             <span class="kw">let</span> <span class="ident">arg_ty</span> <span class="op">=</span> <span class="macro">return_if_err</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">mc</span>.<span class="ident">node_ty</span>(<span class="ident">arg</span>.<span class="ident">pat</span>.<span class="ident">hir_id</span>));
 
-            <span class="kw">let</span> <span class="ident">fn_body_scope_r</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">node_scope_region</span>(<span class="ident">body</span>.<span class="ident">value</span>.<span class="ident">id</span>);
+            <span class="kw">let</span> <span class="ident">fn_body_scope_r</span> <span class="op">=</span>
+                <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">mk_region</span>(<span class="ident">ty</span>::<span class="ident">ReScope</span>(<span class="ident">region</span>::<span class="ident">Scope</span>::<span class="ident">Node</span>(<span class="ident">body</span>.<span class="ident">value</span>.<span class="ident">hir_id</span>.<span class="ident">local_id</span>)));
             <span class="kw">let</span> <span class="ident">arg_cmt</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">mc</span>.<span class="ident">cat_rvalue</span>(
                 <span class="ident">arg</span>.<span class="ident">id</span>,
                 <span class="ident">arg</span>.<span class="ident">pat</span>.<span class="ident">span</span>,
@@ -1511,12 +1549,16 @@
                 <span class="self">self</span>.<span class="ident">consume_expr</span>(<span class="kw-2">&amp;</span><span class="ident">base</span>);
             }
 
-            <span class="ident">hir</span>::<span class="ident">ExprClosure</span>(.., <span class="ident">fn_decl_span</span>) <span class="op">=&gt;</span> {
+            <span class="ident">hir</span>::<span class="ident">ExprClosure</span>(.., <span class="ident">fn_decl_span</span>, _) <span class="op">=&gt;</span> {
                 <span class="self">self</span>.<span class="ident">walk_captures</span>(<span class="ident">expr</span>, <span class="ident">fn_decl_span</span>)
             }
 
             <span class="ident">hir</span>::<span class="ident">ExprBox</span>(<span class="kw-2">ref</span> <span class="ident">base</span>) <span class="op">=&gt;</span> {
                 <span class="self">self</span>.<span class="ident">consume_expr</span>(<span class="kw-2">&amp;</span><span class="ident">base</span>);
+            }
+
+            <span class="ident">hir</span>::<span class="ident">ExprYield</span>(<span class="kw-2">ref</span> <span class="ident">value</span>) <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">consume_expr</span>(<span class="kw-2">&amp;</span><span class="ident">value</span>);
             }
         }
     }
@@ -1532,16 +1574,17 @@
             <span class="ident">ty</span>::<span class="ident">TyError</span> <span class="op">=&gt;</span> { }
             _ <span class="op">=&gt;</span> {
                 <span class="kw">let</span> <span class="ident">def_id</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">mc</span>.<span class="ident">tables</span>.<span class="ident">type_dependent_defs</span>()[<span class="ident">call</span>.<span class="ident">hir_id</span>].<span class="ident">def_id</span>();
+                <span class="kw">let</span> <span class="ident">call_scope</span> <span class="op">=</span> <span class="ident">region</span>::<span class="ident">Scope</span>::<span class="ident">Node</span>(<span class="ident">call</span>.<span class="ident">hir_id</span>.<span class="ident">local_id</span>);
                 <span class="kw">match</span> <span class="ident">OverloadedCallType</span>::<span class="ident">from_method_id</span>(<span class="self">self</span>.<span class="ident">tcx</span>(), <span class="ident">def_id</span>) {
                     <span class="ident">FnMutOverloadedCall</span> <span class="op">=&gt;</span> {
-                        <span class="kw">let</span> <span class="ident">call_scope_r</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">node_scope_region</span>(<span class="ident">call</span>.<span class="ident">id</span>);
+                        <span class="kw">let</span> <span class="ident">call_scope_r</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">mk_region</span>(<span class="ident">ty</span>::<span class="ident">ReScope</span>(<span class="ident">call_scope</span>));
                         <span class="self">self</span>.<span class="ident">borrow_expr</span>(<span class="ident">callee</span>,
                                          <span class="ident">call_scope_r</span>,
                                          <span class="ident">ty</span>::<span class="ident">MutBorrow</span>,
                                          <span class="ident">ClosureInvocation</span>);
                     }
                     <span class="ident">FnOverloadedCall</span> <span class="op">=&gt;</span> {
-                        <span class="kw">let</span> <span class="ident">call_scope_r</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">node_scope_region</span>(<span class="ident">call</span>.<span class="ident">id</span>);
+                        <span class="kw">let</span> <span class="ident">call_scope_r</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">mk_region</span>(<span class="ident">ty</span>::<span class="ident">ReScope</span>(<span class="ident">call_scope</span>));
                         <span class="self">self</span>.<span class="ident">borrow_expr</span>(<span class="ident">callee</span>,
                                          <span class="ident">call_scope_r</span>,
                                          <span class="ident">ty</span>::<span class="ident">ImmBorrow</span>,
@@ -1739,7 +1782,8 @@
                 <span class="comment">// Converting from a &amp;T to *T (or &amp;mut T to *mut T) is</span>
                 <span class="comment">// treated as borrowing it for the enclosing temporary</span>
                 <span class="comment">// scope.</span>
-                <span class="kw">let</span> <span class="ident">r</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">node_scope_region</span>(<span class="ident">expr</span>.<span class="ident">id</span>);
+                <span class="kw">let</span> <span class="ident">r</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">mk_region</span>(<span class="ident">ty</span>::<span class="ident">ReScope</span>(
+                    <span class="ident">region</span>::<span class="ident">Scope</span>::<span class="ident">Node</span>(<span class="ident">expr</span>.<span class="ident">hir_id</span>.<span class="ident">local_id</span>)));
 
                 <span class="self">self</span>.<span class="ident">delegate</span>.<span class="ident">borrow</span>(<span class="ident">expr</span>.<span class="ident">id</span>,
                                      <span class="ident">expr</span>.<span class="ident">span</span>,
@@ -1815,7 +1859,7 @@
 
         <span class="kw">let</span> <span class="ident">ExprUseVisitor</span> { <span class="kw-2">ref</span> <span class="ident">mc</span>, <span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">delegate</span>, <span class="ident">param_env</span> } <span class="op">=</span> <span class="kw-2">*</span><span class="self">self</span>;
         <span class="macro">return_if_err</span><span class="macro">!</span>(<span class="ident">mc</span>.<span class="ident">cat_pattern</span>(<span class="ident">cmt_discr</span>.<span class="ident">clone</span>(), <span class="ident">pat</span>, <span class="op">|</span><span class="ident">cmt_pat</span>, <span class="ident">pat</span><span class="op">|</span> {
-            <span class="kw">if</span> <span class="kw">let</span> <span class="ident">PatKind</span>::<span class="ident">Binding</span>(_, <span class="ident">def_id</span>, ..) <span class="op">=</span> <span class="ident">pat</span>.<span class="ident">node</span> {
+            <span class="kw">if</span> <span class="kw">let</span> <span class="ident">PatKind</span>::<span class="ident">Binding</span>(_, <span class="ident">canonical_id</span>, ..) <span class="op">=</span> <span class="ident">pat</span>.<span class="ident">node</span> {
                 <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;binding cmt_pat={:?} pat={:?} match_mode={:?}&quot;</span>, <span class="ident">cmt_pat</span>, <span class="ident">pat</span>, <span class="ident">match_mode</span>);
                 <span class="kw">let</span> <span class="ident">bm</span> <span class="op">=</span> <span class="kw-2">*</span><span class="ident">mc</span>.<span class="ident">tables</span>.<span class="ident">pat_binding_modes</span>().<span class="ident">get</span>(<span class="ident">pat</span>.<span class="ident">hir_id</span>)
                                                      .<span class="ident">expect</span>(<span class="string">&quot;missing binding mode&quot;</span>);
@@ -1825,7 +1869,7 @@
 
                 <span class="comment">// Each match binding is effectively an assignment to the</span>
                 <span class="comment">// binding being produced.</span>
-                <span class="kw">let</span> <span class="ident">def</span> <span class="op">=</span> <span class="ident">Def</span>::<span class="ident">Local</span>(<span class="ident">def_id</span>);
+                <span class="kw">let</span> <span class="ident">def</span> <span class="op">=</span> <span class="ident">Def</span>::<span class="ident">Local</span>(<span class="ident">canonical_id</span>);
                 <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Ok</span>(<span class="ident">binding_cmt</span>) <span class="op">=</span> <span class="ident">mc</span>.<span class="ident">cat_def</span>(<span class="ident">pat</span>.<span class="ident">id</span>, <span class="ident">pat</span>.<span class="ident">span</span>, <span class="ident">pat_ty</span>, <span class="ident">def</span>) {
                     <span class="ident">delegate</span>.<span class="ident">mutate</span>(<span class="ident">pat</span>.<span class="ident">id</span>, <span class="ident">pat</span>.<span class="ident">span</span>, <span class="ident">binding_cmt</span>, <span class="ident">MutateMode</span>::<span class="ident">Init</span>);
                 }
@@ -1882,17 +1926,16 @@
 
         <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">with_freevars</span>(<span class="ident">closure_expr</span>.<span class="ident">id</span>, <span class="op">|</span><span class="ident">freevars</span><span class="op">|</span> {
             <span class="kw">for</span> <span class="ident">freevar</span> <span class="kw">in</span> <span class="ident">freevars</span> {
-                <span class="kw">let</span> <span class="ident">var_def_id</span> <span class="op">=</span> <span class="ident">freevar</span>.<span class="ident">def</span>.<span class="ident">def_id</span>();
-                <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="ident">var_def_id</span>.<span class="ident">is_local</span>());
+                <span class="kw">let</span> <span class="ident">var_hir_id</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">hir</span>.<span class="ident">node_to_hir_id</span>(<span class="ident">freevar</span>.<span class="ident">var_id</span>());
                 <span class="kw">let</span> <span class="ident">closure_def_id</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">hir</span>.<span class="ident">local_def_id</span>(<span class="ident">closure_expr</span>.<span class="ident">id</span>);
                 <span class="kw">let</span> <span class="ident">upvar_id</span> <span class="op">=</span> <span class="ident">ty</span>::<span class="ident">UpvarId</span> {
-                    <span class="ident">var_id</span>: <span class="ident">var_def_id</span>.<span class="ident">index</span>,
+                    <span class="ident">var_id</span>: <span class="ident">var_hir_id</span>,
                     <span class="ident">closure_expr_id</span>: <span class="ident">closure_def_id</span>.<span class="ident">index</span>
                 };
                 <span class="kw">let</span> <span class="ident">upvar_capture</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">mc</span>.<span class="ident">tables</span>.<span class="ident">upvar_capture</span>(<span class="ident">upvar_id</span>);
                 <span class="kw">let</span> <span class="ident">cmt_var</span> <span class="op">=</span> <span class="macro">return_if_err</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">cat_captured_var</span>(<span class="ident">closure_expr</span>.<span class="ident">id</span>,
                                                                    <span class="ident">fn_decl_span</span>,
-                                                                   <span class="ident">freevar</span>.<span class="ident">def</span>));
+                                                                   <span class="ident">freevar</span>));
                 <span class="kw">match</span> <span class="ident">upvar_capture</span> {
                     <span class="ident">ty</span>::<span class="ident">UpvarCapture</span>::<span class="ident">ByValue</span> <span class="op">=&gt;</span> {
                         <span class="kw">let</span> <span class="ident">mode</span> <span class="op">=</span> <span class="ident">copy_or_move</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">mc</span>,
@@ -1917,14 +1960,13 @@
     <span class="kw">fn</span> <span class="ident">cat_captured_var</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
                         <span class="ident">closure_id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>,
                         <span class="ident">closure_span</span>: <span class="ident">Span</span>,
-                        <span class="ident">upvar_def</span>: <span class="ident">Def</span>)
+                        <span class="ident">upvar</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">Freevar</span>)
                         <span class="op">-&gt;</span> <span class="ident">mc</span>::<span class="ident">McResult</span><span class="op">&lt;</span><span class="ident">mc</span>::<span class="ident">cmt</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span> {
         <span class="comment">// Create the cmt for the variable being borrowed, from the</span>
         <span class="comment">// caller&#39;s perspective</span>
-        <span class="kw">let</span> <span class="ident">var_node_id</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">hir</span>.<span class="ident">as_local_node_id</span>(<span class="ident">upvar_def</span>.<span class="ident">def_id</span>()).<span class="ident">unwrap</span>();
-        <span class="kw">let</span> <span class="ident">var_hir_id</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">hir</span>.<span class="ident">node_to_hir_id</span>(<span class="ident">var_node_id</span>);
+        <span class="kw">let</span> <span class="ident">var_hir_id</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>().<span class="ident">hir</span>.<span class="ident">node_to_hir_id</span>(<span class="ident">upvar</span>.<span class="ident">var_id</span>());
         <span class="kw">let</span> <span class="ident">var_ty</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">mc</span>.<span class="ident">node_ty</span>(<span class="ident">var_hir_id</span>)<span class="question-mark">?</span>;
-        <span class="self">self</span>.<span class="ident">mc</span>.<span class="ident">cat_def</span>(<span class="ident">closure_id</span>, <span class="ident">closure_span</span>, <span class="ident">var_ty</span>, <span class="ident">upvar_def</span>)
+        <span class="self">self</span>.<span class="ident">mc</span>.<span class="ident">cat_def</span>(<span class="ident">closure_id</span>, <span class="ident">closure_span</span>, <span class="ident">var_ty</span>, <span class="ident">upvar</span>.<span class="ident">def</span>)
     }
 }
 
@@ -1958,10 +2000,12 @@
                     <dd>Show this help dialog</dd>
                     <dt>S</dt>
                     <dd>Focus the search field</dd>
-                    <dt>&larrb;</dt>
+                    <dt>↑</dt>
                     <dd>Move up in search results</dd>
-                    <dt>&rarrb;</dt>
+                    <dt>↓</dt>
                     <dd>Move down in search results</dd>
+                    <dt>↹</dt>
+                    <dd>Switch tab</dd>
                     <dt>&#9166;</dt>
                     <dd>Go to active search result</dd>
                     <dt>+</dt>

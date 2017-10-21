@@ -1078,6 +1078,32 @@
 <span id="1033">1033</span>
 <span id="1034">1034</span>
 <span id="1035">1035</span>
+<span id="1036">1036</span>
+<span id="1037">1037</span>
+<span id="1038">1038</span>
+<span id="1039">1039</span>
+<span id="1040">1040</span>
+<span id="1041">1041</span>
+<span id="1042">1042</span>
+<span id="1043">1043</span>
+<span id="1044">1044</span>
+<span id="1045">1045</span>
+<span id="1046">1046</span>
+<span id="1047">1047</span>
+<span id="1048">1048</span>
+<span id="1049">1049</span>
+<span id="1050">1050</span>
+<span id="1051">1051</span>
+<span id="1052">1052</span>
+<span id="1053">1053</span>
+<span id="1054">1054</span>
+<span id="1055">1055</span>
+<span id="1056">1056</span>
+<span id="1057">1057</span>
+<span id="1058">1058</span>
+<span id="1059">1059</span>
+<span id="1060">1060</span>
+<span id="1061">1061</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2016 The Rust Project Developers. See the COPYRIGHT</span>
 <span class="comment">// file at the top-level directory of this distribution and at</span>
@@ -1096,10 +1122,11 @@
 <span class="doccomment">//! diagnostics as to why a constant rvalue wasn&#39;t promoted.</span>
 
 <span class="kw">use</span> <span class="ident">rustc_data_structures</span>::<span class="ident">bitvec</span>::<span class="ident">BitVector</span>;
+<span class="kw">use</span> <span class="ident">rustc_data_structures</span>::<span class="ident">indexed_set</span>::<span class="ident">IdxSetBuf</span>;
 <span class="kw">use</span> <span class="ident">rustc_data_structures</span>::<span class="ident">indexed_vec</span>::{<span class="ident">IndexVec</span>, <span class="ident">Idx</span>};
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">hir</span>;
-<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">hir</span>::<span class="ident">map</span> <span class="kw">as</span> <span class="ident">hir_map</span>;
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">hir</span>::<span class="ident">def_id</span>::<span class="ident">DefId</span>;
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">middle</span>::<span class="ident">const_val</span>::<span class="ident">ConstVal</span>;
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">traits</span>::{<span class="self">self</span>, <span class="ident">Reveal</span>};
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">TyCtxt</span>, <span class="ident">Ty</span>, <span class="ident">TypeFoldable</span>};
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ty</span>::<span class="ident">cast</span>::<span class="ident">CastTy</span>;
@@ -1110,47 +1137,49 @@
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">mir</span>::<span class="ident">visit</span>::{<span class="ident">LvalueContext</span>, <span class="ident">Visitor</span>};
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">middle</span>::<span class="ident">lang_items</span>;
 <span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">abi</span>::<span class="ident">Abi</span>;
+<span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">attr</span>;
 <span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">feature_gate</span>::<span class="ident">UnstableFeatures</span>;
 <span class="kw">use</span> <span class="ident">syntax_pos</span>::{<span class="ident">Span</span>, <span class="ident">DUMMY_SP</span>};
 
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">fmt</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">rc</span>::<span class="ident">Rc</span>;
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">usize</span>;
 
 <span class="kw">use</span> <span class="kw">super</span>::<span class="ident">promote_consts</span>::{<span class="self">self</span>, <span class="ident">Candidate</span>, <span class="ident">TempState</span>};
 
 <span class="macro">bitflags</span><span class="macro">!</span> {
-    <span class="ident">flags</span> <span class="ident">Qualif</span>: <span class="ident">u8</span> {
+    <span class="kw">struct</span> <span class="ident">Qualif</span>: <span class="ident">u8</span> {
         <span class="comment">// Constant containing interior mutability (UnsafeCell).</span>
-        <span class="kw">const</span> <span class="ident">MUTABLE_INTERIOR</span>  <span class="op">=</span> <span class="number">1</span> <span class="op">&lt;&lt;</span> <span class="number">0</span>,
+        <span class="kw">const</span> <span class="ident">MUTABLE_INTERIOR</span>  <span class="op">=</span> <span class="number">1</span> <span class="op">&lt;&lt;</span> <span class="number">0</span>;
 
         <span class="comment">// Constant containing an ADT that implements Drop.</span>
-        <span class="kw">const</span> <span class="ident">NEEDS_DROP</span>        <span class="op">=</span> <span class="number">1</span> <span class="op">&lt;&lt;</span> <span class="number">1</span>,
+        <span class="kw">const</span> <span class="ident">NEEDS_DROP</span>        <span class="op">=</span> <span class="number">1</span> <span class="op">&lt;&lt;</span> <span class="number">1</span>;
 
         <span class="comment">// Function argument.</span>
-        <span class="kw">const</span> <span class="ident">FN_ARGUMENT</span>       <span class="op">=</span> <span class="number">1</span> <span class="op">&lt;&lt;</span> <span class="number">2</span>,
+        <span class="kw">const</span> <span class="ident">FN_ARGUMENT</span>       <span class="op">=</span> <span class="number">1</span> <span class="op">&lt;&lt;</span> <span class="number">2</span>;
 
         <span class="comment">// Static lvalue or move from a static.</span>
-        <span class="kw">const</span> <span class="ident">STATIC</span>            <span class="op">=</span> <span class="number">1</span> <span class="op">&lt;&lt;</span> <span class="number">3</span>,
+        <span class="kw">const</span> <span class="ident">STATIC</span>            <span class="op">=</span> <span class="number">1</span> <span class="op">&lt;&lt;</span> <span class="number">3</span>;
 
         <span class="comment">// Reference to a static.</span>
-        <span class="kw">const</span> <span class="ident">STATIC_REF</span>        <span class="op">=</span> <span class="number">1</span> <span class="op">&lt;&lt;</span> <span class="number">4</span>,
+        <span class="kw">const</span> <span class="ident">STATIC_REF</span>        <span class="op">=</span> <span class="number">1</span> <span class="op">&lt;&lt;</span> <span class="number">4</span>;
 
         <span class="comment">// Not constant at all - non-`const fn` calls, asm!,</span>
         <span class="comment">// pointer comparisons, ptr-to-int casts, etc.</span>
-        <span class="kw">const</span> <span class="ident">NOT_CONST</span>         <span class="op">=</span> <span class="number">1</span> <span class="op">&lt;&lt;</span> <span class="number">5</span>,
+        <span class="kw">const</span> <span class="ident">NOT_CONST</span>         <span class="op">=</span> <span class="number">1</span> <span class="op">&lt;&lt;</span> <span class="number">5</span>;
 
         <span class="comment">// Refers to temporaries which cannot be promoted as</span>
         <span class="comment">// promote_consts decided they weren&#39;t simple enough.</span>
-        <span class="kw">const</span> <span class="ident">NOT_PROMOTABLE</span>    <span class="op">=</span> <span class="number">1</span> <span class="op">&lt;&lt;</span> <span class="number">6</span>,
+        <span class="kw">const</span> <span class="ident">NOT_PROMOTABLE</span>    <span class="op">=</span> <span class="number">1</span> <span class="op">&lt;&lt;</span> <span class="number">6</span>;
 
         <span class="comment">// Borrows of temporaries can be promoted only</span>
         <span class="comment">// if they have none of the above qualifications.</span>
-        <span class="kw">const</span> <span class="ident">NEVER_PROMOTE</span>     <span class="op">=</span> <span class="number">0b111_1111</span>,
+        <span class="kw">const</span> <span class="ident">NEVER_PROMOTE</span>     <span class="op">=</span> <span class="number">0b111_1111</span>;
 
         <span class="comment">// Const items can only have MUTABLE_INTERIOR</span>
         <span class="comment">// and NOT_PROMOTABLE without producing an error.</span>
         <span class="kw">const</span> <span class="ident">CONST_ERROR</span>       <span class="op">=</span> <span class="op">!</span><span class="ident">Qualif</span>::<span class="ident">MUTABLE_INTERIOR</span>.<span class="ident">bits</span> <span class="op">&amp;</span>
-                                  <span class="op">!</span><span class="ident">Qualif</span>::<span class="ident">NOT_PROMOTABLE</span>.<span class="ident">bits</span>
+                                  <span class="op">!</span><span class="ident">Qualif</span>::<span class="ident">NOT_PROMOTABLE</span>.<span class="ident">bits</span>;
     }
 }
 
@@ -1201,13 +1230,13 @@
     <span class="ident">return_qualif</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Qualif</span><span class="op">&gt;</span>,
     <span class="ident">qualif</span>: <span class="ident">Qualif</span>,
     <span class="ident">const_fn_arg_vars</span>: <span class="ident">BitVector</span>,
+    <span class="ident">local_needs_drop</span>: <span class="ident">IndexVec</span><span class="op">&lt;</span><span class="ident">Local</span>, <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Span</span><span class="op">&gt;&gt;</span>,
     <span class="ident">temp_promotion_state</span>: <span class="ident">IndexVec</span><span class="op">&lt;</span><span class="ident">Local</span>, <span class="ident">TempState</span><span class="op">&gt;</span>,
     <span class="ident">promotion_candidates</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Candidate</span><span class="op">&gt;</span>
 }
 
 <span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">Qualifier</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
     <span class="kw">fn</span> <span class="ident">new</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
-           <span class="ident">param_env</span>: <span class="ident">ty</span>::<span class="ident">ParamEnv</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
            <span class="ident">def_id</span>: <span class="ident">DefId</span>,
            <span class="ident">mir</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">Mir</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
            <span class="ident">mode</span>: <span class="ident">Mode</span>)
@@ -1222,11 +1251,12 @@
             <span class="ident">mir</span>,
             <span class="ident">rpo</span>,
             <span class="ident">tcx</span>,
-            <span class="ident">param_env</span>,
+            <span class="ident">param_env</span>: <span class="ident">tcx</span>.<span class="ident">param_env</span>(<span class="ident">def_id</span>),
             <span class="ident">temp_qualif</span>: <span class="ident">IndexVec</span>::<span class="ident">from_elem</span>(<span class="prelude-val">None</span>, <span class="kw-2">&amp;</span><span class="ident">mir</span>.<span class="ident">local_decls</span>),
             <span class="ident">return_qualif</span>: <span class="prelude-val">None</span>,
             <span class="ident">qualif</span>: <span class="ident">Qualif</span>::<span class="ident">empty</span>(),
             <span class="ident">const_fn_arg_vars</span>: <span class="ident">BitVector</span>::<span class="ident">new</span>(<span class="ident">mir</span>.<span class="ident">local_decls</span>.<span class="ident">len</span>()),
+            <span class="ident">local_needs_drop</span>: <span class="ident">IndexVec</span>::<span class="ident">from_elem</span>(<span class="prelude-val">None</span>, <span class="kw-2">&amp;</span><span class="ident">mir</span>.<span class="ident">local_decls</span>),
             <span class="ident">temp_promotion_state</span>: <span class="ident">temps</span>,
             <span class="ident">promotion_candidates</span>: <span class="macro">vec</span><span class="macro">!</span>[]
         }
@@ -1272,78 +1302,6 @@
         <span class="self">self</span>.<span class="ident">qualif</span> <span class="op">=</span> <span class="ident">Qualif</span>::<span class="ident">empty</span>();
         <span class="ident">f</span>(<span class="self">self</span>);
         <span class="self">self</span>.<span class="ident">add</span>(<span class="ident">original</span>);
-    }
-
-    <span class="doccomment">/// Check for NEEDS_DROP (from an ADT or const fn call) and</span>
-    <span class="doccomment">/// error, unless we&#39;re in a function, or the feature-gate</span>
-    <span class="doccomment">/// for globals with destructors is enabled.</span>
-    <span class="kw">fn</span> <span class="ident">deny_drop</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) {
-        <span class="kw">if</span> <span class="self">self</span>.<span class="ident">mode</span> <span class="op">==</span> <span class="ident">Mode</span>::<span class="ident">Fn</span> <span class="op">||</span> <span class="op">!</span><span class="self">self</span>.<span class="ident">qualif</span>.<span class="ident">intersects</span>(<span class="ident">Qualif</span>::<span class="ident">NEEDS_DROP</span>) {
-            <span class="kw">return</span>;
-        }
-
-        <span class="comment">// Static and const fn&#39;s allow destructors, but they&#39;re feature-gated.</span>
-        <span class="kw">let</span> <span class="ident">msg</span> <span class="op">=</span> <span class="kw">if</span> <span class="self">self</span>.<span class="ident">mode</span> <span class="op">!=</span> <span class="ident">Mode</span>::<span class="ident">Const</span> {
-            <span class="comment">// Feature-gate for globals with destructors is enabled.</span>
-            <span class="kw">if</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">sess</span>.<span class="ident">features</span>.<span class="ident">borrow</span>().<span class="ident">drop_types_in_const</span> {
-                <span class="kw">return</span>;
-            }
-
-            <span class="comment">// This comes from a macro that has #[allow_internal_unstable].</span>
-            <span class="kw">if</span> <span class="self">self</span>.<span class="ident">span</span>.<span class="ident">allows_unstable</span>() {
-                <span class="kw">return</span>;
-            }
-
-            <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;destructors in {}s are an unstable feature&quot;</span>,
-                    <span class="self">self</span>.<span class="ident">mode</span>)
-        } <span class="kw">else</span> {
-            <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;{}s are not allowed to have destructors&quot;</span>,
-                    <span class="self">self</span>.<span class="ident">mode</span>)
-        };
-
-        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">err</span> <span class="op">=</span>
-            <span class="macro">struct_span_err</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">sess</span>, <span class="self">self</span>.<span class="ident">span</span>, <span class="ident">E0493</span>, <span class="string">&quot;{}&quot;</span>, <span class="ident">msg</span>);
-
-        <span class="kw">if</span> <span class="self">self</span>.<span class="ident">mode</span> <span class="op">!=</span> <span class="ident">Mode</span>::<span class="ident">Const</span> {
-            <span class="macro">help</span><span class="macro">!</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">err</span>,
-                  <span class="string">&quot;in Nightly builds, add `#![feature(drop_types_in_const)]` \
-                   to the crate attributes to enable&quot;</span>);
-        } <span class="kw">else</span> {
-            <span class="self">self</span>.<span class="ident">find_drop_implementation_method_span</span>()
-                .<span class="ident">map</span>(<span class="op">|</span><span class="ident">span</span><span class="op">|</span> <span class="ident">err</span>.<span class="ident">span_label</span>(<span class="ident">span</span>, <span class="string">&quot;destructor defined here&quot;</span>));
-
-            <span class="ident">err</span>.<span class="ident">span_label</span>(<span class="self">self</span>.<span class="ident">span</span>, <span class="string">&quot;constants cannot have destructors&quot;</span>);
-        }
-
-        <span class="ident">err</span>.<span class="ident">emit</span>();
-    }
-
-    <span class="kw">fn</span> <span class="ident">find_drop_implementation_method_span</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Span</span><span class="op">&gt;</span> {
-        <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">lang_items</span>
-            .<span class="ident">drop_trait</span>()
-            .<span class="ident">and_then</span>(<span class="op">|</span><span class="ident">drop_trait_id</span><span class="op">|</span> {
-                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">span</span> <span class="op">=</span> <span class="prelude-val">None</span>;
-
-                <span class="self">self</span>.<span class="ident">tcx</span>
-                    .<span class="ident">for_each_relevant_impl</span>(<span class="ident">drop_trait_id</span>, <span class="self">self</span>.<span class="ident">mir</span>.<span class="ident">return_ty</span>, <span class="op">|</span><span class="ident">impl_did</span><span class="op">|</span> {
-                        <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">hir</span>
-                            .<span class="ident">as_local_node_id</span>(<span class="ident">impl_did</span>)
-                            .<span class="ident">and_then</span>(<span class="op">|</span><span class="ident">impl_node_id</span><span class="op">|</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">find</span>(<span class="ident">impl_node_id</span>))
-                            .<span class="ident">map</span>(<span class="op">|</span><span class="ident">node</span><span class="op">|</span> {
-                                <span class="kw">if</span> <span class="kw">let</span> <span class="ident">hir_map</span>::<span class="ident">NodeItem</span>(<span class="ident">item</span>) <span class="op">=</span> <span class="ident">node</span> {
-                                    <span class="kw">if</span> <span class="kw">let</span> <span class="ident">hir</span>::<span class="ident">ItemImpl</span>(.., <span class="kw-2">ref</span> <span class="ident">impl_item_refs</span>) <span class="op">=</span> <span class="ident">item</span>.<span class="ident">node</span> {
-                                        <span class="ident">span</span> <span class="op">=</span> <span class="ident">impl_item_refs</span>.<span class="ident">first</span>()
-                                                             .<span class="ident">map</span>(<span class="op">|</span><span class="ident">iiref</span><span class="op">|</span> {
-                                                                 <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">impl_item</span>(<span class="ident">iiref</span>.<span class="ident">id</span>)
-                                                                             .<span class="ident">span</span>
-                                                             });
-                                    }
-                                }
-                            });
-                    });
-
-                <span class="ident">span</span>
-            })
     }
 
     <span class="doccomment">/// Check if an Lvalue with the current qualifications could</span>
@@ -1395,6 +1353,15 @@
             <span class="kw">return</span>;
         }
 
+        <span class="comment">// When initializing a local, record whether the *value* being</span>
+        <span class="comment">// stored in it needs dropping, which it may not, even if its</span>
+        <span class="comment">// type does, e.g. `None::&lt;String&gt;`.</span>
+        <span class="kw">if</span> <span class="kw">let</span> <span class="ident">Lvalue</span>::<span class="ident">Local</span>(<span class="ident">local</span>) <span class="op">=</span> <span class="kw-2">*</span><span class="ident">dest</span> {
+            <span class="kw">if</span> <span class="ident">qualif</span>.<span class="ident">intersects</span>(<span class="ident">Qualif</span>::<span class="ident">NEEDS_DROP</span>) {
+                <span class="self">self</span>.<span class="ident">local_needs_drop</span>[<span class="ident">local</span>] <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="self">self</span>.<span class="ident">span</span>);
+            }
+        }
+
         <span class="kw">match</span> <span class="kw-2">*</span><span class="ident">dest</span> {
             <span class="ident">Lvalue</span>::<span class="ident">Local</span>(<span class="ident">index</span>) <span class="kw">if</span> <span class="self">self</span>.<span class="ident">mir</span>.<span class="ident">local_kind</span>(<span class="ident">index</span>) <span class="op">==</span> <span class="ident">LocalKind</span>::<span class="ident">Temp</span> <span class="op">=&gt;</span> {
                 <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;store to temp {:?}&quot;</span>, <span class="ident">index</span>);
@@ -1427,7 +1394,7 @@
     }
 
     <span class="doccomment">/// Qualify a whole const, static initializer or const fn.</span>
-    <span class="kw">fn</span> <span class="ident">qualify_const</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">Qualif</span> {
+    <span class="kw">fn</span> <span class="ident">qualify_const</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-&gt;</span> (<span class="ident">Qualif</span>, <span class="ident">Rc</span><span class="op">&lt;</span><span class="ident">IdxSetBuf</span><span class="op">&lt;</span><span class="ident">Local</span><span class="op">&gt;&gt;</span>) {
         <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;qualifying {} {:?}&quot;</span>, <span class="self">self</span>.<span class="ident">mode</span>, <span class="self">self</span>.<span class="ident">def_id</span>);
 
         <span class="kw">let</span> <span class="ident">mir</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">mir</span>;
@@ -1441,7 +1408,6 @@
 
             <span class="kw">let</span> <span class="ident">target</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">mir</span>[<span class="ident">bb</span>].<span class="ident">terminator</span>().<span class="ident">kind</span> {
                 <span class="ident">TerminatorKind</span>::<span class="ident">Goto</span> { <span class="ident">target</span> } <span class="op">|</span>
-                <span class="comment">// Drops are considered noops.</span>
                 <span class="ident">TerminatorKind</span>::<span class="ident">Drop</span> { <span class="ident">target</span>, .. } <span class="op">|</span>
                 <span class="ident">TerminatorKind</span>::<span class="ident">Assert</span> { <span class="ident">target</span>, .. } <span class="op">|</span>
                 <span class="ident">TerminatorKind</span>::<span class="ident">Call</span> { <span class="ident">destination</span>: <span class="prelude-val">Some</span>((_, <span class="ident">target</span>)), .. } <span class="op">=&gt;</span> {
@@ -1450,12 +1416,14 @@
 
                 <span class="comment">// Non-terminating calls cannot produce any value.</span>
                 <span class="ident">TerminatorKind</span>::<span class="ident">Call</span> { <span class="ident">destination</span>: <span class="prelude-val">None</span>, .. } <span class="op">=&gt;</span> {
-                    <span class="kw">return</span> <span class="ident">Qualif</span>::<span class="ident">empty</span>();
+                    <span class="kw">break</span>;
                 }
 
                 <span class="ident">TerminatorKind</span>::<span class="ident">SwitchInt</span> {..} <span class="op">|</span>
                 <span class="ident">TerminatorKind</span>::<span class="ident">DropAndReplace</span> { .. } <span class="op">|</span>
                 <span class="ident">TerminatorKind</span>::<span class="ident">Resume</span> <span class="op">|</span>
+                <span class="ident">TerminatorKind</span>::<span class="ident">GeneratorDrop</span> <span class="op">|</span>
+                <span class="ident">TerminatorKind</span>::<span class="ident">Yield</span> { .. } <span class="op">|</span>
                 <span class="ident">TerminatorKind</span>::<span class="ident">Unreachable</span> <span class="op">=&gt;</span> <span class="prelude-val">None</span>,
 
                 <span class="ident">TerminatorKind</span>::<span class="ident">Return</span> <span class="op">=&gt;</span> {
@@ -1512,25 +1480,35 @@
             }
         }
 
-        <span class="kw">let</span> <span class="ident">return_ty</span> <span class="op">=</span> <span class="ident">mir</span>.<span class="ident">return_ty</span>;
         <span class="self">self</span>.<span class="ident">qualif</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">return_qualif</span>.<span class="ident">unwrap_or</span>(<span class="ident">Qualif</span>::<span class="ident">NOT_CONST</span>);
 
-        <span class="kw">match</span> <span class="self">self</span>.<span class="ident">mode</span> {
-            <span class="ident">Mode</span>::<span class="ident">StaticMut</span> <span class="op">=&gt;</span> {
-                <span class="comment">// Check for destructors in static mut.</span>
-                <span class="self">self</span>.<span class="ident">add_type</span>(<span class="ident">return_ty</span>);
-                <span class="self">self</span>.<span class="ident">deny_drop</span>();
-            }
-            _ <span class="op">=&gt;</span> {
-                <span class="comment">// Account for errors in consts by using the</span>
-                <span class="comment">// conservative type qualification instead.</span>
-                <span class="kw">if</span> <span class="self">self</span>.<span class="ident">qualif</span>.<span class="ident">intersects</span>(<span class="ident">Qualif</span>::<span class="ident">CONST_ERROR</span>) {
-                    <span class="self">self</span>.<span class="ident">qualif</span> <span class="op">=</span> <span class="ident">Qualif</span>::<span class="ident">empty</span>();
-                    <span class="self">self</span>.<span class="ident">add_type</span>(<span class="ident">return_ty</span>);
+        <span class="comment">// Account for errors in consts by using the</span>
+        <span class="comment">// conservative type qualification instead.</span>
+        <span class="kw">if</span> <span class="self">self</span>.<span class="ident">qualif</span>.<span class="ident">intersects</span>(<span class="ident">Qualif</span>::<span class="ident">CONST_ERROR</span>) {
+            <span class="self">self</span>.<span class="ident">qualif</span> <span class="op">=</span> <span class="ident">Qualif</span>::<span class="ident">empty</span>();
+            <span class="kw">let</span> <span class="ident">return_ty</span> <span class="op">=</span> <span class="ident">mir</span>.<span class="ident">return_ty</span>;
+            <span class="self">self</span>.<span class="ident">add_type</span>(<span class="ident">return_ty</span>);
+        }
+
+
+        <span class="comment">// Collect all the temps we need to promote.</span>
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">promoted_temps</span> <span class="op">=</span> <span class="ident">IdxSetBuf</span>::<span class="ident">new_empty</span>(<span class="self">self</span>.<span class="ident">temp_promotion_state</span>.<span class="ident">len</span>());
+
+        <span class="kw">for</span> <span class="ident">candidate</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">promotion_candidates</span> {
+            <span class="kw">match</span> <span class="kw-2">*</span><span class="ident">candidate</span> {
+                <span class="ident">Candidate</span>::<span class="ident">Ref</span>(<span class="ident">Location</span> { <span class="ident">block</span>: <span class="ident">bb</span>, <span class="ident">statement_index</span>: <span class="ident">stmt_idx</span> }) <span class="op">=&gt;</span> {
+                    <span class="kw">match</span> <span class="self">self</span>.<span class="ident">mir</span>[<span class="ident">bb</span>].<span class="ident">statements</span>[<span class="ident">stmt_idx</span>].<span class="ident">kind</span> {
+                        <span class="ident">StatementKind</span>::<span class="ident">Assign</span>(_, <span class="ident">Rvalue</span>::<span class="ident">Ref</span>(_, _, <span class="ident">Lvalue</span>::<span class="ident">Local</span>(<span class="ident">index</span>))) <span class="op">=&gt;</span> {
+                            <span class="ident">promoted_temps</span>.<span class="ident">add</span>(<span class="kw-2">&amp;</span><span class="ident">index</span>);
+                        }
+                        _ <span class="op">=&gt;</span> {}
+                    }
                 }
+                <span class="ident">Candidate</span>::<span class="ident">ShuffleIndices</span>(_) <span class="op">=&gt;</span> {}
             }
         }
-        <span class="self">self</span>.<span class="ident">qualif</span>
+
+        (<span class="self">self</span>.<span class="ident">qualif</span>, <span class="ident">Rc</span>::<span class="ident">new</span>(<span class="ident">promoted_temps</span>))
     }
 }
 
@@ -1538,33 +1516,40 @@
 <span class="doccomment">/// For functions (constant or not), it also records</span>
 <span class="doccomment">/// candidates for promotion in promotion_candidates.</span>
 <span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">Visitor</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">Qualifier</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">visit_local</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
+                   <span class="kw-2">&amp;</span><span class="ident">local</span>: <span class="kw-2">&amp;</span><span class="ident">Local</span>,
+                   _: <span class="ident">LvalueContext</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                   _: <span class="ident">Location</span>) {
+        <span class="kw">match</span> <span class="self">self</span>.<span class="ident">mir</span>.<span class="ident">local_kind</span>(<span class="ident">local</span>) {
+            <span class="ident">LocalKind</span>::<span class="ident">ReturnPointer</span> <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">not_const</span>();
+            }
+            <span class="ident">LocalKind</span>::<span class="ident">Arg</span> <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">add</span>(<span class="ident">Qualif</span>::<span class="ident">FN_ARGUMENT</span>);
+            }
+            <span class="ident">LocalKind</span>::<span class="ident">Var</span> <span class="op">=&gt;</span> {
+                <span class="self">self</span>.<span class="ident">add</span>(<span class="ident">Qualif</span>::<span class="ident">NOT_CONST</span>);
+            }
+            <span class="ident">LocalKind</span>::<span class="ident">Temp</span> <span class="op">=&gt;</span> {
+                <span class="kw">if</span> <span class="op">!</span><span class="self">self</span>.<span class="ident">temp_promotion_state</span>[<span class="ident">local</span>].<span class="ident">is_promotable</span>() {
+                    <span class="self">self</span>.<span class="ident">add</span>(<span class="ident">Qualif</span>::<span class="ident">NOT_PROMOTABLE</span>);
+                }
+
+                <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">qualif</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">temp_qualif</span>[<span class="ident">local</span>] {
+                    <span class="self">self</span>.<span class="ident">add</span>(<span class="ident">qualif</span>);
+                } <span class="kw">else</span> {
+                    <span class="self">self</span>.<span class="ident">not_const</span>();
+                }
+            }
+        }
+    }
+
     <span class="kw">fn</span> <span class="ident">visit_lvalue</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>,
                     <span class="ident">lvalue</span>: <span class="kw-2">&amp;</span><span class="ident">Lvalue</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
                     <span class="ident">context</span>: <span class="ident">LvalueContext</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
                     <span class="ident">location</span>: <span class="ident">Location</span>) {
         <span class="kw">match</span> <span class="kw-2">*</span><span class="ident">lvalue</span> {
-            <span class="ident">Lvalue</span>::<span class="ident">Local</span>(<span class="ident">local</span>) <span class="op">=&gt;</span> <span class="kw">match</span> <span class="self">self</span>.<span class="ident">mir</span>.<span class="ident">local_kind</span>(<span class="ident">local</span>) {
-                <span class="ident">LocalKind</span>::<span class="ident">ReturnPointer</span> <span class="op">=&gt;</span> {
-                    <span class="self">self</span>.<span class="ident">not_const</span>();
-                }
-                <span class="ident">LocalKind</span>::<span class="ident">Arg</span> <span class="op">=&gt;</span> {
-                    <span class="self">self</span>.<span class="ident">add</span>(<span class="ident">Qualif</span>::<span class="ident">FN_ARGUMENT</span>);
-                }
-                <span class="ident">LocalKind</span>::<span class="ident">Var</span> <span class="op">=&gt;</span> {
-                    <span class="self">self</span>.<span class="ident">add</span>(<span class="ident">Qualif</span>::<span class="ident">NOT_CONST</span>);
-                }
-                <span class="ident">LocalKind</span>::<span class="ident">Temp</span> <span class="op">=&gt;</span> {
-                    <span class="kw">if</span> <span class="op">!</span><span class="self">self</span>.<span class="ident">temp_promotion_state</span>[<span class="ident">local</span>].<span class="ident">is_promotable</span>() {
-                        <span class="self">self</span>.<span class="ident">add</span>(<span class="ident">Qualif</span>::<span class="ident">NOT_PROMOTABLE</span>);
-                    }
-
-                    <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">qualif</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">temp_qualif</span>[<span class="ident">local</span>] {
-                        <span class="self">self</span>.<span class="ident">add</span>(<span class="ident">qualif</span>);
-                    } <span class="kw">else</span> {
-                        <span class="self">self</span>.<span class="ident">not_const</span>();
-                    }
-                }
-            },
+            <span class="ident">Lvalue</span>::<span class="ident">Local</span>(<span class="kw-2">ref</span> <span class="ident">local</span>) <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">visit_local</span>(<span class="ident">local</span>, <span class="ident">context</span>, <span class="ident">location</span>),
             <span class="ident">Lvalue</span>::<span class="ident">Static</span>(<span class="kw-2">ref</span> <span class="ident">global</span>) <span class="op">=&gt;</span> {
                 <span class="self">self</span>.<span class="ident">add</span>(<span class="ident">Qualif</span>::<span class="ident">STATIC</span>);
 
@@ -1574,6 +1559,7 @@
                             <span class="macro">span_err</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">sess</span>, <span class="self">self</span>.<span class="ident">span</span>, <span class="ident">E0625</span>,
                                       <span class="string">&quot;thread-local statics cannot be \
                                        accessed at compile-time&quot;</span>);
+                            <span class="self">self</span>.<span class="ident">add</span>(<span class="ident">Qualif</span>::<span class="ident">NOT_CONST</span>);
                             <span class="kw">return</span>;
                         }
                     }
@@ -1639,28 +1625,34 @@
 
     <span class="kw">fn</span> <span class="ident">visit_operand</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">operand</span>: <span class="kw-2">&amp;</span><span class="ident">Operand</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">location</span>: <span class="ident">Location</span>) {
         <span class="kw">match</span> <span class="kw-2">*</span><span class="ident">operand</span> {
-            <span class="ident">Operand</span>::<span class="ident">Consume</span>(_) <span class="op">=&gt;</span> {
+            <span class="ident">Operand</span>::<span class="ident">Consume</span>(<span class="kw-2">ref</span> <span class="ident">lvalue</span>) <span class="op">=&gt;</span> {
                 <span class="self">self</span>.<span class="ident">nest</span>(<span class="op">|</span><span class="ident">this</span><span class="op">|</span> {
                     <span class="ident">this</span>.<span class="ident">super_operand</span>(<span class="ident">operand</span>, <span class="ident">location</span>);
                     <span class="ident">this</span>.<span class="ident">try_consume</span>();
                 });
+
+                <span class="comment">// Mark the consumed locals to indicate later drops are noops.</span>
+                <span class="kw">if</span> <span class="kw">let</span> <span class="ident">Lvalue</span>::<span class="ident">Local</span>(<span class="ident">local</span>) <span class="op">=</span> <span class="kw-2">*</span><span class="ident">lvalue</span> {
+                    <span class="self">self</span>.<span class="ident">local_needs_drop</span>[<span class="ident">local</span>] <span class="op">=</span> <span class="prelude-val">None</span>;
+                }
             }
             <span class="ident">Operand</span>::<span class="ident">Constant</span>(<span class="kw-2">ref</span> <span class="ident">constant</span>) <span class="op">=&gt;</span> {
-                <span class="kw">if</span> <span class="kw">let</span> <span class="ident">Literal</span>::<span class="ident">Item</span> { <span class="ident">def_id</span>, <span class="ident">substs</span> } <span class="op">=</span> <span class="ident">constant</span>.<span class="ident">literal</span> {
-                    <span class="comment">// Don&#39;t peek inside generic (associated) constants.</span>
-                    <span class="kw">if</span> <span class="ident">substs</span>.<span class="ident">types</span>().<span class="ident">next</span>().<span class="ident">is_some</span>() {
-                        <span class="self">self</span>.<span class="ident">add_type</span>(<span class="ident">constant</span>.<span class="ident">ty</span>);
+                <span class="kw">if</span> <span class="kw">let</span> <span class="ident">Literal</span>::<span class="ident">Value</span> {
+                    <span class="ident">value</span>: <span class="kw-2">&amp;</span><span class="ident">ty</span>::<span class="ident">Const</span> { <span class="ident">val</span>: <span class="ident">ConstVal</span>::<span class="ident">Unevaluated</span>(<span class="ident">def_id</span>, _), <span class="ident">ty</span> }
+                } <span class="op">=</span> <span class="ident">constant</span>.<span class="ident">literal</span> {
+                    <span class="comment">// Don&#39;t peek inside trait associated constants.</span>
+                    <span class="kw">if</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">trait_of_item</span>(<span class="ident">def_id</span>).<span class="ident">is_some</span>() {
+                        <span class="self">self</span>.<span class="ident">add_type</span>(<span class="ident">ty</span>);
                     } <span class="kw">else</span> {
-                        <span class="kw">let</span> <span class="ident">bits</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">at</span>(<span class="ident">constant</span>.<span class="ident">span</span>).<span class="ident">mir_const_qualif</span>(<span class="ident">def_id</span>);
+                        <span class="kw">let</span> (<span class="ident">bits</span>, _) <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">at</span>(<span class="ident">constant</span>.<span class="ident">span</span>).<span class="ident">mir_const_qualif</span>(<span class="ident">def_id</span>);
 
                         <span class="kw">let</span> <span class="ident">qualif</span> <span class="op">=</span> <span class="ident">Qualif</span>::<span class="ident">from_bits</span>(<span class="ident">bits</span>).<span class="ident">expect</span>(<span class="string">&quot;invalid mir_const_qualif&quot;</span>);
                         <span class="self">self</span>.<span class="ident">add</span>(<span class="ident">qualif</span>);
-                    }
 
-                    <span class="comment">// Let `const fn` transitively have destructors,</span>
-                    <span class="comment">// but they do get stopped in `const` or `static`.</span>
-                    <span class="kw">if</span> <span class="self">self</span>.<span class="ident">mode</span> <span class="op">!=</span> <span class="ident">Mode</span>::<span class="ident">ConstFn</span> {
-                        <span class="self">self</span>.<span class="ident">deny_drop</span>();
+                        <span class="comment">// Just in case the type is more specific than</span>
+                        <span class="comment">// the definition, e.g. impl associated const</span>
+                        <span class="comment">// with type parameters, take it into account.</span>
+                        <span class="self">self</span>.<span class="ident">qualif</span>.<span class="ident">restrict</span>(<span class="ident">ty</span>, <span class="self">self</span>.<span class="ident">tcx</span>, <span class="self">self</span>.<span class="ident">param_env</span>);
                     }
                 }
             }
@@ -1706,16 +1698,12 @@
                     <span class="kw">let</span> <span class="ident">allow</span> <span class="op">=</span> <span class="kw">if</span> <span class="self">self</span>.<span class="ident">mode</span> <span class="op">==</span> <span class="ident">Mode</span>::<span class="ident">StaticMut</span> {
                         <span class="comment">// Inside a `static mut`, &amp;mut [...] is also allowed.</span>
                         <span class="kw">match</span> <span class="ident">ty</span>.<span class="ident">sty</span> {
-                            <span class="ident">ty</span>::<span class="ident">TyArray</span>(..) <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">TySlice</span>(_) <span class="op">=&gt;</span> {
-                                <span class="comment">// Mutating can expose drops, be conservative.</span>
-                                <span class="self">self</span>.<span class="ident">add_type</span>(<span class="ident">ty</span>);
-                                <span class="self">self</span>.<span class="ident">deny_drop</span>();
-                                <span class="bool-val">true</span>
-                            }
+                            <span class="ident">ty</span>::<span class="ident">TyArray</span>(..) <span class="op">|</span> <span class="ident">ty</span>::<span class="ident">TySlice</span>(_) <span class="op">=&gt;</span> <span class="bool-val">true</span>,
                             _ <span class="op">=&gt;</span> <span class="bool-val">false</span>
                         }
-                    } <span class="kw">else</span> <span class="kw">if</span> <span class="kw">let</span> <span class="ident">ty</span>::<span class="ident">TyArray</span>(_, <span class="number">0</span>) <span class="op">=</span> <span class="ident">ty</span>.<span class="ident">sty</span> {
-                        <span class="self">self</span>.<span class="ident">mode</span> <span class="op">==</span> <span class="ident">Mode</span>::<span class="ident">Fn</span>
+                    } <span class="kw">else</span> <span class="kw">if</span> <span class="kw">let</span> <span class="ident">ty</span>::<span class="ident">TyArray</span>(_, <span class="ident">len</span>) <span class="op">=</span> <span class="ident">ty</span>.<span class="ident">sty</span> {
+                        <span class="ident">len</span>.<span class="ident">val</span>.<span class="ident">to_const_int</span>().<span class="ident">unwrap</span>().<span class="ident">to_u64</span>().<span class="ident">unwrap</span>() <span class="op">==</span> <span class="number">0</span> <span class="op">&amp;&amp;</span>
+                            <span class="self">self</span>.<span class="ident">mode</span> <span class="op">==</span> <span class="ident">Mode</span>::<span class="ident">Fn</span>
                     } <span class="kw">else</span> {
                         <span class="bool-val">false</span>
                     };
@@ -1750,13 +1738,11 @@
 
                 <span class="comment">// We might have a candidate for promotion.</span>
                 <span class="kw">let</span> <span class="ident">candidate</span> <span class="op">=</span> <span class="ident">Candidate</span>::<span class="ident">Ref</span>(<span class="ident">location</span>);
-                <span class="kw">if</span> <span class="self">self</span>.<span class="ident">mode</span> <span class="op">==</span> <span class="ident">Mode</span>::<span class="ident">Fn</span> <span class="op">||</span> <span class="self">self</span>.<span class="ident">mode</span> <span class="op">==</span> <span class="ident">Mode</span>::<span class="ident">ConstFn</span> {
-                    <span class="kw">if</span> <span class="op">!</span><span class="self">self</span>.<span class="ident">qualif</span>.<span class="ident">intersects</span>(<span class="ident">Qualif</span>::<span class="ident">NEVER_PROMOTE</span>) {
-                        <span class="comment">// We can only promote direct borrows of temps.</span>
-                        <span class="kw">if</span> <span class="kw">let</span> <span class="ident">Lvalue</span>::<span class="ident">Local</span>(<span class="ident">local</span>) <span class="op">=</span> <span class="kw-2">*</span><span class="ident">lvalue</span> {
-                            <span class="kw">if</span> <span class="self">self</span>.<span class="ident">mir</span>.<span class="ident">local_kind</span>(<span class="ident">local</span>) <span class="op">==</span> <span class="ident">LocalKind</span>::<span class="ident">Temp</span> {
-                                <span class="self">self</span>.<span class="ident">promotion_candidates</span>.<span class="ident">push</span>(<span class="ident">candidate</span>);
-                            }
+                <span class="kw">if</span> <span class="op">!</span><span class="self">self</span>.<span class="ident">qualif</span>.<span class="ident">intersects</span>(<span class="ident">Qualif</span>::<span class="ident">NEVER_PROMOTE</span>) {
+                    <span class="comment">// We can only promote direct borrows of temps.</span>
+                    <span class="kw">if</span> <span class="kw">let</span> <span class="ident">Lvalue</span>::<span class="ident">Local</span>(<span class="ident">local</span>) <span class="op">=</span> <span class="kw-2">*</span><span class="ident">lvalue</span> {
+                        <span class="kw">if</span> <span class="self">self</span>.<span class="ident">mir</span>.<span class="ident">local_kind</span>(<span class="ident">local</span>) <span class="op">==</span> <span class="ident">LocalKind</span>::<span class="ident">Temp</span> {
+                            <span class="self">self</span>.<span class="ident">promotion_candidates</span>.<span class="ident">push</span>(<span class="ident">candidate</span>);
                         }
                     }
                 }
@@ -1815,18 +1801,12 @@
                 <span class="kw">if</span> <span class="kw">let</span> <span class="ident">AggregateKind</span>::<span class="ident">Adt</span>(<span class="ident">def</span>, ..) <span class="op">=</span> <span class="kw-2">*</span><span class="kw-2">*</span><span class="ident">kind</span> {
                     <span class="kw">if</span> <span class="ident">def</span>.<span class="ident">has_dtor</span>(<span class="self">self</span>.<span class="ident">tcx</span>) {
                         <span class="self">self</span>.<span class="ident">add</span>(<span class="ident">Qualif</span>::<span class="ident">NEEDS_DROP</span>);
-                        <span class="self">self</span>.<span class="ident">deny_drop</span>();
                     }
 
-                    <span class="kw">if</span> <span class="prelude-val">Some</span>(<span class="ident">def</span>.<span class="ident">did</span>) <span class="op">==</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">lang_items</span>.<span class="ident">unsafe_cell_type</span>() {
+                    <span class="kw">if</span> <span class="prelude-val">Some</span>(<span class="ident">def</span>.<span class="ident">did</span>) <span class="op">==</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">lang_items</span>().<span class="ident">unsafe_cell_type</span>() {
                         <span class="kw">let</span> <span class="ident">ty</span> <span class="op">=</span> <span class="ident">rvalue</span>.<span class="ident">ty</span>(<span class="self">self</span>.<span class="ident">mir</span>, <span class="self">self</span>.<span class="ident">tcx</span>);
                         <span class="self">self</span>.<span class="ident">add_type</span>(<span class="ident">ty</span>);
                         <span class="macro">assert</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">qualif</span>.<span class="ident">intersects</span>(<span class="ident">Qualif</span>::<span class="ident">MUTABLE_INTERIOR</span>));
-                        <span class="comment">// Even if the value inside may not need dropping,</span>
-                        <span class="comment">// mutating it would change that.</span>
-                        <span class="kw">if</span> <span class="op">!</span><span class="self">self</span>.<span class="ident">qualif</span>.<span class="ident">intersects</span>(<span class="ident">Qualif</span>::<span class="ident">NOT_CONST</span>) {
-                            <span class="self">self</span>.<span class="ident">deny_drop</span>();
-                        }
                     }
                 }
             }
@@ -1841,14 +1821,14 @@
             <span class="self">self</span>.<span class="ident">visit_operand</span>(<span class="ident">func</span>, <span class="ident">location</span>);
 
             <span class="kw">let</span> <span class="ident">fn_ty</span> <span class="op">=</span> <span class="ident">func</span>.<span class="ident">ty</span>(<span class="self">self</span>.<span class="ident">mir</span>, <span class="self">self</span>.<span class="ident">tcx</span>);
-            <span class="kw">let</span> (<span class="kw-2">mut</span> <span class="ident">is_shuffle</span>, <span class="kw-2">mut</span> <span class="ident">is_const_fn</span>) <span class="op">=</span> (<span class="bool-val">false</span>, <span class="bool-val">false</span>);
+            <span class="kw">let</span> (<span class="kw-2">mut</span> <span class="ident">is_shuffle</span>, <span class="kw-2">mut</span> <span class="ident">is_const_fn</span>) <span class="op">=</span> (<span class="bool-val">false</span>, <span class="prelude-val">None</span>);
             <span class="kw">if</span> <span class="kw">let</span> <span class="ident">ty</span>::<span class="ident">TyFnDef</span>(<span class="ident">def_id</span>, _) <span class="op">=</span> <span class="ident">fn_ty</span>.<span class="ident">sty</span> {
                 <span class="kw">match</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">fn_sig</span>(<span class="ident">def_id</span>).<span class="ident">abi</span>() {
                     <span class="ident">Abi</span>::<span class="ident">RustIntrinsic</span> <span class="op">|</span>
                     <span class="ident">Abi</span>::<span class="ident">PlatformIntrinsic</span> <span class="op">=&gt;</span> {
                         <span class="macro">assert</span><span class="macro">!</span>(<span class="op">!</span><span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">is_const_fn</span>(<span class="ident">def_id</span>));
-                        <span class="kw">match</span> <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">item_name</span>(<span class="ident">def_id</span>).<span class="ident">as_str</span>()[..] {
-                            <span class="string">&quot;size_of&quot;</span> <span class="op">|</span> <span class="string">&quot;min_align_of&quot;</span> <span class="op">=&gt;</span> <span class="ident">is_const_fn</span> <span class="op">=</span> <span class="bool-val">true</span>,
+                        <span class="kw">match</span> <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">item_name</span>(<span class="ident">def_id</span>)[..] {
+                            <span class="string">&quot;size_of&quot;</span> <span class="op">|</span> <span class="string">&quot;min_align_of&quot;</span> <span class="op">=&gt;</span> <span class="ident">is_const_fn</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="ident">def_id</span>),
 
                             <span class="ident">name</span> <span class="kw">if</span> <span class="ident">name</span>.<span class="ident">starts_with</span>(<span class="string">&quot;simd_shuffle&quot;</span>) <span class="op">=&gt;</span> {
                                 <span class="ident">is_shuffle</span> <span class="op">=</span> <span class="bool-val">true</span>;
@@ -1858,7 +1838,9 @@
                         }
                     }
                     _ <span class="op">=&gt;</span> {
-                        <span class="ident">is_const_fn</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">is_const_fn</span>(<span class="ident">def_id</span>);
+                        <span class="kw">if</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">is_const_fn</span>(<span class="ident">def_id</span>) {
+                            <span class="ident">is_const_fn</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="ident">def_id</span>);
+                        }
                     }
                 }
             }
@@ -1879,25 +1861,38 @@
             }
 
             <span class="comment">// Const fn calls.</span>
-            <span class="kw">if</span> <span class="ident">is_const_fn</span> {
-                <span class="comment">// We are in a const or static initializer,</span>
-                <span class="kw">if</span> <span class="self">self</span>.<span class="ident">mode</span> <span class="op">!=</span> <span class="ident">Mode</span>::<span class="ident">Fn</span> <span class="op">&amp;&amp;</span>
+            <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">def_id</span>) <span class="op">=</span> <span class="ident">is_const_fn</span> {
+                <span class="comment">// find corresponding rustc_const_unstable feature</span>
+                <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="ident">attr</span>::<span class="ident">Stability</span> {
+                    <span class="ident">rustc_const_unstable</span>: <span class="prelude-val">Some</span>(<span class="ident">attr</span>::<span class="ident">RustcConstUnstable</span> {
+                        <span class="ident">feature</span>: <span class="kw-2">ref</span> <span class="ident">feature_name</span>
+                    }),
+                .. }) <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">lookup_stability</span>(<span class="ident">def_id</span>) {
 
-                    <span class="comment">// feature-gate is not enabled,</span>
-                    <span class="op">!</span><span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">sess</span>.<span class="ident">features</span>.<span class="ident">borrow</span>().<span class="ident">const_fn</span> <span class="op">&amp;&amp;</span>
+                    <span class="comment">// We are in a const or static initializer,</span>
+                    <span class="kw">if</span> <span class="self">self</span>.<span class="ident">mode</span> <span class="op">!=</span> <span class="ident">Mode</span>::<span class="ident">Fn</span> <span class="op">&amp;&amp;</span>
 
-                    <span class="comment">// this doesn&#39;t come from a crate with the feature-gate enabled,</span>
-                    <span class="self">self</span>.<span class="ident">def_id</span>.<span class="ident">is_local</span>() <span class="op">&amp;&amp;</span>
+                        <span class="comment">// feature-gate is not enabled,</span>
+                        <span class="op">!</span><span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">sess</span>.<span class="ident">features</span>.<span class="ident">borrow</span>()
+                            .<span class="ident">declared_lib_features</span>
+                            .<span class="ident">iter</span>()
+                            .<span class="ident">any</span>(<span class="op">|</span><span class="kw-2">&amp;</span>(<span class="kw-2">ref</span> <span class="ident">sym</span>, _)<span class="op">|</span> <span class="ident">sym</span> <span class="op">==</span> <span class="ident">feature_name</span>) <span class="op">&amp;&amp;</span>
 
-                    <span class="comment">// this doesn&#39;t come from a macro that has #[allow_internal_unstable]</span>
-                    <span class="op">!</span><span class="self">self</span>.<span class="ident">span</span>.<span class="ident">allows_unstable</span>()
-                {
-                    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">err</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">sess</span>.<span class="ident">struct_span_err</span>(<span class="self">self</span>.<span class="ident">span</span>,
-                        <span class="string">&quot;const fns are an unstable feature&quot;</span>);
-                    <span class="macro">help</span><span class="macro">!</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">err</span>,
-                          <span class="string">&quot;in Nightly builds, add `#![feature(const_fn)]` \
-                           to the crate attributes to enable&quot;</span>);
-                    <span class="ident">err</span>.<span class="ident">emit</span>();
+                        <span class="comment">// this doesn&#39;t come from a crate with the feature-gate enabled,</span>
+                        <span class="self">self</span>.<span class="ident">def_id</span>.<span class="ident">is_local</span>() <span class="op">&amp;&amp;</span>
+
+                        <span class="comment">// this doesn&#39;t come from a macro that has #[allow_internal_unstable]</span>
+                        <span class="op">!</span><span class="self">self</span>.<span class="ident">span</span>.<span class="ident">allows_unstable</span>()
+                    {
+                        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">err</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">sess</span>.<span class="ident">struct_span_err</span>(<span class="self">self</span>.<span class="ident">span</span>,
+                            <span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;`{}` is not yet stable as a const fn&quot;</span>,
+                                     <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">item_path_str</span>(<span class="ident">def_id</span>)));
+                        <span class="macro">help</span><span class="macro">!</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">err</span>,
+                              <span class="string">&quot;in Nightly builds, add `#![feature({})]` \
+                               to the crate attributes to enable&quot;</span>,
+                              <span class="ident">feature_name</span>);
+                        <span class="ident">err</span>.<span class="ident">emit</span>();
+                    }
                 }
             } <span class="kw">else</span> {
                 <span class="self">self</span>.<span class="ident">qualif</span> <span class="op">=</span> <span class="ident">Qualif</span>::<span class="ident">NOT_CONST</span>;
@@ -1936,14 +1931,33 @@
                     <span class="kw">let</span> <span class="ident">ty</span> <span class="op">=</span> <span class="ident">dest</span>.<span class="ident">ty</span>(<span class="self">self</span>.<span class="ident">mir</span>, <span class="ident">tcx</span>).<span class="ident">to_ty</span>(<span class="ident">tcx</span>);
                     <span class="self">self</span>.<span class="ident">qualif</span> <span class="op">=</span> <span class="ident">Qualif</span>::<span class="ident">empty</span>();
                     <span class="self">self</span>.<span class="ident">add_type</span>(<span class="ident">ty</span>);
-
-                    <span class="comment">// Let `const fn` transitively have destructors,</span>
-                    <span class="comment">// but they do get stopped in `const` or `static`.</span>
-                    <span class="kw">if</span> <span class="self">self</span>.<span class="ident">mode</span> <span class="op">!=</span> <span class="ident">Mode</span>::<span class="ident">ConstFn</span> {
-                        <span class="self">self</span>.<span class="ident">deny_drop</span>();
-                    }
                 }
                 <span class="self">self</span>.<span class="ident">assign</span>(<span class="ident">dest</span>, <span class="ident">location</span>);
+            }
+        } <span class="kw">else</span> <span class="kw">if</span> <span class="kw">let</span> <span class="ident">TerminatorKind</span>::<span class="ident">Drop</span> { <span class="ident">location</span>: <span class="kw-2">ref</span> <span class="ident">lvalue</span>, .. } <span class="op">=</span> <span class="kw-2">*</span><span class="ident">kind</span> {
+            <span class="self">self</span>.<span class="ident">super_terminator_kind</span>(<span class="ident">bb</span>, <span class="ident">kind</span>, <span class="ident">location</span>);
+
+            <span class="comment">// Deny *any* live drops anywhere other than functions.</span>
+            <span class="kw">if</span> <span class="self">self</span>.<span class="ident">mode</span> <span class="op">!=</span> <span class="ident">Mode</span>::<span class="ident">Fn</span> {
+                <span class="comment">// HACK(eddyb) Emulate a bit of dataflow analysis,</span>
+                <span class="comment">// conservatively, that drop elaboration will do.</span>
+                <span class="kw">let</span> <span class="ident">needs_drop</span> <span class="op">=</span> <span class="kw">if</span> <span class="kw">let</span> <span class="ident">Lvalue</span>::<span class="ident">Local</span>(<span class="ident">local</span>) <span class="op">=</span> <span class="kw-2">*</span><span class="ident">lvalue</span> {
+                    <span class="self">self</span>.<span class="ident">local_needs_drop</span>[<span class="ident">local</span>]
+                } <span class="kw">else</span> {
+                    <span class="prelude-val">None</span>
+                };
+
+                <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">span</span>) <span class="op">=</span> <span class="ident">needs_drop</span> {
+                    <span class="comment">// Double-check the type being dropped, to minimize false positives.</span>
+                    <span class="kw">let</span> <span class="ident">ty</span> <span class="op">=</span> <span class="ident">lvalue</span>.<span class="ident">ty</span>(<span class="self">self</span>.<span class="ident">mir</span>, <span class="self">self</span>.<span class="ident">tcx</span>).<span class="ident">to_ty</span>(<span class="self">self</span>.<span class="ident">tcx</span>);
+                    <span class="kw">if</span> <span class="ident">ty</span>.<span class="ident">needs_drop</span>(<span class="self">self</span>.<span class="ident">tcx</span>, <span class="self">self</span>.<span class="ident">param_env</span>) {
+                        <span class="macro">struct_span_err</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">sess</span>, <span class="ident">span</span>, <span class="ident">E0493</span>,
+                                         <span class="string">&quot;destructors cannot be evaluated at compile-time&quot;</span>)
+                            .<span class="ident">span_label</span>(<span class="ident">span</span>, <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;{}s cannot evaluate destructors&quot;</span>,
+                                                      <span class="self">self</span>.<span class="ident">mode</span>))
+                            .<span class="ident">emit</span>();
+                    }
+                }
             }
         } <span class="kw">else</span> {
             <span class="comment">// Qualify any operands inside other terminators.</span>
@@ -2023,7 +2037,7 @@
 
 <span class="kw">fn</span> <span class="ident">mir_const_qualif</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
                               <span class="ident">def_id</span>: <span class="ident">DefId</span>)
-                              <span class="op">-&gt;</span> <span class="ident">u8</span> {
+                              <span class="op">-&gt;</span> (<span class="ident">u8</span>, <span class="ident">Rc</span><span class="op">&lt;</span><span class="ident">IdxSetBuf</span><span class="op">&lt;</span><span class="ident">Local</span><span class="op">&gt;&gt;</span>) {
     <span class="comment">// NB: This `borrow()` is guaranteed to be valid (i.e., the value</span>
     <span class="comment">// cannot yet be stolen), because `mir_validated()`, which steals</span>
     <span class="comment">// from `mir_const(), forces this query to execute before</span>
@@ -2031,13 +2045,13 @@
     <span class="kw">let</span> <span class="ident">mir</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="ident">tcx</span>.<span class="ident">mir_const</span>(<span class="ident">def_id</span>).<span class="ident">borrow</span>();
 
     <span class="kw">if</span> <span class="ident">mir</span>.<span class="ident">return_ty</span>.<span class="ident">references_error</span>() {
-        <span class="kw">return</span> <span class="ident">Qualif</span>::<span class="ident">NOT_CONST</span>.<span class="ident">bits</span>();
+        <span class="ident">tcx</span>.<span class="ident">sess</span>.<span class="ident">delay_span_bug</span>(<span class="ident">mir</span>.<span class="ident">span</span>, <span class="string">&quot;mir_const_qualif: Mir had errors&quot;</span>);
+        <span class="kw">return</span> (<span class="ident">Qualif</span>::<span class="ident">NOT_CONST</span>.<span class="ident">bits</span>(), <span class="ident">Rc</span>::<span class="ident">new</span>(<span class="ident">IdxSetBuf</span>::<span class="ident">new_empty</span>(<span class="number">0</span>)));
     }
 
-    <span class="kw">let</span> <span class="ident">param_env</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">param_env</span>(<span class="ident">def_id</span>);
-
-    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">qualifier</span> <span class="op">=</span> <span class="ident">Qualifier</span>::<span class="ident">new</span>(<span class="ident">tcx</span>, <span class="ident">param_env</span>, <span class="ident">def_id</span>, <span class="ident">mir</span>, <span class="ident">Mode</span>::<span class="ident">Const</span>);
-    <span class="ident">qualifier</span>.<span class="ident">qualify_const</span>().<span class="ident">bits</span>()
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">qualifier</span> <span class="op">=</span> <span class="ident">Qualifier</span>::<span class="ident">new</span>(<span class="ident">tcx</span>, <span class="ident">def_id</span>, <span class="ident">mir</span>, <span class="ident">Mode</span>::<span class="ident">Const</span>);
+    <span class="kw">let</span> (<span class="ident">qualif</span>, <span class="ident">promoted_temps</span>) <span class="op">=</span> <span class="ident">qualifier</span>.<span class="ident">qualify_const</span>();
+    (<span class="ident">qualif</span>.<span class="ident">bits</span>(), <span class="ident">promoted_temps</span>)
 }
 
 <span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">QualifyAndPromoteConstants</span>;
@@ -2047,8 +2061,15 @@
                           <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
                           <span class="ident">src</span>: <span class="ident">MirSource</span>,
                           <span class="ident">mir</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Mir</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>) {
+        <span class="comment">// There&#39;s not really any point in promoting errorful MIR.</span>
+        <span class="kw">if</span> <span class="ident">mir</span>.<span class="ident">return_ty</span>.<span class="ident">references_error</span>() {
+            <span class="ident">tcx</span>.<span class="ident">sess</span>.<span class="ident">delay_span_bug</span>(<span class="ident">mir</span>.<span class="ident">span</span>, <span class="string">&quot;QualifyAndPromoteConstants: Mir had errors&quot;</span>);
+            <span class="kw">return</span>;
+        }
+
         <span class="kw">let</span> <span class="ident">id</span> <span class="op">=</span> <span class="ident">src</span>.<span class="ident">item_id</span>();
         <span class="kw">let</span> <span class="ident">def_id</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">hir</span>.<span class="ident">local_def_id</span>(<span class="ident">id</span>);
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">const_promoted_temps</span> <span class="op">=</span> <span class="prelude-val">None</span>;
         <span class="kw">let</span> <span class="ident">mode</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">src</span> {
             <span class="ident">MirSource</span>::<span class="ident">Fn</span>(_) <span class="op">=&gt;</span> {
                 <span class="kw">if</span> <span class="ident">tcx</span>.<span class="ident">is_const_fn</span>(<span class="ident">def_id</span>) {
@@ -2057,19 +2078,21 @@
                     <span class="ident">Mode</span>::<span class="ident">Fn</span>
                 }
             }
+            <span class="ident">MirSource</span>::<span class="ident">Const</span>(_) <span class="op">=&gt;</span> {
+                <span class="ident">const_promoted_temps</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="ident">tcx</span>.<span class="ident">mir_const_qualif</span>(<span class="ident">def_id</span>).<span class="number">1</span>);
+                <span class="ident">Mode</span>::<span class="ident">Const</span>
+            }
             <span class="ident">MirSource</span>::<span class="ident">Static</span>(_, <span class="ident">hir</span>::<span class="ident">MutImmutable</span>) <span class="op">=&gt;</span> <span class="ident">Mode</span>::<span class="ident">Static</span>,
             <span class="ident">MirSource</span>::<span class="ident">Static</span>(_, <span class="ident">hir</span>::<span class="ident">MutMutable</span>) <span class="op">=&gt;</span> <span class="ident">Mode</span>::<span class="ident">StaticMut</span>,
-            <span class="ident">MirSource</span>::<span class="ident">Const</span>(_) <span class="op">|</span>
+            <span class="ident">MirSource</span>::<span class="ident">GeneratorDrop</span>(_) <span class="op">|</span>
             <span class="ident">MirSource</span>::<span class="ident">Promoted</span>(..) <span class="op">=&gt;</span> <span class="kw">return</span>
         };
-        <span class="kw">let</span> <span class="ident">param_env</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">param_env</span>(<span class="ident">def_id</span>);
 
         <span class="kw">if</span> <span class="ident">mode</span> <span class="op">==</span> <span class="ident">Mode</span>::<span class="ident">Fn</span> <span class="op">||</span> <span class="ident">mode</span> <span class="op">==</span> <span class="ident">Mode</span>::<span class="ident">ConstFn</span> {
             <span class="comment">// This is ugly because Qualifier holds onto mir,</span>
             <span class="comment">// which can&#39;t be mutated until its scope ends.</span>
             <span class="kw">let</span> (<span class="ident">temps</span>, <span class="ident">candidates</span>) <span class="op">=</span> {
-                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">qualifier</span> <span class="op">=</span> <span class="ident">Qualifier</span>::<span class="ident">new</span>(<span class="ident">tcx</span>, <span class="ident">param_env</span>,
-                                                   <span class="ident">def_id</span>, <span class="ident">mir</span>, <span class="ident">mode</span>);
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">qualifier</span> <span class="op">=</span> <span class="ident">Qualifier</span>::<span class="ident">new</span>(<span class="ident">tcx</span>, <span class="ident">def_id</span>, <span class="ident">mir</span>, <span class="ident">mode</span>);
                 <span class="kw">if</span> <span class="ident">mode</span> <span class="op">==</span> <span class="ident">Mode</span>::<span class="ident">ConstFn</span> {
                     <span class="comment">// Enforce a constant-like CFG for `const fn`.</span>
                     <span class="ident">qualifier</span>.<span class="ident">qualify_const</span>();
@@ -2085,8 +2108,37 @@
             <span class="comment">// Do the actual promotion, now that we know what&#39;s viable.</span>
             <span class="ident">promote_consts</span>::<span class="ident">promote_candidates</span>(<span class="ident">mir</span>, <span class="ident">tcx</span>, <span class="ident">temps</span>, <span class="ident">candidates</span>);
         } <span class="kw">else</span> {
-            <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">qualifier</span> <span class="op">=</span> <span class="ident">Qualifier</span>::<span class="ident">new</span>(<span class="ident">tcx</span>, <span class="ident">param_env</span>, <span class="ident">def_id</span>, <span class="ident">mir</span>, <span class="ident">mode</span>);
-            <span class="ident">qualifier</span>.<span class="ident">qualify_const</span>();
+            <span class="kw">let</span> <span class="ident">promoted_temps</span> <span class="op">=</span> <span class="kw">if</span> <span class="ident">mode</span> <span class="op">==</span> <span class="ident">Mode</span>::<span class="ident">Const</span> {
+                <span class="comment">// Already computed by `mir_const_qualif`.</span>
+                <span class="ident">const_promoted_temps</span>.<span class="ident">unwrap</span>()
+            } <span class="kw">else</span> {
+                <span class="ident">Qualifier</span>::<span class="ident">new</span>(<span class="ident">tcx</span>, <span class="ident">def_id</span>, <span class="ident">mir</span>, <span class="ident">mode</span>).<span class="ident">qualify_const</span>().<span class="number">1</span>
+            };
+
+            <span class="comment">// In `const` and `static` everything without `StorageDead`</span>
+            <span class="comment">// is `&#39;static`, we don&#39;t have to create promoted MIR fragments,</span>
+            <span class="comment">// just remove `Drop` and `StorageDead` on &quot;promoted&quot; locals.</span>
+            <span class="kw">for</span> <span class="ident">block</span> <span class="kw">in</span> <span class="ident">mir</span>.<span class="ident">basic_blocks_mut</span>() {
+                <span class="ident">block</span>.<span class="ident">statements</span>.<span class="ident">retain</span>(<span class="op">|</span><span class="ident">statement</span><span class="op">|</span> {
+                    <span class="kw">match</span> <span class="ident">statement</span>.<span class="ident">kind</span> {
+                        <span class="ident">StatementKind</span>::<span class="ident">StorageDead</span>(<span class="ident">index</span>) <span class="op">=&gt;</span> {
+                            <span class="op">!</span><span class="ident">promoted_temps</span>.<span class="ident">contains</span>(<span class="kw-2">&amp;</span><span class="ident">index</span>)
+                        }
+                        _ <span class="op">=&gt;</span> <span class="bool-val">true</span>
+                    }
+                });
+                <span class="kw">let</span> <span class="ident">terminator</span> <span class="op">=</span> <span class="ident">block</span>.<span class="ident">terminator_mut</span>();
+                <span class="kw">match</span> <span class="ident">terminator</span>.<span class="ident">kind</span> {
+                    <span class="ident">TerminatorKind</span>::<span class="ident">Drop</span> { <span class="ident">location</span>: <span class="ident">Lvalue</span>::<span class="ident">Local</span>(<span class="ident">index</span>), <span class="ident">target</span>, .. } <span class="op">=&gt;</span> {
+                        <span class="kw">if</span> <span class="ident">promoted_temps</span>.<span class="ident">contains</span>(<span class="kw-2">&amp;</span><span class="ident">index</span>) {
+                            <span class="ident">terminator</span>.<span class="ident">kind</span> <span class="op">=</span> <span class="ident">TerminatorKind</span>::<span class="ident">Goto</span> {
+                                <span class="ident">target</span>,
+                            };
+                        }
+                    }
+                    _ <span class="op">=&gt;</span> {}
+                }
+            }
         }
 
         <span class="comment">// Statics must be Sync.</span>
@@ -2132,10 +2184,12 @@
                     <dd>Show this help dialog</dd>
                     <dt>S</dt>
                     <dd>Focus the search field</dd>
-                    <dt>&larrb;</dt>
+                    <dt>↑</dt>
                     <dd>Move up in search results</dd>
-                    <dt>&rarrb;</dt>
+                    <dt>↓</dt>
                     <dd>Move down in search results</dd>
+                    <dt>↹</dt>
+                    <dd>Switch tab</dd>
                     <dt>&#9166;</dt>
                     <dd>Go to active search result</dd>
                     <dt>+</dt>

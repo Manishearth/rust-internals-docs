@@ -1,0 +1,1 @@
+initSidebarItems({"mod":[["tree_builder",""]],"struct":[["Attribute","A tag attribute."],["ExpandedName","https://www.w3.org/TR/REC-xml-names/#dt-expname"],["QualName","A name with a namespace. Fully qualified name. Used to depict names of tags and attributes."]]});

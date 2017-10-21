@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["TransItemCollectionMode",""]],"fn":[["collect_crate_translation_items",""]],"struct":[["InliningMap","Maps every translation item to all translation items it references in its body."]]});

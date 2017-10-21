@@ -474,16 +474,6 @@
 <span id="429">429</span>
 <span id="430">430</span>
 <span id="431">431</span>
-<span id="432">432</span>
-<span id="433">433</span>
-<span id="434">434</span>
-<span id="435">435</span>
-<span id="436">436</span>
-<span id="437">437</span>
-<span id="438">438</span>
-<span id="439">439</span>
-<span id="440">440</span>
-<span id="441">441</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class="comment">// file at the top-level directory of this distribution and at</span>
@@ -509,19 +499,20 @@
 <span class="doccomment">//! are *mostly* used as a part of that interface, but these should</span>
 <span class="doccomment">//! probably get a better home if someone can find one.</span>
 
+<span class="kw">use</span> <span class="ident">hir</span>;
 <span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">def</span>;
-<span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">def_id</span>::{<span class="ident">CrateNum</span>, <span class="ident">DefId</span>, <span class="ident">DefIndex</span>};
+<span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">def_id</span>::{<span class="ident">CrateNum</span>, <span class="ident">DefId</span>, <span class="ident">DefIndex</span>, <span class="ident">LOCAL_CRATE</span>};
 <span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">map</span> <span class="kw">as</span> <span class="ident">hir_map</span>;
 <span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">map</span>::<span class="ident">definitions</span>::{<span class="ident">Definitions</span>, <span class="ident">DefKey</span>, <span class="ident">DefPathTable</span>};
 <span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">svh</span>::<span class="ident">Svh</span>;
 <span class="kw">use</span> <span class="ident">ich</span>;
-<span class="kw">use</span> <span class="ident">middle</span>::<span class="ident">lang_items</span>;
 <span class="kw">use</span> <span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">TyCtxt</span>};
 <span class="kw">use</span> <span class="ident">session</span>::<span class="ident">Session</span>;
 <span class="kw">use</span> <span class="ident">session</span>::<span class="ident">search_paths</span>::<span class="ident">PathKind</span>;
-<span class="kw">use</span> <span class="ident">util</span>::<span class="ident">nodemap</span>::{<span class="ident">NodeSet</span>, <span class="ident">DefIdMap</span>};
+<span class="kw">use</span> <span class="ident">util</span>::<span class="ident">nodemap</span>::<span class="ident">NodeSet</span>;
 
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">any</span>::<span class="ident">Any</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">collections</span>::<span class="ident">BTreeMap</span>;
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">path</span>::{<span class="ident">Path</span>, <span class="ident">PathBuf</span>};
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">rc</span>::<span class="ident">Rc</span>;
 <span class="kw">use</span> <span class="ident">owning_ref</span>::<span class="ident">ErasedBoxRef</span>;
@@ -530,8 +521,6 @@
 <span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">symbol</span>::<span class="ident">Symbol</span>;
 <span class="kw">use</span> <span class="ident">syntax_pos</span>::<span class="ident">Span</span>;
 <span class="kw">use</span> <span class="ident">rustc_back</span>::<span class="ident">target</span>::<span class="ident">Target</span>;
-<span class="kw">use</span> <span class="ident">hir</span>;
-<span class="kw">use</span> <span class="ident">rustc_back</span>::<span class="ident">PanicStrategy</span>;
 
 <span class="kw">pub</span> <span class="kw">use</span> <span class="self">self</span>::<span class="ident">NativeLibraryKind</span>::<span class="kw-2">*</span>;
 
@@ -622,7 +611,7 @@
     <span class="kw">pub</span> <span class="ident">kind</span>: <span class="ident">NativeLibraryKind</span>,
     <span class="kw">pub</span> <span class="ident">name</span>: <span class="ident">Symbol</span>,
     <span class="kw">pub</span> <span class="ident">cfg</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">MetaItem</span><span class="op">&gt;</span>,
-    <span class="kw">pub</span> <span class="ident">foreign_items</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">DefIndex</span><span class="op">&gt;</span>,
+    <span class="kw">pub</span> <span class="ident">foreign_items</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">DefId</span><span class="op">&gt;</span>,
 }
 
 <span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">LoadedMacro</span> {
@@ -708,77 +697,68 @@
                           <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">ErasedBoxRef</span><span class="op">&lt;</span>[<span class="ident">u8</span>]<span class="op">&gt;</span>, <span class="ident">String</span><span class="op">&gt;</span>;
 }
 
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">ExternConstBody</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="ident">body</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">hir</span>::<span class="ident">Body</span>,
+
+    <span class="comment">// It would require a lot of infrastructure to enable stable-hashing Bodies</span>
+    <span class="comment">// from other crates, so we hash on export and just store the fingerprint</span>
+    <span class="comment">// with them.</span>
+    <span class="kw">pub</span> <span class="ident">fingerprint</span>: <span class="ident">ich</span>::<span class="ident">Fingerprint</span>,
+}
+
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">ExternBodyNestedBodies</span> {
+    <span class="kw">pub</span> <span class="ident">nested_bodies</span>: <span class="ident">Rc</span><span class="op">&lt;</span><span class="ident">BTreeMap</span><span class="op">&lt;</span><span class="ident">hir</span>::<span class="ident">BodyId</span>, <span class="ident">hir</span>::<span class="ident">Body</span><span class="op">&gt;&gt;</span>,
+
+    <span class="comment">// It would require a lot of infrastructure to enable stable-hashing Bodies</span>
+    <span class="comment">// from other crates, so we hash on export and just store the fingerprint</span>
+    <span class="comment">// with them.</span>
+    <span class="kw">pub</span> <span class="ident">fingerprint</span>: <span class="ident">ich</span>::<span class="ident">Fingerprint</span>,
+}
+
 <span class="doccomment">/// A store of Rust crates, through with their metadata</span>
 <span class="doccomment">/// can be accessed.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Note that this trait should probably not be expanding today. All new</span>
+<span class="doccomment">/// functionality should be driven through queries instead!</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// If you find a method on this trait named `{name}_untracked` it signifies</span>
+<span class="doccomment">/// that it&#39;s *not* tracked for dependency information throughout compilation</span>
+<span class="doccomment">/// (it&#39;d break incremental compilation) and should only be called pre-HIR (e.g.</span>
+<span class="doccomment">/// during resolve)</span>
 <span class="kw">pub</span> <span class="kw">trait</span> <span class="ident">CrateStore</span> {
     <span class="kw">fn</span> <span class="ident">crate_data_as_rc_any</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">krate</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Rc</span><span class="op">&lt;</span><span class="ident">Any</span><span class="op">&gt;</span>;
 
     <span class="comment">// access to the metadata loader</span>
     <span class="kw">fn</span> <span class="ident">metadata_loader</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="ident">MetadataLoader</span>;
 
-    <span class="comment">// item info</span>
-    <span class="kw">fn</span> <span class="ident">visibility</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">Visibility</span>;
-    <span class="kw">fn</span> <span class="ident">visible_parent_map</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="self">self</span>, <span class="ident">sess</span>: <span class="kw-2">&amp;</span><span class="ident">Session</span>) <span class="op">-&gt;</span> ::<span class="ident">std</span>::<span class="ident">cell</span>::<span class="ident">Ref</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">DefIdMap</span><span class="op">&lt;</span><span class="ident">DefId</span><span class="op">&gt;&gt;</span>;
-    <span class="kw">fn</span> <span class="ident">item_generics_cloned</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">Generics</span>;
-
-    <span class="comment">// trait info</span>
-    <span class="kw">fn</span> <span class="ident">implementations_of_trait</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">filter</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">DefId</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">DefId</span><span class="op">&gt;</span>;
-
-    <span class="comment">// impl info</span>
-    <span class="kw">fn</span> <span class="ident">impl_defaultness</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">hir</span>::<span class="ident">Defaultness</span>;
-
-    <span class="comment">// trait/impl-item info</span>
-    <span class="kw">fn</span> <span class="ident">associated_item_cloned</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">AssociatedItem</span>;
-
-    <span class="comment">// flags</span>
-    <span class="kw">fn</span> <span class="ident">is_dllimport_foreign_item</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">bool</span>;
-    <span class="kw">fn</span> <span class="ident">is_statically_included_foreign_item</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def_id</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">bool</span>;
-
-    <span class="comment">// crate metadata</span>
-    <span class="kw">fn</span> <span class="ident">dep_kind</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">DepKind</span>;
-    <span class="kw">fn</span> <span class="ident">export_macros</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>);
-    <span class="kw">fn</span> <span class="ident">lang_items</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span>(<span class="ident">DefIndex</span>, <span class="ident">usize</span>)<span class="op">&gt;</span>;
-    <span class="kw">fn</span> <span class="ident">missing_lang_items</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">lang_items</span>::<span class="ident">LangItem</span><span class="op">&gt;</span>;
-    <span class="kw">fn</span> <span class="ident">is_compiler_builtins</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">bool</span>;
-    <span class="kw">fn</span> <span class="ident">is_sanitizer_runtime</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">bool</span>;
-    <span class="kw">fn</span> <span class="ident">is_profiler_runtime</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">bool</span>;
-    <span class="kw">fn</span> <span class="ident">panic_strategy</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">PanicStrategy</span>;
-    <span class="doccomment">/// The name of the crate as it is referred to in source code of the current</span>
-    <span class="doccomment">/// crate.</span>
-    <span class="kw">fn</span> <span class="ident">crate_name</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Symbol</span>;
-    <span class="doccomment">/// The name of the crate as it is stored in the crate&#39;s metadata.</span>
-    <span class="kw">fn</span> <span class="ident">original_crate_name</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Symbol</span>;
-    <span class="kw">fn</span> <span class="ident">crate_hash</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Svh</span>;
-    <span class="kw">fn</span> <span class="ident">crate_disambiguator</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Symbol</span>;
-    <span class="kw">fn</span> <span class="ident">plugin_registrar_fn</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">DefId</span><span class="op">&gt;</span>;
-    <span class="kw">fn</span> <span class="ident">derive_registrar_fn</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">DefId</span><span class="op">&gt;</span>;
-    <span class="kw">fn</span> <span class="ident">native_libraries</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">NativeLibrary</span><span class="op">&gt;</span>;
-    <span class="kw">fn</span> <span class="ident">exported_symbols</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">DefId</span><span class="op">&gt;</span>;
-    <span class="kw">fn</span> <span class="ident">is_no_builtins</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">bool</span>;
-
     <span class="comment">// resolve</span>
     <span class="kw">fn</span> <span class="ident">def_key</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">DefKey</span>;
     <span class="kw">fn</span> <span class="ident">def_path</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">hir_map</span>::<span class="ident">DefPath</span>;
     <span class="kw">fn</span> <span class="ident">def_path_hash</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">hir_map</span>::<span class="ident">DefPathHash</span>;
     <span class="kw">fn</span> <span class="ident">def_path_table</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Rc</span><span class="op">&lt;</span><span class="ident">DefPathTable</span><span class="op">&gt;</span>;
-    <span class="kw">fn</span> <span class="ident">struct_field_names</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">Name</span><span class="op">&gt;</span>;
-    <span class="kw">fn</span> <span class="ident">item_children</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">did</span>: <span class="ident">DefId</span>, <span class="ident">sess</span>: <span class="kw-2">&amp;</span><span class="ident">Session</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">def</span>::<span class="ident">Export</span><span class="op">&gt;</span>;
-    <span class="kw">fn</span> <span class="ident">load_macro</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">did</span>: <span class="ident">DefId</span>, <span class="ident">sess</span>: <span class="kw-2">&amp;</span><span class="ident">Session</span>) <span class="op">-&gt;</span> <span class="ident">LoadedMacro</span>;
 
-    <span class="comment">// misc. metadata</span>
-    <span class="kw">fn</span> <span class="ident">item_body</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">def</span>: <span class="ident">DefId</span>)
-                           <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">hir</span>::<span class="ident">Body</span>;
+    <span class="comment">// &quot;queries&quot; used in resolve that aren&#39;t tracked for incremental compilation</span>
+    <span class="kw">fn</span> <span class="ident">visibility_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">Visibility</span>;
+    <span class="kw">fn</span> <span class="ident">export_macros_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>);
+    <span class="kw">fn</span> <span class="ident">dep_kind_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">DepKind</span>;
+    <span class="kw">fn</span> <span class="ident">crate_name_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Symbol</span>;
+    <span class="kw">fn</span> <span class="ident">crate_disambiguator_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Symbol</span>;
+    <span class="kw">fn</span> <span class="ident">crate_hash_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Svh</span>;
+    <span class="kw">fn</span> <span class="ident">struct_field_names_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">Name</span><span class="op">&gt;</span>;
+    <span class="kw">fn</span> <span class="ident">item_children_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">did</span>: <span class="ident">DefId</span>, <span class="ident">sess</span>: <span class="kw-2">&amp;</span><span class="ident">Session</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">def</span>::<span class="ident">Export</span><span class="op">&gt;</span>;
+    <span class="kw">fn</span> <span class="ident">load_macro_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">did</span>: <span class="ident">DefId</span>, <span class="ident">sess</span>: <span class="kw-2">&amp;</span><span class="ident">Session</span>) <span class="op">-&gt;</span> <span class="ident">LoadedMacro</span>;
+    <span class="kw">fn</span> <span class="ident">extern_mod_stmt_cnum_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">emod_id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">CrateNum</span><span class="op">&gt;</span>;
+    <span class="kw">fn</span> <span class="ident">item_generics_cloned_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">Generics</span>;
+    <span class="kw">fn</span> <span class="ident">associated_item_cloned_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">AssociatedItem</span>;
+    <span class="kw">fn</span> <span class="ident">postorder_cnums_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">CrateNum</span><span class="op">&gt;</span>;
 
     <span class="comment">// This is basically a 1-based range of ints, which is a little</span>
     <span class="comment">// silly - I may fix that.</span>
-    <span class="kw">fn</span> <span class="ident">crates</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">CrateNum</span><span class="op">&gt;</span>;
-    <span class="kw">fn</span> <span class="ident">used_libraries</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">NativeLibrary</span><span class="op">&gt;</span>;
-    <span class="kw">fn</span> <span class="ident">used_link_args</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">String</span><span class="op">&gt;</span>;
+    <span class="kw">fn</span> <span class="ident">crates_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">CrateNum</span><span class="op">&gt;</span>;
 
     <span class="comment">// utility functions</span>
-    <span class="kw">fn</span> <span class="ident">used_crates</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">prefer</span>: <span class="ident">LinkagePreference</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span>(<span class="ident">CrateNum</span>, <span class="ident">LibSource</span>)<span class="op">&gt;</span>;
-    <span class="kw">fn</span> <span class="ident">used_crate_source</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">CrateSource</span>;
-    <span class="kw">fn</span> <span class="ident">extern_mod_stmt_cnum</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">emod_id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">CrateNum</span><span class="op">&gt;</span>;
     <span class="kw">fn</span> <span class="ident">encode_metadata</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="self">self</span>,
                                  <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
                                  <span class="ident">link_meta</span>: <span class="kw-2">&amp;</span><span class="ident">LinkMeta</span>,
@@ -823,57 +803,22 @@
     <span class="kw">fn</span> <span class="ident">crate_data_as_rc_any</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">krate</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Rc</span><span class="op">&lt;</span><span class="ident">Any</span><span class="op">&gt;</span>
         { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;crate_data_as_rc_any&quot;</span>) }
     <span class="comment">// item info</span>
-    <span class="kw">fn</span> <span class="ident">visibility</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">Visibility</span> { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;visibility&quot;</span>) }
-    <span class="kw">fn</span> <span class="ident">visible_parent_map</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="self">self</span>, <span class="ident">session</span>: <span class="kw-2">&amp;</span><span class="ident">Session</span>)
-        <span class="op">-&gt;</span> ::<span class="ident">std</span>::<span class="ident">cell</span>::<span class="ident">Ref</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">DefIdMap</span><span class="op">&lt;</span><span class="ident">DefId</span><span class="op">&gt;&gt;</span>
-    {
-        <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;visible_parent_map&quot;</span>)
-    }
-    <span class="kw">fn</span> <span class="ident">item_generics_cloned</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">Generics</span>
+    <span class="kw">fn</span> <span class="ident">visibility_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">Visibility</span> { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;visibility&quot;</span>) }
+    <span class="kw">fn</span> <span class="ident">item_generics_cloned_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">Generics</span>
         { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;item_generics_cloned&quot;</span>) }
 
-    <span class="comment">// trait info</span>
-    <span class="kw">fn</span> <span class="ident">implementations_of_trait</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">filter</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">DefId</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">DefId</span><span class="op">&gt;</span> { <span class="macro">vec</span><span class="macro">!</span>[] }
-
-    <span class="comment">// impl info</span>
-    <span class="kw">fn</span> <span class="ident">impl_defaultness</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">hir</span>::<span class="ident">Defaultness</span> { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;impl_defaultness&quot;</span>) }
-
     <span class="comment">// trait/impl-item info</span>
-    <span class="kw">fn</span> <span class="ident">associated_item_cloned</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">AssociatedItem</span>
+    <span class="kw">fn</span> <span class="ident">associated_item_cloned_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">ty</span>::<span class="ident">AssociatedItem</span>
         { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;associated_item_cloned&quot;</span>) }
 
-    <span class="comment">// flags</span>
-    <span class="kw">fn</span> <span class="ident">is_dllimport_foreign_item</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">id</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> { <span class="bool-val">false</span> }
-    <span class="kw">fn</span> <span class="ident">is_statically_included_foreign_item</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def_id</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> { <span class="bool-val">false</span> }
-
     <span class="comment">// crate metadata</span>
-    <span class="kw">fn</span> <span class="ident">lang_items</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span>(<span class="ident">DefIndex</span>, <span class="ident">usize</span>)<span class="op">&gt;</span>
-        { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;lang_items&quot;</span>) }
-    <span class="kw">fn</span> <span class="ident">missing_lang_items</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">lang_items</span>::<span class="ident">LangItem</span><span class="op">&gt;</span>
-        { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;missing_lang_items&quot;</span>) }
-    <span class="kw">fn</span> <span class="ident">dep_kind</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">DepKind</span> { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;is_explicitly_linked&quot;</span>) }
-    <span class="kw">fn</span> <span class="ident">export_macros</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;export_macros&quot;</span>) }
-    <span class="kw">fn</span> <span class="ident">is_compiler_builtins</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;is_compiler_builtins&quot;</span>) }
-    <span class="kw">fn</span> <span class="ident">is_profiler_runtime</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;is_profiler_runtime&quot;</span>) }
-    <span class="kw">fn</span> <span class="ident">is_sanitizer_runtime</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;is_sanitizer_runtime&quot;</span>) }
-    <span class="kw">fn</span> <span class="ident">panic_strategy</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">PanicStrategy</span> {
-        <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;panic_strategy&quot;</span>)
+    <span class="kw">fn</span> <span class="ident">dep_kind_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">DepKind</span> { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;is_explicitly_linked&quot;</span>) }
+    <span class="kw">fn</span> <span class="ident">export_macros_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;export_macros&quot;</span>) }
+    <span class="kw">fn</span> <span class="ident">crate_name_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Symbol</span> { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;crate_name&quot;</span>) }
+    <span class="kw">fn</span> <span class="ident">crate_disambiguator_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Symbol</span> {
+        <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;crate_disambiguator&quot;</span>)
     }
-    <span class="kw">fn</span> <span class="ident">crate_name</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Symbol</span> { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;crate_name&quot;</span>) }
-    <span class="kw">fn</span> <span class="ident">original_crate_name</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Symbol</span> {
-        <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;original_crate_name&quot;</span>)
-    }
-    <span class="kw">fn</span> <span class="ident">crate_hash</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Svh</span> { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;crate_hash&quot;</span>) }
-    <span class="kw">fn</span> <span class="ident">crate_disambiguator</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>)
-                           <span class="op">-&gt;</span> <span class="ident">Symbol</span> { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;crate_disambiguator&quot;</span>) }
-    <span class="kw">fn</span> <span class="ident">plugin_registrar_fn</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">DefId</span><span class="op">&gt;</span>
-        { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;plugin_registrar_fn&quot;</span>) }
-    <span class="kw">fn</span> <span class="ident">derive_registrar_fn</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">DefId</span><span class="op">&gt;</span>
-        { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;derive_registrar_fn&quot;</span>) }
-    <span class="kw">fn</span> <span class="ident">native_libraries</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">NativeLibrary</span><span class="op">&gt;</span>
-        { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;native_libraries&quot;</span>) }
-    <span class="kw">fn</span> <span class="ident">exported_symbols</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">DefId</span><span class="op">&gt;</span> { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;exported_symbols&quot;</span>) }
-    <span class="kw">fn</span> <span class="ident">is_no_builtins</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">bool</span> { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;is_no_builtins&quot;</span>) }
+    <span class="kw">fn</span> <span class="ident">crate_hash_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Svh</span> { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;crate_hash&quot;</span>) }
 
     <span class="comment">// resolve</span>
     <span class="kw">fn</span> <span class="ident">def_key</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">DefKey</span> { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;def_key&quot;</span>) }
@@ -886,29 +831,18 @@
     <span class="kw">fn</span> <span class="ident">def_path_table</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">Rc</span><span class="op">&lt;</span><span class="ident">DefPathTable</span><span class="op">&gt;</span> {
         <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;def_path_table&quot;</span>)
     }
-    <span class="kw">fn</span> <span class="ident">struct_field_names</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">Name</span><span class="op">&gt;</span> { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;struct_field_names&quot;</span>) }
-    <span class="kw">fn</span> <span class="ident">item_children</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">did</span>: <span class="ident">DefId</span>, <span class="ident">sess</span>: <span class="kw-2">&amp;</span><span class="ident">Session</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">def</span>::<span class="ident">Export</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">struct_field_names_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">def</span>: <span class="ident">DefId</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">Name</span><span class="op">&gt;</span> {
+        <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;struct_field_names&quot;</span>)
+    }
+    <span class="kw">fn</span> <span class="ident">item_children_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">did</span>: <span class="ident">DefId</span>, <span class="ident">sess</span>: <span class="kw-2">&amp;</span><span class="ident">Session</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">def</span>::<span class="ident">Export</span><span class="op">&gt;</span> {
         <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;item_children&quot;</span>)
     }
-    <span class="kw">fn</span> <span class="ident">load_macro</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">did</span>: <span class="ident">DefId</span>, <span class="ident">sess</span>: <span class="kw-2">&amp;</span><span class="ident">Session</span>) <span class="op">-&gt;</span> <span class="ident">LoadedMacro</span> { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;load_macro&quot;</span>) }
+    <span class="kw">fn</span> <span class="ident">load_macro_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">did</span>: <span class="ident">DefId</span>, <span class="ident">sess</span>: <span class="kw-2">&amp;</span><span class="ident">Session</span>) <span class="op">-&gt;</span> <span class="ident">LoadedMacro</span> { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;load_macro&quot;</span>) }
 
-    <span class="comment">// misc. metadata</span>
-    <span class="kw">fn</span> <span class="ident">item_body</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">def</span>: <span class="ident">DefId</span>)
-                           <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">hir</span>::<span class="ident">Body</span> {
-        <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;item_body&quot;</span>)
-    }
-
-    <span class="comment">// This is basically a 1-based range of ints, which is a little</span>
-    <span class="comment">// silly - I may fix that.</span>
-    <span class="kw">fn</span> <span class="ident">crates</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">CrateNum</span><span class="op">&gt;</span> { <span class="macro">vec</span><span class="macro">!</span>[] }
-    <span class="kw">fn</span> <span class="ident">used_libraries</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">NativeLibrary</span><span class="op">&gt;</span> { <span class="macro">vec</span><span class="macro">!</span>[] }
-    <span class="kw">fn</span> <span class="ident">used_link_args</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">String</span><span class="op">&gt;</span> { <span class="macro">vec</span><span class="macro">!</span>[] }
+    <span class="kw">fn</span> <span class="ident">crates_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">CrateNum</span><span class="op">&gt;</span> { <span class="macro">vec</span><span class="macro">!</span>[] }
 
     <span class="comment">// utility functions</span>
-    <span class="kw">fn</span> <span class="ident">used_crates</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">prefer</span>: <span class="ident">LinkagePreference</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span>(<span class="ident">CrateNum</span>, <span class="ident">LibSource</span>)<span class="op">&gt;</span>
-        { <span class="macro">vec</span><span class="macro">!</span>[] }
-    <span class="kw">fn</span> <span class="ident">used_crate_source</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">cnum</span>: <span class="ident">CrateNum</span>) <span class="op">-&gt;</span> <span class="ident">CrateSource</span> { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;used_crate_source&quot;</span>) }
-    <span class="kw">fn</span> <span class="ident">extern_mod_stmt_cnum</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">emod_id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">CrateNum</span><span class="op">&gt;</span> { <span class="prelude-val">None</span> }
+    <span class="kw">fn</span> <span class="ident">extern_mod_stmt_cnum_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">emod_id</span>: <span class="ident">ast</span>::<span class="ident">NodeId</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">CrateNum</span><span class="op">&gt;</span> { <span class="prelude-val">None</span> }
     <span class="kw">fn</span> <span class="ident">encode_metadata</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="self">self</span>,
                                  <span class="ident">tcx</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
                                  <span class="ident">link_meta</span>: <span class="kw-2">&amp;</span><span class="ident">LinkMeta</span>,
@@ -917,6 +851,7 @@
         <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;encode_metadata&quot;</span>)
     }
     <span class="kw">fn</span> <span class="ident">metadata_encoding_version</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span>[<span class="ident">u8</span>] { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;metadata_encoding_version&quot;</span>) }
+    <span class="kw">fn</span> <span class="ident">postorder_cnums_untracked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">CrateNum</span><span class="op">&gt;</span> { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;postorder_cnums_untracked&quot;</span>) }
 
     <span class="comment">// access to the metadata loader</span>
     <span class="kw">fn</span> <span class="ident">metadata_loader</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="kw-2">&amp;</span><span class="ident">MetadataLoader</span> { <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;metadata_loader&quot;</span>) }
@@ -925,6 +860,51 @@
 <span class="kw">pub</span> <span class="kw">trait</span> <span class="ident">CrateLoader</span> {
     <span class="kw">fn</span> <span class="ident">process_item</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">item</span>: <span class="kw-2">&amp;</span><span class="ident">ast</span>::<span class="ident">Item</span>, <span class="ident">defs</span>: <span class="kw-2">&amp;</span><span class="ident">Definitions</span>);
     <span class="kw">fn</span> <span class="ident">postprocess</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">krate</span>: <span class="kw-2">&amp;</span><span class="ident">ast</span>::<span class="ident">Crate</span>);
+}
+
+<span class="comment">// This method is used when generating the command line to pass through to</span>
+<span class="comment">// system linker. The linker expects undefined symbols on the left of the</span>
+<span class="comment">// command line to be defined in libraries on the right, not the other way</span>
+<span class="comment">// around. For more info, see some comments in the add_used_library function</span>
+<span class="comment">// below.</span>
+<span class="comment">//</span>
+<span class="comment">// In order to get this left-to-right dependency ordering, we perform a</span>
+<span class="comment">// topological sort of all crates putting the leaves at the right-most</span>
+<span class="comment">// positions.</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">used_crates</span>(<span class="ident">tcx</span>: <span class="ident">TyCtxt</span>, <span class="ident">prefer</span>: <span class="ident">LinkagePreference</span>)
+    <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span>(<span class="ident">CrateNum</span>, <span class="ident">LibSource</span>)<span class="op">&gt;</span>
+{
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">libs</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">crates</span>()
+        .<span class="ident">iter</span>()
+        .<span class="ident">cloned</span>()
+        .<span class="ident">filter_map</span>(<span class="op">|</span><span class="ident">cnum</span><span class="op">|</span> {
+            <span class="kw">if</span> <span class="ident">tcx</span>.<span class="ident">dep_kind</span>(<span class="ident">cnum</span>).<span class="ident">macros_only</span>() {
+                <span class="kw">return</span> <span class="prelude-val">None</span>
+            }
+            <span class="kw">let</span> <span class="ident">source</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">used_crate_source</span>(<span class="ident">cnum</span>);
+            <span class="kw">let</span> <span class="ident">path</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">prefer</span> {
+                <span class="ident">LinkagePreference</span>::<span class="ident">RequireDynamic</span> <span class="op">=&gt;</span> <span class="ident">source</span>.<span class="ident">dylib</span>.<span class="ident">clone</span>().<span class="ident">map</span>(<span class="op">|</span><span class="ident">p</span><span class="op">|</span> <span class="ident">p</span>.<span class="number">0</span>),
+                <span class="ident">LinkagePreference</span>::<span class="ident">RequireStatic</span> <span class="op">=&gt;</span> <span class="ident">source</span>.<span class="ident">rlib</span>.<span class="ident">clone</span>().<span class="ident">map</span>(<span class="op">|</span><span class="ident">p</span><span class="op">|</span> <span class="ident">p</span>.<span class="number">0</span>),
+            };
+            <span class="kw">let</span> <span class="ident">path</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">path</span> {
+                <span class="prelude-val">Some</span>(<span class="ident">p</span>) <span class="op">=&gt;</span> <span class="ident">LibSource</span>::<span class="prelude-val">Some</span>(<span class="ident">p</span>),
+                <span class="prelude-val">None</span> <span class="op">=&gt;</span> {
+                    <span class="kw">if</span> <span class="ident">source</span>.<span class="ident">rmeta</span>.<span class="ident">is_some</span>() {
+                        <span class="ident">LibSource</span>::<span class="ident">MetadataOnly</span>
+                    } <span class="kw">else</span> {
+                        <span class="ident">LibSource</span>::<span class="prelude-val">None</span>
+                    }
+                }
+            };
+            <span class="prelude-val">Some</span>((<span class="ident">cnum</span>, <span class="ident">path</span>))
+        })
+        .<span class="ident">collect</span>::<span class="op">&lt;</span><span class="ident">Vec</span><span class="op">&lt;</span>_<span class="op">&gt;&gt;</span>();
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">ordering</span> <span class="op">=</span> <span class="ident">tcx</span>.<span class="ident">postorder_cnums</span>(<span class="ident">LOCAL_CRATE</span>);
+    <span class="ident">Rc</span>::<span class="ident">make_mut</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">ordering</span>).<span class="ident">reverse</span>();
+    <span class="ident">libs</span>.<span class="ident">sort_by_key</span>(<span class="op">|</span><span class="kw-2">&amp;</span>(<span class="ident">a</span>, _)<span class="op">|</span> {
+        <span class="ident">ordering</span>.<span class="ident">iter</span>().<span class="ident">position</span>(<span class="op">|</span><span class="ident">x</span><span class="op">|</span> <span class="kw-2">*</span><span class="ident">x</span> <span class="op">==</span> <span class="ident">a</span>)
+    });
+    <span class="ident">libs</span>
 }
 </pre>
 </section>
@@ -944,10 +924,12 @@
                     <dd>Show this help dialog</dd>
                     <dt>S</dt>
                     <dd>Focus the search field</dd>
-                    <dt>&larrb;</dt>
+                    <dt>↑</dt>
                     <dd>Move up in search results</dd>
-                    <dt>&rarrb;</dt>
+                    <dt>↓</dt>
                     <dd>Move down in search results</dd>
+                    <dt>↹</dt>
+                    <dd>Switch tab</dd>
                     <dt>&#9166;</dt>
                     <dd>Go to active search result</dd>
                     <dt>+</dt>

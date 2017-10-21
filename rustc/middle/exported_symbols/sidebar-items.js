@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["SymbolExportLevel","The SymbolExportLevel of a symbols specifies from which kinds of crates the symbol will be exported. `C` symbols will be exported from any kind of crate, including cdylibs which export very few things. `Rust` will only be exported if the crate produced is a Rust dylib."]]});

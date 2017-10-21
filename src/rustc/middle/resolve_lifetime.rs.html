@@ -1702,6 +1702,47 @@
 <span id="1657">1657</span>
 <span id="1658">1658</span>
 <span id="1659">1659</span>
+<span id="1660">1660</span>
+<span id="1661">1661</span>
+<span id="1662">1662</span>
+<span id="1663">1663</span>
+<span id="1664">1664</span>
+<span id="1665">1665</span>
+<span id="1666">1666</span>
+<span id="1667">1667</span>
+<span id="1668">1668</span>
+<span id="1669">1669</span>
+<span id="1670">1670</span>
+<span id="1671">1671</span>
+<span id="1672">1672</span>
+<span id="1673">1673</span>
+<span id="1674">1674</span>
+<span id="1675">1675</span>
+<span id="1676">1676</span>
+<span id="1677">1677</span>
+<span id="1678">1678</span>
+<span id="1679">1679</span>
+<span id="1680">1680</span>
+<span id="1681">1681</span>
+<span id="1682">1682</span>
+<span id="1683">1683</span>
+<span id="1684">1684</span>
+<span id="1685">1685</span>
+<span id="1686">1686</span>
+<span id="1687">1687</span>
+<span id="1688">1688</span>
+<span id="1689">1689</span>
+<span id="1690">1690</span>
+<span id="1691">1691</span>
+<span id="1692">1692</span>
+<span id="1693">1693</span>
+<span id="1694">1694</span>
+<span id="1695">1695</span>
+<span id="1696">1696</span>
+<span id="1697">1697</span>
+<span id="1698">1698</span>
+<span id="1699">1699</span>
+<span id="1700">1700</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT</span>
 <span class="comment">// file at the top-level directory of this distribution and at</span>
@@ -1721,9 +1762,10 @@
 <span class="doccomment">//! way. Therefore we break lifetime name resolution into a separate pass.</span>
 
 <span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">map</span>::<span class="ident">Map</span>;
-<span class="kw">use</span> <span class="ident">session</span>::<span class="ident">Session</span>;
 <span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">def</span>::<span class="ident">Def</span>;
 <span class="kw">use</span> <span class="ident">hir</span>::<span class="ident">def_id</span>::<span class="ident">DefId</span>;
+<span class="kw">use</span> <span class="ident">middle</span>::<span class="ident">cstore</span>::<span class="ident">CrateStore</span>;
+<span class="kw">use</span> <span class="ident">session</span>::<span class="ident">Session</span>;
 <span class="kw">use</span> <span class="ident">ty</span>;
 
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">cell</span>::<span class="ident">Cell</span>;
@@ -1743,22 +1785,26 @@
 <span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">Copy</span>, <span class="ident">PartialEq</span>, <span class="ident">Eq</span>, <span class="ident">Hash</span>, <span class="ident">RustcEncodable</span>, <span class="ident">RustcDecodable</span>, <span class="ident">Debug</span>)]</span>
 <span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">Region</span> {
     <span class="ident">Static</span>,
-    <span class="ident">EarlyBound</span>(<span class="comment">/* index */</span> <span class="ident">u32</span>, <span class="comment">/* lifetime decl */</span> <span class="ident">ast</span>::<span class="ident">NodeId</span>),
-    <span class="ident">LateBound</span>(<span class="ident">ty</span>::<span class="ident">DebruijnIndex</span>, <span class="comment">/* lifetime decl */</span> <span class="ident">ast</span>::<span class="ident">NodeId</span>),
+    <span class="ident">EarlyBound</span>(<span class="comment">/* index */</span> <span class="ident">u32</span>, <span class="comment">/* lifetime decl */</span> <span class="ident">DefId</span>),
+    <span class="ident">LateBound</span>(<span class="ident">ty</span>::<span class="ident">DebruijnIndex</span>, <span class="comment">/* lifetime decl */</span> <span class="ident">DefId</span>),
     <span class="ident">LateBoundAnon</span>(<span class="ident">ty</span>::<span class="ident">DebruijnIndex</span>, <span class="comment">/* anon index */</span> <span class="ident">u32</span>),
-    <span class="ident">Free</span>(<span class="ident">DefId</span>, <span class="comment">/* lifetime decl */</span> <span class="ident">ast</span>::<span class="ident">NodeId</span>),
+    <span class="ident">Free</span>(<span class="ident">DefId</span>, <span class="comment">/* lifetime decl */</span> <span class="ident">DefId</span>),
 }
 
 <span class="kw">impl</span> <span class="ident">Region</span> {
-    <span class="kw">fn</span> <span class="ident">early</span>(<span class="ident">index</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">u32</span>, <span class="ident">def</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">LifetimeDef</span>) <span class="op">-&gt;</span> (<span class="ident">ast</span>::<span class="ident">Name</span>, <span class="ident">Region</span>) {
+    <span class="kw">fn</span> <span class="ident">early</span>(<span class="ident">hir_map</span>: <span class="kw-2">&amp;</span><span class="ident">Map</span>, <span class="ident">index</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">u32</span>, <span class="ident">def</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">LifetimeDef</span>)
+        <span class="op">-&gt;</span> (<span class="ident">hir</span>::<span class="ident">LifetimeName</span>, <span class="ident">Region</span>)
+    {
         <span class="kw">let</span> <span class="ident">i</span> <span class="op">=</span> <span class="kw-2">*</span><span class="ident">index</span>;
         <span class="kw-2">*</span><span class="ident">index</span> <span class="op">+=</span> <span class="number">1</span>;
-        (<span class="ident">def</span>.<span class="ident">lifetime</span>.<span class="ident">name</span>, <span class="ident">Region</span>::<span class="ident">EarlyBound</span>(<span class="ident">i</span>, <span class="ident">def</span>.<span class="ident">lifetime</span>.<span class="ident">id</span>))
+        <span class="kw">let</span> <span class="ident">def_id</span> <span class="op">=</span> <span class="ident">hir_map</span>.<span class="ident">local_def_id</span>(<span class="ident">def</span>.<span class="ident">lifetime</span>.<span class="ident">id</span>);
+        (<span class="ident">def</span>.<span class="ident">lifetime</span>.<span class="ident">name</span>, <span class="ident">Region</span>::<span class="ident">EarlyBound</span>(<span class="ident">i</span>, <span class="ident">def_id</span>))
     }
 
-    <span class="kw">fn</span> <span class="ident">late</span>(<span class="ident">def</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">LifetimeDef</span>) <span class="op">-&gt;</span> (<span class="ident">ast</span>::<span class="ident">Name</span>, <span class="ident">Region</span>) {
+    <span class="kw">fn</span> <span class="ident">late</span>(<span class="ident">hir_map</span>: <span class="kw-2">&amp;</span><span class="ident">Map</span>, <span class="ident">def</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">LifetimeDef</span>) <span class="op">-&gt;</span> (<span class="ident">hir</span>::<span class="ident">LifetimeName</span>, <span class="ident">Region</span>) {
         <span class="kw">let</span> <span class="ident">depth</span> <span class="op">=</span> <span class="ident">ty</span>::<span class="ident">DebruijnIndex</span>::<span class="ident">new</span>(<span class="number">1</span>);
-        (<span class="ident">def</span>.<span class="ident">lifetime</span>.<span class="ident">name</span>, <span class="ident">Region</span>::<span class="ident">LateBound</span>(<span class="ident">depth</span>, <span class="ident">def</span>.<span class="ident">lifetime</span>.<span class="ident">id</span>))
+        <span class="kw">let</span> <span class="ident">def_id</span> <span class="op">=</span> <span class="ident">hir_map</span>.<span class="ident">local_def_id</span>(<span class="ident">def</span>.<span class="ident">lifetime</span>.<span class="ident">id</span>);
+        (<span class="ident">def</span>.<span class="ident">lifetime</span>.<span class="ident">name</span>, <span class="ident">Region</span>::<span class="ident">LateBound</span>(<span class="ident">depth</span>, <span class="ident">def_id</span>))
     }
 
     <span class="kw">fn</span> <span class="ident">late_anon</span>(<span class="ident">index</span>: <span class="kw-2">&amp;</span><span class="ident">Cell</span><span class="op">&lt;</span><span class="ident">u32</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">Region</span> {
@@ -1768,7 +1814,7 @@
         <span class="ident">Region</span>::<span class="ident">LateBoundAnon</span>(<span class="ident">depth</span>, <span class="ident">i</span>)
     }
 
-    <span class="kw">fn</span> <span class="ident">id</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">NodeId</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">id</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">DefId</span><span class="op">&gt;</span> {
         <span class="kw">match</span> <span class="kw-2">*</span><span class="self">self</span> {
             <span class="ident">Region</span>::<span class="ident">Static</span> <span class="op">|</span>
             <span class="ident">Region</span>::<span class="ident">LateBoundAnon</span>(..) <span class="op">=&gt;</span> <span class="prelude-val">None</span>,
@@ -1865,6 +1911,7 @@
 
 <span class="kw">struct</span> <span class="ident">LifetimeContext</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>: <span class="lifetime">&#39;a</span><span class="op">&gt;</span> {
     <span class="ident">sess</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">Session</span>,
+    <span class="ident">cstore</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">CrateStore</span>,
     <span class="ident">hir_map</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">Map</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
     <span class="ident">map</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="kw-2">mut</span> <span class="ident">NamedRegionMap</span>,
     <span class="ident">scope</span>: <span class="ident">ScopeRef</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>,
@@ -1899,7 +1946,7 @@
     <span class="doccomment">/// it should be shifted by the number of `Binder`s in between the</span>
     <span class="doccomment">/// declaration `Binder` and the location it&#39;s referenced from.</span>
     <span class="ident">Binder</span> {
-        <span class="ident">lifetimes</span>: <span class="ident">FxHashMap</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">Name</span>, <span class="ident">Region</span><span class="op">&gt;</span>,
+        <span class="ident">lifetimes</span>: <span class="ident">FxHashMap</span><span class="op">&lt;</span><span class="ident">hir</span>::<span class="ident">LifetimeName</span>, <span class="ident">Region</span><span class="op">&gt;</span>,
         <span class="ident">s</span>: <span class="ident">ScopeRef</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>
     },
 
@@ -1956,6 +2003,7 @@
 <span class="kw">const</span> <span class="ident">ROOT_SCOPE</span>: <span class="ident">ScopeRef</span><span class="op">&lt;</span><span class="lifetime">&#39;static</span><span class="op">&gt;</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="ident">Scope</span>::<span class="ident">Root</span>;
 
 <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">krate</span>(<span class="ident">sess</span>: <span class="kw-2">&amp;</span><span class="ident">Session</span>,
+             <span class="ident">cstore</span>: <span class="kw-2">&amp;</span><span class="ident">CrateStore</span>,
              <span class="ident">hir_map</span>: <span class="kw-2">&amp;</span><span class="ident">Map</span>)
              <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">NamedRegionMap</span>, <span class="ident">ErrorReported</span><span class="op">&gt;</span> {
     <span class="kw">let</span> <span class="ident">krate</span> <span class="op">=</span> <span class="ident">hir_map</span>.<span class="ident">krate</span>();
@@ -1967,6 +2015,7 @@
     <span class="ident">sess</span>.<span class="ident">track_errors</span>(<span class="op">||</span> {
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">visitor</span> <span class="op">=</span> <span class="ident">LifetimeContext</span> {
             <span class="ident">sess</span>,
+            <span class="ident">cstore</span>,
             <span class="ident">hir_map</span>,
             <span class="ident">map</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">map</span>,
             <span class="ident">scope</span>: <span class="ident">ROOT_SCOPE</span>,
@@ -2038,7 +2087,7 @@
                     <span class="number">0</span>
                 };
                 <span class="kw">let</span> <span class="ident">lifetimes</span> <span class="op">=</span> <span class="ident">generics</span>.<span class="ident">lifetimes</span>.<span class="ident">iter</span>().<span class="ident">map</span>(<span class="op">|</span><span class="ident">def</span><span class="op">|</span> {
-                    <span class="ident">Region</span>::<span class="ident">early</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">index</span>, <span class="ident">def</span>)
+                    <span class="ident">Region</span>::<span class="ident">early</span>(<span class="self">self</span>.<span class="ident">hir_map</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">index</span>, <span class="ident">def</span>)
                 }).<span class="ident">collect</span>();
                 <span class="kw">let</span> <span class="ident">scope</span> <span class="op">=</span> <span class="ident">Scope</span>::<span class="ident">Binder</span> {
                     <span class="ident">lifetimes</span>,
@@ -2069,7 +2118,9 @@
         <span class="kw">match</span> <span class="ident">ty</span>.<span class="ident">node</span> {
             <span class="ident">hir</span>::<span class="ident">TyBareFn</span>(<span class="kw-2">ref</span> <span class="ident">c</span>) <span class="op">=&gt;</span> {
                 <span class="kw">let</span> <span class="ident">scope</span> <span class="op">=</span> <span class="ident">Scope</span>::<span class="ident">Binder</span> {
-                    <span class="ident">lifetimes</span>: <span class="ident">c</span>.<span class="ident">lifetimes</span>.<span class="ident">iter</span>().<span class="ident">map</span>(<span class="ident">Region</span>::<span class="ident">late</span>).<span class="ident">collect</span>(),
+                    <span class="ident">lifetimes</span>: <span class="ident">c</span>.<span class="ident">lifetimes</span>.<span class="ident">iter</span>().<span class="ident">map</span>(<span class="op">|</span><span class="ident">def</span><span class="op">|</span> {
+                            <span class="ident">Region</span>::<span class="ident">late</span>(<span class="self">self</span>.<span class="ident">hir_map</span>, <span class="ident">def</span>)
+                        }).<span class="ident">collect</span>(),
                     <span class="ident">s</span>: <span class="self">self</span>.<span class="ident">scope</span>
                 };
                 <span class="self">self</span>.<span class="ident">with</span>(<span class="ident">scope</span>, <span class="op">|</span><span class="ident">old_scope</span>, <span class="ident">this</span><span class="op">|</span> {
@@ -2140,7 +2191,9 @@
     <span class="kw">fn</span> <span class="ident">visit_path</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">path</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;tcx</span> <span class="ident">hir</span>::<span class="ident">Path</span>, _: <span class="ident">ast</span>::<span class="ident">NodeId</span>) {
         <span class="kw">for</span> (<span class="ident">i</span>, <span class="ident">segment</span>) <span class="kw">in</span> <span class="ident">path</span>.<span class="ident">segments</span>.<span class="ident">iter</span>().<span class="ident">enumerate</span>() {
             <span class="kw">let</span> <span class="ident">depth</span> <span class="op">=</span> <span class="ident">path</span>.<span class="ident">segments</span>.<span class="ident">len</span>() <span class="op">-</span> <span class="ident">i</span> <span class="op">-</span> <span class="number">1</span>;
-            <span class="self">self</span>.<span class="ident">visit_segment_parameters</span>(<span class="ident">path</span>.<span class="ident">def</span>, <span class="ident">depth</span>, <span class="kw-2">&amp;</span><span class="ident">segment</span>.<span class="ident">parameters</span>);
+            <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="kw-2">ref</span> <span class="ident">parameters</span>) <span class="op">=</span> <span class="ident">segment</span>.<span class="ident">parameters</span> {
+                <span class="self">self</span>.<span class="ident">visit_segment_parameters</span>(<span class="ident">path</span>.<span class="ident">def</span>, <span class="ident">depth</span>, <span class="ident">parameters</span>);
+            }
         }
     }
 
@@ -2168,7 +2221,9 @@
                     <span class="kw">if</span> <span class="op">!</span><span class="ident">bound_lifetimes</span>.<span class="ident">is_empty</span>() {
                         <span class="self">self</span>.<span class="ident">trait_ref_hack</span> <span class="op">=</span> <span class="bool-val">true</span>;
                         <span class="kw">let</span> <span class="ident">scope</span> <span class="op">=</span> <span class="ident">Scope</span>::<span class="ident">Binder</span> {
-                            <span class="ident">lifetimes</span>: <span class="ident">bound_lifetimes</span>.<span class="ident">iter</span>().<span class="ident">map</span>(<span class="ident">Region</span>::<span class="ident">late</span>).<span class="ident">collect</span>(),
+                            <span class="ident">lifetimes</span>: <span class="ident">bound_lifetimes</span>.<span class="ident">iter</span>().<span class="ident">map</span>(<span class="op">|</span><span class="ident">def</span><span class="op">|</span> {
+                                    <span class="ident">Region</span>::<span class="ident">late</span>(<span class="self">self</span>.<span class="ident">hir_map</span>, <span class="ident">def</span>)
+                                }).<span class="ident">collect</span>(),
                             <span class="ident">s</span>: <span class="self">self</span>.<span class="ident">scope</span>
                         };
                         <span class="kw">let</span> <span class="ident">result</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">with</span>(<span class="ident">scope</span>, <span class="op">|</span><span class="ident">old_scope</span>, <span class="ident">this</span><span class="op">|</span> {
@@ -2213,7 +2268,9 @@
                           <span class="string">&quot;nested quantification of lifetimes&quot;</span>);
             }
             <span class="kw">let</span> <span class="ident">scope</span> <span class="op">=</span> <span class="ident">Scope</span>::<span class="ident">Binder</span> {
-                <span class="ident">lifetimes</span>: <span class="ident">trait_ref</span>.<span class="ident">bound_lifetimes</span>.<span class="ident">iter</span>().<span class="ident">map</span>(<span class="ident">Region</span>::<span class="ident">late</span>).<span class="ident">collect</span>(),
+                <span class="ident">lifetimes</span>: <span class="ident">trait_ref</span>.<span class="ident">bound_lifetimes</span>.<span class="ident">iter</span>().<span class="ident">map</span>(<span class="op">|</span><span class="ident">def</span><span class="op">|</span> {
+                        <span class="ident">Region</span>::<span class="ident">late</span>(<span class="self">self</span>.<span class="ident">hir_map</span>, <span class="ident">def</span>)
+                    }).<span class="ident">collect</span>(),
                 <span class="ident">s</span>: <span class="self">self</span>.<span class="ident">scope</span>
             };
             <span class="self">self</span>.<span class="ident">with</span>(<span class="ident">scope</span>, <span class="op">|</span><span class="ident">old_scope</span>, <span class="ident">this</span><span class="op">|</span> {
@@ -2347,11 +2404,14 @@
 
                 <span class="ident">Scope</span>::<span class="ident">Binder</span> { <span class="kw-2">ref</span> <span class="ident">lifetimes</span>, <span class="ident">s</span> } <span class="op">=&gt;</span> {
                     <span class="comment">// FIXME (#24278): non-hygienic comparison</span>
-                    <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">def</span>) <span class="op">=</span> <span class="ident">lifetimes</span>.<span class="ident">get</span>(<span class="kw-2">&amp;</span><span class="ident">label</span>) {
+                    <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">def</span>) <span class="op">=</span> <span class="ident">lifetimes</span>.<span class="ident">get</span>(<span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">LifetimeName</span>::<span class="ident">Name</span>(<span class="ident">label</span>)) {
+                        <span class="kw">let</span> <span class="ident">node_id</span> <span class="op">=</span> <span class="ident">hir_map</span>.<span class="ident">as_local_node_id</span>(<span class="ident">def</span>.<span class="ident">id</span>().<span class="ident">unwrap</span>())
+                                             .<span class="ident">unwrap</span>();
+
                         <span class="ident">signal_shadowing_problem</span>(
                             <span class="ident">sess</span>,
                             <span class="ident">label</span>,
-                            <span class="ident">original_lifetime</span>(<span class="ident">hir_map</span>.<span class="ident">span</span>(<span class="ident">def</span>.<span class="ident">id</span>().<span class="ident">unwrap</span>())),
+                            <span class="ident">original_lifetime</span>(<span class="ident">hir_map</span>.<span class="ident">span</span>(<span class="ident">node_id</span>)),
                             <span class="ident">shadower_label</span>(<span class="ident">label_span</span>));
                         <span class="kw">return</span>;
                     }
@@ -2382,7 +2442,7 @@
                                 <span class="ident">Set1</span>::<span class="ident">Empty</span> <span class="op">=&gt;</span> <span class="string">&quot;BaseDefault&quot;</span>.<span class="ident">to_string</span>(),
                                 <span class="ident">Set1</span>::<span class="ident">One</span>(<span class="ident">Region</span>::<span class="ident">Static</span>) <span class="op">=&gt;</span> <span class="string">&quot;&#39;static&quot;</span>.<span class="ident">to_string</span>(),
                                 <span class="ident">Set1</span>::<span class="ident">One</span>(<span class="ident">Region</span>::<span class="ident">EarlyBound</span>(<span class="ident">i</span>, _)) <span class="op">=&gt;</span> {
-                                    <span class="ident">generics</span>.<span class="ident">lifetimes</span>[<span class="ident">i</span> <span class="kw">as</span> <span class="ident">usize</span>].<span class="ident">lifetime</span>.<span class="ident">name</span>.<span class="ident">to_string</span>()
+                                    <span class="ident">generics</span>.<span class="ident">lifetimes</span>[<span class="ident">i</span> <span class="kw">as</span> <span class="ident">usize</span>].<span class="ident">lifetime</span>.<span class="ident">name</span>.<span class="ident">name</span>().<span class="ident">to_string</span>()
                                 }
                                 <span class="ident">Set1</span>::<span class="ident">One</span>(_) <span class="op">=&gt;</span> <span class="macro">bug</span><span class="macro">!</span>(),
                                 <span class="ident">Set1</span>::<span class="ident">Many</span> <span class="op">=&gt;</span> <span class="string">&quot;Ambiguous&quot;</span>.<span class="ident">to_string</span>(),
@@ -2404,7 +2464,7 @@
 <span class="doccomment">/// for each type parameter.</span>
 <span class="kw">fn</span> <span class="ident">object_lifetime_defaults_for_item</span>(<span class="ident">hir_map</span>: <span class="kw-2">&amp;</span><span class="ident">Map</span>, <span class="ident">generics</span>: <span class="kw-2">&amp;</span><span class="ident">hir</span>::<span class="ident">Generics</span>)
                                      <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">ObjectLifetimeDefault</span><span class="op">&gt;</span> {
-    <span class="kw">fn</span> <span class="ident">add_bounds</span>(<span class="ident">set</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Set1</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">Name</span><span class="op">&gt;</span>, <span class="ident">bounds</span>: <span class="kw-2">&amp;</span>[<span class="ident">hir</span>::<span class="ident">TyParamBound</span>]) {
+    <span class="kw">fn</span> <span class="ident">add_bounds</span>(<span class="ident">set</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Set1</span><span class="op">&lt;</span><span class="ident">hir</span>::<span class="ident">LifetimeName</span><span class="op">&gt;</span>, <span class="ident">bounds</span>: <span class="kw-2">&amp;</span>[<span class="ident">hir</span>::<span class="ident">TyParamBound</span>]) {
         <span class="kw">for</span> <span class="ident">bound</span> <span class="kw">in</span> <span class="ident">bounds</span> {
             <span class="kw">if</span> <span class="kw">let</span> <span class="ident">hir</span>::<span class="ident">RegionTyParamBound</span>(<span class="kw-2">ref</span> <span class="ident">lifetime</span>) <span class="op">=</span> <span class="kw-2">*</span><span class="ident">bound</span> {
                 <span class="ident">set</span>.<span class="ident">insert</span>(<span class="ident">lifetime</span>.<span class="ident">name</span>);
@@ -2444,13 +2504,14 @@
         <span class="kw">match</span> <span class="ident">set</span> {
             <span class="ident">Set1</span>::<span class="ident">Empty</span> <span class="op">=&gt;</span> <span class="ident">Set1</span>::<span class="ident">Empty</span>,
             <span class="ident">Set1</span>::<span class="ident">One</span>(<span class="ident">name</span>) <span class="op">=&gt;</span> {
-                <span class="kw">if</span> <span class="ident">name</span> <span class="op">==</span> <span class="string">&quot;&#39;static&quot;</span> {
+                <span class="kw">if</span> <span class="ident">name</span> <span class="op">==</span> <span class="ident">hir</span>::<span class="ident">LifetimeName</span>::<span class="ident">Static</span> {
                     <span class="ident">Set1</span>::<span class="ident">One</span>(<span class="ident">Region</span>::<span class="ident">Static</span>)
                 } <span class="kw">else</span> {
                     <span class="ident">generics</span>.<span class="ident">lifetimes</span>.<span class="ident">iter</span>().<span class="ident">enumerate</span>().<span class="ident">find</span>(<span class="op">|</span><span class="kw-2">&amp;</span>(_, <span class="ident">def</span>)<span class="op">|</span> {
                         <span class="ident">def</span>.<span class="ident">lifetime</span>.<span class="ident">name</span> <span class="op">==</span> <span class="ident">name</span>
                     }).<span class="ident">map_or</span>(<span class="ident">Set1</span>::<span class="ident">Many</span>, <span class="op">|</span>(<span class="ident">i</span>, <span class="ident">def</span>)<span class="op">|</span> {
-                        <span class="ident">Set1</span>::<span class="ident">One</span>(<span class="ident">Region</span>::<span class="ident">EarlyBound</span>(<span class="ident">i</span> <span class="kw">as</span> <span class="ident">u32</span>, <span class="ident">def</span>.<span class="ident">lifetime</span>.<span class="ident">id</span>))
+                        <span class="kw">let</span> <span class="ident">def_id</span> <span class="op">=</span> <span class="ident">hir_map</span>.<span class="ident">local_def_id</span>(<span class="ident">def</span>.<span class="ident">lifetime</span>.<span class="ident">id</span>);
+                        <span class="ident">Set1</span>::<span class="ident">One</span>(<span class="ident">Region</span>::<span class="ident">EarlyBound</span>(<span class="ident">i</span> <span class="kw">as</span> <span class="ident">u32</span>, <span class="ident">def_id</span>))
                     })
                 }
             }
@@ -2470,12 +2531,13 @@
     <span class="kw">fn</span> <span class="ident">with</span><span class="op">&lt;</span><span class="ident">F</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">wrap_scope</span>: <span class="ident">Scope</span>, <span class="ident">f</span>: <span class="ident">F</span>) <span class="kw">where</span>
         <span class="ident">F</span>: <span class="kw">for</span><span class="op">&lt;</span><span class="lifetime">&#39;b</span><span class="op">&gt;</span> <span class="ident">FnOnce</span>(<span class="ident">ScopeRef</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">LifetimeContext</span><span class="op">&lt;</span><span class="lifetime">&#39;b</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>),
     {
-        <span class="kw">let</span> <span class="ident">LifetimeContext</span> {<span class="ident">sess</span>, <span class="ident">hir_map</span>, <span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">map</span>, ..} <span class="op">=</span> <span class="kw-2">*</span><span class="self">self</span>;
+        <span class="kw">let</span> <span class="ident">LifetimeContext</span> {<span class="ident">sess</span>, <span class="ident">cstore</span>, <span class="ident">hir_map</span>, <span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">map</span>, ..} <span class="op">=</span> <span class="kw-2">*</span><span class="self">self</span>;
         <span class="kw">let</span> <span class="ident">labels_in_fn</span> <span class="op">=</span> <span class="ident">replace</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>.<span class="ident">labels_in_fn</span>, <span class="macro">vec</span><span class="macro">!</span>[]);
         <span class="kw">let</span> <span class="ident">xcrate_object_lifetime_defaults</span> <span class="op">=</span>
             <span class="ident">replace</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>.<span class="ident">xcrate_object_lifetime_defaults</span>, <span class="ident">DefIdMap</span>());
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">this</span> <span class="op">=</span> <span class="ident">LifetimeContext</span> {
             <span class="ident">sess</span>,
+            <span class="ident">cstore</span>,
             <span class="ident">hir_map</span>,
             <span class="ident">map</span>: <span class="kw-2">*</span><span class="ident">map</span>,
             <span class="ident">scope</span>: <span class="kw-2">&amp;</span><span class="ident">wrap_scope</span>,
@@ -2535,9 +2597,9 @@
 
         <span class="kw">let</span> <span class="ident">lifetimes</span> <span class="op">=</span> <span class="ident">generics</span>.<span class="ident">lifetimes</span>.<span class="ident">iter</span>().<span class="ident">map</span>(<span class="op">|</span><span class="ident">def</span><span class="op">|</span> {
             <span class="kw">if</span> <span class="self">self</span>.<span class="ident">map</span>.<span class="ident">late_bound</span>.<span class="ident">contains</span>(<span class="kw-2">&amp;</span><span class="ident">def</span>.<span class="ident">lifetime</span>.<span class="ident">id</span>) {
-                <span class="ident">Region</span>::<span class="ident">late</span>(<span class="ident">def</span>)
+                <span class="ident">Region</span>::<span class="ident">late</span>(<span class="self">self</span>.<span class="ident">hir_map</span>, <span class="ident">def</span>)
             } <span class="kw">else</span> {
-                <span class="ident">Region</span>::<span class="ident">early</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">index</span>, <span class="ident">def</span>)
+                <span class="ident">Region</span>::<span class="ident">early</span>(<span class="self">self</span>.<span class="ident">hir_map</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">index</span>, <span class="ident">def</span>)
             }
         }).<span class="ident">collect</span>();
 
@@ -2610,7 +2672,7 @@
             <span class="self">self</span>.<span class="ident">insert_lifetime</span>(<span class="ident">lifetime_ref</span>, <span class="ident">def</span>);
         } <span class="kw">else</span> {
             <span class="macro">struct_span_err</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">sess</span>, <span class="ident">lifetime_ref</span>.<span class="ident">span</span>, <span class="ident">E0261</span>,
-                <span class="string">&quot;use of undeclared lifetime name `{}`&quot;</span>, <span class="ident">lifetime_ref</span>.<span class="ident">name</span>)
+                <span class="string">&quot;use of undeclared lifetime name `{}`&quot;</span>, <span class="ident">lifetime_ref</span>.<span class="ident">name</span>.<span class="ident">name</span>())
                 .<span class="ident">span_label</span>(<span class="ident">lifetime_ref</span>.<span class="ident">span</span>, <span class="string">&quot;undeclared lifetime&quot;</span>)
                 .<span class="ident">emit</span>();
         }
@@ -2637,7 +2699,7 @@
             <span class="kw">let</span> <span class="ident">def_key</span> <span class="op">=</span> <span class="kw">if</span> <span class="ident">def_id</span>.<span class="ident">is_local</span>() {
                 <span class="ident">this</span>.<span class="ident">hir_map</span>.<span class="ident">def_key</span>(<span class="ident">def_id</span>)
             } <span class="kw">else</span> {
-                <span class="ident">this</span>.<span class="ident">sess</span>.<span class="ident">cstore</span>.<span class="ident">def_key</span>(<span class="ident">def_id</span>)
+                <span class="ident">this</span>.<span class="ident">cstore</span>.<span class="ident">def_key</span>(<span class="ident">def_id</span>)
             };
             <span class="ident">DefId</span> {
                 <span class="ident">krate</span>: <span class="ident">def_id</span>.<span class="ident">krate</span>,
@@ -2681,9 +2743,9 @@
             <span class="kw">let</span> <span class="ident">unsubst</span> <span class="op">=</span> <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">id</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">hir_map</span>.<span class="ident">as_local_node_id</span>(<span class="ident">def_id</span>) {
                 <span class="kw-2">&amp;</span><span class="ident">map</span>.<span class="ident">object_lifetime_defaults</span>[<span class="kw-2">&amp;</span><span class="ident">id</span>]
             } <span class="kw">else</span> {
-                <span class="kw">let</span> <span class="ident">cstore</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">sess</span>.<span class="ident">cstore</span>;
+                <span class="kw">let</span> <span class="ident">cstore</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">cstore</span>;
                 <span class="self">self</span>.<span class="ident">xcrate_object_lifetime_defaults</span>.<span class="ident">entry</span>(<span class="ident">def_id</span>).<span class="ident">or_insert_with</span>(<span class="op">||</span> {
-                    <span class="ident">cstore</span>.<span class="ident">item_generics_cloned</span>(<span class="ident">def_id</span>).<span class="ident">types</span>.<span class="ident">into_iter</span>().<span class="ident">map</span>(<span class="op">|</span><span class="ident">def</span><span class="op">|</span> {
+                    <span class="ident">cstore</span>.<span class="ident">item_generics_cloned_untracked</span>(<span class="ident">def_id</span>).<span class="ident">types</span>.<span class="ident">into_iter</span>().<span class="ident">map</span>(<span class="op">|</span><span class="ident">def</span><span class="op">|</span> {
                         <span class="ident">def</span>.<span class="ident">object_lifetime_default</span>
                     }).<span class="ident">collect</span>()
                 })
@@ -3110,13 +3172,17 @@
             <span class="kw">let</span> <span class="ident">lifetime_i</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="ident">lifetimes</span>[<span class="ident">i</span>];
 
             <span class="kw">for</span> <span class="ident">lifetime</span> <span class="kw">in</span> <span class="ident">lifetimes</span> {
-                <span class="kw">if</span> <span class="ident">lifetime</span>.<span class="ident">lifetime</span>.<span class="ident">is_static</span>() {
-                    <span class="kw">let</span> <span class="ident">lifetime</span> <span class="op">=</span> <span class="ident">lifetime</span>.<span class="ident">lifetime</span>;
-                    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">err</span> <span class="op">=</span> <span class="macro">struct_span_err</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">sess</span>, <span class="ident">lifetime</span>.<span class="ident">span</span>, <span class="ident">E0262</span>,
-                                  <span class="string">&quot;invalid lifetime parameter name: `{}`&quot;</span>, <span class="ident">lifetime</span>.<span class="ident">name</span>);
-                    <span class="ident">err</span>.<span class="ident">span_label</span>(<span class="ident">lifetime</span>.<span class="ident">span</span>,
-                                   <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;{} is a reserved lifetime name&quot;</span>, <span class="ident">lifetime</span>.<span class="ident">name</span>));
-                    <span class="ident">err</span>.<span class="ident">emit</span>();
+                <span class="kw">match</span> <span class="ident">lifetime</span>.<span class="ident">lifetime</span>.<span class="ident">name</span> {
+                    <span class="ident">hir</span>::<span class="ident">LifetimeName</span>::<span class="ident">Static</span> <span class="op">|</span> <span class="ident">hir</span>::<span class="ident">LifetimeName</span>::<span class="ident">Underscore</span> <span class="op">=&gt;</span> {
+                        <span class="kw">let</span> <span class="ident">lifetime</span> <span class="op">=</span> <span class="ident">lifetime</span>.<span class="ident">lifetime</span>;
+                        <span class="kw">let</span> <span class="ident">name</span> <span class="op">=</span> <span class="ident">lifetime</span>.<span class="ident">name</span>.<span class="ident">name</span>();
+                        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">err</span> <span class="op">=</span> <span class="macro">struct_span_err</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">sess</span>, <span class="ident">lifetime</span>.<span class="ident">span</span>, <span class="ident">E0262</span>,
+                                      <span class="string">&quot;invalid lifetime parameter name: `{}`&quot;</span>, <span class="ident">name</span>);
+                        <span class="ident">err</span>.<span class="ident">span_label</span>(<span class="ident">lifetime</span>.<span class="ident">span</span>,
+                                       <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;{} is a reserved lifetime name&quot;</span>, <span class="ident">name</span>));
+                        <span class="ident">err</span>.<span class="ident">emit</span>();
+                    }
+                    <span class="ident">hir</span>::<span class="ident">LifetimeName</span>::<span class="ident">Implicit</span> <span class="op">|</span> <span class="ident">hir</span>::<span class="ident">LifetimeName</span>::<span class="ident">Name</span>(_) <span class="op">=&gt;</span> {}
                 }
             }
 
@@ -3127,7 +3193,7 @@
                 <span class="kw">if</span> <span class="ident">lifetime_i</span>.<span class="ident">lifetime</span>.<span class="ident">name</span> <span class="op">==</span> <span class="ident">lifetime_j</span>.<span class="ident">lifetime</span>.<span class="ident">name</span> {
                     <span class="macro">struct_span_err</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">sess</span>, <span class="ident">lifetime_j</span>.<span class="ident">lifetime</span>.<span class="ident">span</span>, <span class="ident">E0263</span>,
                                      <span class="string">&quot;lifetime name `{}` declared twice in the same scope&quot;</span>,
-                                     <span class="ident">lifetime_j</span>.<span class="ident">lifetime</span>.<span class="ident">name</span>)
+                                     <span class="ident">lifetime_j</span>.<span class="ident">lifetime</span>.<span class="ident">name</span>.<span class="ident">name</span>())
                         .<span class="ident">span_label</span>(<span class="ident">lifetime_j</span>.<span class="ident">lifetime</span>.<span class="ident">span</span>,
                                     <span class="string">&quot;declared twice&quot;</span>)
                         .<span class="ident">span_label</span>(<span class="ident">lifetime_i</span>.<span class="ident">lifetime</span>.<span class="ident">span</span>,
@@ -3140,15 +3206,27 @@
             <span class="self">self</span>.<span class="ident">check_lifetime_def_for_shadowing</span>(<span class="ident">old_scope</span>, <span class="kw-2">&amp;</span><span class="ident">lifetime_i</span>.<span class="ident">lifetime</span>);
 
             <span class="kw">for</span> <span class="ident">bound</span> <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="ident">lifetime_i</span>.<span class="ident">bounds</span> {
-                <span class="kw">if</span> <span class="op">!</span><span class="ident">bound</span>.<span class="ident">is_static</span>() {
-                    <span class="self">self</span>.<span class="ident">resolve_lifetime_ref</span>(<span class="ident">bound</span>);
-                } <span class="kw">else</span> {
-                    <span class="self">self</span>.<span class="ident">insert_lifetime</span>(<span class="ident">bound</span>, <span class="ident">Region</span>::<span class="ident">Static</span>);
-                    <span class="self">self</span>.<span class="ident">sess</span>.<span class="ident">struct_span_warn</span>(<span class="ident">lifetime_i</span>.<span class="ident">lifetime</span>.<span class="ident">span</span>.<span class="ident">to</span>(<span class="ident">bound</span>.<span class="ident">span</span>),
-                        <span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;unnecessary lifetime parameter `{}`&quot;</span>, <span class="ident">lifetime_i</span>.<span class="ident">lifetime</span>.<span class="ident">name</span>))
-                        .<span class="ident">help</span>(<span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;you can use the `&#39;static` lifetime directly, in place \
-                                        of `{}`&quot;</span>, <span class="ident">lifetime_i</span>.<span class="ident">lifetime</span>.<span class="ident">name</span>))
-                        .<span class="ident">emit</span>();
+                <span class="kw">match</span> <span class="ident">bound</span>.<span class="ident">name</span> {
+                    <span class="ident">hir</span>::<span class="ident">LifetimeName</span>::<span class="ident">Underscore</span> <span class="op">=&gt;</span> {
+                        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">err</span> <span class="op">=</span> <span class="macro">struct_span_err</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">sess</span>, <span class="ident">bound</span>.<span class="ident">span</span>, <span class="ident">E0637</span>,
+                            <span class="string">&quot;invalid lifetime bound name: `&#39;_`&quot;</span>);
+                        <span class="ident">err</span>.<span class="ident">span_label</span>(<span class="ident">bound</span>.<span class="ident">span</span>, <span class="string">&quot;`&#39;_` is a reserved lifetime name&quot;</span>);
+                        <span class="ident">err</span>.<span class="ident">emit</span>();
+                    }
+                    <span class="ident">hir</span>::<span class="ident">LifetimeName</span>::<span class="ident">Static</span> <span class="op">=&gt;</span> {
+                        <span class="self">self</span>.<span class="ident">insert_lifetime</span>(<span class="ident">bound</span>, <span class="ident">Region</span>::<span class="ident">Static</span>);
+                        <span class="self">self</span>.<span class="ident">sess</span>.<span class="ident">struct_span_warn</span>(<span class="ident">lifetime_i</span>.<span class="ident">lifetime</span>.<span class="ident">span</span>.<span class="ident">to</span>(<span class="ident">bound</span>.<span class="ident">span</span>),
+                            <span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;unnecessary lifetime parameter `{}`&quot;</span>,
+                                    <span class="ident">lifetime_i</span>.<span class="ident">lifetime</span>.<span class="ident">name</span>.<span class="ident">name</span>()))
+                            .<span class="ident">help</span>(<span class="kw-2">&amp;</span><span class="macro">format</span><span class="macro">!</span>(
+                                <span class="string">&quot;you can use the `&#39;static` lifetime directly, in place \
+                                of `{}`&quot;</span>, <span class="ident">lifetime_i</span>.<span class="ident">lifetime</span>.<span class="ident">name</span>.<span class="ident">name</span>()))
+                            .<span class="ident">emit</span>();
+                    }
+                    <span class="ident">hir</span>::<span class="ident">LifetimeName</span>::<span class="ident">Implicit</span> <span class="op">|</span>
+                    <span class="ident">hir</span>::<span class="ident">LifetimeName</span>::<span class="ident">Name</span>(_) <span class="op">=&gt;</span> {
+                        <span class="self">self</span>.<span class="ident">resolve_lifetime_ref</span>(<span class="ident">bound</span>);
+                    }
                 }
             }
         }
@@ -3160,9 +3238,9 @@
     {
         <span class="kw">for</span> <span class="kw-2">&amp;</span>(<span class="ident">label</span>, <span class="ident">label_span</span>) <span class="kw">in</span> <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">labels_in_fn</span> {
             <span class="comment">// FIXME (#24278): non-hygienic comparison</span>
-            <span class="kw">if</span> <span class="ident">lifetime</span>.<span class="ident">name</span> <span class="op">==</span> <span class="ident">label</span> {
+            <span class="kw">if</span> <span class="ident">lifetime</span>.<span class="ident">name</span>.<span class="ident">name</span>() <span class="op">==</span> <span class="ident">label</span> {
                 <span class="ident">signal_shadowing_problem</span>(<span class="self">self</span>.<span class="ident">sess</span>,
-                                         <span class="ident">lifetime</span>.<span class="ident">name</span>,
+                                         <span class="ident">label</span>,
                                          <span class="ident">original_label</span>(<span class="ident">label_span</span>),
                                          <span class="ident">shadower_lifetime</span>(<span class="kw-2">&amp;</span><span class="ident">lifetime</span>));
                 <span class="kw">return</span>;
@@ -3183,10 +3261,14 @@
 
                 <span class="ident">Scope</span>::<span class="ident">Binder</span> { <span class="kw-2">ref</span> <span class="ident">lifetimes</span>, <span class="ident">s</span> } <span class="op">=&gt;</span> {
                     <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="ident">def</span>) <span class="op">=</span> <span class="ident">lifetimes</span>.<span class="ident">get</span>(<span class="kw-2">&amp;</span><span class="ident">lifetime</span>.<span class="ident">name</span>) {
+                        <span class="kw">let</span> <span class="ident">node_id</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">hir_map</span>
+                                          .<span class="ident">as_local_node_id</span>(<span class="ident">def</span>.<span class="ident">id</span>().<span class="ident">unwrap</span>())
+                                          .<span class="ident">unwrap</span>();
+
                         <span class="ident">signal_shadowing_problem</span>(
                             <span class="self">self</span>.<span class="ident">sess</span>,
-                            <span class="ident">lifetime</span>.<span class="ident">name</span>,
-                            <span class="ident">original_lifetime</span>(<span class="self">self</span>.<span class="ident">hir_map</span>.<span class="ident">span</span>(<span class="ident">def</span>.<span class="ident">id</span>().<span class="ident">unwrap</span>())),
+                            <span class="ident">lifetime</span>.<span class="ident">name</span>.<span class="ident">name</span>(),
+                            <span class="ident">original_lifetime</span>(<span class="self">self</span>.<span class="ident">hir_map</span>.<span class="ident">span</span>(<span class="ident">node_id</span>)),
                             <span class="ident">shadower_lifetime</span>(<span class="kw-2">&amp;</span><span class="ident">lifetime</span>));
                         <span class="kw">return</span>;
                     }
@@ -3301,7 +3383,7 @@
     <span class="kw">return</span>;
 
     <span class="kw">struct</span> <span class="ident">ConstrainedCollector</span> {
-        <span class="ident">regions</span>: <span class="ident">FxHashSet</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">Name</span><span class="op">&gt;</span>,
+        <span class="ident">regions</span>: <span class="ident">FxHashSet</span><span class="op">&lt;</span><span class="ident">hir</span>::<span class="ident">LifetimeName</span><span class="op">&gt;</span>,
     }
 
     <span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;v</span><span class="op">&gt;</span> <span class="ident">Visitor</span><span class="op">&lt;</span><span class="lifetime">&#39;v</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">ConstrainedCollector</span> {
@@ -3341,7 +3423,7 @@
     }
 
     <span class="kw">struct</span> <span class="ident">AllCollector</span> {
-        <span class="ident">regions</span>: <span class="ident">FxHashSet</span><span class="op">&lt;</span><span class="ident">ast</span>::<span class="ident">Name</span><span class="op">&gt;</span>,
+        <span class="ident">regions</span>: <span class="ident">FxHashSet</span><span class="op">&lt;</span><span class="ident">hir</span>::<span class="ident">LifetimeName</span><span class="op">&gt;</span>,
         <span class="ident">impl_trait</span>: <span class="ident">bool</span>
     }
 
@@ -3380,10 +3462,12 @@
                     <dd>Show this help dialog</dd>
                     <dt>S</dt>
                     <dd>Focus the search field</dd>
-                    <dt>&larrb;</dt>
+                    <dt>↑</dt>
                     <dd>Move up in search results</dd>
-                    <dt>&rarrb;</dt>
+                    <dt>↓</dt>
                     <dd>Move down in search results</dd>
+                    <dt>↹</dt>
+                    <dd>Switch tab</dd>
                     <dt>&#9166;</dt>
                     <dd>Go to active search result</dd>
                     <dt>+</dt>

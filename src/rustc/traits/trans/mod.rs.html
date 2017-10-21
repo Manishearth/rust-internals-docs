@@ -224,15 +224,6 @@
 <span id="179">179</span>
 <span id="180">180</span>
 <span id="181">181</span>
-<span id="182">182</span>
-<span id="183">183</span>
-<span id="184">184</span>
-<span id="185">185</span>
-<span id="186">186</span>
-<span id="187">187</span>
-<span id="188">188</span>
-<span id="189">189</span>
-<span id="190">190</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT</span>
 <span class="comment">// file at the top-level directory of this distribution and at</span>
@@ -253,84 +244,77 @@
 <span class="kw">use</span> <span class="ident">infer</span>::<span class="ident">TransNormalize</span>;
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">cell</span>::<span class="ident">RefCell</span>;
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">marker</span>::<span class="ident">PhantomData</span>;
-<span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">ast</span>;
-<span class="kw">use</span> <span class="ident">syntax_pos</span>::<span class="ident">Span</span>;
-<span class="kw">use</span> <span class="ident">traits</span>::{<span class="ident">FulfillmentContext</span>, <span class="ident">Obligation</span>, <span class="ident">ObligationCause</span>, <span class="ident">Reveal</span>, <span class="ident">SelectionContext</span>, <span class="ident">Vtable</span>};
+<span class="kw">use</span> <span class="ident">syntax_pos</span>::<span class="ident">DUMMY_SP</span>;
+<span class="kw">use</span> <span class="ident">traits</span>::{<span class="ident">FulfillmentContext</span>, <span class="ident">Obligation</span>, <span class="ident">ObligationCause</span>, <span class="ident">SelectionContext</span>, <span class="ident">Vtable</span>};
 <span class="kw">use</span> <span class="ident">ty</span>::{<span class="self">self</span>, <span class="ident">Ty</span>, <span class="ident">TyCtxt</span>};
 <span class="kw">use</span> <span class="ident">ty</span>::<span class="ident">subst</span>::{<span class="ident">Subst</span>, <span class="ident">Substs</span>};
 <span class="kw">use</span> <span class="ident">ty</span>::<span class="ident">fold</span>::{<span class="ident">TypeFoldable</span>, <span class="ident">TypeFolder</span>};
 <span class="kw">use</span> <span class="ident">util</span>::<span class="ident">common</span>::<span class="ident">MemoizationMap</span>;
 
+<span class="doccomment">/// Attempts to resolve an obligation to a vtable.. The result is</span>
+<span class="doccomment">/// a shallow vtable resolution -- meaning that we do not</span>
+<span class="doccomment">/// (necessarily) resolve all nested obligations on the impl. Note</span>
+<span class="doccomment">/// that type check should guarantee to us that all nested</span>
+<span class="doccomment">/// obligations *could be* resolved if we wanted to.</span>
+<span class="doccomment">/// Assumes that this is run after the entire crate has been successfully type-checked.</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">trans_fulfill_obligation</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>(<span class="ident">ty</span>: <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>,
+                                          (<span class="ident">param_env</span>, <span class="ident">trait_ref</span>):
+                                          (<span class="ident">ty</span>::<span class="ident">ParamEnv</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">ty</span>::<span class="ident">PolyTraitRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>))
+                                          <span class="op">-&gt;</span> <span class="ident">Vtable</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, ()<span class="op">&gt;</span>
+{
+    <span class="comment">// Remove any references to regions; this helps improve caching.</span>
+    <span class="kw">let</span> <span class="ident">trait_ref</span> <span class="op">=</span> <span class="ident">ty</span>.<span class="ident">erase_regions</span>(<span class="kw-2">&amp;</span><span class="ident">trait_ref</span>);
+
+    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;trans::fulfill_obligation(trait_ref={:?}, def_id={:?})&quot;</span>,
+            (<span class="ident">param_env</span>, <span class="ident">trait_ref</span>), <span class="ident">trait_ref</span>.<span class="ident">def_id</span>());
+
+    <span class="comment">// Do the initial selection for the obligation. This yields the</span>
+    <span class="comment">// shallow result we are looking for -- that is, what specific impl.</span>
+    <span class="ident">ty</span>.<span class="ident">infer_ctxt</span>().<span class="ident">enter</span>(<span class="op">|</span><span class="ident">infcx</span><span class="op">|</span> {
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">selcx</span> <span class="op">=</span> <span class="ident">SelectionContext</span>::<span class="ident">new</span>(<span class="kw-2">&amp;</span><span class="ident">infcx</span>);
+
+        <span class="kw">let</span> <span class="ident">obligation_cause</span> <span class="op">=</span> <span class="ident">ObligationCause</span>::<span class="ident">dummy</span>();
+        <span class="kw">let</span> <span class="ident">obligation</span> <span class="op">=</span> <span class="ident">Obligation</span>::<span class="ident">new</span>(<span class="ident">obligation_cause</span>,
+                                            <span class="ident">param_env</span>,
+                                            <span class="ident">trait_ref</span>.<span class="ident">to_poly_trait_predicate</span>());
+
+        <span class="kw">let</span> <span class="ident">selection</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">selcx</span>.<span class="ident">select</span>(<span class="kw-2">&amp;</span><span class="ident">obligation</span>) {
+            <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(<span class="ident">selection</span>)) <span class="op">=&gt;</span> <span class="ident">selection</span>,
+            <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>) <span class="op">=&gt;</span> {
+                <span class="comment">// Ambiguity can happen when monomorphizing during trans</span>
+                <span class="comment">// expands to some humongo type that never occurred</span>
+                <span class="comment">// statically -- this humongo type can then overflow,</span>
+                <span class="comment">// leading to an ambiguous result. So report this as an</span>
+                <span class="comment">// overflow bug, since I believe this is the only case</span>
+                <span class="comment">// where ambiguity can result.</span>
+                <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;Encountered ambiguity selecting `{:?}` during trans, \
+                        presuming due to overflow&quot;</span>,
+                        <span class="ident">trait_ref</span>)
+            }
+            <span class="prelude-val">Err</span>(<span class="ident">e</span>) <span class="op">=&gt;</span> {
+                <span class="macro">bug</span><span class="macro">!</span>(<span class="string">&quot;Encountered error `{:?}` selecting `{:?}` during trans&quot;</span>,
+                            <span class="ident">e</span>, <span class="ident">trait_ref</span>)
+            }
+        };
+
+        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;fulfill_obligation: selection={:?}&quot;</span>, <span class="ident">selection</span>);
+
+        <span class="comment">// Currently, we use a fulfillment context to completely resolve</span>
+        <span class="comment">// all nested obligations. This is because they can inform the</span>
+        <span class="comment">// inference of the impl&#39;s type parameters.</span>
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">fulfill_cx</span> <span class="op">=</span> <span class="ident">FulfillmentContext</span>::<span class="ident">new</span>();
+        <span class="kw">let</span> <span class="ident">vtable</span> <span class="op">=</span> <span class="ident">selection</span>.<span class="ident">map</span>(<span class="op">|</span><span class="ident">predicate</span><span class="op">|</span> {
+            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;fulfill_obligation: register_predicate_obligation {:?}&quot;</span>, <span class="ident">predicate</span>);
+            <span class="ident">fulfill_cx</span>.<span class="ident">register_predicate_obligation</span>(<span class="kw-2">&amp;</span><span class="ident">infcx</span>, <span class="ident">predicate</span>);
+        });
+        <span class="kw">let</span> <span class="ident">vtable</span> <span class="op">=</span> <span class="ident">infcx</span>.<span class="ident">drain_fulfillment_cx_or_panic</span>(<span class="ident">DUMMY_SP</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">fulfill_cx</span>, <span class="kw-2">&amp;</span><span class="ident">vtable</span>);
+
+        <span class="macro">info</span><span class="macro">!</span>(<span class="string">&quot;Cache miss: {:?} =&gt; {:?}&quot;</span>, <span class="ident">trait_ref</span>, <span class="ident">vtable</span>);
+        <span class="ident">vtable</span>
+    })
+}
+
 <span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">TyCtxt</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="lifetime">&#39;tcx</span>, <span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
-    <span class="doccomment">/// Attempts to resolve an obligation to a vtable.. The result is</span>
-    <span class="doccomment">/// a shallow vtable resolution -- meaning that we do not</span>
-    <span class="doccomment">/// (necessarily) resolve all nested obligations on the impl. Note</span>
-    <span class="doccomment">/// that type check should guarantee to us that all nested</span>
-    <span class="doccomment">/// obligations *could be* resolved if we wanted to.</span>
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">trans_fulfill_obligation</span>(<span class="self">self</span>,
-                                    <span class="ident">span</span>: <span class="ident">Span</span>,
-                                    <span class="ident">trait_ref</span>: <span class="ident">ty</span>::<span class="ident">PolyTraitRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>)
-                                    <span class="op">-&gt;</span> <span class="ident">Vtable</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, ()<span class="op">&gt;</span>
-    {
-        <span class="comment">// Remove any references to regions; this helps improve caching.</span>
-        <span class="kw">let</span> <span class="ident">trait_ref</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">erase_regions</span>(<span class="kw-2">&amp;</span><span class="ident">trait_ref</span>);
-
-        <span class="self">self</span>.<span class="ident">trans_trait_caches</span>.<span class="ident">trait_cache</span>.<span class="ident">memoize</span>(<span class="ident">trait_ref</span>, <span class="op">||</span> {
-            <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;trans::fulfill_obligation(trait_ref={:?}, def_id={:?})&quot;</span>,
-                   <span class="ident">trait_ref</span>, <span class="ident">trait_ref</span>.<span class="ident">def_id</span>());
-
-            <span class="comment">// Do the initial selection for the obligation. This yields the</span>
-            <span class="comment">// shallow result we are looking for -- that is, what specific impl.</span>
-            <span class="self">self</span>.<span class="ident">infer_ctxt</span>().<span class="ident">enter</span>(<span class="op">|</span><span class="ident">infcx</span><span class="op">|</span> {
-                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">selcx</span> <span class="op">=</span> <span class="ident">SelectionContext</span>::<span class="ident">new</span>(<span class="kw-2">&amp;</span><span class="ident">infcx</span>);
-
-                <span class="kw">let</span> <span class="ident">param_env</span> <span class="op">=</span> <span class="ident">ty</span>::<span class="ident">ParamEnv</span>::<span class="ident">empty</span>(<span class="ident">Reveal</span>::<span class="ident">All</span>);
-                <span class="kw">let</span> <span class="ident">obligation_cause</span> <span class="op">=</span> <span class="ident">ObligationCause</span>::<span class="ident">misc</span>(<span class="ident">span</span>,
-                                                             <span class="ident">ast</span>::<span class="ident">DUMMY_NODE_ID</span>);
-                <span class="kw">let</span> <span class="ident">obligation</span> <span class="op">=</span> <span class="ident">Obligation</span>::<span class="ident">new</span>(<span class="ident">obligation_cause</span>,
-                                                 <span class="ident">param_env</span>,
-                                                 <span class="ident">trait_ref</span>.<span class="ident">to_poly_trait_predicate</span>());
-
-                <span class="kw">let</span> <span class="ident">selection</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">selcx</span>.<span class="ident">select</span>(<span class="kw-2">&amp;</span><span class="ident">obligation</span>) {
-                    <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(<span class="ident">selection</span>)) <span class="op">=&gt;</span> <span class="ident">selection</span>,
-                    <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>) <span class="op">=&gt;</span> {
-                        <span class="comment">// Ambiguity can happen when monomorphizing during trans</span>
-                        <span class="comment">// expands to some humongo type that never occurred</span>
-                        <span class="comment">// statically -- this humongo type can then overflow,</span>
-                        <span class="comment">// leading to an ambiguous result. So report this as an</span>
-                        <span class="comment">// overflow bug, since I believe this is the only case</span>
-                        <span class="comment">// where ambiguity can result.</span>
-                        <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;Encountered ambiguity selecting `{:?}` during trans, \
-                                presuming due to overflow&quot;</span>,
-                               <span class="ident">trait_ref</span>);
-                        <span class="self">self</span>.<span class="ident">sess</span>.<span class="ident">span_fatal</span>(<span class="ident">span</span>,
-                                            <span class="string">&quot;reached the recursion limit during monomorphization \
-                                             (selection ambiguity)&quot;</span>);
-                    }
-                    <span class="prelude-val">Err</span>(<span class="ident">e</span>) <span class="op">=&gt;</span> {
-                        <span class="macro">span_bug</span><span class="macro">!</span>(<span class="ident">span</span>, <span class="string">&quot;Encountered error `{:?}` selecting `{:?}` during trans&quot;</span>,
-                                  <span class="ident">e</span>, <span class="ident">trait_ref</span>)
-                    }
-                };
-
-                <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;fulfill_obligation: selection={:?}&quot;</span>, <span class="ident">selection</span>);
-
-                <span class="comment">// Currently, we use a fulfillment context to completely resolve</span>
-                <span class="comment">// all nested obligations. This is because they can inform the</span>
-                <span class="comment">// inference of the impl&#39;s type parameters.</span>
-                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">fulfill_cx</span> <span class="op">=</span> <span class="ident">FulfillmentContext</span>::<span class="ident">new</span>();
-                <span class="kw">let</span> <span class="ident">vtable</span> <span class="op">=</span> <span class="ident">selection</span>.<span class="ident">map</span>(<span class="op">|</span><span class="ident">predicate</span><span class="op">|</span> {
-                    <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;fulfill_obligation: register_predicate_obligation {:?}&quot;</span>, <span class="ident">predicate</span>);
-                    <span class="ident">fulfill_cx</span>.<span class="ident">register_predicate_obligation</span>(<span class="kw-2">&amp;</span><span class="ident">infcx</span>, <span class="ident">predicate</span>);
-                });
-                <span class="kw">let</span> <span class="ident">vtable</span> <span class="op">=</span> <span class="ident">infcx</span>.<span class="ident">drain_fulfillment_cx_or_panic</span>(<span class="ident">span</span>, <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">fulfill_cx</span>, <span class="kw-2">&amp;</span><span class="ident">vtable</span>);
-
-                <span class="macro">info</span><span class="macro">!</span>(<span class="string">&quot;Cache miss: {:?} =&gt; {:?}&quot;</span>, <span class="ident">trait_ref</span>, <span class="ident">vtable</span>);
-                <span class="ident">vtable</span>
-            })
-        })
-    }
-
     <span class="doccomment">/// Monomorphizes a type from the AST by first applying the in-scope</span>
     <span class="doccomment">/// substitutions and then normalizing any associated types.</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">trans_apply_param_substs</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="self">self</span>,
@@ -356,7 +340,7 @@
     }
 
     <span class="kw">fn</span> <span class="ident">fold</span><span class="op">&lt;</span><span class="ident">T</span>:<span class="ident">TypeFoldable</span><span class="op">&lt;</span><span class="lifetime">&#39;gcx</span><span class="op">&gt;&gt;</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">value</span>: <span class="kw-2">&amp;</span><span class="ident">T</span>) <span class="op">-&gt;</span> <span class="ident">T</span> {
-        <span class="kw">if</span> <span class="op">!</span><span class="ident">value</span>.<span class="ident">has_projection_types</span>() {
+        <span class="kw">if</span> <span class="op">!</span><span class="ident">value</span>.<span class="ident">has_projections</span>() {
             <span class="ident">value</span>.<span class="ident">clone</span>()
         } <span class="kw">else</span> {
             <span class="ident">value</span>.<span class="ident">fold_with</span>(<span class="self">self</span>)
@@ -370,7 +354,7 @@
     }
 
     <span class="kw">fn</span> <span class="ident">fold_ty</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">ty</span>: <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;gcx</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">Ty</span><span class="op">&lt;</span><span class="lifetime">&#39;gcx</span><span class="op">&gt;</span> {
-        <span class="kw">if</span> <span class="op">!</span><span class="ident">ty</span>.<span class="ident">has_projection_types</span>() {
+        <span class="kw">if</span> <span class="op">!</span><span class="ident">ty</span>.<span class="ident">has_projections</span>() {
             <span class="ident">ty</span>
         } <span class="kw">else</span> {
             <span class="self">self</span>.<span class="ident">tcx</span>.<span class="ident">trans_trait_caches</span>.<span class="ident">project_cache</span>.<span class="ident">memoize</span>(<span class="ident">ty</span>, <span class="op">||</span> {
@@ -384,14 +368,12 @@
 <span class="doccomment">/// Specializes caches used in trans -- in particular, they assume all</span>
 <span class="doccomment">/// types are fully monomorphized and that free regions can be erased.</span>
 <span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">TransTraitCaches</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
-    <span class="ident">trait_cache</span>: <span class="ident">RefCell</span><span class="op">&lt;</span><span class="ident">DepTrackingMap</span><span class="op">&lt;</span><span class="ident">TraitSelectionCache</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span><span class="op">&gt;</span>,
     <span class="ident">project_cache</span>: <span class="ident">RefCell</span><span class="op">&lt;</span><span class="ident">DepTrackingMap</span><span class="op">&lt;</span><span class="ident">ProjectionCache</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;&gt;</span><span class="op">&gt;</span>,
 }
 
 <span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">TransTraitCaches</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">new</span>(<span class="ident">graph</span>: <span class="ident">DepGraph</span>) <span class="op">-&gt;</span> <span class="self">Self</span> {
         <span class="ident">TransTraitCaches</span> {
-            <span class="ident">trait_cache</span>: <span class="ident">RefCell</span>::<span class="ident">new</span>(<span class="ident">DepTrackingMap</span>::<span class="ident">new</span>(<span class="ident">graph</span>.<span class="ident">clone</span>())),
             <span class="ident">project_cache</span>: <span class="ident">RefCell</span>::<span class="ident">new</span>(<span class="ident">DepTrackingMap</span>::<span class="ident">new</span>(<span class="ident">graph</span>)),
         }
     }
@@ -403,7 +385,7 @@
 }
 
 <span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> <span class="ident">DepTrackingMapConfig</span> <span class="kw">for</span> <span class="ident">TraitSelectionCache</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span> {
-    <span class="kw">type</span> <span class="ident">Key</span> <span class="op">=</span> <span class="ident">ty</span>::<span class="ident">PolyTraitRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>;
+    <span class="kw">type</span> <span class="ident">Key</span> <span class="op">=</span> (<span class="ident">ty</span>::<span class="ident">ParamEnv</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>, <span class="ident">ty</span>::<span class="ident">PolyTraitRef</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span><span class="op">&gt;</span>);
     <span class="kw">type</span> <span class="ident">Value</span> <span class="op">=</span> <span class="ident">Vtable</span><span class="op">&lt;</span><span class="lifetime">&#39;tcx</span>, ()<span class="op">&gt;</span>;
     <span class="kw">fn</span> <span class="ident">to_dep_kind</span>() <span class="op">-&gt;</span> <span class="ident">DepKind</span> {
         <span class="ident">DepKind</span>::<span class="ident">TraitSelect</span>
@@ -442,10 +424,12 @@
                     <dd>Show this help dialog</dd>
                     <dt>S</dt>
                     <dd>Focus the search field</dd>
-                    <dt>&larrb;</dt>
+                    <dt>↑</dt>
                     <dd>Move up in search results</dd>
-                    <dt>&rarrb;</dt>
+                    <dt>↓</dt>
                     <dd>Move down in search results</dd>
+                    <dt>↹</dt>
+                    <dd>Switch tab</dd>
                     <dt>&#9166;</dt>
                     <dd>Go to active search result</dd>
                     <dt>+</dt>

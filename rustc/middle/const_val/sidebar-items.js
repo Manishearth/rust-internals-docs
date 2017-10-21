@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["ConstEvalErrDescription",""],["ConstInt",""],["ConstVal",""],["ErrKind",""]],"fn":[["eval_length","Returns the value of the length-valued expression"]],"struct":[["ConstEvalErr",""]],"type":[["EvalResult",""]]});
+initSidebarItems({"enum":[["ConstAggregate",""],["ConstEvalErrDescription",""],["ConstInt",""],["ConstVal",""],["ErrKind",""]],"struct":[["ByteArray",""],["ConstEvalErr",""]],"type":[["EvalResult",""]]});

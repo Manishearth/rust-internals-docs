@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["find_reachable",""],["provide",""]]});
+initSidebarItems({"fn":[["provide",""]],"struct":[["ReachableSet",""]]});
