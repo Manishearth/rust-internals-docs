@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["def_ty","Given a DefId and some Substs, produces the monomorphic item type."],["instance_ty","Return the substituted type of an instance."],["is_inline_instance",""],["requests_inline",""],["type_has_metadata",""],["type_is_sized",""]]});

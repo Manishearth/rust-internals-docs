@@ -119,14 +119,14 @@
     <body class="light">
         <!-- Set the theme before any content is loaded, prevents flash -->
         <script type="text/javascript">
-            var theme = store.get('theme');
+            var theme = store.get('mdbook-theme');
             if (theme === null || theme === undefined) { theme = 'light'; }
             $('body').removeClass().addClass(theme);
         </script>
 
         <!-- Hide / unhide sidebar before it is displayed -->
         <script type="text/javascript">
-            var sidebar = store.get('sidebar');
+            var sidebar = store.get('mdbook-sidebar');
             if (sidebar === "hidden") { $("html").addClass("sidebar-hidden") }
             else if (sidebar === "visible") { $("html").addClass("sidebar-visible") }
         </script>
@@ -148,29 +148,43 @@
                     <h1 class="menu-title">The Rust Programming Language</h1>
 
                     <div class="right-buttons">
-                        <i id="print-button" class="fa fa-print" title="Print this book"></i>
+                        <a href="print.html">
+                            <i id="print-button" class="fa fa-print" title="Print this book"></i>
+                        </a>
                     </div>
                 </div>
 
                 <div id="content" class="content">
                     <a class="header" href="ch16-02-message-passing.html#message-passing-to-transfer-data-between-threads" id="message-passing-to-transfer-data-between-threads"><h2>Message Passing to Transfer Data Between Threads</h2></a>
-<p>One approach to concurrency that’s seen a rise in popularity as of late is
-<em>message passing</em>, where threads or actors communicate by sending each other
-messages containing data. Here’s the idea in slogan form:</p>
+<p>One increasingly popular approach to ensuring safe concurrency is <em>message
+passing</em>, where threads or actors communicate by sending each other messages
+containing data. Here’s the idea in slogan form from the Go language
+documentation:</p>
 <blockquote>
 <p>Do not communicate by sharing memory; instead, share memory by
 communicating.</p>
 <p>--<a href="http://golang.org/doc/effective_go.html">Effective Go</a></p>
 </blockquote>
-<p>A major tool to accomplish this goal is the <em>channel</em>. A channel has two
-halves, a transmitter and a receiver. One part of our code can call methods on
-the transmitter with the data we want to send, and another part can check the
-receiving end for arriving messages.</p>
-<p>We’re going to work up to an example where we have one thread that will
-generate values and send them down a channel. The main thread will receive the
-values and print them out.</p>
-<p>First, though, let’s start by creating a channel but not doing anything with it
-in Listing 16-6:</p>
+<!-- below -- what is the channel, precisely? A crate? a technique?-->
+<!-- I've elaborated /Carol -->
+<p>One major tool Rust has for accomplishing message sending concurrency is the
+<em>channel</em>, a programming concept that Rust’s standard library provides an
+implementation of. You can imagine a channel in programming like a channel of
+water, such as a stream or a river. If you put something like a rubber duck or
+a boat into a stream, it will travel downstream to the end of the river.</p>
+<p>A channel in programming has two halves: a transmitter and a receiver. The
+transmitter half is like the upstream location where we put rubber ducks into
+the river, and the receiver half is the downstream place where the rubber duck
+ends up. One part of our code calls methods on the transmitter with the data we
+want to send, and another part checks the receiving end for arriving messages.</p>
+<p>Here we’ll work up to a program that has one thread to generate values and send
+them down a channel, and another thread that will receive the values and print
+them out. We’re going to be sending simple values between threads using a
+channel for the purposes of illustration. Once you’re familiar with the
+technique, you could use channels to implement a chat system, or a system where
+many threads perform parts of a calculation and send the parts to one thread
+that aggregates the results.</p>
+<p>First, we’ll create a channel but not do anything with it in Listing 16-6:</p>
 <p><span class="filename">Filename: src/main.rs</span></p>
 <pre><pre class="playpen"><code class="language-rust">use std::sync::mpsc;
 
@@ -181,19 +195,36 @@ fn main() {
 </code></pre></pre>
 <p><span class="caption">Listing 16-6: Creating a channel and assigning the two
 halves to <code>tx</code> and <code>rx</code></span></p>
-<p>The <code>mpsc::channel</code> function creates a new channel. <code>mpsc</code> stands for <em>multiple
-producer, single consumer</em>. In short, we can have multiple <em>sending</em> ends of a
-channel that produce values, but only one <em>receiving</em> end that consumes those
-values. We’re going to start with a single producer for now, but we’ll add
+<p>We create a new channel using the <code>mpsc::channel</code> function; <code>mpsc</code> stands for
+<em>multiple producer, single consumer</em>. In short, the way Rust’s standard library
+has implemented channels is such that a channel can have multiple <em>sending</em>
+ends that produce values, but only one <em>receiving</em> end that consumes those
+values. Imagine multiple rivers and streams flowing together into one big
+river: everything sent down any of the streams will end up in one river at the
+end. We’re going to start with a single producer for now, but we’ll add
 multiple producers once we get this example working.</p>
-<p><code>mpsc::channel</code> returns a tuple: the first element is the sending end, and the
-second element is the receiving end. For historical reasons, many people use
-<code>tx</code> and <code>rx</code> to abbreviate <em>transmitter</em> and <em>receiver</em>, so those are the
-names we’re using for the variables bound to each end. We’re using a <code>let</code>
-statement with a pattern that destructures the tuples; we’ll be discussing the
-use of patterns in <code>let</code> statements and destructuring in Chapter 18.</p>
+<p>The <code>mpsc::channel</code> function returns a tuple, the first element of which is the
+sending end and the second element the receiving end. The abbreviations <code>tx</code>
+and <code>rx</code> are traditionally used in many fields for <em>transmitter</em> and <em>receiver</em>
+respectively, so we give our variables those names to indicate each end. We’re
+using a <code>let</code> statement with a pattern that destructures the tuples; we’ll be
+discussing the use of patterns in <code>let</code> statements and destructuring in Chapter</p>
+<ol start="18">
+<li>Using a <code>let</code> statement in this way is a convenient way to extract the
+pieces of the tuple returned by <code>mpsc::channel</code>.</li>
+</ol>
+<!-- above -- can you give us a general idea of what that means for us in this
+program? -->
+<!-- A general idea of what *what* means? I'm not sure what you're asking for;
+I've added a bit of explanation of the destructuring but I'm not sure that's
+what you meant /Carol -->
 <p>Let’s move the transmitting end into a spawned thread and have it send one
-string, shown in Listing 16-7:</p>
+string so that the spawned thread is communicating with the main thread, shown
+in Listing 16-7. This is like putting a rubber duck in the river upstream or
+sending a chat message from one thread to another:</p>
+<!-- Can you tell us why we want to do this, what does this do for us and our
+program? -->
+<!-- Elaborated /Carol -->
 <p><span class="filename">Filename: src/main.rs</span></p>
 <pre><pre class="playpen"><code class="language-rust">use std::thread;
 use std::sync::mpsc;
@@ -209,18 +240,19 @@ fn main() {
 </code></pre></pre>
 <p><span class="caption">Listing 16-7: Moving <code>tx</code> to a spawned thread and sending
 “hi”</span></p>
-<p>We’re using <code>thread::spawn</code> to create a new thread, just as we did in the
-previous section. We use a <code>move</code> closure to make <code>tx</code> move into the closure so
-that the thread owns it.</p>
-<p>The transmitting end of a channel has the <code>send</code> method that takes the value we
-want to send down the channel. The <code>send</code> method returns a <code>Result&lt;T, E&gt;</code> type,
-because if the receiving end has already been dropped, there’s nowhere to send
-a value to, so the send operation would error. In this example, we’re simply
-calling <code>unwrap</code> to panic in case of error, but for a real application, we’d
-want to handle it properly. Chapter 9 is where you’d go to review strategies
-for proper error handling.</p>
-<p>In Listing 16-8, let’s get the value from the receiving end of the channel in
-the main thread:</p>
+<p>We’re again using <code>thread::spawn</code> to create a new thread, and then use <code>move</code>
+to move <code>tx</code> into the closure so the spawned thread owns <code>tx</code>. The spawned
+thread needs to own the transmitting end of the channel in order to be able to
+send messages through the channel.</p>
+<p>The transmitting end has a <code>send</code> method that takes the value we want to send.
+The <code>send</code> method returns a <code>Result&lt;T, E&gt;</code> type, so that if the receiving end
+has already been dropped and there’s nowhere to send a value, the send
+operation will error. In this example, we’re simply calling <code>unwrap</code> to panic
+in case of error, but for a real application, we’d handle it properly--return
+to Chapter 9 to review strategies for proper error handling.</p>
+<p>In Listing 16-8, we’ll get the value from the receiving end of the channel in
+the main thread. This is like retrieving the rubber duck from the water at the
+end of the river, or like getting a chat message:</p>
 <p><span class="filename">Filename: src/main.rs</span></p>
 <pre><pre class="playpen"><code class="language-rust">use std::thread;
 use std::sync::mpsc;
@@ -240,19 +272,52 @@ fn main() {
 <p><span class="caption">Listing 16-8: Receiving the value “hi” in the main thread
 and printing it out</span></p>
 <p>The receiving end of a channel has two useful methods: <code>recv</code> and <code>try_recv</code>.
-Here, we’re using <code>recv</code>, which is short for <em>receive</em>. This method will block
-execution until a value is sent down the channel. Once a value is sent, <code>recv</code>
-will return it in a <code>Result&lt;T, E&gt;</code>. When the sending end of the channel closes,
-<code>recv</code> will return an error. The <code>try_recv</code> method will not block; it instead
-returns a <code>Result&lt;T, E&gt;</code> immediately.</p>
+We’re using <code>recv</code>, short for <em>receive</em>, which will block the main thread’s
+execution and wait until a value is sent down the channel. Once a value is
+sent, <code>recv</code> will return it in a <code>Result&lt;T, E&gt;</code>. When the sending end of the
+channel closes, <code>recv</code> will return an error to signal that no more values will
+be coming.</p>
+<!-- Why do we want it to error when the sending end closes? And what's the
+advantage of blocking here? -->
+<!-- We don't necessarily *want* it to error, that's just how the standard
+library has implemented it. I've tried to clarify that and blocking. /Carol -->
+<p>The <code>try_recv</code> method doesn’t block, but will instead return a <code>Result&lt;T, E&gt;</code>
+immediately: an <code>Ok</code> value holding a message if one is available, and an <code>Err</code>
+value if there aren’t any messages this time. Using <code>try_recv</code> is useful if
+this thread has other work to do while waiting for messages: we could write a
+loop that calls <code>try_recv</code> every so often, handles a message if one is
+available, and otherwise does other work for a little while until checking
+again.</p>
+<p>We’ve chosen to use <code>recv</code> in this example for simplicity; we don’t have any
+other work for the main thread to do other than wait for messages, so blocking
+the main thread is appropriate.</p>
+<!-- So what is the difference here, what are the different situations you
+would want to return the value immediately? -->
+<!-- Elaborated above /Carol -->
 <p>If we run the code in Listing 16-8, we’ll see the value printed out from the
 main thread:</p>
 <pre><code class="language-text">Got: hi
 </code></pre>
-<a class="header" href="ch16-02-message-passing.html#how-channels-interact-with-ownership" id="how-channels-interact-with-ownership"><h3>How Channels Interact with Ownership</h3></a>
-<p>Let’s do an experiment at this point to see how channels and ownership work
-together: we’ll try to use <code>val</code> in the spawned thread after we’ve sent it down
-the channel. Try compiling the code in Listing 16-9:</p>
+<p>Perfect!</p>
+<a class="header" href="ch16-02-message-passing.html#channels-and-ownership-transference" id="channels-and-ownership-transference"><h3>Channels and Ownership Transference</h3></a>
+<!-- Hmm i'm not sure we need as it's own section, it seems like it could be
+condensed now the reader is pretty familiar with ownership rules. We might not
+even need the example, but I'll defer to you on this -->
+<!-- We think the examples in this section are important-- there are likely
+readers who are skeptical about Rust's ownership system and whether it's worth
+putting up with, and this section is the payoff. We're trying to convince those
+people that one big benefit Rust's ownership gives you is that it enables you
+to write safe, concurrent code. I'm glad we've convinced *you*, but I'm not so
+sure that we'll have convinced all our readers at this point! I've tried to
+state this a bit more clearly without calling out these readers too
+explicitly... /Carol -->
+<p>The ownership rules play a vital role in message sending as far as helping us
+write safe, concurrent code. Preventing errors in concurrent programming is the
+advantage we get by making the tradeoff of having to think about ownership
+throughout our Rust programs. Let’s do an experiment to show how channels and
+ownership work together to prevent problems: we’ll try to use a <code>val</code> value in
+the spawned thread <em>after</em> we’ve sent it down the channel. Try compiling the
+code in Listing 16-9:</p>
 <p><span class="filename">Filename: src/main.rs</span></p>
 <pre><code class="language-rust ignore">use std::thread;
 use std::sync::mpsc;
@@ -273,11 +338,11 @@ fn main() {
 <p><span class="caption">Listing 16-9: Attempting to use <code>val</code> after we have sent
 it down the channel</span></p>
 <p>Here, we try to print out <code>val</code> after we’ve sent it down the channel via
-<code>tx.send</code>. This is a bad idea: once we’ve sent the value to another thread,
-that thread could modify it or drop it before we try to use the value again.
-This could cause errors or unexpected results due to inconsistent or
-nonexistent data.</p>
-<p>If we try to compile this code, Rust will error:</p>
+<code>tx.send</code>. Allowing this would be a bad idea: once the value has been sent to
+another thread, that thread could modify or drop it before we try to use the
+value again, which would potentially cause errors or unexpected results due to
+inconsistent or nonexistent data.</p>
+<p>However, Rust gives us an error if we try to compile this code:</p>
 <pre><code class="language-text">error[E0382]: use of moved value: `val`
   --&gt; src/main.rs:10:31
    |
@@ -289,21 +354,16 @@ nonexistent data.</p>
    = note: move occurs because `val` has type `std::string::String`, which does
    not implement the `Copy` trait
 </code></pre>
-<p>Our concurrency mistake has caused a compile-time error! <code>send</code> takes ownership
-of its parameter and moves the value so that the value is owned by the
-receiver. This means we can’t accidentally use the value again after sending
-it; the ownership system checks that everything is okay.</p>
-<p>In this regard, message passing is very similar to single ownership in Rust.
-Message passing enthusiasts enjoy message passing for similar reasons that
-Rustaceans enjoy Rust’s ownership: single ownership means certain classes of
-problems go away. If only one thread at a time can use some memory, there’s no
-chance of a data race.</p>
+<p>Our concurrency mistake has caused a compile-time error! The <code>send</code> function
+takes ownership of its parameter, and when the value is moved the receiver
+takes ownership of it. This stops us from accidentally use the value again
+after sending it; the ownership system checks that everything is okay.</p>
 <a class="header" href="ch16-02-message-passing.html#sending-multiple-values-and-seeing-the-receiver-waiting" id="sending-multiple-values-and-seeing-the-receiver-waiting"><h3>Sending Multiple Values and Seeing the Receiver Waiting</h3></a>
-<p>The code in Listing 16-8 compiled and ran, but it wasn’t very interesting: it’s
-hard to see that we have two separate threads talking to each other over a
-channel. Listing 16-10 has some modifications that will prove to us that this
-code is running concurrently: the spawned thread will now send multiple
-messages and pause for a second between each message.</p>
+<p>The code in Listing 16-8 compiled and ran, but doesn’t show us very clearly
+that two separate threads are talking to each other over the channel. In
+Listing 16-10 we’ve made some modifications that will prove this code is
+running concurrently: the spawned thread will now send multiple messages and
+pause for a second between each message.</p>
 <p><span class="filename">Filename: src/main.rs</span></p>
 <pre><pre class="playpen"><code class="language-rust">use std::thread;
 use std::sync::mpsc;
@@ -333,28 +393,37 @@ fn main() {
 </code></pre></pre>
 <p><span class="caption">Listing 16-10: Sending multiple messages and pausing
 between each one</span></p>
-<p>This time, we have a vector of strings in the spawned thread that we want to
-send to the main thread. We iterate over them, sending each individually and
-then pausing by calling the <code>thread::sleep</code> function with a <code>Duration</code> value of
+<p>This time, the spawned thread has a vector of strings that we want to send to
+the main thread. We iterate over them, sending each individually, and pause
+between each by calling the <code>thread::sleep</code> function with a <code>Duration</code> value of
 one second.</p>
 <p>In the main thread, we’re not calling the <code>recv</code> function explicitly anymore:
 instead we’re treating <code>rx</code> as an iterator. For each value received, we’re
 printing it out. When the channel is closed, iteration will end.</p>
-<p>When running the code in Listing 16-10, we’ll see this output, with a one second
-pause in between each line:</p>
+<p>When running the code in Listing 16-10, you should see the following output,
+with a one second pause in between each line:</p>
 <pre><code class="language-text">Got: hi
 Got: from
 Got: the
 Got: thread
 </code></pre>
-<p>We don’t have any pausing or code that would take a while in the <code>for</code> loop in
-the main thread, so we can tell that the main thread is waiting to receive
-values from the spawned thread.</p>
-<a class="header" href="ch16-02-message-passing.html#create-multiple-producers-by-cloning-the-transmitter" id="create-multiple-producers-by-cloning-the-transmitter"><h3>Create Multiple Producers by Cloning the Transmitter</h3></a>
+<p>Because we don’t have any code that pauses or delays in the <code>for</code> loop in the
+main thread, we can tell that the main thread is waiting to receive values from
+the spawned thread.</p>
+<!-- Above -- just to be clear, this is because the main thread is receiving
+the pauses from the spawned thread, is that right? -->
+<!-- It's not that we're sending the *pauses*, it's that the spawned thread is
+pausing between sending each message, so then the main thread doesn't receive
+all the messages all at the same time, it receives one message per second
+because that's how they were sent. I'm not sure what in the code looks like
+"sending/receiving the pauses" or what isn't clear here, so I'm not sure how to
+fix it /Carol -->
+<a class="header" href="ch16-02-message-passing.html#creating-multiple-producers-by-cloning-the-transmitter" id="creating-multiple-producers-by-cloning-the-transmitter"><h3>Creating Multiple Producers by Cloning the Transmitter</h3></a>
 <p>Near the start of this section, we mentioned that <code>mpsc</code> stood for <em>multiple
-producer, single consumer</em>. We can expand the code from Listing 16-10 to create
-multiple threads that all send values to the same receiver. We do that by
-cloning the transmitting half of the channel, as shown in Listing 16-11:</p>
+producer, single consumer</em>. Let’s put that ability to use and expand the code
+from Listing 16-10 to create multiple threads that all send values to the same
+receiver. We can do that by cloning the transmitting half of the channel, as
+shown in Listing 16-11:</p>
 <p><span class="filename">Filename: src/main.rs</span></p>
 <pre><pre class="playpen"><code class="language-rust"># use std::thread;
 # use std::sync::mpsc;
@@ -402,9 +471,9 @@ thread::spawn(move || {
 <p><span class="caption">Listing 16-11: Sending multiple messages and pausing
 between each one</span></p>
 <p>This time, before we create the first spawned thread, we call <code>clone</code> on the
-sending end of the channel. This will give us a new sending handle that we can
-pass to the first spawned thread. We’ll pass the original sending end of the
-channel to a second spawned thread, and each thread is sending different
+sending end of the channel. This will give us a new sending handle we can pass
+to the first spawned thread. We pass the original sending end of the channel to
+a second spawned thread. This gives us two threads, each sending different
 messages to the receiving end of the channel.</p>
 <p>If you run this, you’ll <em>probably</em> see output like this:</p>
 <pre><code class="language-text">Got: hi
@@ -416,12 +485,12 @@ Got: the
 Got: thread
 Got: you
 </code></pre>
-<p>You might see the values in a different order, though. It depends on your
-system! This is what makes concurrency interesting as well as difficult. If you
-play around with <code>thread::sleep</code>, giving it different values in the different
-threads, you can make the runs more non-deterministic and create different
-output each time.</p>
-<p>Now that we’ve seen how channels work, let’s look at shared-memory concurrency.</p>
+<p>You might see the values in a different order, it depends on your system! This
+is what makes concurrency interesting as well as difficult. If you play around
+with <code>thread::sleep</code>, giving it different values in the different threads, each
+run will be more non-deterministic and create different output each time.</p>
+<p>Now that we’ve seen how channels work, let’s look at a different method of
+concurrency.</p>
 
                 </div>
 
@@ -463,6 +532,8 @@ output each time.</p>
         </script>
 
         <!-- Livereload script (if served using the cli tool) -->
+        
+
         
 
         

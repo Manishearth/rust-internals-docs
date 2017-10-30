@@ -1455,8 +1455,6 @@
 <span id="1410">1410</span>
 <span id="1411">1411</span>
 <span id="1412">1412</span>
-<span id="1413">1413</span>
-<span id="1414">1414</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class="comment">// file at the top-level directory of this distribution and at</span>
@@ -1474,7 +1472,7 @@
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">ich</span>::<span class="ident">Fingerprint</span>;
 <span class="kw">use</span> <span class="ident">rustc_data_structures</span>::<span class="ident">stable_hasher</span>::<span class="ident">StableHasher</span>;
 <span class="kw">use</span> <span class="ident">rustc_mir</span> <span class="kw">as</span> <span class="ident">mir</span>;
-<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">session</span>::{<span class="ident">Session</span>, <span class="ident">CompileResult</span>};
+<span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">session</span>::{<span class="ident">Session</span>, <span class="ident">CompileResult</span>, <span class="ident">CrateDisambiguator</span>};
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">session</span>::<span class="ident">CompileIncomplete</span>;
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">session</span>::<span class="ident">config</span>::{<span class="self">self</span>, <span class="ident">Input</span>, <span class="ident">OutputFilenames</span>, <span class="ident">OutputType</span>};
 <span class="kw">use</span> <span class="ident">rustc</span>::<span class="ident">session</span>::<span class="ident">search_paths</span>::<span class="ident">PathKind</span>;
@@ -1518,7 +1516,6 @@
 <span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">attr</span>;
 <span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">ext</span>::<span class="ident">base</span>::<span class="ident">ExtCtxt</span>;
 <span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">parse</span>::{<span class="self">self</span>, <span class="ident">PResult</span>};
-<span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">symbol</span>::<span class="ident">Symbol</span>;
 <span class="kw">use</span> <span class="ident">syntax</span>::<span class="ident">util</span>::<span class="ident">node_count</span>::<span class="ident">NodeCounter</span>;
 <span class="kw">use</span> <span class="ident">syntax</span>;
 <span class="kw">use</span> <span class="ident">syntax_ext</span>;
@@ -2093,12 +2090,12 @@
 
     <span class="kw-2">*</span><span class="ident">sess</span>.<span class="ident">crate_types</span>.<span class="ident">borrow_mut</span>() <span class="op">=</span> <span class="ident">collect_crate_types</span>(<span class="ident">sess</span>, <span class="kw-2">&amp;</span><span class="ident">krate</span>.<span class="ident">attrs</span>);
 
-    <span class="kw">let</span> <span class="ident">disambiguator</span> <span class="op">=</span> <span class="ident">Symbol</span>::<span class="ident">intern</span>(<span class="kw-2">&amp;</span><span class="ident">compute_crate_disambiguator</span>(<span class="ident">sess</span>));
+    <span class="kw">let</span> <span class="ident">disambiguator</span> <span class="op">=</span> <span class="ident">compute_crate_disambiguator</span>(<span class="ident">sess</span>);
     <span class="kw-2">*</span><span class="ident">sess</span>.<span class="ident">crate_disambiguator</span>.<span class="ident">borrow_mut</span>() <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="ident">disambiguator</span>);
     <span class="ident">rustc_incremental</span>::<span class="ident">prepare_session_directory</span>(
         <span class="ident">sess</span>,
         <span class="kw-2">&amp;</span><span class="ident">crate_name</span>,
-        <span class="kw-2">&amp;</span><span class="ident">disambiguator</span>.<span class="ident">as_str</span>(),
+        <span class="ident">disambiguator</span>,
     );
 
     <span class="kw">let</span> <span class="ident">dep_graph</span> <span class="op">=</span> <span class="kw">if</span> <span class="ident">sess</span>.<span class="ident">opts</span>.<span class="ident">build_dep_graph</span>() {
@@ -2772,16 +2769,13 @@
         .<span class="ident">collect</span>()
 }
 
-<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">compute_crate_disambiguator</span>(<span class="ident">session</span>: <span class="kw-2">&amp;</span><span class="ident">Session</span>) <span class="op">-&gt;</span> <span class="ident">String</span> {
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">compute_crate_disambiguator</span>(<span class="ident">session</span>: <span class="kw-2">&amp;</span><span class="ident">Session</span>) <span class="op">-&gt;</span> <span class="ident">CrateDisambiguator</span> {
     <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">hash</span>::<span class="ident">Hasher</span>;
 
     <span class="comment">// The crate_disambiguator is a 128 bit hash. The disambiguator is fed</span>
     <span class="comment">// into various other hashes quite a bit (symbol hashes, incr. comp. hashes,</span>
     <span class="comment">// debuginfo type IDs, etc), so we don&#39;t want it to be too wide. 128 bits</span>
     <span class="comment">// should still be safe enough to avoid collisions in practice.</span>
-    <span class="comment">// FIXME(mw): It seems that the crate_disambiguator is used everywhere as</span>
-    <span class="comment">//            a hex-string instead of raw bytes. We should really use the</span>
-    <span class="comment">//            smaller representation.</span>
     <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">hasher</span> <span class="op">=</span> <span class="ident">StableHasher</span>::<span class="op">&lt;</span><span class="ident">Fingerprint</span><span class="op">&gt;</span>::<span class="ident">new</span>();
 
     <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">metadata</span> <span class="op">=</span> <span class="ident">session</span>.<span class="ident">opts</span>.<span class="ident">cg</span>.<span class="ident">metadata</span>.<span class="ident">clone</span>();
@@ -2800,11 +2794,13 @@
         <span class="ident">hasher</span>.<span class="ident">write</span>(<span class="ident">s</span>.<span class="ident">as_bytes</span>());
     }
 
-    <span class="comment">// If this is an executable, add a special suffix, so that we don&#39;t get</span>
-    <span class="comment">// symbol conflicts when linking against a library of the same name.</span>
+    <span class="comment">// Also incorporate crate type, so that we don&#39;t get symbol conflicts when</span>
+    <span class="comment">// linking against a library of the same name, if this is an executable.</span>
     <span class="kw">let</span> <span class="ident">is_exe</span> <span class="op">=</span> <span class="ident">session</span>.<span class="ident">crate_types</span>.<span class="ident">borrow</span>().<span class="ident">contains</span>(<span class="kw-2">&amp;</span><span class="ident">config</span>::<span class="ident">CrateTypeExecutable</span>);
+    <span class="ident">hasher</span>.<span class="ident">write</span>(<span class="kw">if</span> <span class="ident">is_exe</span> { <span class="string">b&quot;exe&quot;</span> } <span class="kw">else</span> { <span class="string">b&quot;lib&quot;</span> });
 
-    <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;{}{}&quot;</span>, <span class="ident">hasher</span>.<span class="ident">finish</span>().<span class="ident">to_hex</span>(), <span class="kw">if</span> <span class="ident">is_exe</span> { <span class="string">&quot;-exe&quot;</span> } <span class="kw">else</span> {<span class="string">&quot;&quot;</span>})
+    <span class="ident">CrateDisambiguator</span>::<span class="ident">from</span>(<span class="ident">hasher</span>.<span class="ident">finish</span>())
+
 }
 
 <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">build_output_filenames</span>(<span class="ident">input</span>: <span class="kw-2">&amp;</span><span class="ident">Input</span>,

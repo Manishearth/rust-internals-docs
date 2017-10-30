@@ -611,14 +611,6 @@
 <span id="566">566</span>
 <span id="567">567</span>
 <span id="568">568</span>
-<span id="569">569</span>
-<span id="570">570</span>
-<span id="571">571</span>
-<span id="572">572</span>
-<span id="573">573</span>
-<span id="574">574</span>
-<span id="575">575</span>
-<span id="576">576</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2016 The Rust Project Developers. See the COPYRIGHT</span>
 <span class="comment">// file at the top-level directory of this distribution and at</span>
@@ -635,24 +627,13 @@
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">mem</span>;
 <span class="kw">use</span> <span class="ident">sip128</span>::<span class="ident">SipHasher128</span>;
 
-<span class="doccomment">/// When hashing something that ends up affecting properties like symbol names. We</span>
-<span class="doccomment">/// want these symbol names to be calculated independent of other factors like</span>
-<span class="doccomment">/// what architecture you&#39;re compiling *from*.</span>
+<span class="doccomment">/// When hashing something that ends up affecting properties like symbol names,</span>
+<span class="doccomment">/// we want these symbol names to be calculated independently of other factors</span>
+<span class="doccomment">/// like what architecture you&#39;re compiling *from*.</span>
 <span class="doccomment">///</span>
-<span class="doccomment">/// The hashing just uses the standard `Hash` trait, but the implementations of</span>
-<span class="doccomment">/// `Hash` for the `usize` and `isize` types are *not* architecture independent</span>
-<span class="doccomment">/// (e.g. they has 4 or 8 bytes). As a result we want to avoid `usize` and</span>
-<span class="doccomment">/// `isize` completely when hashing.</span>
-<span class="doccomment">///</span>
-<span class="doccomment">/// To do that, we encode all integers to be hashed with some</span>
-<span class="doccomment">/// arch-independent encoding.</span>
-<span class="doccomment">///</span>
-<span class="doccomment">/// At the moment, we pass i8/u8 straight through and encode</span>
-<span class="doccomment">/// all other integers using leb128.</span>
-<span class="doccomment">///</span>
-<span class="doccomment">/// This hasher currently always uses the stable Blake2b algorithm</span>
-<span class="doccomment">/// and allows for variable output lengths through its type</span>
-<span class="doccomment">/// parameter.</span>
+<span class="doccomment">/// To that end we always convert integers to little-endian format before</span>
+<span class="doccomment">/// hashing and the architecture dependent `isize` and `usize` types are</span>
+<span class="doccomment">/// extended to 64 bits if needed.</span>
 <span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">StableHasher</span><span class="op">&lt;</span><span class="ident">W</span><span class="op">&gt;</span> {
     <span class="ident">state</span>: <span class="ident">SipHasher128</span>,
     <span class="ident">bytes_hashed</span>: <span class="ident">u64</span>,
@@ -708,9 +689,6 @@
     }
 }
 
-<span class="comment">// For the non-u8 integer cases we leb128 encode them first. Because small</span>
-<span class="comment">// integers dominate, this significantly and cheaply reduces the number of</span>
-<span class="comment">// bytes hashed, which is good because blake2b is expensive.</span>
 <span class="kw">impl</span><span class="op">&lt;</span><span class="ident">W</span><span class="op">&gt;</span> <span class="ident">Hasher</span> <span class="kw">for</span> <span class="ident">StableHasher</span><span class="op">&lt;</span><span class="ident">W</span><span class="op">&gt;</span> {
     <span class="kw">fn</span> <span class="ident">finish</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">u64</span> {
         <span class="macro">panic</span><span class="macro">!</span>(<span class="string">&quot;use StableHasher::finalize instead&quot;</span>);
@@ -754,8 +732,11 @@
 
     <span class="attribute">#[<span class="ident">inline</span>]</span>
     <span class="kw">fn</span> <span class="ident">write_usize</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">i</span>: <span class="ident">usize</span>) {
-        <span class="self">self</span>.<span class="ident">state</span>.<span class="ident">write_usize</span>(<span class="ident">i</span>.<span class="ident">to_le</span>());
-        <span class="self">self</span>.<span class="ident">bytes_hashed</span> <span class="op">+=</span> ::<span class="ident">std</span>::<span class="ident">mem</span>::<span class="ident">size_of</span>::<span class="op">&lt;</span><span class="ident">usize</span><span class="op">&gt;</span>() <span class="kw">as</span> <span class="ident">u64</span>;
+        <span class="comment">// Always treat usize as u64 so we get the same results on 32 and 64 bit</span>
+        <span class="comment">// platforms. This is important for symbol hashes when cross compiling,</span>
+        <span class="comment">// for example.</span>
+        <span class="self">self</span>.<span class="ident">state</span>.<span class="ident">write_u64</span>((<span class="ident">i</span> <span class="kw">as</span> <span class="ident">u64</span>).<span class="ident">to_le</span>());
+        <span class="self">self</span>.<span class="ident">bytes_hashed</span> <span class="op">+=</span> <span class="number">8</span>;
     }
 
     <span class="attribute">#[<span class="ident">inline</span>]</span>
@@ -790,8 +771,11 @@
 
     <span class="attribute">#[<span class="ident">inline</span>]</span>
     <span class="kw">fn</span> <span class="ident">write_isize</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">i</span>: <span class="ident">isize</span>) {
-        <span class="self">self</span>.<span class="ident">state</span>.<span class="ident">write_isize</span>(<span class="ident">i</span>.<span class="ident">to_le</span>());
-        <span class="self">self</span>.<span class="ident">bytes_hashed</span> <span class="op">+=</span> ::<span class="ident">std</span>::<span class="ident">mem</span>::<span class="ident">size_of</span>::<span class="op">&lt;</span><span class="ident">isize</span><span class="op">&gt;</span>() <span class="kw">as</span> <span class="ident">u64</span>;
+        <span class="comment">// Always treat isize as i64 so we get the same results on 32 and 64 bit</span>
+        <span class="comment">// platforms. This is important for symbol hashes when cross compiling,</span>
+        <span class="comment">// for example.</span>
+        <span class="self">self</span>.<span class="ident">state</span>.<span class="ident">write_i64</span>((<span class="ident">i</span> <span class="kw">as</span> <span class="ident">i64</span>).<span class="ident">to_le</span>());
+        <span class="self">self</span>.<span class="ident">bytes_hashed</span> <span class="op">+=</span> <span class="number">8</span>;
     }
 }
 
